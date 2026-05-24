@@ -67,9 +67,7 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::Escrow(count), &escrow);
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCount, &count);
+        env.storage().instance().set(&DataKey::EscrowCount, &count);
 
         env.events().publish(("create_escrow",), count);
         count

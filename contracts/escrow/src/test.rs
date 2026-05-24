@@ -1,7 +1,10 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::{Address as _, Ledger}, token, Address, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    token, Address, Env,
+};
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address) {
     let env = Env::default();
@@ -66,7 +69,6 @@ fn test_fund_escrow() {
 
     assert_eq!(get_balance(&env, &token, &buyer), 900);
     assert_eq!(get_balance(&env, &token, &contract_id), 100);
-
 }
 
 #[test]
@@ -201,4 +203,30 @@ fn test_multiple_escrows() {
     client.fund_escrow(&id2, &buyer);
 
     assert_eq!(get_balance(&env, &token, &buyer), 1700);
+}
+
+#[test]
+fn test_escrow_ids_are_monotonic_for_ten_creates() {
+    let (env, seller, _buyer, resolver, _admin, token) = setup_env();
+
+    let contract_id = env.register(Escrow, ());
+    let client = super::EscrowClient::new(&env, &contract_id);
+
+    for expected_id in 1_u32..=10 {
+        let amount = i128::from(expected_id) * 100;
+        let shipping_window = u64::from(expected_id) * 3600;
+
+        let id = client.create_escrow(&seller, &resolver, &token, &amount, &shipping_window);
+
+        assert_eq!(id, expected_id);
+
+        let escrow = client.get_escrow(&id);
+        assert_eq!(escrow.seller, seller);
+        assert_eq!(escrow.resolver, resolver);
+        assert_eq!(escrow.token, token);
+        assert_eq!(escrow.amount, amount);
+        assert_eq!(escrow.shipping_window, shipping_window);
+        assert_eq!(escrow.state, EscrowState::Pending);
+        assert!(escrow.buyer.is_none());
+    }
 }
