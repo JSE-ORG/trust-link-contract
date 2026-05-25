@@ -1,7 +1,10 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::{Address as _, Ledger}, token, Address, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    token, Address, Env,
+};
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address) {
     let env = Env::default();
@@ -66,7 +69,6 @@ fn test_fund_escrow() {
 
     assert_eq!(get_balance(&env, &token, &buyer), 900);
     assert_eq!(get_balance(&env, &token, &contract_id), 100);
-
 }
 
 #[test]
@@ -201,4 +203,30 @@ fn test_multiple_escrows() {
     client.fund_escrow(&id2, &buyer);
 
     assert_eq!(get_balance(&env, &token, &buyer), 1700);
+}
+
+#[test]
+fn test_vendor_and_buyer_indexes() {
+    let (env, seller, buyer, resolver, _admin, token) = setup_env();
+
+    let contract_id = env.register(Escrow, ());
+    let client = super::EscrowClient::new(&env, &contract_id);
+
+    mint_tokens(&env, &token, &buyer, 2000);
+
+    let id1 = client.create_escrow(&seller, &resolver, &token, &100_i128, &3600_u64);
+    let id2 = client.create_escrow(&seller, &resolver, &token, &200_i128, &7200_u64);
+
+    let vendor_ids = client.get_escrows_by_vendor(&seller);
+    assert_eq!(vendor_ids.len(), 2);
+    assert_eq!(vendor_ids.get(0), Some(id1));
+    assert_eq!(vendor_ids.get(1), Some(id2));
+
+    assert_eq!(client.get_escrows_by_buyer(&buyer).len(), 0);
+
+    client.fund_escrow(&id1, &buyer);
+
+    let buyer_ids = client.get_escrows_by_buyer(&buyer);
+    assert_eq!(buyer_ids.len(), 1);
+    assert_eq!(buyer_ids.get(0), Some(id1));
 }
