@@ -1,11 +1,8 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, Vec};
 
-#[contracttype]
-pub enum DataKey {
-    Escrow(u32),
-    EscrowCount,
-}
+pub mod storage;
+pub use storage::{DataKey, FeeConfig};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46,15 +43,10 @@ impl Escrow {
     ) -> u32 {
         seller.require_auth();
 
-        let mut count: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCount)
-            .unwrap_or(0);
-        count += 1;
+        let escrow_id = storage::next_escrow_id(&env);
 
         let escrow = EscrowData {
-            seller,
+            seller: seller.clone(),
             buyer: None,
             resolver,
             token,
@@ -64,25 +56,17 @@ impl Escrow {
             state: EscrowState::Pending,
         };
 
-        env.storage()
-            .instance()
-            .set(&DataKey::Escrow(count), &escrow);
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCount, &count);
+        storage::write_escrow(&env, escrow_id, &escrow);
+        storage::append_vendor_escrow(&env, &seller, escrow_id);
 
-        env.events().publish(("create_escrow",), count);
-        count
+        env.events().publish(("create_escrow",), escrow_id);
+        escrow_id
     }
 
     pub fn fund_escrow(env: Env, escrow_id: u32, buyer: Address) {
         buyer.require_auth();
 
-        let mut escrow: EscrowData = env
-            .storage()
-            .instance()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let mut escrow: EscrowData = storage::require_escrow(&env, escrow_id);
 
         assert!(escrow.state == EscrowState::Pending, "escrow not pending");
 
@@ -93,18 +77,13 @@ impl Escrow {
         let token_client = token::Client::new(&env, &escrow.token);
         token_client.transfer(&buyer, &env.current_contract_address(), &escrow.amount);
 
-        env.storage()
-            .instance()
-            .set(&DataKey::Escrow(escrow_id), &escrow);
+        storage::write_escrow(&env, escrow_id, &escrow);
+        storage::append_buyer_escrow(&env, &buyer, escrow_id);
         env.events().publish(("fund_escrow",), escrow_id);
     }
 
     pub fn confirm_delivery(env: Env, escrow_id: u32) {
-        let escrow: EscrowData = env
-            .storage()
-            .instance()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let escrow: EscrowData = storage::require_escrow(&env, escrow_id);
 
         assert!(escrow.state == EscrowState::Funded, "escrow not funded");
 
@@ -121,18 +100,12 @@ impl Escrow {
         let mut updated = escrow;
         updated.state = EscrowState::Completed;
 
-        env.storage()
-            .instance()
-            .set(&DataKey::Escrow(escrow_id), &updated);
+        storage::write_escrow(&env, escrow_id, &updated);
         env.events().publish(("confirm_delivery",), escrow_id);
     }
 
     pub fn raise_dispute(env: Env, escrow_id: u32) {
-        let escrow: EscrowData = env
-            .storage()
-            .instance()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let escrow: EscrowData = storage::require_escrow(&env, escrow_id);
 
         assert!(escrow.state == EscrowState::Funded, "escrow not funded");
 
@@ -142,18 +115,12 @@ impl Escrow {
         let mut updated = escrow;
         updated.state = EscrowState::Disputed;
 
-        env.storage()
-            .instance()
-            .set(&DataKey::Escrow(escrow_id), &updated);
+        storage::write_escrow(&env, escrow_id, &updated);
         env.events().publish(("raise_dispute",), escrow_id);
     }
 
     pub fn resolve_dispute(env: Env, escrow_id: u32, release_to_seller: bool) {
-        let escrow: EscrowData = env
-            .storage()
-            .instance()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let escrow: EscrowData = storage::require_escrow(&env, escrow_id);
 
         assert!(escrow.state == EscrowState::Disputed, "escrow not disputed");
 
@@ -181,19 +148,13 @@ impl Escrow {
             EscrowState::Refunded
         };
 
-        env.storage()
-            .instance()
-            .set(&DataKey::Escrow(escrow_id), &updated);
+        storage::write_escrow(&env, escrow_id, &updated);
         env.events()
             .publish(("resolve_dispute",), (escrow_id, release_to_seller));
     }
 
     pub fn auto_release(env: Env, escrow_id: u32) {
-        let escrow: EscrowData = env
-            .storage()
-            .instance()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let escrow: EscrowData = storage::require_escrow(&env, escrow_id);
 
         assert!(escrow.state == EscrowState::Funded, "escrow not funded");
         assert!(
@@ -211,17 +172,20 @@ impl Escrow {
         let mut updated = escrow;
         updated.state = EscrowState::Completed;
 
-        env.storage()
-            .instance()
-            .set(&DataKey::Escrow(escrow_id), &updated);
+        storage::write_escrow(&env, escrow_id, &updated);
         env.events().publish(("auto_release",), escrow_id);
     }
 
     pub fn get_escrow(env: Env, escrow_id: u32) -> EscrowData {
-        env.storage()
-            .instance()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found")
+        storage::require_escrow(&env, escrow_id)
+    }
+
+    pub fn get_escrows_by_vendor(env: Env, vendor: Address) -> Vec<u32> {
+        storage::read_vendor_index(&env, &vendor)
+    }
+
+    pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u32> {
+        storage::read_buyer_index(&env, &buyer)
     }
 }
 
