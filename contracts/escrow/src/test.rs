@@ -565,3 +565,133 @@ fn test_sequential_escrows_same_non_usdc_token() {
     // Contract holds nothing after all settlements.
     assert_eq!(get_balance(&env, &alt_token, &contract_id), 0);
 }
+
+// ---------------------------------------------------------------------------
+// get_escrows_by_vendor tests
+// ---------------------------------------------------------------------------
+
+/// Vendor with multiple escrows — query returns all IDs in creation order.
+///
+/// Setup:
+///   • vendor_a creates 3 escrows (IDs 1, 2, 3)
+///   • vendor_b creates 2 escrows (IDs 4, 5)
+///
+/// Assertions:
+///   • get_escrows_by_vendor(vendor_a) == [1, 2, 3]
+///   • get_escrows_by_vendor(vendor_b) == [4, 5]
+#[test]
+fn test_get_escrows_by_vendor_returns_correct_ids() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let vendor_a = Address::generate(&env);
+    let vendor_b = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(token_admin);
+
+    let contract_id = env.register(Escrow, ());
+    let client = super::EscrowClient::new(&env, &contract_id);
+
+    // vendor_a creates 3 escrows.
+    let id_a1 = client.create_escrow(&vendor_a, &resolver, &token, &100_i128, &3600_u64);
+    let id_a2 = client.create_escrow(&vendor_a, &resolver, &token, &200_i128, &3600_u64);
+    let id_a3 = client.create_escrow(&vendor_a, &resolver, &token, &300_i128, &3600_u64);
+
+    // vendor_b creates 2 escrows.
+    let id_b1 = client.create_escrow(&vendor_b, &resolver, &token, &400_i128, &7200_u64);
+    let id_b2 = client.create_escrow(&vendor_b, &resolver, &token, &500_i128, &7200_u64);
+
+    // Sanity: IDs are assigned in global monotonic order.
+    assert_eq!(id_a1, 1);
+    assert_eq!(id_a2, 2);
+    assert_eq!(id_a3, 3);
+    assert_eq!(id_b1, 4);
+    assert_eq!(id_b2, 5);
+
+    // vendor_a's index must contain exactly [1, 2, 3].
+    let ids_a = client.get_escrows_by_vendor(&vendor_a);
+    assert_eq!(ids_a.len(), 3);
+    assert_eq!(ids_a.get(0).unwrap(), 1_u32);
+    assert_eq!(ids_a.get(1).unwrap(), 2_u32);
+    assert_eq!(ids_a.get(2).unwrap(), 3_u32);
+
+    // vendor_b's index must contain exactly [4, 5].
+    let ids_b = client.get_escrows_by_vendor(&vendor_b);
+    assert_eq!(ids_b.len(), 2);
+    assert_eq!(ids_b.get(0).unwrap(), 4_u32);
+    assert_eq!(ids_b.get(1).unwrap(), 5_u32);
+}
+
+/// Vendor whose escrows have all been settled still appears in the index;
+/// the query returns their IDs regardless of the current escrow state.
+///
+/// This test also verifies that a *different* vendor whose escrows are still
+/// active does NOT appear in the first vendor's result set.
+#[test]
+fn test_get_escrows_by_vendor_ids_persist_after_settlement() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let vendor_a = Address::generate(&env);
+    let vendor_b = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(token_admin);
+
+    let contract_id = env.register(Escrow, ());
+    let client = super::EscrowClient::new(&env, &contract_id);
+
+    mint_tokens(&env, &token, &buyer, 5_000);
+
+    // vendor_a creates and fully settles 2 escrows.
+    let id_a1 = client.create_escrow(&vendor_a, &resolver, &token, &150_i128, &3600_u64);
+    let id_a2 = client.create_escrow(&vendor_a, &resolver, &token, &250_i128, &3600_u64);
+
+    client.fund_escrow(&id_a1, &buyer);
+    client.confirm_delivery(&id_a1);
+
+    client.fund_escrow(&id_a2, &buyer);
+    client.confirm_delivery(&id_a2);
+
+    // vendor_b creates 1 escrow (still pending — no buyer yet).
+    let id_b1 = client.create_escrow(&vendor_b, &resolver, &token, &100_i128, &3600_u64);
+
+    // vendor_a's index still lists both settled escrow IDs.
+    let ids_a = client.get_escrows_by_vendor(&vendor_a);
+    assert_eq!(ids_a.len(), 2);
+    assert_eq!(ids_a.get(0).unwrap(), id_a1);
+    assert_eq!(ids_a.get(1).unwrap(), id_a2);
+
+    // vendor_b's index contains only its own escrow.
+    let ids_b = client.get_escrows_by_vendor(&vendor_b);
+    assert_eq!(ids_b.len(), 1);
+    assert_eq!(ids_b.get(0).unwrap(), id_b1);
+}
+
+/// Vendor with no escrows — query returns an empty vector (zero records).
+#[test]
+fn test_get_escrows_by_vendor_returns_empty_for_unknown_vendor() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(token_admin);
+
+    let contract_id = env.register(Escrow, ());
+    let client = super::EscrowClient::new(&env, &contract_id);
+
+    // Generate a vendor address that never calls create_escrow.
+    let unknown_vendor = Address::generate(&env);
+
+    // Also create a real escrow under a different vendor to confirm the
+    // contract is live and the empty result is not a registry artefact.
+    let other_vendor = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    client.create_escrow(&other_vendor, &resolver, &token, &100_i128, &3600_u64);
+
+    // Query for the vendor with no escrows — must return an empty list.
+    let ids = client.get_escrows_by_vendor(&unknown_vendor);
+    assert_eq!(ids.len(), 0);
+}
