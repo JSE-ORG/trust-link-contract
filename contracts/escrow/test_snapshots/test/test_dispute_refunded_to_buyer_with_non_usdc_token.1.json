@@ -66,7 +66,7 @@
                   "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                 },
                 {
-                  "i128": "100"
+                  "i128": "400"
                 },
                 {
                   "u64": "3600"
@@ -110,7 +110,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                     },
                     {
-                      "i128": "100"
+                      "i128": "400"
                     }
                   ]
                 }
@@ -143,6 +143,30 @@
         }
       ]
     ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+              "function_name": "resolve_dispute",
+              "args": [
+                {
+                  "u32": 1
+                },
+                {
+                  "bool": false
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [],
+    [],
     [],
     []
   ],
@@ -263,6 +287,26 @@
           "data": {
             "contract_data": {
               "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "4270020994084947596"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
               "key": {
                 "ledger_key_nonce": {
@@ -310,7 +354,7 @@
                               "symbol": "amount"
                             },
                             "val": {
-                              "i128": "100"
+                              "i128": "400"
                             }
                           },
                           {
@@ -360,7 +404,7 @@
                             "val": {
                               "vec": [
                                 {
-                                  "symbol": "Disputed"
+                                  "symbol": "Refunded"
                                 }
                               ]
                             }
@@ -441,7 +485,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "900"
+                      "i128": "1000"
                     }
                   },
                   {
@@ -493,7 +537,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "100"
+                      "i128": "0"
                     }
                   },
                   {

@@ -66,7 +66,7 @@
                   "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                 },
                 {
-                  "i128": "100"
+                  "i128": "300"
                 },
                 {
                   "u64": "3600"
@@ -110,7 +110,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                     },
                     {
-                      "i128": "100"
+                      "i128": "300"
                     }
                   ]
                 }
@@ -121,6 +121,9 @@
         }
       ]
     ],
+    [],
+    [],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
@@ -128,13 +131,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
-              "function_name": "raise_dispute",
+              "function_name": "confirm_delivery",
               "args": [
                 {
                   "u32": 1
-                },
-                {
-                  "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
                 }
               ]
             }
@@ -143,6 +143,7 @@
         }
       ]
     ],
+    [],
     [],
     []
   ],
@@ -310,7 +311,7 @@
                               "symbol": "amount"
                             },
                             "val": {
-                              "i128": "100"
+                              "i128": "300"
                             }
                           },
                           {
@@ -360,7 +361,7 @@
                             "val": {
                               "vec": [
                                 {
-                                  "symbol": "Disputed"
+                                  "symbol": "Completed"
                                 }
                               ]
                             }
@@ -429,6 +430,58 @@
                     "symbol": "Balance"
                   },
                   {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "map": [
+                  {
+                    "key": {
+                      "symbol": "amount"
+                    },
+                    "val": {
+                      "i128": "300"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "authorized"
+                    },
+                    "val": {
+                      "bool": true
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "clawback"
+                    },
+                    "val": {
+                      "bool": false
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "Balance"
+                  },
+                  {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                   }
                 ]
@@ -441,7 +494,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "900"
+                      "i128": "700"
                     }
                   },
                   {
@@ -493,7 +546,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "100"
+                      "i128": "0"
                     }
                   },
                   {

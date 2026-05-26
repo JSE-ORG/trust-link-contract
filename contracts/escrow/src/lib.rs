@@ -1,10 +1,11 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, contracttype, token, vec, Address, Env, Vec};
 
 #[contracttype]
 pub enum DataKey {
     Escrow(u32),
     EscrowCount,
+    VendorEscrows(Address),
 }
 
 #[contracttype]
@@ -54,7 +55,7 @@ impl Escrow {
         count += 1;
 
         let escrow = EscrowData {
-            seller,
+            seller: seller.clone(),
             buyer: None,
             resolver,
             token,
@@ -70,6 +71,17 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::EscrowCount, &count);
+
+        // Track this escrow ID under the seller's (vendor's) list.
+        let mut vendor_ids: Vec<u32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::VendorEscrows(seller.clone()))
+            .unwrap_or_else(|| vec![&env]);
+        vendor_ids.push_back(count);
+        env.storage()
+            .instance()
+            .set(&DataKey::VendorEscrows(seller), &vendor_ids);
 
         env.events().publish(("create_escrow",), count);
         count
@@ -228,6 +240,15 @@ impl Escrow {
             .instance()
             .get(&DataKey::Escrow(escrow_id))
             .expect("escrow not found")
+    }
+
+    /// Return all escrow IDs created by `vendor` (the seller address).
+    /// Returns an empty vector when the vendor has no escrows on record.
+    pub fn get_escrows_by_vendor(env: Env, vendor: Address) -> Vec<u32> {
+        env.storage()
+            .instance()
+            .get(&DataKey::VendorEscrows(vendor))
+            .unwrap_or_else(|| vec![&env])
     }
 }
 
