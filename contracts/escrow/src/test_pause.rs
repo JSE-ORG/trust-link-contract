@@ -16,7 +16,7 @@ fn base_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     token::StellarAssetClient::new(&env, &token).mint(&buyer, &10_000);
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     (env, admin, seller, buyer, resolver, token, contract_id)
 }
 
@@ -46,7 +46,7 @@ fn test_mark_shipped_blocked_when_paused() {
     let id = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
     client.pause_contract();
-    let result = client.try_mark_shipped(&id);
+    let result = client.try_mark_shipped(&id, &soroban_sdk::String::from_str(&env, "TRACK"));
     assert!(matches!(result, Err(Ok(ContractError::ContractPaused))));
 }
 

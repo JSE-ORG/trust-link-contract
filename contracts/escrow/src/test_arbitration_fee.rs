@@ -34,7 +34,8 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
     let client = EscrowClient::new(&env, &contract_id);
 
     let arb_fee = 50_i128;
-    client.initialize(&admin, &fee_collector, &arb_fee);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
+    client.set_arbitration_fee(&arb_fee);
 
     let amount = 1000_i128;
     let fee_bps = 200; // 2%
@@ -87,7 +88,8 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
     let client = EscrowClient::new(&env, &contract_id);
 
     let arb_fee = 100_i128;
-    client.initialize(&admin, &fee_collector, &arb_fee);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
+    client.set_arbitration_fee(&arb_fee);
 
     let amount = 1000_i128;
     let fee_bps = 300; // 3%
@@ -127,7 +129,8 @@ fn test_set_and_get_arbitration_fee() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
-    client.initialize(&admin, &fee_collector, &50);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
+    client.set_arbitration_fee(&50);
     assert_eq!(client.get_arbitration_fee(), 50);
 
     client.set_arbitration_fee(&150);

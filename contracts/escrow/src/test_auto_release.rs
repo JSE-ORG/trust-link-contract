@@ -38,14 +38,14 @@ fn setup_funded_and_shipped() -> Fx {
 
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let amount: i128 = 1_000;
     // shipping_window=0 isolates the dispute-window assertion the issue cares about.
     let escrow_id = client.create_escrow(&seller, &resolver, &token_addr, &amount, &0_u32, &0_u64);
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
     client.fund_escrow(&escrow_id, &buyer);
-    client.mark_shipped(&escrow_id);
+    client.mark_shipped(&escrow_id, &soroban_sdk::String::from_str(&env, "TRACK"));
 
     // The contract sets dispute_deadline = funded_at + DISPUTE_WINDOW; pin
     // funded_at so the assertions below are unambiguous.
