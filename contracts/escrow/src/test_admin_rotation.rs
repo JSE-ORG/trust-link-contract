@@ -12,7 +12,7 @@ fn setup() -> (Env, EscrowClient<'static>, Address) {
     let fee_collector = Address::generate(&env);
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     (env, client, admin)
 }
 

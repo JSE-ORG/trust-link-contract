@@ -50,7 +50,7 @@ fn test_create_escrow() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let id = client.create_escrow(&seller, &resolver, &token, &100_i128, &200_u32, &3600_u64);
     assert_eq!(id, 1u64);
@@ -72,7 +72,7 @@ fn test_fund_escrow() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -92,7 +92,7 @@ fn test_confirm_delivery() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -118,7 +118,7 @@ fn test_raise_and_resolve_dispute_release_to_seller() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -146,7 +146,7 @@ fn test_raise_and_resolve_dispute_refund_buyer() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -173,7 +173,7 @@ fn test_auto_release() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -196,7 +196,7 @@ fn test_fund_non_pending_escrow_fails() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     mint_tokens(&env, &token, &buyer, 1000);
     let id = client.create_escrow(&seller, &resolver, &token, &100_i128, &200_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
@@ -210,7 +210,7 @@ fn test_auto_release_before_window_fails() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     mint_tokens(&env, &token, &buyer, 1000);
     let id = client.create_escrow(&seller, &resolver, &token, &100_i128, &200_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
@@ -224,7 +224,7 @@ fn test_raise_dispute_only_once() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     mint_tokens(&env, &token, &buyer, 1000);
     let id = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
@@ -249,7 +249,7 @@ fn test_multiple_escrows() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     mint_tokens(&env, &token, &buyer, 2000);
     let id1 = client.create_escrow(&seller, &resolver, &token, &100_i128, &200_u32, &3600_u64);
     let id2 = client.create_escrow(&seller, &resolver, &token, &200_i128, &200_u32, &7200_u64);
@@ -270,7 +270,7 @@ fn test_create_escrow_with_non_usdc_token() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     let id = client.create_escrow(&seller, &resolver, &alt_token, &500_i128, &0_u32, &7200_u64);
     assert_eq!(id, 1u64);
 }
@@ -282,7 +282,7 @@ fn test_fund_and_confirm_delivery_with_non_usdc_token() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     mint_tokens(&env, &alt_token, &buyer, 1000);
     let id = client.create_escrow(
         &seller, &resolver, &alt_token, &300_i128, &100_u32, &3600_u64,
@@ -304,7 +304,7 @@ fn test_zero_fee_no_collector_transfer() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     mint_tokens(&env, &token, &buyer, 1000);
     let id = client.create_escrow(&seller, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
@@ -323,7 +323,7 @@ fn test_get_fee_config() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     let config = client.get_fee_config();
     assert_eq!(config.collector, fee_collector);
 }
@@ -334,7 +334,7 @@ fn test_fee_exceeds_max_bps_fails() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     let res = client.try_create_escrow(&seller, &resolver, &token, &1000_i128, &301_u32, &3600_u64);
     assert!(matches!(res, Err(Ok(ContractError::FeeExceedsMax))));
 }
@@ -346,7 +346,7 @@ fn test_dispute_before_deadline_succeeds() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -378,7 +378,7 @@ fn test_dispute_after_deadline_fails() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -408,7 +408,7 @@ fn test_auto_release_after_dispute_deadline() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -437,7 +437,7 @@ fn test_auto_release_before_dispute_deadline_fails() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     mint_tokens(&env, &token, &buyer, 1000);
 

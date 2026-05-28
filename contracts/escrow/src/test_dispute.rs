@@ -33,7 +33,7 @@ fn test_get_dispute_returns_accurate_data_after_raise() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let amount = 1000_i128;
     let id = client.create_escrow(&seller, &resolver, &token, &amount, &100_u32, &3600_u64);
@@ -66,7 +66,7 @@ fn test_get_dispute_non_existent_id() {
     let (env, admin, _seller, _buyer, _resolver, _token, fee_collector) = setup_env();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     client.get_dispute(&999);
 }
@@ -77,7 +77,7 @@ fn test_dispute_allowed_before_48h_boundary() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = crate::EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let amount = 1000_i128;
     let id = client.create_escrow(&seller, &resolver, &token, &amount, &100_u32, &3600_u64);
@@ -110,7 +110,7 @@ fn test_dispute_allowed_exact_pre_boundary() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = crate::EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let amount = 1000_i128;
     let id = client.create_escrow(&seller, &resolver, &token, &amount, &100_u32, &3600_u64);
@@ -148,7 +148,7 @@ fn test_dispute_rejected_exactly_at_48h() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = crate::EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let amount = 1000_i128;
     let id = client.create_escrow(&seller, &resolver, &token, &amount, &100_u32, &3600_u64);
@@ -184,7 +184,7 @@ fn test_dispute_rejected_after_48h_deadline() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = crate::EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let amount = 1000_i128;
     let id = client.create_escrow(&seller, &resolver, &token, &amount, &100_u32, &3600_u64);

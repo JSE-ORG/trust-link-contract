@@ -22,7 +22,7 @@ fn test_escrow_ids_monotonic_and_unique() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let mut ids = Vec::new(&env);
     for i in 1..=10 {
@@ -43,7 +43,7 @@ fn test_escrow_ids_increment_sequentially() {
     let (env, admin, seller, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let id1 = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);
     let id2 = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);
@@ -60,7 +60,7 @@ fn test_cancelled_escrow_does_not_reset_counter() {
     let (env, admin, seller, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let id1 = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);
     let id2 = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);
@@ -79,7 +79,7 @@ fn test_escrow_counter_does_not_skip_after_cancellation() {
     let (env, admin, seller, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let id1 = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);
     let id2 = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);
@@ -105,7 +105,7 @@ fn test_multiple_cancellations() {
     let (env, admin, seller, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let id1 = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);
     let id2 = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);

@@ -41,7 +41,7 @@ fn test_fee_calculation_max_i128() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let amount = i128::MAX;
     let fee_bps = 300; // 3%
@@ -75,7 +75,7 @@ fn test_create_escrow_invalid_amount() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let res = client.try_create_escrow(&seller, &resolver, &token, &0, &200, &3600);
     assert!(matches!(res, Err(Ok(ContractError::InvalidAmount))));
@@ -91,7 +91,7 @@ fn test_fee_exceeds_max_clean_error() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
 
     let res = client.try_create_escrow(&seller, &resolver, &token, &1000, &301, &3600);
     assert!(matches!(res, Err(Ok(ContractError::FeeExceedsMax))));
@@ -103,7 +103,7 @@ fn test_addition_overflow_escrow_counter() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     
     env.as_contract(&contract_id, || {
         env.storage().instance().set(&DataKey::EscrowCounter, &u64::MAX);
@@ -119,7 +119,7 @@ fn test_addition_overflow_shipping_window() {
     let contract_id = env.register(Escrow, ());
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     
     let amount = 1000;
     mint_tokens(&env, &token, &buyer, amount);

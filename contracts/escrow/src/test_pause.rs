@@ -16,7 +16,7 @@ fn base_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     token::StellarAssetClient::new(&env, &token).mint(&buyer, &10_000);
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_i128);
+    client.initialize(&admin, &0_u32, &fee_collector).unwrap();
     (env, admin, seller, buyer, resolver, token, contract_id)
 }
 
