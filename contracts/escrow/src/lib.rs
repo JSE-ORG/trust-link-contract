@@ -28,6 +28,42 @@ pub enum DataKey {
     TotalArbitrationFees(Address),
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DisputeStatus {
+    Active,
+    Resolved,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeInput {
+    pub escrow_id: u64,
+    pub reason: soroban_sdk::Symbol,
+    pub description: soroban_sdk::String,
+    pub evidence_hash: soroban_sdk::BytesN<32>,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeData {
+    pub escrow_id: u64,
+    pub reason: soroban_sdk::Symbol,
+    pub description: soroban_sdk::String,
+    pub evidence_hash: soroban_sdk::BytesN<32>,
+    pub status: DisputeStatus,
+    pub raised_at: u64,
+}
+
+/// Resolution direction for `resolve_dispute`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ResolutionType {
+    Release,
+    Refund,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -171,6 +207,14 @@ pub struct AdminRotated {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeUpdated {
+    pub old_fee_bps: u32,
+    pub new_fee_bps: u32,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeliveryRecorded {
     pub escrow_id: u64,
     pub delivered_at: u64,
@@ -261,9 +305,6 @@ fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
     Ok(dispute)
 }
 
-/// Deducts the protocol fee and transfers the net amount to `recipient`.
-/// The fee remainder stays in the contract for later withdrawal.
-/// Supports any SEP-41 token via the stored `token` address.
 fn deduct_and_transfer(
     env: &Env,
     token: &Address,
@@ -274,13 +315,13 @@ fn deduct_and_transfer(
     if amount <= 0 {
         return Err(ContractError::InvalidAmount);
     }
-    let fee = (amount / 10_000) * (fee_bps as i128)
-        + (amount % 10_000) * (fee_bps as i128) / 10_000;
+    let fee = crate::helpers::payout::calculate_fee(amount, fee_bps)?;
     let net = amount.checked_sub(fee).ok_or(ContractError::ArithmeticError)?;
     if net < 0 {
         return Err(ContractError::ArithmeticError);
     }
-    token::Client::new(env, token).transfer(&env.current_contract_address(), recipient, &net);
+    let token_client = token::Client::new(env, token);
+    token_client.transfer(&env.current_contract_address(), recipient, &net);
     Ok(())
 }
 
@@ -373,7 +414,22 @@ impl Escrow {
         if fee_bps > MAX_FEE_BPS {
             return Err(ContractError::FeeExceedsMax);
         }
-        env.storage().instance().set(&DataKey::DefaultFeeBps, &fee_bps);
+        let old_fee_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DefaultFeeBps)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::DefaultFeeBps, &fee_bps);
+        env.events().publish(
+            (Symbol::new(&env, "fee_updated"),),
+            FeeUpdated {
+                old_fee_bps,
+                new_fee_bps: fee_bps,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
         Ok(())
     }
 
@@ -722,6 +778,7 @@ impl Escrow {
 mod helpers;
 mod test;
 mod test_admin;
+mod test_fee_update;
 mod test_arbitration_fee;
 mod test_delivery;
 mod test_dispute;
