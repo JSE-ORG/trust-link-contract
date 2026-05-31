@@ -5,6 +5,7 @@
 TrustLink is a Soroban smart contract on the Stellar network that implements a trustless escrow system between a **buyer** and a **seller**, mediated by an optional **resolver** in case of disputes. All state lives on-chain; no off-chain service is required for core escrow operations.
 
 ---
+<!--  -->
 
 ## Components
 
