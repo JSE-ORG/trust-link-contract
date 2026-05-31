@@ -247,3 +247,51 @@ fn test_multiple_escrows() {
 
     assert_eq!(get_balance(&env, &token, &buyer), 1700);
 }
+
+#[test]
+fn test_get_escrows_by_vendor_returns_correct_ids() {
+    let (env, seller, _buyer, resolver, _admin, token) = setup_env();
+
+    let contract_id = env.register(Escrow, ());
+    let client = super::EscrowClient::new(&env, &contract_id);
+
+    // Create additional vendors
+    let vendor2 = Address::generate(&env);
+    let vendor3 = Address::generate(&env);
+
+    // Vendor 1 creates 2 escrows
+    let vendor1_id1 = client.create_escrow(&seller, &resolver, &token, &100_i128, &3600_u64);
+    let vendor1_id2 = client.create_escrow(&seller, &resolver, &token, &150_i128, &3600_u64);
+
+    // Vendor 2 creates 1 escrow
+    let vendor2_id1 = client.create_escrow(&vendor2, &resolver, &token, &200_i128, &3600_u64);
+
+    // Vendor 3 creates 1 escrow
+    let vendor3_id1 = client.create_escrow(&vendor3, &resolver, &token, &250_i128, &3600_u64);
+
+    // Vendor 1 creates 1 more escrow
+    let vendor1_id3 = client.create_escrow(&seller, &resolver, &token, &175_i128, &3600_u64);
+
+    // Query escrows for vendor 1 (seller)
+    let vendor1_escrows = client.get_escrows_by_vendor(&seller);
+    assert_eq!(vendor1_escrows.len(), 3);
+    assert_eq!(vendor1_escrows.get(0).unwrap(), vendor1_id1);
+    assert_eq!(vendor1_escrows.get(1).unwrap(), vendor1_id2);
+    assert_eq!(vendor1_escrows.get(2).unwrap(), vendor1_id3);
+
+    // Query escrows for vendor 2
+    let vendor2_escrows = client.get_escrows_by_vendor(&vendor2);
+    assert_eq!(vendor2_escrows.len(), 1);
+    assert_eq!(vendor2_escrows.get(0).unwrap(), vendor2_id1);
+
+    // Query escrows for vendor 3
+    let vendor3_escrows = client.get_escrows_by_vendor(&vendor3);
+    assert_eq!(vendor3_escrows.len(), 1);
+    assert_eq!(vendor3_escrows.get(0).unwrap(), vendor3_id1);
+
+    // Query escrows for a vendor with no escrows
+    let vendor4 = Address::generate(&env);
+    let vendor4_escrows = client.get_escrows_by_vendor(&vendor4);
+    assert_eq!(vendor4_escrows.len(), 0);
+}
+

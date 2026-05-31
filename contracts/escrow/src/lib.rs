@@ -229,6 +229,30 @@ impl Escrow {
             .get(&DataKey::Escrow(escrow_id))
             .expect("escrow not found")
     }
+
+    pub fn get_escrows_by_vendor(env: Env, vendor: Address) -> soroban_sdk::Vec<u32> {
+        let mut escrow_ids = soroban_sdk::Vec::new(&env);
+
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::EscrowCount)
+            .unwrap_or(0);
+
+        for id in 1..=count {
+            if let Some(escrow) = env
+                .storage()
+                .instance()
+                .get::<DataKey, EscrowData>(&DataKey::Escrow(id))
+            {
+                if escrow.seller == vendor {
+                    escrow_ids.push_back(id);
+                }
+            }
+        }
+
+        escrow_ids
+    }
 }
 
 mod test;
