@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, String, Vec};
 
 pub mod errors;
 pub mod events;
@@ -51,7 +51,6 @@ const MAX_COMBINED_FEE_BPS: u32 = 1_000;
 /// Keeps the contract from accepting zero or negative escrows.
 pub const MIN_ESCROW_AMOUNT: i128 = 1;
 
-const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
 const DEFAULT_TTL_EXTENSION: u32 = 120_960;
 
@@ -127,7 +126,7 @@ fn read_fee_config(env: &Env) -> FeeConfig {
     env.storage()
         .instance()
         .get(&DataKey::FeeConfig)
-        .unwrap_or_else(|| default_fee_config())
+        .unwrap_or_else(default_fee_config)
 }
 
 fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
@@ -222,17 +221,6 @@ fn update_arbitration_fee(env: &Env, caller: &Address, fee_bps: u32) -> Result<u
     config.arbitration_fee_bps = fee_bps;
     write_fee_config(env, &config);
     Ok(old_fee)
-}
-
-macro_rules! require_state {
-    ($escrow:expr, $expected:expr) => {
-        assert!(
-            $escrow.state == $expected,
-            "escrow state must be {:?}, found {:?}",
-            $expected,
-            $escrow.state
-        )
-    };
 }
 
 fn get_ttl_extension(env: &Env) -> u32 {
@@ -528,6 +516,7 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::FeeCollector, &new_collector);
+        #[allow(deprecated)]
         env.events().publish(
             ("FeeCollectorUpdated",),
             (old_collector, new_collector),
@@ -535,6 +524,7 @@ impl Escrow {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_escrow(
         env: Env,
         seller: Address,
@@ -666,7 +656,7 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        if tracking_id.len() == 0 {
+        if tracking_id.is_empty() {
             return Err(ContractError::InvalidTrackingId);
         }
         if tracking_id.len() > MAX_TRACKING_ID_LEN {

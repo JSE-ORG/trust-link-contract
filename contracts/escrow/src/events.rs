@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use soroban_sdk::{contracttype, Address, BytesN, Env, String, Symbol};
 
 use crate::ResolutionType;
@@ -160,6 +162,7 @@ pub struct EscrowCreated {
 }
 
 /// Topic: `(\"escrow_created\",)`, data: `EscrowCreated`.
+#[allow(clippy::too_many_arguments)]
 pub fn emit_escrow_created(
     env: &Env,
     escrow_id: u64,
