@@ -941,6 +941,20 @@ impl Escrow {
         result
     }
 
+    /// Batch view: return escrows for the supplied IDs in the same order.
+    /// Missing IDs return None in the corresponding slot.
+    pub fn get_escrows_by_ids(env: Env, ids: soroban_sdk::Vec<u64>) -> soroban_sdk::Vec<Option<EscrowData>> {
+        let mut result: soroban_sdk::Vec<Option<EscrowData>> = soroban_sdk::Vec::new(&env);
+        for i in 0..ids.len() {
+            let id = ids.get(i).expect("index in range");
+            match load_escrow(&env, id) {
+                Ok(escrow) => result.push_back(Some(escrow)),
+                Err(_) => result.push_back(None),
+            }
+        }
+        result
+    }
+
     /// Returns the current fee configuration as a read-only view.
     pub fn get_fee_config(env: Env) -> FeeConfig {
         read_fee_config(&env)
@@ -991,6 +1005,7 @@ impl Escrow {
 
 mod test;
 mod test_co_signed_release;
+mod test_get_escrows_by_ids;
 mod test_edge_cases;
 mod test_withdraw_fees;
 mod test_dispute;
