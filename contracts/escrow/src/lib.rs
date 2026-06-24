@@ -1,6 +1,8 @@
 #![no_std]
 #![allow(deprecated, clippy::too_many_arguments)]
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec,
+};
 
 pub mod errors;
 pub mod events;
@@ -9,19 +11,19 @@ pub mod storage;
 pub mod types;
 pub use crate::errors::ContractError;
 pub use crate::events::{
-    AdminRotated, AutoReleased, ContractInitialized, ContractPausedEvent, ContractUnpausedEvent,
-    DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowCancelled, EscrowCompleted,
-    EscrowCreated, EscrowFunded, EscrowShipped, FeeUpdated, FeesWithdrawn, ArbitrationFeeUpdated,
+    emit_admin_rotated, emit_arbitration_fee_updated, emit_auto_released,
+    emit_contract_initialized, emit_contract_paused, emit_contract_unpaused,
+    emit_delivery_recorded, emit_dispute_raised, emit_dispute_resolved, emit_escrow_cancelled,
+    emit_escrow_completed, emit_escrow_created, emit_escrow_funded, emit_escrow_shipped,
+    emit_fee_updated, emit_fees_withdrawn, emit_protocol_fee_updated, emit_resolver_rotated,
+    AdminRotated, ArbitrationFeeUpdated, AutoReleased, ContractInitialized, ContractPausedEvent,
+    ContractUnpausedEvent, DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowCancelled,
+    EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, FeeUpdated, FeesWithdrawn,
     ProtocolFeeUpdated, ResolverRotated,
-    emit_admin_rotated, emit_auto_released, emit_contract_initialized, emit_contract_paused,
-    emit_contract_unpaused, emit_delivery_recorded, emit_dispute_raised, emit_dispute_resolved,
-    emit_escrow_cancelled, emit_escrow_completed, emit_escrow_created, emit_escrow_funded,
-    emit_escrow_shipped, emit_fee_updated, emit_fees_withdrawn, emit_arbitration_fee_updated,
-    emit_protocol_fee_updated, emit_resolver_rotated,
 };
 pub use crate::types::{
-    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowState,
-    FeeConfig, PublicContractConfig, ResolutionType,
+    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowState, FeeConfig,
+    PublicContractConfig, ResolutionType,
 };
 
 /// Maximum escrow fee in basis points (300 = 3%).
@@ -73,22 +75,19 @@ pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 10_000;
 /// escrow lifecycle, `Err(InvalidStateTransition)` otherwise. Provided as a
 /// pure helper alongside the existing inline guards so reviewers can audit
 /// every legal edge in one place.
-pub fn transition_state(
-    from: &EscrowState,
-    to: &EscrowState,
-) -> Result<(), ContractError> {
+pub fn transition_state(from: &EscrowState, to: &EscrowState) -> Result<(), ContractError> {
     use EscrowState::*;
-        let allowed = matches!(
-            (from, to),
-            (Pending, Funded)
-                |     (Pending, Canceled)
-                | (Funded, Shipped)
-                | (Funded, Completed)
-                | (Funded, Disputed)
-                | (Funded, Refunded)
-                | (Shipped, Completed)
-                | (Shipped, Disputed)
-                | (Shipped, Refunded)
+    let allowed = matches!(
+        (from, to),
+        (Pending, Funded)
+            | (Pending, Canceled)
+            | (Funded, Shipped)
+            | (Funded, Completed)
+            | (Funded, Disputed)
+            | (Funded, Refunded)
+            | (Shipped, Completed)
+            | (Shipped, Disputed)
+            | (Shipped, Refunded)
             | (Disputed, Completed)
             | (Disputed, Refunded)
     );
@@ -103,7 +102,11 @@ pub fn transition_state(
 pub struct Escrow;
 
 fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
-    let paused: bool = env.storage().instance().get(&DataKey::Paused).unwrap_or(false);
+    let paused: bool = env
+        .storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false);
     if paused {
         return Err(ContractError::ContractPaused);
     }
@@ -115,6 +118,14 @@ fn require_admin(env: &Env) -> Result<Address, ContractError> {
         .instance()
         .get(&DataKey::Admin)
         .ok_or(ContractError::NotAuthorized)
+}
+
+fn require_admin_caller(env: &Env, caller: &Address) -> Result<Address, ContractError> {
+    let admin = require_admin(env)?;
+    if caller != &admin {
+        return Err(ContractError::NotAuthorized);
+    }
+    Ok(admin)
 }
 
 fn default_fee_config() -> FeeConfig {
@@ -132,7 +143,9 @@ fn read_fee_config(env: &Env) -> FeeConfig {
 }
 
 fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
-    env.storage().instance().set(&DataKey::FeeConfig, fee_config);
+    env.storage()
+        .instance()
+        .set(&DataKey::FeeConfig, fee_config);
 }
 
 #[contracttype]
@@ -181,7 +194,10 @@ fn validate_arbitration_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
 ///
 /// This prevents the attack where an admin sets both fees to their maximum values,
 /// draining entire escrows through fees.
-fn validate_combined_fees(protocol_fee_bps: u32, arbitration_fee_bps: u32) -> Result<(), ContractError> {
+fn validate_combined_fees(
+    protocol_fee_bps: u32,
+    arbitration_fee_bps: u32,
+) -> Result<(), ContractError> {
     let combined = protocol_fee_bps
         .checked_add(arbitration_fee_bps)
         .ok_or(ContractError::ArithmeticError)?;
@@ -293,7 +309,13 @@ fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
 /// in sync. The calculation is split to avoid overflowing `i128` for large
 /// amounts. Overflow surfaces as `ArithmeticError` (distinct from the helper's
 /// `ArithmeticOverflow`).
-fn deduct_and_transfer(env: &Env, token_addr: &Address, recipient: &Address, amount: i128, fee_bps: u32) -> Result<(), ContractError> {
+fn deduct_and_transfer(
+    env: &Env,
+    token_addr: &Address,
+    recipient: &Address,
+    amount: i128,
+    fee_bps: u32,
+) -> Result<(), ContractError> {
     if amount < 0 {
         return Err(ContractError::InvalidAmount);
     }
@@ -307,8 +329,12 @@ fn deduct_and_transfer(env: &Env, token_addr: &Address, recipient: &Address, amo
         .ok_or(ContractError::ArithmeticError)?
         / 10_000;
 
-    let fee = part1.checked_add(part2).ok_or(ContractError::ArithmeticError)?;
-    let net = amount.checked_sub(fee).ok_or(ContractError::ArithmeticError)?;
+    let fee = part1
+        .checked_add(part2)
+        .ok_or(ContractError::ArithmeticError)?;
+    let net = amount
+        .checked_sub(fee)
+        .ok_or(ContractError::ArithmeticError)?;
 
     token::Client::new(env, token_addr).transfer(&env.current_contract_address(), recipient, &net);
     Ok(())
@@ -339,7 +365,9 @@ fn transfer_with_protocol_fee(
 
 fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
     let current: u64 = env.storage().instance().get(key).unwrap_or(0);
-    let next = current.checked_add(1).ok_or(ContractError::ArithmeticError)?;
+    let next = current
+        .checked_add(1)
+        .ok_or(ContractError::ArithmeticError)?;
     env.storage().instance().set(key, &next);
     Ok(())
 }
@@ -379,7 +407,9 @@ impl Escrow {
         }
 
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::FeeCollector, &fee_collector);
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeCollector, &fee_collector);
         write_fee_config(
             &env,
             &FeeConfig {
@@ -426,7 +456,10 @@ impl Escrow {
 
     /// Returns whether the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
     }
 
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
@@ -473,7 +506,9 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        env.storage().instance().set(&DataKey::TtlExtensionLedgers, &ledgers);
+        env.storage()
+            .instance()
+            .set(&DataKey::TtlExtensionLedgers, &ledgers);
         Ok(())
     }
 
@@ -489,10 +524,7 @@ impl Escrow {
         caller.require_auth();
 
         ensure_not_paused(&env)?;
-        let admin = require_admin(&env)?;
-        if caller != admin {
-            return Err(ContractError::NotAuthorized);
-        }
+        let _admin = require_admin_caller(&env, &caller)?;
 
         if amount <= 0 {
             return Err(ContractError::InvalidAmount);
@@ -510,7 +542,9 @@ impl Escrow {
         let token_client = token::Client::new(&env, &token);
         token_client.transfer(&env.current_contract_address(), &to, &amount);
 
-        let new_accumulated = accumulated.checked_sub(amount).ok_or(ContractError::ArithmeticError)?;
+        let new_accumulated = accumulated
+            .checked_sub(amount)
+            .ok_or(ContractError::ArithmeticError)?;
         env.storage().instance().set(&fee_key, &new_accumulated);
 
         emit_fees_withdrawn(&env, token, to, amount);
@@ -531,10 +565,8 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::FeeCollector, &new_collector);
-        env.events().publish(
-            ("FeeCollectorUpdated",),
-            (old_collector, new_collector),
-        );
+        env.events()
+            .publish(("FeeCollectorUpdated",), (old_collector, new_collector));
         Ok(())
     }
 
@@ -585,7 +617,9 @@ impl Escrow {
             .instance()
             .get(&DataKey::EscrowCounter)
             .expect("counter initialized");
-        let next_id = escrow_id.checked_add(1).ok_or(ContractError::ArithmeticError)?;
+        let next_id = escrow_id
+            .checked_add(1)
+            .ok_or(ContractError::ArithmeticError)?;
         env.storage()
             .instance()
             .set(&DataKey::EscrowCounter, &next_id);
@@ -721,24 +755,47 @@ impl Escrow {
 
         ensure_not_paused(&env)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
+        let buyer = escrow.buyer.clone();
 
-        if caller != escrow.seller {
-            return Err(ContractError::NotAuthorized);
+        match escrow.state {
+            EscrowState::Pending => {
+                if caller != escrow.seller && buyer.as_ref() != Some(&caller) {
+                    return Err(ContractError::NotAuthorized);
+                }
+                escrow.state = EscrowState::Canceled;
+            }
+            EscrowState::Funded => {
+                if caller == escrow.seller {
+                    return Err(ContractError::InvalidState);
+                }
+
+                let buyer_addr = buyer.as_ref().ok_or(ContractError::EscrowHasNoBuyer)?;
+                if &caller != buyer_addr {
+                    return Err(ContractError::NotAuthorized);
+                }
+
+                token::Client::new(&env, &escrow.token).transfer(
+                    &env.current_contract_address(),
+                    &caller,
+                    &escrow.amount,
+                );
+                escrow.state = EscrowState::Refunded;
+            }
+            _ => return Err(ContractError::InvalidState),
         }
 
-        if escrow.state != EscrowState::Pending {
-            return Err(ContractError::InvalidState);
-        }
-
-        escrow.state = EscrowState::Canceled;
         save_escrow(&env, escrow_id, &escrow);
-
         emit_escrow_cancelled(&env, escrow_id, escrow.seller);
         Ok(())
     }
 
     /// Seller marks an escrow as shipped. Transitions Funded → Shipped.
-    pub fn mark_shipped(env: Env, caller: Address, escrow_id: u64, tracking_id: String) -> Result<(), ContractError> {
+    pub fn mark_shipped(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        tracking_id: String,
+    ) -> Result<(), ContractError> {
         // SECURITY:
         // Authenticate before any state reads.
         caller.require_auth();
@@ -765,7 +822,10 @@ impl Escrow {
         escrow.state = EscrowState::Shipped;
         escrow.shipped_at = shipped_at;
         escrow.tracking_id = Some(tracking_id);
-        let tracking = escrow.tracking_id.clone().unwrap_or(String::from_str(&env, ""));
+        let tracking = escrow
+            .tracking_id
+            .clone()
+            .unwrap_or(String::from_str(&env, ""));
         save_escrow(&env, escrow_id, &escrow);
         emit_escrow_shipped(&env, escrow_id, escrow.seller, tracking);
         Ok(())
@@ -815,7 +875,10 @@ impl Escrow {
         ensure_not_paused(&env)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
-        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
+        let buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
         if caller != buyer {
             return Err(ContractError::NotAuthorized);
         }
@@ -857,9 +920,12 @@ impl Escrow {
         Ok(())
     }
 
-
-
-    pub fn resolve_dispute(env: Env, caller: Address, escrow_id: u64, resolution: ResolutionType) -> Result<(), ContractError> {
+    pub fn resolve_dispute(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        resolution: ResolutionType,
+    ) -> Result<(), ContractError> {
         // SECURITY:
         // Authenticate before any state reads.
         caller.require_auth();
@@ -877,7 +943,8 @@ impl Escrow {
         }
 
         let arbitration_fee_bps = read_fee_config(&env).arbitration_fee_bps;
-        let arbitration_fee = crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;
+        let arbitration_fee =
+            crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;
 
         if arbitration_fee > escrow.amount {
             return Err(ContractError::InsufficientBalance);
@@ -890,12 +957,17 @@ impl Escrow {
 
         let total_key = DataKey::TotalArbitrationFees(escrow.token.clone());
         let current_total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
-        let next_total = current_total.checked_add(arbitration_fee).ok_or(ContractError::ArithmeticError)?;
+        let next_total = current_total
+            .checked_add(arbitration_fee)
+            .ok_or(ContractError::ArithmeticError)?;
         env.storage().instance().set(&total_key, &next_total);
 
         let recipient = match resolution {
             ResolutionType::Release => escrow.seller.clone(),
-            ResolutionType::Refund => escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?,
+            ResolutionType::Refund => escrow
+                .buyer
+                .clone()
+                .ok_or(ContractError::EscrowHasNoBuyer)?,
         };
 
         // Track the fees that will remain in the vault after deduct_and_transfer:
@@ -912,7 +984,13 @@ impl Escrow {
             .ok_or(ContractError::ArithmeticError)?;
         env.storage().instance().set(&acc_key, &new_acc);
 
-        deduct_and_transfer(&env, &escrow.token, &recipient, escrow.amount, escrow.fee_bps)?;
+        deduct_and_transfer(
+            &env,
+            &escrow.token,
+            &recipient,
+            escrow.amount,
+            escrow.fee_bps,
+        )?;
 
         let mut updated = escrow;
         updated.state = match resolution {
@@ -943,7 +1021,11 @@ impl Escrow {
         Ok(())
     }
 
-    pub fn set_arbitration_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+    pub fn set_arbitration_fee(
+        env: Env,
+        caller: Address,
+        fee_bps: u32,
+    ) -> Result<(), ContractError> {
         let old_fee_bps = update_arbitration_fee(&env, &caller, fee_bps)?;
         emit_arbitration_fee_updated(&env, old_fee_bps, fee_bps);
         Ok(())
@@ -954,7 +1036,10 @@ impl Escrow {
     }
 
     pub fn get_total_arbitration_fees(env: Env, token: Address) -> i128 {
-        env.storage().instance().get(&DataKey::TotalArbitrationFees(token)).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&DataKey::TotalArbitrationFees(token))
+            .unwrap_or(0)
     }
 
     pub fn auto_release(env: Env, escrow_id: u64) -> Result<(), ContractError> {
@@ -1016,7 +1101,13 @@ impl Escrow {
         escrow.state = EscrowState::Completed;
         save_escrow(&env, escrow_id, &escrow);
         increment_counter(&env, &DataKey::TotalCompleted)?;
-        emit_auto_released(&env, escrow_id, escrow.seller, escrow.amount, escrow.fee_bps);
+        emit_auto_released(
+            &env,
+            escrow_id,
+            escrow.seller,
+            escrow.amount,
+            escrow.fee_bps,
+        );
         Ok(())
     }
 
@@ -1029,7 +1120,11 @@ impl Escrow {
     }
 
     pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
-        if let Some(ids) = env.storage().persistent().get(&DataKey::BuyerEscrowIndex(buyer.clone())) {
+        if let Some(ids) = env
+            .storage()
+            .persistent()
+            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
+        {
             return ids;
         }
         let mut result = Vec::new(&env);
@@ -1055,10 +1150,26 @@ impl Escrow {
     /// Returns on-chain counters for escrow lifecycle events.
     pub fn get_stats(env: Env) -> ContractStats {
         ContractStats {
-            total_created: env.storage().instance().get(&DataKey::TotalCreated).unwrap_or(0),
-            total_completed: env.storage().instance().get(&DataKey::TotalCompleted).unwrap_or(0),
-            total_disputed: env.storage().instance().get(&DataKey::TotalDisputed).unwrap_or(0),
-            total_refunded: env.storage().instance().get(&DataKey::TotalRefunded).unwrap_or(0),
+            total_created: env
+                .storage()
+                .instance()
+                .get(&DataKey::TotalCreated)
+                .unwrap_or(0),
+            total_completed: env
+                .storage()
+                .instance()
+                .get(&DataKey::TotalCompleted)
+                .unwrap_or(0),
+            total_disputed: env
+                .storage()
+                .instance()
+                .get(&DataKey::TotalDisputed)
+                .unwrap_or(0),
+            total_refunded: env
+                .storage()
+                .instance()
+                .get(&DataKey::TotalRefunded)
+                .unwrap_or(0),
         }
     }
 
@@ -1102,7 +1213,12 @@ impl Escrow {
             .get::<DataKey, u64>(&DataKey::EscrowCounter)
             .unwrap_or(1)
             .saturating_sub(1);
-        Ok(ContractConfig { admin, fee_bps, fee_collector, escrow_count })
+        Ok(ContractConfig {
+            admin,
+            fee_bps,
+            fee_collector,
+            escrow_count,
+        })
     }
 
     pub fn get_fee_config(env: Env) -> FeeConfig {
@@ -1158,37 +1274,37 @@ impl Escrow {
 }
 
 mod test;
-mod test_edge_cases;
-mod test_withdraw_fees;
-mod test_dispute;
-mod test_escrow_id;
-mod test_resolution;
-mod test_pause;
-mod test_overflow;
-mod test_fee_minimum;
-mod test_minimum_amount_guard;
-mod test_fee_calculation_accuracy;
-mod test_arbitration_fee;
-mod test_fee_config;
-mod test_helpers;
 mod test_admin;
-mod test_ttl;
-mod test_escrow_states;
 mod test_admin_rotation;
+mod test_arbitration_fee;
+mod test_auth_ordering;
 mod test_auto_release;
+mod test_cancel_restrictions;
+mod test_concurrent_vendor_escrows;
+mod test_contract_config;
+mod test_delivery;
+mod test_dispute;
+mod test_dispute_flow;
+mod test_dispute_window;
+mod test_edge_cases;
+mod test_escrow_id;
+mod test_escrow_states;
+mod test_fee_calculation_accuracy;
+mod test_fee_config;
+mod test_fee_minimum;
+mod test_get_escrows_by_buyer;
+mod test_get_escrows_by_vendor;
+mod test_helpers;
 mod test_initialize_twice;
 mod test_initialize_zero_admin;
-mod test_contract_config;
-mod test_string_length;
-mod test_get_escrows_by_buyer;
-mod test_delivery;
-mod test_auth_ordering;
-mod test_dispute_flow;
-mod test_set_fee_boundary;
-mod test_cancel_restrictions;
-mod test_dispute_window;
-mod test_unauthorized;
-mod test_concurrent_vendor_escrows;
+mod test_minimum_amount_guard;
 mod test_not_found;
-mod test_get_escrows_by_vendor;
+mod test_overflow;
+mod test_pause;
+mod test_resolution;
 mod test_resolver_rotation;
+mod test_set_fee_boundary;
+mod test_string_length;
+mod test_ttl;
+mod test_unauthorized;
+mod test_withdraw_fees;
