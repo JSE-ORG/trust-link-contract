@@ -660,6 +660,59 @@ impl Escrow {
         Ok(())
     }
 
+    pub fn co_signed_release(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
+        // SECURITY:
+        // Authenticate before any state reads.
+        caller.require_auth();
+
+        ensure_not_paused(&env)?;
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        // Require explicit auth from both seller and buyer in the same transaction.
+        escrow.seller.require_auth();
+        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
+        buyer.require_auth();
+
+        // Allow early release from Funded or Shipped states, but not if disputed.
+        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+            return Err(ContractError::InvalidState);
+        }
+
+        if load_dispute(&env, escrow_id).is_ok() {
+            return Err(ContractError::InvalidState);
+        }
+
+        let fee_config = read_fee_config(&env);
+        let fee_collector: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeCollector)
+            .expect("fee collector not set");
+
+        transfer_with_protocol_fee(
+            &env,
+            &escrow.token,
+            &escrow.seller,
+            &fee_collector,
+            escrow.amount,
+            fee_config.protocol_fee_bps,
+        )?;
+
+        let mut updated = escrow;
+        updated.state = EscrowState::Completed;
+
+        save_escrow(&env, escrow_id, &updated);
+        increment_counter(&env, &DataKey::TotalCompleted)?;
+        emit_escrow_completed(
+            &env,
+            escrow_id,
+            updated.seller.clone(),
+            updated.amount,
+            fee_config.protocol_fee_bps,
+        );
+        Ok(())
+    }
+
     pub fn raise_dispute(
         env: Env,
         caller: Address,
@@ -937,6 +990,7 @@ impl Escrow {
 }
 
 mod test;
+mod test_co_signed_release;
 mod test_edge_cases;
 mod test_withdraw_fees;
 mod test_dispute;
