@@ -539,7 +539,10 @@ impl Escrow {
         escrow.buyer = Some(buyer.clone());
         escrow.state = EscrowState::Funded;
         escrow.funded_at = env.ledger().timestamp();
-        escrow.dispute_deadline = escrow.funded_at + DISPUTE_WINDOW;
+        escrow.dispute_deadline = escrow
+            .funded_at
+            .checked_add(DISPUTE_WINDOW)
+            .ok_or(ContractError::ArithmeticOverflow)?;
 
         let token_client = token::Client::new(&env, &escrow.token);
         token_client.transfer(&buyer, &env.current_contract_address(), &escrow.amount);
@@ -1013,6 +1016,7 @@ mod test_escrow_id;
 mod test_resolution;
 mod test_pause;
 mod test_overflow;
+mod test_dispute_deadline_overflow;
 mod test_fee_minimum;
 mod test_minimum_amount_guard;
 mod test_fee_calculation_accuracy;
@@ -1024,6 +1028,7 @@ mod test_ttl;
 mod test_escrow_states;
 mod test_admin_rotation;
 mod test_auto_release;
+mod test_auto_release_additional;
 mod test_initialize_twice;
 mod test_contract_config;
 mod test_string_length;
