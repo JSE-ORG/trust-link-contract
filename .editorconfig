@@ -1,0 +1,21 @@
+# EditorConfig is awesome: https://EditorConfig.org
+
+# Top-most EditorConfig file
+root = true
+
+# Unix-style newlines with a trailing newline, UTF-8 charset
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+indent_style = space
+indent_size = 2
+
+# Rust uses 4-space indentation
+[*.rs]
+indent_size = 4
+
+# Markdown files can use trailing whitespace for line breaks
+[*.md]
+trim_trailing_whitespace = false
