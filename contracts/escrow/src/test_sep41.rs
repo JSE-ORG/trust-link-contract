@@ -79,7 +79,7 @@ fn test_sep41_fund_and_confirm_delivery() {
 
     mint(&env, &token, &buyer, 500);
 
-    let id = client.create_escrow(&seller, &resolver, &token, &500_i128, &100_u32, &3600_u64);
+    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &500_i128, &100_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
 
@@ -124,7 +124,7 @@ fn test_sep41_auto_release() {
 
     mint(&env, &token, &buyer, 1000);
 
-    let id = client.create_escrow(&seller, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO"));
     env.ledger().set_timestamp(1_700_000_000);
@@ -132,7 +132,7 @@ fn test_sep41_auto_release() {
 
     // Advance 48 hours past delivery.
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.delivered_at + 172_801);
+    env.ledger().set_timestamp(escrow.delivered_at.unwrap() + 172_801);
     client.auto_release(&id);
 
     assert!(has_event::<crate::AutoReleased, _>(&env, &contract_id, "auto_released", |event| {
@@ -158,7 +158,7 @@ fn test_sep41_dispute_and_refund() {
 
     mint(&env, &token, &buyer, 800);
 
-    let id = client.create_escrow(&seller, &resolver, &token, &800_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &800_i128, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DISPUTE"));
 
@@ -197,7 +197,7 @@ fn test_sep41_token_address_stored_in_escrow() {
     let seller = Address::generate(&env);
     let resolver = Address::generate(&env);
 
-    let id = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
     // Verify the stored token address matches what was passed in
     assert_eq!(client.get_escrow(&id).token, token);
 }

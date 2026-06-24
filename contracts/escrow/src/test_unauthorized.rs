@@ -1,6 +1,6 @@
 #![cfg(test)]
 //! Systematic unauthorized-access tests for every admin-gated state-mutating
-//! entry point (#19).
+//! entry point (#19), plus role-conflict guards (#security).
 //!
 //! Each test invokes the entry point with a non-admin caller and asserts the
 //! `try_*` client method returns an error. This validates the contract's
@@ -106,5 +106,91 @@ fn withdraw_fees_rejects_unauthorized_caller() {
     assert_eq!(
         client.try_withdraw_fees(&intruder, &token_addr, &recipient, &1_i128),
         Err(Ok(ContractError::NotAuthorized)),
+    );
+}
+
+// ── Role-conflict guards ─────────────────────────────────────────────────────
+
+/// Helper: register a SAC token and return its address.
+fn register_token(env: &Env) -> Address {
+    let token_admin = Address::generate(env);
+    env.register_stellar_asset_contract_v2(token_admin).address()
+}
+
+#[test]
+fn create_escrow_rejects_resolver_equal_to_seller() {
+    let env = Env::default();
+    let (client, _admin) = fresh_contract(&env);
+
+    let seller = Address::generate(&env);
+    let token = register_token(&env);
+
+    assert_eq!(
+        client.try_create_escrow(
+            &seller,
+            &None::<Address>,
+            &seller, // resolver == seller
+            &token,
+            &100_i128,
+            &0_u32,
+            &3600_u64,
+        ),
+        Err(Ok(ContractError::ConflictingRoles)),
+    );
+}
+
+#[test]
+fn fund_escrow_rejects_buyer_equal_to_seller() {
+    let env = Env::default();
+    let (client, _admin) = fresh_contract(&env);
+
+    let seller = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let token = register_token(&env);
+
+    // Mint tokens to the seller so the transfer would otherwise succeed.
+    soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&seller, &1000_i128);
+
+    let id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+
+    assert_eq!(
+        client.try_fund_escrow(&id, &seller), // buyer == seller
+        Err(Ok(ContractError::ConflictingRoles)),
+    );
+}
+
+#[test]
+fn fund_escrow_rejects_buyer_equal_to_resolver() {
+    let env = Env::default();
+    let (client, _admin) = fresh_contract(&env);
+
+    let seller = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let token = register_token(&env);
+
+    // Mint tokens to the resolver so the transfer would otherwise succeed.
+    soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&resolver, &1000_i128);
+
+    let id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+
+    assert_eq!(
+        client.try_fund_escrow(&id, &resolver), // buyer == resolver
+        Err(Ok(ContractError::ConflictingRoles)),
     );
 }

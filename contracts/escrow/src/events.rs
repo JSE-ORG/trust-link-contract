@@ -392,3 +392,57 @@ pub fn emit_escrow_cancelled(env: &Env, escrow_id: u64, seller: Address) {
         },
     );
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractInitialized {
+    pub admin: Address,
+    pub fee_collector: Address,
+    pub arbitration_fee_bps: u32,
+    pub timestamp: u64,
+}
+
+/// Topic: `("contract_initialized",)`, data: `ContractInitialized`.
+pub fn emit_contract_initialized(
+    env: &Env,
+    admin: Address,
+    fee_collector: Address,
+    arbitration_fee_bps: u32,
+) {
+    env.events().publish(
+        (Symbol::new(env, "contract_initialized"),),
+        ContractInitialized {
+            admin,
+            fee_collector,
+            arbitration_fee_bps,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolverRotated {
+    pub escrow_id: u64,
+    pub old_resolver: Address,
+    pub new_resolver: Address,
+    pub rotated_at: u64,
+}
+
+/// Topic: `("resolver_rotated",)`, data: `ResolverRotated`.
+pub fn emit_resolver_rotated(
+    env: &Env,
+    escrow_id: u64,
+    old_resolver: Address,
+    new_resolver: Address,
+) {
+    env.events().publish(
+        (Symbol::new(env, "resolver_rotated"),),
+        ResolverRotated {
+            escrow_id,
+            old_resolver,
+            new_resolver,
+            rotated_at: env.ledger().timestamp(),
+        },
+    );
+}

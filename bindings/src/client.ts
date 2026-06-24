@@ -81,4 +81,16 @@ export class EscrowClient {
   get_fee_config(): FeeConfig | Promise<FeeConfig> {
     return this.transport.invoke("get_fee_config", []);
   }
+
+  set_arbitration_fee(caller: AddressLike, feeBps: number): void | Promise<void> {
+    return this.transport.invoke("set_arbitration_fee", [caller, feeBps]);
+  }
+
+  get_arbitration_fee(): number | Promise<number> {
+    return this.transport.invoke("get_arbitration_fee", []);
+  }
+
+  rotate_resolver(caller: AddressLike, escrowId: bigint, newResolver: AddressLike): void | Promise<void> {
+    return this.transport.invoke("rotate_resolver", [caller, escrowId, newResolver]);
+  }
 }

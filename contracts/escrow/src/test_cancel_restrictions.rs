@@ -34,7 +34,7 @@ fn setup() -> Fx {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
     let amount: i128 = 1_000;
-    let escrow_id = client.create_escrow(&seller, &resolver, &token_addr, &amount, &0_u32, &0_u64);
+    let escrow_id = client.create_escrow(&seller, &None::<Address>, &resolver, &token_addr, &amount, &0_u32, &0_u64);
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
     Fx { env, client, contract_id, escrow_id, seller, buyer, resolver, token_addr }
 }
@@ -85,6 +85,13 @@ fn cancel_fails_in_completed_state() {
     fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
     ship(&fx);
 
+    let escrow: EscrowData = fx
+        .env
+        .as_contract(&fx.contract_id, || {
+            fx.env.storage().persistent().get(&DataKey::Escrow(fx.escrow_id))
+        })
+        .expect("escrow exists");
+    fx.env.ledger().set_timestamp(escrow.dispute_deadline + 1);
     fx.client.confirm_delivery(&fx.buyer, &fx.escrow_id);
 
     assert_eq!(

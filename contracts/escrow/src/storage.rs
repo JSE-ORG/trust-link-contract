@@ -2,6 +2,25 @@ use soroban_sdk::{contracttype, Address, Env, Vec};
 
 use crate::{EscrowData, FeeConfig};
 
+/// Default TTL extension (in ledgers) for persistent storage entries.
+/// This matches the value used in lib.rs to ensure consistent behavior.
+const DEFAULT_TTL_EXTENSION: u32 = 120_960;
+
+/// Get the configured TTL extension from the contract, or use the default.
+fn get_ttl_extension(env: &Env) -> u32 {
+    use crate::DataKey;
+    env.storage()
+        .instance()
+        .get(&DataKey::TtlExtensionLedgers)
+        .unwrap_or(DEFAULT_TTL_EXTENSION)
+}
+
+/// Helper to extend TTL on a persistent storage key.
+fn extend_ttl_for_key(env: &Env, key: &StorageKey) {
+    let ext = get_ttl_extension(env);
+    env.storage().persistent().extend_ttl(key, ext / 2, ext);
+}
+
 /// Typed keys for all contract storage entries.
 ///
 /// Storage-tier rationale:
@@ -56,9 +75,9 @@ pub fn read_escrow_counter(env: &Env) -> u64 {
 }
 
 pub fn write_escrow_data(env: &Env, escrow_id: u64, escrow: &EscrowData) {
-    env.storage()
-        .persistent()
-        .set(&StorageKey::EscrowData(escrow_id), escrow);
+    let key = StorageKey::EscrowData(escrow_id);
+    env.storage().persistent().set(&key, escrow);
+    extend_ttl_for_key(env, &key);
 }
 
 pub fn read_escrow_data(env: &Env, escrow_id: u64) -> Option<EscrowData> {
@@ -68,9 +87,9 @@ pub fn read_escrow_data(env: &Env, escrow_id: u64) -> Option<EscrowData> {
 }
 
 pub fn write_vendor_escrow_index(env: &Env, vendor: &Address, escrow_ids: &Vec<u64>) {
-    env.storage()
-        .persistent()
-        .set(&StorageKey::VendorEscrowIndex(vendor.clone()), escrow_ids);
+    let key = StorageKey::VendorEscrowIndex(vendor.clone());
+    env.storage().persistent().set(&key, escrow_ids);
+    extend_ttl_for_key(env, &key);
 }
 
 pub fn read_vendor_escrow_index(env: &Env, vendor: &Address) -> Vec<u64> {
@@ -81,9 +100,9 @@ pub fn read_vendor_escrow_index(env: &Env, vendor: &Address) -> Vec<u64> {
 }
 
 pub fn write_buyer_escrow_index(env: &Env, buyer: &Address, escrow_ids: &Vec<u64>) {
-    env.storage()
-        .persistent()
-        .set(&StorageKey::BuyerEscrowIndex(buyer.clone()), escrow_ids);
+    let key = StorageKey::BuyerEscrowIndex(buyer.clone());
+    env.storage().persistent().set(&key, escrow_ids);
+    extend_ttl_for_key(env, &key);
 }
 
 pub fn read_buyer_escrow_index(env: &Env, buyer: &Address) -> Vec<u64> {

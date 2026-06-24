@@ -1,4 +1,4 @@
-use soroban_sdk::{contracterror, contracttype, Address, BytesN, String, Symbol};
+use soroban_sdk::{contracttype, Address, BytesN, String, Symbol};
 
 /// Storage keys for persisting escrow data and the global escrow counter.
 #[contracttype]
@@ -13,11 +13,13 @@ pub enum DataKey {
     TtlExtensionLedgers,
     ArbitrationFee,
     TotalArbitrationFees(Address),
+    AccumulatedFees(Address),
     TotalCreated,
     TotalCompleted,
     TotalDisputed,
     TotalRefunded,
     FeeConfig,
+    BuyerEscrowIndex(Address),
 }
 
 #[contracttype]
@@ -39,7 +41,6 @@ pub struct DisputeData {
     pub tracking_id: Option<String>,
 }
 
-/// Resolution direction for `resolve_dispute`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResolutionType {
@@ -47,96 +48,7 @@ pub enum ResolutionType {
     Refund,
 }
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum ContractError {
-    InvalidAmount = 1,
-    InsufficientBalance = 2,
-    EscrowNotFound = 3,
-    InvalidState = 4,
-    NotAuthorized = 5,
-    AlreadyInitialized = 6,
-    FeeExceedsMax = 7,
-    EscrowHasNoBuyer = 8,
-    ShippingWindowNotElapsed = 9,
-    InvalidEvidenceHash = 10,
-    DisputeNotFound = 11,
-    ArithmeticError = 12,
-    DisputeWindowClosed = 13,
-    ContractPaused = 14,
-    ArithmeticOverflow = 15,
-    InvalidStateTransition = 16,
-    InputTooLong = 17,
-    InvalidTrackingId = 18,
-}
-
-/// Lifecycle states of an escrow transaction.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum EscrowState {
-    /// Escrow created but not yet funded by a buyer.
-    Pending,
-    /// Escrow funded and awaiting delivery confirmation or dispute.
-    Funded,
-    /// Seller has marked the order as shipped.
-    Shipped,
-    /// Escrow successfully completed with funds released to the seller.
-    Completed,
-    /// Escrow in dispute, awaiting resolver decision.
-    Disputed,
-    /// Escrow refunded to the buyer after dispute resolution.
-    Refunded,
-    /// Escrow was canceled while in the Pending state.
-    Canceled,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EscrowData {
-    /// Address of the seller who will receive funds upon successful completion.
-    pub seller: Address,
-    /// Address of the buyer who funds the escrow. None until the escrow is funded.
-    pub buyer: Option<Address>,
-    /// Address of the trusted third-party resolver who can mediate disputes.
-    pub resolver: Address,
-    /// Address of the token contract (SEP-41 compliant) used for the escrow.
-    pub token: Address,
-    /// Amount of tokens locked in the escrow.
-    pub amount: i128,
-    /// Protocol fee in basis points (100 = 1%).
-    pub fee_bps: u32,
-    /// Time window in seconds after funding during which auto-release is not allowed.
-    pub shipping_window: u64,
-    /// Ledger timestamp when the escrow was funded. Zero if not yet funded.
-    pub funded_at: u64,
-    pub dispute_deadline: u64,
-    pub state: EscrowState,
-    /// Ledger timestamp recorded when the seller marked the order as shipped.
-    pub shipped_at: u64,
-    /// Ledger timestamp recorded by the admin oracle when delivery is confirmed. Zero until set.
-    pub delivered_at: u64,
-    pub tracking_id: Option<String>,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FeesWithdrawn {
-    pub token: Address,
-    pub to: Address,
-    pub amount: i128,
-    pub timestamp: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AdminRotated {
-    pub old_admin: Address,
-    pub new_admin: Address,
-    pub timestamp: u64,
-}
-
-/// Protocol and arbitration fee configuration in basis points.
+/// Configuration for protocol and arbitration fee rates in basis points.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FeeConfig {
@@ -144,6 +56,16 @@ pub struct FeeConfig {
     pub arbitration_fee_bps: u32,
 }
 
+/// Public-safe contract configuration (no sensitive addresses).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublicContractConfig {
+    pub fee_bps: u32,
+    pub paused: bool,
+    pub escrow_count: u64,
+}
+
+/// Full contract configuration including privileged addresses.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractConfig {
@@ -153,7 +75,7 @@ pub struct ContractConfig {
     pub escrow_count: u64,
 }
 
-/// On-chain lifecycle counters exposed by `get_stats`.
+/// On-chain counters for escrow lifecycle events.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractStats {
@@ -163,23 +85,15 @@ pub struct ContractStats {
     pub total_refunded: u64,
 }
 
+/// Lifecycle states of an escrow transaction.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ContractPausedEvent {
-    pub admin: Address,
-    pub timestamp: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ContractUnpausedEvent {
-    pub admin: Address,
-    pub timestamp: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DeliveryRecorded {
-    pub escrow_id: u64,
-    pub delivered_at: u64,
+pub enum EscrowState {
+    Pending,
+    Funded,
+    Shipped,
+    Completed,
+    Disputed,
+    Refunded,
+    Canceled,
 }

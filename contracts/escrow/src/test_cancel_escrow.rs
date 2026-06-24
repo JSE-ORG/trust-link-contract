@@ -30,7 +30,7 @@ fn test_cancel_escrow_by_vendor_in_pending_state() {
     client.cancel_escrow(&seller, &id);
 
     let escrow_after = client.get_escrow(&id);
-    assert_eq!(escrow_after.state, EscrowState::Cancelled);
+    assert_eq!(escrow_after.state, EscrowState::Canceled);
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn test_buyer_can_cancel_if_preassigned_before_funding() {
     client.cancel_escrow(&buyer, &id);
 
     let cancelled = client.get_escrow(&id);
-    assert_eq!(cancelled.state, EscrowState::Cancelled);
+    assert_eq!(cancelled.state, EscrowState::Canceled);
 }
 
 #[test]

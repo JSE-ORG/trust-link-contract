@@ -31,8 +31,10 @@ pub enum ContractError {
     DisputeNotFound = 11,
     /// Returned when internal checked arithmetic fails while computing a payout or fee.
     ArithmeticError = 12,
-    /// Returned when the dispute window has closed for the requested escrow action.
-    DisputeWindowClosed = 13,
+    /// Returned when delivery is attempted before the dispute window opens.
+    /// The name clarifies the condition: you cannot confirm delivery until
+    /// the dispute window has closed.
+    DeliveryBeforeDisputeWindow = 13,
     /// Returned when a contract action is blocked because the contract is paused.
     ContractPaused = 14,
     /// Returned when checked arithmetic overflows in helper payout calculations.
@@ -51,4 +53,9 @@ pub enum ContractError {
     AmountExceedsMaximum = 20,
     /// Returned when a tracking ID is empty or otherwise invalid for shipment.
     InvalidTrackingId = 21,
+    /// Returned when auto-release is attempted before delivery has been recorded.
+    DeliveryNotRecorded = 22,
+    /// Returned when two roles that must be distinct are assigned the same address
+    /// (e.g. resolver == seller, buyer == seller, or buyer == resolver).
+    ConflictingRoles = 23,
 }
