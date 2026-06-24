@@ -16,7 +16,7 @@ pub enum DataKey {
     AccumulatedFees(Address),
     TotalCreated,
     TotalCompleted,
-    TotalDisputed,
+    Messages(u64),
     TotalRefunded,
     FeeConfig,
     BuyerEscrowIndex(Address),
@@ -73,6 +73,14 @@ pub struct ContractConfig {
     pub fee_bps: u32,
     pub fee_collector: Address,
     pub escrow_count: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Message {
+    pub sender: Address,
+    pub timestamp: u64,
+    pub content: String,
 }
 
 /// On-chain counters for escrow lifecycle events.

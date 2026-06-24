@@ -1,6 +1,9 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec};
 
+// Added import for Message
+use crate::types::Message;
+
 pub mod errors;
 pub mod events;
 pub mod helpers;
@@ -586,7 +589,51 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::EscrowCounter, &next_id);
-        // Extend instance storage TTL on every counter access so the counter key
+    
+    /// Posts a message for a given escrow. Messages are immutable and stored on-chain.
+    /// Returns an error if the contract is paused or the escrow does not exist.
+    pub fn post_message(env: Env, escrow_id: u64, sender: Address, content: String) -> Result<(), ContractError> {
+        ensure_not_paused(&env)?;
+        // Verify escrow exists
+        let _ = load_escrow(&env, escrow_id)?;
+        let message = Message {
+            sender,
+            timestamp: env.ledger().timestamp(),
+            content,
+        };
+        let key = DataKey::Messages(escrow_id);
+        // Load existing messages or create new Vec
+        let mut msgs: Vec<Message> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(&env));
+        msgs.push_back(message);
+        env.storage().persistent().set(&key, &msgs);
+        emit_message_posted(&env, escrow_id, sender);
+        Ok(())
+    }
+
+    /// Retrieves messages for a given escrow with pagination.
+    /// `start` is the zero‑based index of the first message to return.
+    /// `limit` caps the number of messages returned (max 50).
+    pub fn get_messages(env: Env, escrow_id: u64, start: u64, limit: u64) -> Vec<Message> {
+        let max_limit = if limit > 50 { 50 } else { limit };
+        let key = DataKey::Messages(escrow_id);
+        let msgs: Vec<Message> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(&env));
+        let total = msgs.len() as u64;
+        let mut result = Vec::new(&env);
+        if start >= total {
+            return result;
+        }
+        let end = (start + max_limit).min(total);
+        let mut i = start;
+        while i < end {
+            if let Some(m) = msgs.get(i as usize) {
+                result.push_back(m.clone());
+            }
+            i += 1;
+        }
+        result
+    }
+
+    // Extend instance storage TTL on every counter access so the counter key
         // cannot expire between a read and the subsequent write.
         let ext = get_ttl_extension(&env);
         env.storage().instance().extend_ttl(ext / 2, ext);
