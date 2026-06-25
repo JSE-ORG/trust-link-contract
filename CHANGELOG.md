@@ -21,7 +21,10 @@ non-user-facing repository maintenance.
 
 ### Changed
 
-- Nothing yet.
+- Rewrote `CONTRIBUTING.md`: corrected the project structure, build/test
+  commands, and wasm target (`wasm32v1-none`) to match the current workspace
+  layout, and added a Quick Start section so new contributors can set up in
+  under 30 minutes.
 
 ### Deprecated
 
