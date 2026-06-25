@@ -21,7 +21,11 @@ non-user-facing repository maintenance.
 
 ### Changed
 
-- Nothing yet.
+- Split the escrow contract out of the monolithic `lib.rs` into `escrow.rs`
+  (contract logic) and moved the `EscrowData` type into `types.rs`, matching the
+  multi-file layout described in `CONTRIBUTING.md`. No ABI or behaviour change:
+  public function signatures and event topics are unchanged and all items are
+  re-exported from the crate root.
 
 ### Deprecated
 
