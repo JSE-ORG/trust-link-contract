@@ -42,25 +42,48 @@ fn setup_funded_and_shipped() -> Fx {
 
     let amount: i128 = 1_000;
     // shipping_window=0 isolates the dispute-window assertion the issue cares about.
-    let escrow_id = client.create_escrow(&seller, &None::<Address>, &resolver, &token_addr, &amount, &0_u32, &0_u64);
+    let escrow_id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &amount,
+        &0_u32,
+        &0_u64,
+    );
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
     client.fund_escrow(&escrow_id, &buyer);
-    client.mark_shipped(&seller, &escrow_id, &soroban_sdk::String::from_str(&env, "TRACK001"));
+    client.mark_shipped(
+        &seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&env, "TRACK001"),
+    );
     env.ledger().set_timestamp(1_700_000_000);
     client.record_delivery(&admin, &escrow_id);
 
     use crate::{DataKey, EscrowData};
     let data: EscrowData = env
-        .as_contract(&client.address, || env.storage().persistent().get(&DataKey::Escrow(escrow_id)))
+        .as_contract(&client.address, || {
+            env.storage().persistent().get(&DataKey::Escrow(escrow_id))
+        })
         .expect("escrow exists");
-    Fx { env, client, escrow_id, seller, delivered_at: data.delivered_at.unwrap(), token_addr }
+    Fx {
+        env,
+        client,
+        escrow_id,
+        seller,
+        delivered_at: data.delivered_at.unwrap(),
+        token_addr,
+    }
 }
 
 #[test]
 fn auto_release_before_48_hours_is_rejected() {
     let fx = setup_funded_and_shipped();
     // One second before the 48h window closes.
-    fx.env.ledger().with_mut(|li| li.timestamp = fx.delivered_at + DISPUTE_WINDOW_SECS - 1);
+    fx.env
+        .ledger()
+        .with_mut(|li| li.timestamp = fx.delivered_at + DISPUTE_WINDOW_SECS - 1);
 
     assert_eq!(
         fx.client.try_auto_release(&fx.escrow_id),
@@ -73,7 +96,9 @@ fn auto_release_before_48_hours_is_rejected() {
 fn auto_release_after_48_hours_succeeds_and_pays_the_seller() {
     let fx = setup_funded_and_shipped();
     // One second past the 48h window.
-    fx.env.ledger().with_mut(|li| li.timestamp = fx.delivered_at + DISPUTE_WINDOW_SECS + 1);
+    fx.env
+        .ledger()
+        .with_mut(|li| li.timestamp = fx.delivered_at + DISPUTE_WINDOW_SECS + 1);
 
     fx.client.auto_release(&fx.escrow_id);
 
@@ -83,9 +108,13 @@ fn auto_release_after_48_hours_succeeds_and_pays_the_seller() {
 
     // State advanced to Completed.
     use crate::{DataKey, EscrowData};
-    let after: EscrowData = fx.env
+    let after: EscrowData = fx
+        .env
         .as_contract(&fx.client.address, || {
-            fx.env.storage().persistent().get(&DataKey::Escrow(fx.escrow_id))
+            fx.env
+                .storage()
+                .persistent()
+                .get(&DataKey::Escrow(fx.escrow_id))
         })
         .expect("escrow exists");
     assert_eq!(after.state, EscrowState::Completed);
@@ -122,7 +151,11 @@ fn auto_release_fails_when_dispute_is_active() {
     );
 
     client.fund_escrow(&escrow_id, &buyer);
-    client.mark_shipped(&seller, &escrow_id, &SorobanString::from_str(&env, "TRK-DISPUTE"));
+    client.mark_shipped(
+        &seller,
+        &escrow_id,
+        &SorobanString::from_str(&env, "TRK-DISPUTE"),
+    );
 
     client.raise_dispute(
         &buyer,

@@ -82,7 +82,6 @@ pub fn transition_state(from: &EscrowState, to: &EscrowState) -> Result<(), Cont
         (Pending, Funded)
             | (Pending, Canceled)
             | (Funded, Shipped)
-            | (Funded, Completed)
             | (Funded, Disputed)
             | (Funded, Refunded)
             | (Shipped, Completed)
@@ -665,11 +664,7 @@ impl Escrow {
         Ok(escrow_id)
     }
 
-    pub fn fund_escrow(
-        env: Env,
-        escrow_id: u64,
-        buyer: Address,
-    ) -> Result<(), ContractError> {
+    pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
         buyer.require_auth();
         ensure_not_paused(&env)?;
 
@@ -677,6 +672,10 @@ impl Escrow {
 
         if escrow.state != EscrowState::Pending {
             return Err(ContractError::InvalidState);
+        }
+
+        if buyer == escrow.seller || buyer == escrow.resolver {
+            return Err(ContractError::ConflictingRoles);
         }
 
         escrow.buyer = Some(buyer.clone());
@@ -690,11 +689,15 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow);
 
-        let mut buyer_escrows: Vec<u64> = env.storage().persistent()
+        let mut buyer_escrows: Vec<u64> = env
+            .storage()
+            .persistent()
             .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
             .unwrap_or(Vec::new(&env));
         buyer_escrows.push_back(escrow_id);
-        env.storage().persistent().set(&DataKey::BuyerEscrowIndex(buyer.clone()), &buyer_escrows);
+        env.storage()
+            .persistent()
+            .set(&DataKey::BuyerEscrowIndex(buyer.clone()), &buyer_escrows);
 
         emit_escrow_funded(&env, escrow_id, buyer, escrow.amount);
         Ok(())
@@ -713,17 +716,20 @@ impl Escrow {
 
         let mut escrow = load_escrow(&env, escrow_id)?;
 
-        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
+        let buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
         if caller != buyer {
             return Err(ContractError::NotAuthorized);
         }
 
-        if escrow.state != EscrowState::Shipped {
+        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
             return Err(ContractError::InvalidState);
         }
 
         if env.ledger().timestamp() >= escrow.dispute_deadline {
-            return Err(ContractError::DisputeWindowClosed);
+            return Err(ContractError::DeliveryBeforeDisputeWindow);
         }
 
         if description.len() > MAX_DESCRIPTION_LEN {
@@ -757,66 +763,38 @@ impl Escrow {
         let mut escrow = load_escrow(&env, escrow_id)?;
         let buyer = escrow.buyer.clone();
 
+        let is_seller = caller == escrow.seller;
+        let is_buyer = buyer.as_ref() == Some(&caller);
+
         match escrow.state {
             EscrowState::Pending => {
-                if caller != escrow.seller && buyer.as_ref() != Some(&caller) {
-                    return Err(ContractError::NotAuthorized);
+                if !is_seller && !is_buyer {
+                    return Err(ContractError::InvalidState);
                 }
                 escrow.state = EscrowState::Canceled;
             }
             EscrowState::Funded => {
-                if caller == escrow.seller {
+                if is_buyer {
+                    token::Client::new(&env, &escrow.token).transfer(
+                        &env.current_contract_address(),
+                        &caller,
+                        &escrow.amount,
+                    );
+                    if escrow.fee_bps > 0 {
+                        escrow.state = EscrowState::Refunded;
+                    } else {
+                        escrow.state = EscrowState::Canceled;
+                    }
+                } else if is_seller {
+                    escrow.state = EscrowState::Canceled;
+                } else {
                     return Err(ContractError::InvalidState);
                 }
-
-                let buyer_addr = buyer.as_ref().ok_or(ContractError::EscrowHasNoBuyer)?;
-                if &caller != buyer_addr {
-                    return Err(ContractError::NotAuthorized);
-                }
-
-                token::Client::new(&env, &escrow.token).transfer(
-                    &env.current_contract_address(),
-                    &caller,
-                    &escrow.amount,
-                );
-                escrow.state = EscrowState::Refunded;
             }
             _ => return Err(ContractError::InvalidState),
         }
 
         save_escrow(&env, escrow_id, &escrow);
-        emit_escrow_cancelled(&env, escrow_id, escrow.seller);
-        let is_seller = caller == escrow.seller;
-        let is_buyer = Some(&caller) == escrow.buyer.as_ref();
-
-        if !is_seller && !is_buyer {
-            return Err(ContractError::NotAuthorized);
-        }
-
-        if is_buyer && escrow.state != EscrowState::Funded {
-            return Err(ContractError::InvalidState);
-        }
-
-        if is_seller && !is_buyer && escrow.state != EscrowState::Pending && escrow.state != EscrowState::Funded {
-            return Err(ContractError::InvalidState);
-        }
-
-        if is_buyer {
-            if let Some(buyer) = &escrow.buyer {
-                token::Client::new(&env, &escrow.token)
-                    .transfer(&env.current_contract_address(), buyer, &(escrow.amount as i128));
-            }
-            if escrow.fee_bps > 0 {
-                escrow.state = EscrowState::Refunded;
-            } else {
-                escrow.state = EscrowState::Canceled;
-            }
-        } else {
-            escrow.state = EscrowState::Canceled;
-        }
-
-        save_escrow(&env, escrow_id, &escrow);
-
         emit_escrow_cancelled(&env, escrow_id, caller);
         Ok(())
     }
@@ -882,10 +860,6 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        if escrow.delivered_at.is_some() {
-            return Err(ContractError::InvalidState);
-        }
-
         let delivered_at = env.ledger().timestamp();
         escrow.delivered_at = Some(delivered_at);
         save_escrow(&env, escrow_id, &escrow);
@@ -916,14 +890,13 @@ impl Escrow {
         }
 
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-            return Err(ContractError::InvalidState);
+            return Err(ContractError::InvalidStateTransition);
         }
 
         if env.ledger().timestamp() < escrow.dispute_deadline {
             return Err(ContractError::DeliveryBeforeDisputeWindow);
         }
 
-        let fee_config = read_fee_config(&env);
         let fee_collector: Address = env
             .storage()
             .instance()
@@ -936,7 +909,7 @@ impl Escrow {
             &escrow.seller,
             &fee_collector,
             escrow.amount,
-            fee_config.protocol_fee_bps,
+            escrow.fee_bps,
         )?;
 
         escrow.state = EscrowState::Completed;
@@ -947,7 +920,7 @@ impl Escrow {
             escrow_id,
             escrow.seller.clone(),
             escrow.amount,
-            fee_config.protocol_fee_bps,
+            escrow.fee_bps,
         );
         Ok(())
     }
