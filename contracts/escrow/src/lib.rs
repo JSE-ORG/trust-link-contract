@@ -24,7 +24,7 @@ pub use crate::events::{
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowState,
-    FeeConfig, PublicContractConfig, ResolutionType,
+    FeeConfig, PublicContractConfig, ResolutionType, EscrowData,
 };
 
 /// Maximum escrow fee in basis points (300 = 3%).
@@ -138,8 +138,7 @@ fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
     env.storage().instance().set(&DataKey::FeeConfig, fee_config);
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
+
 
 
 fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
