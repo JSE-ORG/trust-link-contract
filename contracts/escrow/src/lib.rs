@@ -52,6 +52,12 @@ const MAX_COMBINED_FEE_BPS: u32 = 1_000;
 /// Keeps the contract from accepting zero or negative escrows.
 pub const MIN_ESCROW_AMOUNT: i128 = 1;
 
+/// Length of the dispute window in seconds (172_800 = 48 hours).
+///
+/// On `fund_escrow` the contract sets `dispute_deadline = funded_at +
+/// DISPUTE_WINDOW`. Until that deadline the buyer may `raise_dispute`, and
+/// `confirm_delivery` is rejected; once the deadline passes the funds become
+/// releasable to the seller.
 const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
 const DEFAULT_TTL_EXTENSION: u32 = 120_960;
