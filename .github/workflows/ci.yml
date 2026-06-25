@@ -20,6 +20,8 @@ jobs:
           components: clippy, rustfmt
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: cargo check --workspace
       - run: cargo clippy --workspace -- -D warnings
       - run: cargo fmt --all --check
@@ -33,6 +35,8 @@ jobs:
         with:
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: cargo test --workspace
 
   build:
@@ -44,5 +48,7 @@ jobs:
         with:
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: cargo build --workspace --release
       - run: cargo build --workspace --release --target wasm32v1-none
