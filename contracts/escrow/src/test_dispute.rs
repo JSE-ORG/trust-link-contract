@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{DisputeStatus, Escrow, EscrowClient};
+use crate::{ContractError, DisputeStatus, Escrow, EscrowClient, ResolutionType};
 use soroban_sdk::{testutils::{Address as _, Ledger as _}, token, Address, BytesN, Env, String, Symbol};
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
@@ -36,7 +36,15 @@ fn test_get_dispute_returns_accurate_data_after_raise() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &100_u32, &3600_u64);
+    let id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
 
     let sac = token::StellarAssetClient::new(&env, &token);
     sac.mint(&buyer, &amount);
@@ -84,22 +92,30 @@ fn test_dispute_allowed_after_shipping() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &100_u32, &3600_u64);
-    
+    let id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     sac.mint(&buyer, &amount);
-    
+
     // Use fixed deterministic timestamp
     env.ledger().set_timestamp(1_700_000_000);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &String::from_str(&env, "TRACK-BOUNDARY"));
-    
+
     env.ledger().set_timestamp(1_700_172_798);
 
     let reason = soroban_sdk::Symbol::new(&env, "reason");
     let description = soroban_sdk::String::from_str(&env, "desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
-    
+
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
     let result = client.get_dispute(&id);
     assert!(result.is_some());
@@ -116,11 +132,19 @@ fn test_dispute_allowed_on_late_shipped_escrow() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &100_u32, &3600_u64);
-    
+    let id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     sac.mint(&buyer, &amount);
-    
+
     // Use fixed deterministic timestamp
     env.ledger().set_timestamp(1_700_000_000);
     client.fund_escrow(&id, &buyer);
@@ -146,25 +170,36 @@ fn test_dispute_requires_shipped_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &100_u32, &3600_u64);
-    
+    let id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     sac.mint(&buyer, &amount);
     client.fund_escrow(&id, &buyer);
-    
+
     let escrow = client.get_escrow(&id);
     let funded_at = escrow.funded_at; // Should be 1_700_000_000
-    
+
     // T + 172800 seconds (48:00:00) - EXACTLY 48 HOURS
     env.ledger().set_timestamp(funded_at + 172_800);
 
     let reason = soroban_sdk::Symbol::new(&env, "reason");
     let description = soroban_sdk::String::from_str(&env, "desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
-    
+
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    assert_eq!(result, Err(Ok(crate::ContractError::DeliveryBeforeDisputeWindow)));
-    
+    assert_eq!(
+        result,
+        Err(Ok(crate::ContractError::DeliveryBeforeDisputeWindow))
+    );
+
     // Verify no state mutation on expired action
     let escrow_after = client.get_escrow(&id);
     assert_eq!(escrow_after.state, crate::EscrowState::Funded);
@@ -179,33 +214,43 @@ fn test_dispute_rejected_after_48h_deadline() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &100_u32, &3600_u64);
-    
+    let id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     sac.mint(&buyer, &amount);
-    
+
     // Use fixed deterministic timestamp
     env.ledger().set_timestamp(1_700_000_000);
     client.fund_escrow(&id, &buyer);
-    
+
     let escrow = client.get_escrow(&id);
     let funded_at = escrow.funded_at; // Should be 1_700_000_000
-    
+
     // T + 172801 seconds - AFTER DEADLINE
     env.ledger().set_timestamp(funded_at + 172_801);
 
     let reason = soroban_sdk::Symbol::new(&env, "reason");
     let description = soroban_sdk::String::from_str(&env, "desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
-    
+
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    assert_eq!(result, Err(Ok(crate::ContractError::DeliveryBeforeDisputeWindow)));
-    
+    assert_eq!(
+        result,
+        Err(Ok(crate::ContractError::DeliveryBeforeDisputeWindow))
+    );
+
     // Verify no state mutation on expired action
     let escrow_after = client.get_escrow(&id);
     assert_eq!(escrow_after.state, crate::EscrowState::Funded);
 }
-
 
 // Regression test for issue #200: Verify buyers can raise dispute from Funded state
 #[test]
@@ -216,33 +261,136 @@ fn test_dispute_from_funded_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &100_u32, &3600_u64);
-    
+    let id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     sac.mint(&buyer, &amount);
-    
+
     // Fund the escrow but don't mark as shipped
     client.fund_escrow(&id, &buyer);
-    
+
     // Verify state is Funded
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, crate::EscrowState::Funded);
-    
+
     // Buyer should be able to raise dispute from Funded state
     let reason = soroban_sdk::Symbol::new(&env, "non_shipment");
     let description = soroban_sdk::String::from_str(&env, "Seller never shipped the item");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xcd; 32]);
-    
+
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    
+
     // Verify dispute was raised successfully
     let dispute = client.get_dispute(&id);
     assert!(dispute.is_some());
     let dispute = dispute.unwrap();
     assert_eq!(dispute.status, crate::DisputeStatus::Active);
     assert_eq!(dispute.reason, reason);
-    
+
     // Verify state transitioned to Disputed
     let escrow_after = client.get_escrow(&id);
     assert_eq!(escrow_after.state, crate::EscrowState::Disputed);
+}
+
+#[test]
+fn test_dispute_from_pending_state() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = crate::EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let amount = 1000_i128;
+    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
+
+    let reason = soroban_sdk::Symbol::new(&env, "reason");
+    let description = soroban_sdk::String::from_str(&env, "desc");
+    let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
+    
+    // Attempt dispute from Pending
+    let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
+    assert_eq!(result, Err(Ok(crate::ContractError::InvalidStateTransition)));
+}
+
+#[test]
+fn test_dispute_from_canceled_state() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = crate::EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let amount = 1000_i128;
+    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
+    
+    client.cancel_escrow(&seller, &id);
+
+    let reason = soroban_sdk::Symbol::new(&env, "reason");
+    let description = soroban_sdk::String::from_str(&env, "desc");
+    let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
+    
+    // Attempt dispute from Canceled
+    let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
+    assert_eq!(result, Err(Ok(crate::ContractError::InvalidStateTransition)));
+}
+
+#[test]
+fn test_dispute_from_completed_state() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = crate::EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let amount = 1000_i128;
+    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
+    
+    let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    sac.mint(&buyer, &amount);
+    client.fund_escrow(&id, &buyer);
+    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "TRK"));
+    
+    // Force completion by confirm_delivery
+    env.ledger().set_timestamp(172_801);
+    client.confirm_delivery(&buyer, &id);
+
+    let reason = soroban_sdk::Symbol::new(&env, "reason");
+    let description = soroban_sdk::String::from_str(&env, "desc");
+    let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
+    
+    // Attempt dispute from Completed
+    let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
+    assert_eq!(result, Err(Ok(crate::ContractError::InvalidStateTransition)));
+}
+
+#[test]
+fn test_dispute_from_refunded_state() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = crate::EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let amount = 1000_i128;
+    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
+    
+    let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    sac.mint(&buyer, &amount);
+    client.fund_escrow(&id, &buyer);
+    
+    // To refund, dispute then resolve with refund.
+    let reason = soroban_sdk::Symbol::new(&env, "reason");
+    let description = soroban_sdk::String::from_str(&env, "desc");
+    let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
+    client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
+
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Refund);
+
+    // Attempt dispute from Refunded
+    let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
+    assert_eq!(result, Err(Ok(crate::ContractError::InvalidStateTransition)));
 }
