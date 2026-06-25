@@ -12,6 +12,10 @@ non-user-facing repository maintenance.
 
 ### Added
 
+- Added README status badges for CI, test count, code coverage, and crate
+  version.
+- Added a `coverage` job to the CI workflow that uploads `cargo-llvm-cov`
+  results to Codecov.
 - Added event schema reference for indexer developers in `docs/events.md`.
 - Added Soroban SDK and environment compatibility matrix in
   `docs/soroban-compatibility.md`.
