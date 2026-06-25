@@ -394,6 +394,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Pauses the contract. Only callable by admin.
     pub fn pause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
         // SECURITY:
         // Authenticate before any state reads.
@@ -409,6 +410,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Unpauses the contract. Only callable by admin.
     pub fn unpause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
         // SECURITY:
         // Authenticate before any state reads.
@@ -429,6 +431,7 @@ impl Escrow {
         env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
     }
 
+    /// Sets a new admin for the contract. Only callable by current admin.
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
         let old_admin = require_admin(&env)?;
         old_admin.require_auth();
@@ -442,6 +445,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Updates the protocol fee. Only callable by admin.
     pub fn set_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
         caller.require_auth();
         let admin = require_admin(&env)?;
@@ -465,6 +469,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Sets the TTL extension for storage entries. Only callable by admin.
     pub fn set_ttl_extension(env: Env, caller: Address, ledgers: u32) -> Result<(), ContractError> {
         caller.require_auth();
 
@@ -477,6 +482,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Withdraws accumulated fees to a specified address. Only callable by admin.
     pub fn withdraw_fees(
         env: Env,
         caller: Address,
@@ -518,6 +524,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Sets a new fee collector address. Only callable by admin.
     pub fn set_fee_collector(env: Env, new_collector: Address) -> Result<(), ContractError> {
         let admin = require_admin(&env)?;
         admin.require_auth();
@@ -538,6 +545,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Creates a new escrow with the specified parameters. Returns the escrow ID.
     pub fn create_escrow(
         env: Env,
         seller: Address,
@@ -631,6 +639,7 @@ impl Escrow {
         Ok(escrow_id)
     }
 
+    /// Funds an existing pending escrow. Callable by the buyer.
     pub fn fund_escrow(
         env: Env,
         escrow_id: u64,
@@ -666,6 +675,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Raises a dispute on a shipped escrow. Callable by the buyer.
     pub fn raise_dispute(
         env: Env,
         caller: Address,
@@ -716,6 +726,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Cancels an escrow. Callable by buyer or seller depending on state.
     pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
 
@@ -791,6 +802,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Records the delivery of an escrow. Callable by admin.
     pub fn record_delivery(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
 
@@ -822,6 +834,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Confirms delivery and completes the escrow. Callable by the buyer.
     pub fn confirm_delivery(
         env: Env,
         caller: Address,
@@ -879,6 +892,7 @@ impl Escrow {
 
 
 
+    /// Resolves an active dispute. Callable by resolver or admin.
     pub fn resolve_dispute(env: Env, caller: Address, escrow_id: u64, resolution: ResolutionType) -> Result<(), ContractError> {
         // SECURITY:
         // Authenticate before any state reads.
@@ -963,20 +977,24 @@ impl Escrow {
         Ok(())
     }
 
+    /// Updates the arbitration fee. Only callable by admin.
     pub fn set_arbitration_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
         let old_fee_bps = update_arbitration_fee(&env, &caller, fee_bps)?;
         emit_arbitration_fee_updated(&env, old_fee_bps, fee_bps);
         Ok(())
     }
 
+    /// Returns the current arbitration fee.
     pub fn get_arbitration_fee(env: Env) -> u32 {
         read_fee_config(&env).arbitration_fee_bps
     }
 
+    /// Returns the total arbitration fees accumulated for a token.
     pub fn get_total_arbitration_fees(env: Env, token: Address) -> i128 {
         env.storage().instance().get(&DataKey::TotalArbitrationFees(token)).unwrap_or(0)
     }
 
+    /// Automatically releases funds if the dispute window or shipping window has elapsed.
     pub fn auto_release(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_not_paused(&env)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
@@ -1040,14 +1058,17 @@ impl Escrow {
         Ok(())
     }
 
+    /// Retrieves the data for a specific escrow.
     pub fn get_escrow(env: Env, escrow_id: u64) -> Result<EscrowData, ContractError> {
         load_escrow(&env, escrow_id)
     }
 
+    /// Retrieves the dispute data for a specific escrow, if any.
     pub fn get_dispute(env: Env, escrow_id: u64) -> Option<DisputeData> {
         load_dispute(&env, escrow_id).ok()
     }
 
+    /// Retrieves all escrow IDs associated with a specific buyer.
     pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
         if let Some(ids) = env.storage().persistent().get(&DataKey::BuyerEscrowIndex(buyer.clone())) {
             return ids;
@@ -1068,6 +1089,7 @@ impl Escrow {
         result
     }
 
+    /// Retrieves all escrow IDs associated with a specific vendor.
     pub fn get_escrows_by_vendor(env: Env, vendor: Address) -> Vec<u64> {
         storage::read_vendor_escrow_index(&env, &vendor)
     }
@@ -1082,6 +1104,7 @@ impl Escrow {
         }
     }
 
+    /// Returns the public configuration of the contract.
     pub fn get_public_config(env: Env) -> PublicContractConfig {
         let fee_bps: u32 = read_fee_config(&env).protocol_fee_bps;
 
@@ -1125,6 +1148,7 @@ impl Escrow {
         Ok(ContractConfig { admin, fee_bps, fee_collector, escrow_count })
     }
 
+    /// Returns the current fee configuration.
     pub fn get_fee_config(env: Env) -> FeeConfig {
         read_fee_config(&env)
     }
