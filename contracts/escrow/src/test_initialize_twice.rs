@@ -40,13 +40,19 @@ fn storage_from_the_first_initialize_is_unchanged_after_a_failed_second_call() {
 
     // Storage still reflects the first call's values.
     let stored_admin: Address = env
-        .as_contract(&client.address, || env.storage().instance().get(&DataKey::Admin))
+        .as_contract(&client.address, || {
+            env.storage().instance().get(&DataKey::Admin)
+        })
         .expect("admin set");
     let stored_collector: Address = env
-        .as_contract(&client.address, || env.storage().instance().get(&DataKey::FeeCollector))
+        .as_contract(&client.address, || {
+            env.storage().instance().get(&DataKey::FeeCollector)
+        })
         .expect("fee collector set");
     let stored_fee: crate::FeeConfig = env
-        .as_contract(&client.address, || env.storage().instance().get(&DataKey::FeeConfig))
+        .as_contract(&client.address, || {
+            env.storage().instance().get(&DataKey::FeeConfig)
+        })
         .expect("fee config set");
 
     assert_eq!(stored_admin, admin_a);

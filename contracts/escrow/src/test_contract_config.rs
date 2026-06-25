@@ -30,7 +30,7 @@ fn test_get_public_config() {
     client.set_protocol_fee(&admin, &150);
     let config = client.get_contract_config();
     assert_eq!(config.fee_bps, 150);
-    
+
     // Create an escrow to increment the counter
     let seller = Address::generate(&env);
     let resolver = Address::generate(&env);
