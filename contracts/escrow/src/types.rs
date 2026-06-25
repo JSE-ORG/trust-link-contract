@@ -31,6 +31,21 @@ pub enum DisputeStatus {
     Resolved,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiResolver {
+    pub resolvers: Vec<Address>,
+    pub threshold: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FallbackResolver {
+    pub primary: Address,
+    pub backup: Address,
+    pub dispute_deadline: u64,
+}
+
 /// Resolver configuration: either a single resolver (backward compat)
 /// or multiple resolvers with a voting threshold.
 #[contracttype]
@@ -39,10 +54,9 @@ pub enum ResolverSet {
     /// Single resolver (backward compatible mode)
     Single(Address),
     /// Multiple resolvers with M-of-N voting threshold
-    Multi {
-        resolvers: Vec<Address>,
-        threshold: u32, // minimum votes required (M in M-of-N)
-    },
+    Multi(MultiResolver),
+    /// Primary resolver with a backup that can resolve after a deadline
+    Fallback(FallbackResolver),
 }
 
 impl ResolverSet {
@@ -50,7 +64,8 @@ impl ResolverSet {
     pub fn count(&self) -> u32 {
         match self {
             ResolverSet::Single(_) => 1,
-            ResolverSet::Multi { resolvers, .. } => resolvers.len() as u32,
+            ResolverSet::Multi(m) => m.resolvers.len() as u32,
+            ResolverSet::Fallback(_) => 2,
         }
     }
 
@@ -58,14 +73,15 @@ impl ResolverSet {
     pub fn contains(&self, addr: &Address) -> bool {
         match self {
             ResolverSet::Single(resolver) => addr == resolver,
-            ResolverSet::Multi { resolvers, .. } => {
-                for resolver in resolvers {
-                    if resolver == addr {
+            ResolverSet::Multi(m) => {
+                for resolver in m.resolvers.clone() {
+                    if resolver == *addr {
                         return true;
                     }
                 }
                 false
-            }
+            },
+            ResolverSet::Fallback(f) => addr == &f.primary || addr == &f.backup,
         }
     }
 
@@ -73,7 +89,8 @@ impl ResolverSet {
     pub fn threshold(&self) -> u32 {
         match self {
             ResolverSet::Single(_) => 1,
-            ResolverSet::Multi { threshold, .. } => *threshold,
+            ResolverSet::Multi(m) => m.threshold,
+            ResolverSet::Fallback(_) => 1,
         }
     }
 }

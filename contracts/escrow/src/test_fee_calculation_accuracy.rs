@@ -401,7 +401,8 @@ fn test_fee_calculation_invalid_amount() {
 #[test]
 fn test_dispute_allocations_include_protocol_fee() {
     use crate::helpers::payout::calculate_dispute_allocations;
-    use crate::types::{EscrowData, EscrowState, ResolutionType};
+    use crate::types::{EscrowState, ResolutionType};
+    use crate::EscrowData;
     use soroban_sdk::{testutils::Address as _, Address, Env};
 
     let env = Env::default();
@@ -467,7 +468,8 @@ fn test_dispute_allocations_include_protocol_fee() {
 #[test]
 fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     use crate::helpers::payout::calculate_dispute_allocations;
-    use crate::types::{EscrowData, EscrowState, ResolutionType};
+    use crate::types::{EscrowState, ResolutionType};
+    use crate::EscrowData;
     use soroban_sdk::{testutils::Address as _, Address, Env};
 
     let env = Env::default();

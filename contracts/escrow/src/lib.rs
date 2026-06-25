@@ -110,7 +110,7 @@ fn add_or_update_vote(
             if vote.resolver == *resolver {
                 // Update existing vote
                 let mut updated = vote.clone();
-                updated.resolution = resolution;
+                updated.resolution = resolution.clone();
                 updated.voted_at = current_time;
                 votes.set(i, updated);
                 found = true;
@@ -275,16 +275,16 @@ fn validate_resolvers(
     }
 
     // For multi-resolver, validate threshold
-    if let ResolverSet::Multi { resolvers: resolver_vec, threshold } = resolvers {
-        let count = resolver_vec.len() as u32;
-        if *threshold == 0 || *threshold > count {
+    if let ResolverSet::Multi(m) = resolvers {
+        let count = m.resolvers.len() as u32;
+        if m.threshold == 0 || m.threshold > count {
             return Err(ContractError::InvalidAmount); // Use as proxy for invalid threshold
         }
         
         // Ensure all resolvers are unique
-        for i in 0..resolver_vec.len() {
-            for j in (i + 1)..resolver_vec.len() {
-                if resolver_vec.get(i).unwrap() == resolver_vec.get(j).unwrap() {
+        for i in 0..m.resolvers.len() {
+            for j in (i + 1)..m.resolvers.len() {
+                if m.resolvers.get(i).unwrap() == m.resolvers.get(j).unwrap() {
                     return Err(ContractError::ConflictingRoles);
                 }
             }
@@ -748,12 +748,10 @@ impl Escrow {
         // Extract resolver address for event (for backward compat)
         let resolver_addr = match &resolvers {
             ResolverSet::Single(addr) => addr.clone(),
-            ResolverSet::Multi { resolvers, .. } => {
-                resolvers.get(0).unwrap_or_else(|| {
-                    let env_ref = &env;
-                    Address::generate(env_ref)
-                })
-            }
+            ResolverSet::Multi(m) => {
+                m.resolvers.get(0).unwrap()
+            },
+            ResolverSet::Fallback(f) => f.primary.clone(),
         };
 
         emit_escrow_created(
@@ -801,7 +799,7 @@ impl Escrow {
         validate_escrow_fee_bps(fee_bps)?;
 
         // Validate multi-resolver configuration
-        let resolver_set = ResolverSet::Multi { resolvers, threshold };
+        let resolver_set = ResolverSet::Multi(crate::types::MultiResolver { resolvers, threshold });
         validate_resolvers(&resolver_set, &seller, &buyer)?;
 
         let escrow_id: u64 = env
@@ -842,8 +840,8 @@ impl Escrow {
         increment_counter(&env, &DataKey::TotalCreated)?;
 
         // Emit with first resolver for backward compat
-        if let ResolverSet::Multi { resolvers, .. } = &resolver_set {
-            let resolver_addr = resolvers.get(0).unwrap().clone();
+        if let ResolverSet::Multi(m) = &resolver_set {
+            let resolver_addr = m.resolvers.get(0).unwrap().clone();
             emit_escrow_created(
                 &env,
                 escrow_id,
@@ -855,6 +853,91 @@ impl Escrow {
                 escrow.shipping_window,
             );
         }
+
+        Ok(escrow_id)
+    }
+
+    /// Create escrow with a fallback resolver that can take over after a deadline.
+    pub fn create_escrow_with_fallback(
+        env: Env,
+        seller: Address,
+        buyer: Option<Address>,
+        primary_resolver: Address,
+        backup_resolver: Address,
+        dispute_deadline: u64,
+        token: Address,
+        amount: i128,
+        fee_bps: u32,
+        shipping_window: u64,
+    ) -> Result<u64, ContractError> {
+        // SECURITY:
+        // Authenticate before any state reads.
+        seller.require_auth();
+
+        ensure_not_paused(&env)?;
+
+        if amount <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+        if amount > MAX_ESCROW_AMOUNT {
+            return Err(ContractError::AmountExceedsMaximum);
+        }
+        if amount < MIN_ESCROW_AMOUNT {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        validate_escrow_fee_bps(fee_bps)?;
+
+        let resolver_set = ResolverSet::Fallback(crate::types::FallbackResolver { primary: primary_resolver.clone(), backup: backup_resolver, dispute_deadline });
+        validate_resolvers(&resolver_set, &seller, &buyer)?;
+
+        let escrow_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::EscrowCounter)
+            .expect("counter initialized");
+        let next_id = escrow_id.checked_add(1).ok_or(ContractError::ArithmeticError)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::EscrowCounter, &next_id);
+        
+        let ext = get_ttl_extension(&env);
+        env.storage().instance().extend_ttl(ext / 2, ext);
+
+        let escrow = EscrowData {
+            seller,
+            buyer,
+            resolvers: resolver_set,
+            token,
+            amount,
+            fee_bps,
+            shipping_window,
+            funded_at: 0,
+            dispute_deadline: 0,
+            state: EscrowState::Pending,
+            shipped_at: 0,
+            delivered_at: None,
+            tracking_id: None,
+        };
+
+        save_escrow(&env, escrow_id, &escrow);
+
+        let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &escrow.seller);
+        vendor_escrows.push_back(escrow_id);
+        storage::write_vendor_escrow_index(&env, &escrow.seller, &vendor_escrows);
+
+        increment_counter(&env, &DataKey::TotalCreated)?;
+
+        emit_escrow_created(
+            &env,
+            escrow_id,
+            escrow.seller.clone(),
+            primary_resolver,
+            escrow.token.clone(),
+            escrow.amount,
+            escrow.fee_bps,
+            escrow.shipping_window,
+        );
 
         Ok(escrow_id)
     }
@@ -1018,15 +1101,24 @@ impl Escrow {
         // Check authorization: caller must be a resolver or admin
         let is_authorized = match &escrow.resolvers {
             ResolverSet::Single(resolver) => caller == *resolver || caller == admin,
-            ResolverSet::Multi { resolvers, .. } => {
+            ResolverSet::Multi(m) => {
                 let mut found = false;
-                for resolver in resolvers {
-                    if caller == *resolver {
+                for resolver in m.resolvers.clone() {
+                    if caller == resolver {
                         found = true;
                         break;
                     }
                 }
                 found || caller == admin
+            },
+            ResolverSet::Fallback(f) => {
+                if caller == f.primary {
+                    true
+                } else if caller == f.backup {
+                    env.ledger().timestamp() >= f.dispute_deadline
+                } else {
+                    caller == admin
+                }
             }
         };
 
@@ -1112,7 +1204,8 @@ impl Escrow {
             // Get first resolver address for event (backward compat)
             let resolver_addr = match &updated_escrow.resolvers {
                 ResolverSet::Single(addr) => addr.clone(),
-                ResolverSet::Multi { resolvers, .. } => resolvers.get(0).unwrap().clone(),
+                ResolverSet::Multi(m) => m.resolvers.get(0).unwrap().clone(),
+                ResolverSet::Fallback(f) => f.primary.clone(),
             };
 
             emit_dispute_resolved(
