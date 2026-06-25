@@ -284,6 +284,65 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
+<<<<<<< HEAD
+=======
+                  "u64": "2"
+                },
+                {
+                  "string": "TRK-B"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN",
+              "function_name": "raise_dispute",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+                },
+                {
+                  "u64": "2"
+                },
+                {
+                  "symbol": "reason"
+                },
+                {
+                  "string": "desc"
+                },
+                {
+                  "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN",
+              "function_name": "mark_shipped",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+>>>>>>> 6329d33 (fixed ci failure)
                   "u64": "1"
                 },
                 {
@@ -321,21 +380,40 @@
     ],
     [
       [
+<<<<<<< HEAD
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+=======
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+>>>>>>> 6329d33 (fixed ci failure)
         {
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN",
+<<<<<<< HEAD
               "function_name": "mark_shipped",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+=======
+              "function_name": "resolve_dispute",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+>>>>>>> 6329d33 (fixed ci failure)
                 },
                 {
                   "u64": "2"
                 },
                 {
+<<<<<<< HEAD
                   "string": "TRK-B"
+=======
+                  "vec": [
+                    {
+                      "symbol": "Refund"
+                    }
+                  ]
+>>>>>>> 6329d33 (fixed ci failure)
                 }
               ]
             }
@@ -344,6 +422,15 @@
         }
       ]
     ],
+<<<<<<< HEAD
+=======
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+>>>>>>> 6329d33 (fixed ci failure)
     []
   ],
   "ledger": {
@@ -568,7 +655,11 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
               "key": {
                 "ledger_key_nonce": {
+<<<<<<< HEAD
                   "nonce": "115220454072064130"
+=======
+                  "nonce": "1301173170172112462"
+>>>>>>> 6329d33 (fixed ci failure)
                 }
               },
               "durability": "temporary",
@@ -605,6 +696,49 @@
           "data": {
             "contract_data": {
               "ext": "v0",
+<<<<<<< HEAD
+=======
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "6517132746326325848"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "115220454072064130"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+>>>>>>> 6329d33 (fixed ci failure)
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
               "key": {
                 "ledger_key_nonce": {
@@ -688,7 +822,11 @@
           },
           "ext": "v0"
         },
+<<<<<<< HEAD
         "live_until": 4095
+=======
+        "live_until": 120960
+>>>>>>> 6329d33 (fixed ci failure)
       },
       {
         "entry": {
@@ -719,7 +857,99 @@
           },
           "ext": "v0"
         },
+<<<<<<< HEAD
         "live_until": 4095
+=======
+        "live_until": 120960
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "Dispute"
+                  },
+                  {
+                    "u64": "2"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "map": [
+                  {
+                    "key": {
+                      "symbol": "description"
+                    },
+                    "val": {
+                      "string": "desc"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "disputed_at"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "escrow_id"
+                    },
+                    "val": {
+                      "u64": "2"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "evidence_hash"
+                    },
+                    "val": {
+                      "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "reason"
+                    },
+                    "val": {
+                      "symbol": "reason"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "status"
+                    },
+                    "val": {
+                      "vec": [
+                        {
+                          "symbol": "Resolved"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "tracking_id"
+                    },
+                    "val": {
+                      "string": "TRK-B"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 120960
+>>>>>>> 6329d33 (fixed ci failure)
       },
       {
         "entry": {
@@ -942,7 +1172,11 @@
                       "symbol": "shipped_at"
                     },
                     "val": {
+<<<<<<< HEAD
                       "u64": "172801"
+=======
+                      "u64": "0"
+>>>>>>> 6329d33 (fixed ci failure)
                     }
                   },
                   {
@@ -960,7 +1194,11 @@
                     "val": {
                       "vec": [
                         {
+<<<<<<< HEAD
                           "symbol": "Shipped"
+=======
+                          "symbol": "Refunded"
+>>>>>>> 6329d33 (fixed ci failure)
                         }
                       ]
                     }
@@ -1042,6 +1280,24 @@
                       "key": {
                         "vec": [
                           {
+<<<<<<< HEAD
+=======
+                            "symbol": "AccumulatedFees"
+                          },
+                          {
+                            "address": "CCF7CGAN3G4L2LJV6EB3GZKQSQY6YGJ4XEQYQVA7GXOYRGIQXSIWVBTI"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+>>>>>>> 6329d33 (fixed ci failure)
                             "symbol": "Admin"
                           }
                         ]
@@ -1119,6 +1375,24 @@
                       "key": {
                         "vec": [
                           {
+<<<<<<< HEAD
+=======
+                            "symbol": "TotalArbitrationFees"
+                          },
+                          {
+                            "address": "CCF7CGAN3G4L2LJV6EB3GZKQSQY6YGJ4XEQYQVA7GXOYRGIQXSIWVBTI"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+>>>>>>> 6329d33 (fixed ci failure)
                             "symbol": "TotalCompleted"
                           }
                         ]
@@ -1138,6 +1412,33 @@
                       "val": {
                         "u64": "2"
                       }
+<<<<<<< HEAD
+=======
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TotalDisputed"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "1"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TotalRefunded"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "1"
+                      }
+>>>>>>> 6329d33 (fixed ci failure)
                     }
                   ]
                 }
@@ -1173,7 +1474,11 @@
                       "symbol": "amount"
                     },
                     "val": {
+<<<<<<< HEAD
                       "i128": "1500"
+=======
+                      "i128": "2000"
+>>>>>>> 6329d33 (fixed ci failure)
                     }
                   },
                   {
@@ -1225,7 +1530,11 @@
                       "symbol": "amount"
                     },
                     "val": {
+<<<<<<< HEAD
                       "i128": "500"
+=======
+                      "i128": "0"
+>>>>>>> 6329d33 (fixed ci failure)
                     }
                   },
                   {

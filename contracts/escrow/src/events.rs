@@ -457,7 +457,10 @@ pub struct MessagePosted {
 pub fn emit_message_posted(env: &Env, escrow_id: u64, sender: Address) {
     env.events().publish(
         (Symbol::new(env, "message_posted"),),
-        MessagePosted { escrow_id, sender, timestamp: env.ledger().timestamp() },
+        MessagePosted {
+            escrow_id,
+            sender,
+            timestamp: env.ledger().timestamp(),
+        },
     );
 }
-

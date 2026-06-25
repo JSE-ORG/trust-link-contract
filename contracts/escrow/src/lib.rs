@@ -1,14 +1,19 @@
 #![allow(deprecated, unused_imports)]
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, String, Vec};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec,
+};
 
 // Added import for Message
-use crate::types::Message;
 use crate::events::emit_message_posted;
+<<<<<<< HEAD
 #![no_std]
 #![allow(deprecated, clippy::too_many_arguments)]
 use soroban_sdk::{
     contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec,
 };
+=======
+use crate::types::Message;
+>>>>>>> 6329d33 (fixed ci failure)
 
 pub mod errors;
 pub mod events;
@@ -28,8 +33,13 @@ pub use crate::events::{
     ProtocolFeeUpdated, ResolverRotated,
 };
 pub use crate::types::{
+<<<<<<< HEAD
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowState, FeeConfig,
     PublicContractConfig, ResolutionType,
+=======
+    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowState,
+    FeeConfig, PublicContractConfig, ResolutionType,
+>>>>>>> 6329d33 (fixed ci failure)
 };
 
 /// Maximum escrow fee in basis points (300 = 3%).
@@ -155,6 +165,7 @@ fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
         .set(&DataKey::FeeConfig, fee_config);
 }
 
+<<<<<<< HEAD
 
 
 #[contracttype]
@@ -176,6 +187,8 @@ pub struct EscrowData {
     pub notes: Option<String>,
 }
 
+=======
+>>>>>>> 6329d33 (fixed ci failure)
 fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
     if fee_bps > MAX_ESCROW_FEE_BPS {
         return Err(ContractError::FeeExceedsMax);
@@ -251,6 +264,7 @@ fn update_arbitration_fee(env: &Env, caller: &Address, fee_bps: u32) -> Result<u
     Ok(old_fee)
 }
 
+<<<<<<< HEAD
 #[allow(unused_macros)]
 macro_rules! require_state {
     ($escrow:expr, $expected:expr) => {
@@ -263,6 +277,8 @@ macro_rules! require_state {
     };
 }
 
+=======
+>>>>>>> 6329d33 (fixed ci failure)
 fn get_ttl_extension(env: &Env) -> u32 {
     env.storage()
         .instance()
@@ -678,6 +694,7 @@ impl Escrow {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_escrow(
         env: Env,
         seller: Address,
@@ -731,52 +748,8 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::EscrowCounter, &next_id);
-    
-    /// Posts a message for a given escrow. Messages are immutable and stored on-chain.
-    /// Returns an error if the contract is paused or the escrow does not exist.
-    pub fn post_message(env: Env, escrow_id: u64, sender: Address, content: String) -> Result<(), ContractError> {
-        ensure_not_paused(&env)?;
-        // Verify escrow exists
-        let _ = load_escrow(&env, escrow_id)?;
 
-        let message = Message {
-            sender: sender.clone(),
-            timestamp: env.ledger().timestamp(),
-            content,
-        };
-        let key = DataKey::Messages(escrow_id);
-        // Load existing messages or create new Vec
-        let mut msgs: Vec<Message> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(&env));
-        msgs.push_back(message);
-        env.storage().persistent().set(&key, &msgs);
-        emit_message_posted(&env, escrow_id, sender.clone());
-        Ok(())
-    }
-
-    /// Retrieves messages for a given escrow with pagination.
-    /// `start` is the zero‑based index of the first message to return.
-    /// `limit` caps the number of messages returned (max 50).
-    pub fn get_messages(env: Env, escrow_id: u64, start: u64, limit: u64) -> Vec<Message> {
-        let max_limit = if limit > 50 { 50 } else { limit };
-        let key = DataKey::Messages(escrow_id);
-        let msgs: Vec<Message> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(&env));
-        let total = msgs.len() as u64;
-        let mut result = Vec::new(&env);
-        if start >= total {
-            return result;
-        }
-        let end = (start + max_limit).min(total);
-        let mut i = start;
-        while i < end {
-            if let Some(m) = msgs.get(i as u32) {
-                result.push_back(m.clone());
-            }
-            i += 1;
-        }
-        result
-    }
-
-    // Extend instance storage TTL on every counter access so the counter key
+        // Extend instance storage TTL on every counter access so the counter key
         // cannot expire between a read and the subsequent write.
         let ext = get_ttl_extension(&env);
         env.storage().instance().extend_ttl(ext / 2, ext);
@@ -938,6 +911,65 @@ impl Escrow {
         Ok(())
     }
 
+<<<<<<< HEAD
+=======
+    /// Posts a message for a given escrow. Messages are immutable and stored on-chain.
+    /// Returns an error if the contract is paused or the escrow does not exist.
+    pub fn post_message(
+        env: Env,
+        escrow_id: u64,
+        sender: Address,
+        content: String,
+    ) -> Result<(), ContractError> {
+        ensure_not_paused(&env)?;
+        // Verify escrow exists
+        let _ = load_escrow(&env, escrow_id)?;
+
+        let message = Message {
+            sender: sender.clone(),
+            timestamp: env.ledger().timestamp(),
+            content,
+        };
+        let key = DataKey::Messages(escrow_id);
+        // Load existing messages or create new Vec
+        let mut msgs: Vec<Message> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env));
+        msgs.push_back(message);
+        env.storage().persistent().set(&key, &msgs);
+        emit_message_posted(&env, escrow_id, sender.clone());
+        Ok(())
+    }
+
+    /// Retrieves messages for a given escrow with pagination.
+    /// `start` is the zero‑based index of the first message to return.
+    /// `limit` caps the number of messages returned (max 50).
+    pub fn get_messages(env: Env, escrow_id: u64, start: u64, limit: u64) -> Vec<Message> {
+        let max_limit = if limit > 50 { 50 } else { limit };
+        let key = DataKey::Messages(escrow_id);
+        let msgs: Vec<Message> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let total = msgs.len() as u64;
+        let mut result = Vec::new(&env);
+        if start >= total {
+            return result;
+        }
+        let end = (start + max_limit).min(total);
+        let mut i = start;
+        while i < end {
+            if let Some(m) = msgs.get(i as u32) {
+                result.push_back(m.clone());
+            }
+            i += 1;
+        }
+        result
+    }
+>>>>>>> 6329d33 (fixed ci failure)
 
     pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
@@ -946,6 +978,7 @@ impl Escrow {
         let mut escrow = load_escrow(&env, escrow_id)?;
         let buyer = escrow.buyer.clone();
 
+<<<<<<< HEAD
         let is_seller = caller == escrow.seller;
         let is_buyer = buyer.as_ref() == Some(&caller);
 
@@ -975,10 +1008,69 @@ impl Escrow {
                 }
             }
             _ => return Err(ContractError::InvalidState),
+=======
+        let buyer = escrow.buyer.clone();
+        if escrow.seller != caller && buyer.as_ref() != Some(&caller) {
+            return Err(ContractError::NotAuthorized);
+>>>>>>> 6329d33 (fixed ci failure)
         }
 
         save_escrow(&env, escrow_id, &escrow);
         emit_escrow_cancelled(&env, escrow_id, caller);
+        Ok(())
+    }
+
+    pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
+        ensure_not_paused(&env)?;
+
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        if escrow.state != EscrowState::Pending {
+            return Err(ContractError::InvalidState);
+        }
+
+        // If a buyer was pre-designated at creation enforce it; otherwise
+        // designate the funder as the buyer. Explicit auth is required from the
+        // funding address in all cases (Soroban requires `require_auth` on the
+        // address that initiates the token transfer).
+        if escrow.buyer.is_none() {
+            escrow.buyer = Some(buyer.clone());
+        }
+
+        let escrow_buyer = escrow.buyer.as_ref().ok_or(ContractError::NotAuthorized)?;
+        escrow_buyer.require_auth();
+
+        if &buyer != escrow_buyer {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        // Security: buyer must not overlap with seller or resolver.
+        if buyer == escrow.seller || buyer == escrow.resolver {
+            return Err(ContractError::ConflictingRoles);
+        }
+
+        escrow.state = EscrowState::Funded;
+        escrow.funded_at = env.ledger().timestamp();
+        escrow.dispute_deadline = escrow.funded_at + DISPUTE_WINDOW;
+
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(escrow_buyer, env.current_contract_address(), &escrow.amount);
+
+        save_escrow(&env, escrow_id, &escrow);
+
+        let mut buyer_escrows: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
+            .unwrap_or(Vec::new(&env));
+        buyer_escrows.push_back(escrow_id);
+
+        let key = DataKey::BuyerEscrowIndex(buyer.clone());
+        let ext = get_ttl_extension(&env);
+        env.storage().persistent().set(&key, &buyer_escrows);
+        env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+
+        emit_escrow_funded(&env, escrow_id, buyer, escrow.amount);
         Ok(())
     }
 
@@ -1043,6 +1135,11 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> 6329d33 (fixed ci failure)
         let delivered_at = env.ledger().timestamp();
         escrow.delivered_at = Some(delivered_at);
         save_escrow(&env, escrow_id, &escrow);
@@ -1073,7 +1170,11 @@ impl Escrow {
         }
 
         if escrow.state != EscrowState::Shipped {
+<<<<<<< HEAD
             return Err(ContractError::InvalidState);
+=======
+            return Err(ContractError::InvalidStateTransition);
+>>>>>>> 6329d33 (fixed ci failure)
         }
 
         if env.ledger().timestamp() < escrow.dispute_deadline {
@@ -1120,6 +1221,7 @@ impl Escrow {
 
         ensure_not_paused(&env)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
+<<<<<<< HEAD
 
         let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
         if caller != buyer {
@@ -1163,8 +1265,61 @@ impl Escrow {
         );
         Ok(())
     }
+=======
+>>>>>>> 6329d33 (fixed ci failure)
 
-    pub fn resolve_dispute(env: Env, caller: Address, escrow_id: u64, resolution: ResolutionType) -> Result<(), ContractError> {
+        let buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
+        if caller != buyer {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        if escrow.state != EscrowState::Shipped && escrow.state != EscrowState::Funded {
+            return Err(ContractError::InvalidState);
+        }
+
+        if env.ledger().timestamp() >= escrow.dispute_deadline {
+            return Err(ContractError::DisputeWindowClosed);
+        }
+
+        if description.len() > MAX_DESCRIPTION_LEN {
+            return Err(ContractError::InputTooLong);
+        }
+
+        escrow.state = EscrowState::Disputed;
+
+        let dispute_data = DisputeData {
+            escrow_id,
+            reason,
+            description,
+            evidence_hash,
+            status: DisputeStatus::Active,
+            disputed_at: env.ledger().timestamp(),
+            tracking_id: escrow.tracking_id.clone(),
+        };
+
+        save_escrow(&env, escrow_id, &escrow);
+        save_dispute(&env, escrow_id, &dispute_data);
+        increment_counter(&env, &DataKey::TotalDisputed)?;
+        emit_dispute_raised(
+            &env,
+            escrow_id,
+            buyer,
+            dispute_data.reason.clone(),
+            dispute_data.description.clone(),
+            dispute_data.evidence_hash.clone(),
+        );
+        Ok(())
+    }
+
+    pub fn resolve_dispute(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        resolution: ResolutionType,
+    ) -> Result<(), ContractError> {
         // SECURITY:
         // Authenticate before any state reads.
         caller.require_auth();
@@ -1547,5 +1702,8 @@ mod test_string_length;
 mod test_ttl;
 mod test_unauthorized;
 mod test_withdraw_fees;
+<<<<<<< HEAD
 mod test_double_funding;
 mod test_storage_collision;
+=======
+>>>>>>> 6329d33 (fixed ci failure)
