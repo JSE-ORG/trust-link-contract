@@ -42,7 +42,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u32": 1000
+                  "u32": 300
                 }
               ]
             }
@@ -65,7 +65,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u32": 500
+                  "u32": 400
                 }
               ]
             }
@@ -77,7 +77,7 @@
     []
   ],
   "ledger": {
-    "protocol_version": 25,
+    "protocol_version": 26,
     "sequence_number": 0,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -152,7 +152,7 @@
                               "symbol": "arbitration_fee_bps"
                             },
                             "val": {
-                              "u32": 500
+                              "u32": 400
                             }
                           },
                           {
@@ -160,7 +160,7 @@
                               "symbol": "protocol_fee_bps"
                             },
                             "val": {
-                              "u32": 1000
+                              "u32": 300
                             }
                           }
                         ]

@@ -241,7 +241,10 @@ pub struct DeliveryRecorded {
 pub fn emit_delivery_recorded(env: &Env, escrow_id: u64, delivered_at: u64) {
     env.events().publish(
         (Symbol::new(env, "delivery_recorded"),),
-        DeliveryRecorded { escrow_id, delivered_at },
+        DeliveryRecorded {
+            escrow_id,
+            delivered_at,
+        },
     );
 }
 
@@ -355,13 +358,7 @@ pub struct AutoReleased {
 }
 
 /// Topic: `(\"auto_released\",)`, data: `AutoReleased`.
-pub fn emit_auto_released(
-    env: &Env,
-    escrow_id: u64,
-    seller: Address,
-    amount: i128,
-    fee_bps: u32,
-) {
+pub fn emit_auto_released(env: &Env, escrow_id: u64, seller: Address, amount: i128, fee_bps: u32) {
     env.events().publish(
         (Symbol::new(env, "auto_released"),),
         AutoReleased {
