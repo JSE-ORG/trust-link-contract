@@ -15,17 +15,5 @@
     "generate": "stellar contract bindings typescript --wasm ../target/wasm32-unknown-unknown/release/trustlink_escrow.wasm --output-dir src --overwrite",
     "optimize": "node scripts/optimize-wasm.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
-  "peerDependencies": {
-    "@stellar/freighter-api": ">=2.0.0",
-    "@stellar/stellar-sdk": ">=12.0.0",
-    "@soroban-react/core": ">=2.0.0",
-    "react": ">=18.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@stellar/freighter-api": { "optional": true },
-    "@stellar/stellar-sdk": { "optional": true },
-    "@soroban-react/core": { "optional": true },
-    "react": { "optional": true }
   }
 }
