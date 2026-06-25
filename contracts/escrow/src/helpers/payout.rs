@@ -1,5 +1,5 @@
-use soroban_sdk::{contracttype, token, Address, Env, Vec};
 use crate::{ContractError, EscrowData, ResolutionType};
+use soroban_sdk::{contracttype, token, Address, Env, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -15,7 +15,7 @@ pub fn execute_payout_transfers(
 ) -> Result<(), ContractError> {
     let client = token::Client::new(env, token_addr);
     let contract_addr = env.current_contract_address();
-    
+
     for instruction in transfers.iter() {
         if instruction.amount > 0 {
             client.transfer(&contract_addr, &instruction.recipient, &instruction.amount);
@@ -65,12 +65,16 @@ pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, ContractError> 
         .checked_div(10_000)
         .ok_or(ContractError::ArithmeticOverflow)?;
 
-    part1.checked_add(part2).ok_or(ContractError::ArithmeticOverflow)
+    part1
+        .checked_add(part2)
+        .ok_or(ContractError::ArithmeticOverflow)
 }
 
 pub fn calculate_protocol_fee(amount: i128, fee_bps: u32) -> Result<(i128, i128), ContractError> {
     let fee = calculate_fee(amount, fee_bps)?;
-    let net = amount.checked_sub(fee).ok_or(ContractError::ArithmeticOverflow)?;
+    let net = amount
+        .checked_sub(fee)
+        .ok_or(ContractError::ArithmeticOverflow)?;
     Ok((fee, net))
 }
 
@@ -85,23 +89,29 @@ pub fn calculate_dispute_allocations(
         return Err(ContractError::InsufficientBalance);
     }
 
-    let remaining_amount = escrow.amount.checked_sub(arbitration_fee).ok_or(ContractError::ArithmeticOverflow)?;
+    let remaining_amount = escrow
+        .amount
+        .checked_sub(arbitration_fee)
+        .ok_or(ContractError::ArithmeticOverflow)?;
 
     let (fee, net_amount) = calculate_protocol_fee(remaining_amount, escrow.fee_bps)?;
 
     let recipient = match resolution {
         ResolutionType::Release => escrow.seller.clone(),
-        ResolutionType::Refund => escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?,
+        ResolutionType::Refund => escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?,
     };
 
     let mut transfers = Vec::new(env);
-    
+
     // Transfer net amount to the winning party
     transfers.push_back(TransferInstruction {
         recipient,
         amount: net_amount,
     });
-    
+
     // Transfer protocol fee to fee collector (if non-zero)
     if fee > 0 {
         transfers.push_back(TransferInstruction {

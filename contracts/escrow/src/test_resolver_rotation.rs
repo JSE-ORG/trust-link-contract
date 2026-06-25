@@ -44,7 +44,15 @@ fn setup() -> Fx {
         &0_u64,
     );
 
-    Fx { env, client, admin, seller, buyer, resolver, escrow_id }
+    Fx {
+        env,
+        client,
+        admin,
+        seller,
+        buyer,
+        resolver,
+        escrow_id,
+    }
 }
 
 #[test]
@@ -52,13 +60,17 @@ fn seller_can_rotate_resolver() {
     let fx = setup();
     let new_resolver = Address::generate(&fx.env);
 
-    fx.client.rotate_resolver(&fx.seller, &fx.escrow_id, &new_resolver);
+    fx.client
+        .rotate_resolver(&fx.seller, &fx.escrow_id, &new_resolver);
 
     use crate::{DataKey, EscrowData};
     let escrow: EscrowData = fx
         .env
         .as_contract(&fx.client.address, || {
-            fx.env.storage().persistent().get(&DataKey::Escrow(fx.escrow_id))
+            fx.env
+                .storage()
+                .persistent()
+                .get(&DataKey::Escrow(fx.escrow_id))
         })
         .expect("escrow exists");
     assert_eq!(escrow.resolver, new_resolver);
@@ -69,13 +81,17 @@ fn admin_can_rotate_resolver() {
     let fx = setup();
     let new_resolver = Address::generate(&fx.env);
 
-    fx.client.rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    fx.client
+        .rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
 
     use crate::{DataKey, EscrowData};
     let escrow: EscrowData = fx
         .env
         .as_contract(&fx.client.address, || {
-            fx.env.storage().persistent().get(&DataKey::Escrow(fx.escrow_id))
+            fx.env
+                .storage()
+                .persistent()
+                .get(&DataKey::Escrow(fx.escrow_id))
         })
         .expect("escrow exists");
     assert_eq!(escrow.resolver, new_resolver);
@@ -87,14 +103,18 @@ fn buyer_cannot_rotate_resolver() {
     fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
 
     let new_resolver = Address::generate(&fx.env);
-    let result = fx.client.try_rotate_resolver(&fx.buyer, &fx.escrow_id, &new_resolver);
+    let result = fx
+        .client
+        .try_rotate_resolver(&fx.buyer, &fx.escrow_id, &new_resolver);
     assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
 }
 
 #[test]
 fn same_address_rejected() {
     let fx = setup();
-    let result = fx.client.try_rotate_resolver(&fx.seller, &fx.escrow_id, &fx.resolver);
+    let result = fx
+        .client
+        .try_rotate_resolver(&fx.seller, &fx.escrow_id, &fx.resolver);
     assert_eq!(result, Err(Ok(ContractError::SameAddress)));
 }
 
@@ -103,7 +123,9 @@ fn new_resolver_cannot_be_seller() {
     let fx = setup();
     // resolver != seller (both generated independently), so passing seller as
     // new_resolver hits the InvalidAddress guard, not SameAddress.
-    let result = fx.client.try_rotate_resolver(&fx.admin, &fx.escrow_id, &fx.seller);
+    let result = fx
+        .client
+        .try_rotate_resolver(&fx.admin, &fx.escrow_id, &fx.seller);
     assert_eq!(result, Err(Ok(ContractError::InvalidAddress)));
 }
 
@@ -112,7 +134,9 @@ fn new_resolver_cannot_be_buyer() {
     let fx = setup();
     fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
 
-    let result = fx.client.try_rotate_resolver(&fx.seller, &fx.escrow_id, &fx.buyer);
+    let result = fx
+        .client
+        .try_rotate_resolver(&fx.seller, &fx.escrow_id, &fx.buyer);
     assert_eq!(result, Err(Ok(ContractError::InvalidAddress)));
 }
 
