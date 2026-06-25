@@ -155,6 +155,7 @@ pub struct EscrowCreated {
     pub token: Address,
     pub amount: i128,
     pub fee_bps: u32,
+    pub resolver_fee_bps: u32,
     pub shipping_window: u64,
     pub timestamp: u64,
 }
@@ -169,6 +170,7 @@ pub fn emit_escrow_created(
     token: Address,
     amount: i128,
     fee_bps: u32,
+    resolver_fee_bps: u32,
     shipping_window: u64,
 ) {
     env.events().publish(
@@ -180,6 +182,7 @@ pub fn emit_escrow_created(
             token,
             amount,
             fee_bps,
+            resolver_fee_bps,
             shipping_window,
             timestamp: env.ledger().timestamp(),
         },
@@ -320,6 +323,7 @@ pub struct DisputeResolved {
     pub recipient: Address,
     pub amount: i128,
     pub arbitration_fee: i128,
+    pub resolver_fee: i128,
     pub resolved_at: u64,
 }
 
@@ -332,6 +336,7 @@ pub fn emit_dispute_resolved(
     recipient: Address,
     amount: i128,
     arbitration_fee: i128,
+    resolver_fee: i128,
 ) {
     env.events().publish(
         (Symbol::new(env, "dispute_resolved"),),
@@ -342,6 +347,7 @@ pub fn emit_dispute_resolved(
             recipient,
             amount,
             arbitration_fee,
+            resolver_fee,
             resolved_at: env.ledger().timestamp(),
         },
     );

@@ -96,6 +96,44 @@ pub fn calculate_dispute_allocations(
 
     let (fee, net_amount) = calculate_protocol_fee(remaining_amount, escrow.fee_bps)?;
 
+    let mut transfers = Vec::new(env);
+    
+    // For Release resolution, distribute to payees
+    if *resolution == ResolutionType::Release {
+        let mut remaining = net_amount;
+        
+        // Calculate amounts for all payees except the first
+        for i in 1..escrow.payees.len() {
+            let payee = escrow.payees.get(i).unwrap();
+            let payee_amount = (net_amount * payee.bps as i128) / 10_000;
+            
+            if payee_amount > 0 {
+                transfers.push_back(TransferInstruction {
+                    recipient: payee.address.clone(),
+                    amount: payee_amount,
+                });
+            }
+            
+            remaining = remaining.checked_sub(payee_amount).ok_or(ContractError::ArithmeticOverflow)?;
+        }
+        
+        // First payee gets the remainder (rounding goes to first payee)
+        let first_payee = escrow.payees.get(0).unwrap();
+        if remaining > 0 {
+            transfers.push_back(TransferInstruction {
+                recipient: first_payee.address.clone(),
+                amount: remaining,
+            });
+        }
+    } else {
+        // Refund to buyer
+        let recipient = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
+        transfers.push_back(TransferInstruction {
+            recipient,
+            amount: net_amount,
+        });
+    }
+    
     let recipient = match resolution {
         ResolutionType::Release => escrow.seller.clone(),
         ResolutionType::Refund => escrow
