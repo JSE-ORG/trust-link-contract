@@ -5,7 +5,8 @@ use soroban_sdk::{testutils::Address as _, Address, Env};
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
-    env.register_stellar_asset_contract_v2(token_admin).address()
+    env.register_stellar_asset_contract_v2(token_admin)
+        .address()
 }
 
 fn mint_tokens(env: &Env, token: &Address, to: &Address, amount: i128) {
@@ -40,7 +41,15 @@ fn test_get_escrows_by_buyer() {
     );
 
     // Create 1 pending escrow (no buyer yet)
-    let _id4 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &4000_i128, &100_u32, &3600_u64);
+    let _id4 = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &4000_i128,
+        &100_u32,
+        &3600_u64,
+    );
 
     // Check escrows for buyer 1
     let escrows_1 = client.get_escrows_by_buyer(&buyer_1);
@@ -73,7 +82,15 @@ fn test_buyer_index_populated_on_fund() {
 
     mint_tokens(&env, &token, &buyer, 1000);
 
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &1000_i128, &100_u32, &3600_u64);
+    let id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &100_u32,
+        &3600_u64,
+    );
     client.fund_escrow(&id, &buyer);
 
     let escrows = client.get_escrows_by_buyer(&buyer);

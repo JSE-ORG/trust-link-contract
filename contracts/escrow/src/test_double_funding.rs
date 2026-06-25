@@ -20,7 +20,7 @@ fn test_double_fund_reverts_with_invalid_state() {
     // Mint enough for two potential fundings to detect double-deduction
     mint_token(&env, &token, &buyer, 200);
 
-    let id = client.create_escrow(&seller, &resolver, &token, &100_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
 
     // First funding succeeds
     client.fund_escrow(&id, &buyer);

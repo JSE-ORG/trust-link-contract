@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{Escrow, EscrowClient, ContractError, MIN_ESCROW_AMOUNT};
+use crate::{ContractError, Escrow, EscrowClient, MIN_ESCROW_AMOUNT};
 use soroban_sdk::{testutils::Address as _, token, Address, Env};
 
 fn setup(env: &Env) -> (Address, Address, Address, Address, Address, Address) {
@@ -28,7 +28,15 @@ fn test_create_escrow_zero_amount_fails() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    let result = client.try_create_escrow(&seller, &None::<Address>, &resolver, &token, &0_i128, &0_u32, &3600_u64);
+    let result = client.try_create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &0_i128,
+        &0_u32,
+        &3600_u64,
+    );
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
 
@@ -43,7 +51,15 @@ fn test_create_escrow_below_minimum_fails() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let below_minimum = MIN_ESCROW_AMOUNT - 1;
-    let result = client.try_create_escrow(&seller, &None::<Address>, &resolver, &token, &below_minimum, &0_u32, &3600_u64);
+    let result = client.try_create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &below_minimum,
+        &0_u32,
+        &3600_u64,
+    );
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
 
