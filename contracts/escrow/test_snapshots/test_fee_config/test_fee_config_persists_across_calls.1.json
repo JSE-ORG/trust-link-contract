@@ -20,7 +20,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u32": 600
+                  "u32": 400
                 }
               ]
             }
@@ -55,7 +55,7 @@
     []
   ],
   "ledger": {
-    "protocol_version": 25,
+    "protocol_version": 26,
     "sequence_number": 0,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -138,7 +138,7 @@
                               "symbol": "protocol_fee_bps"
                             },
                             "val": {
-                              "u32": 600
+                              "u32": 400
                             }
                           }
                         ]

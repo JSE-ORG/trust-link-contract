@@ -47,9 +47,21 @@ fn test_withdraw_fees_after_multiple_escrows() {
 
     // Complete 3 escrows that each accrue 1% fees via dispute release.
     for _ in 0..3 {
-        let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &1000_i128, &100_u32, &3600_u64);
+        let id = client.create_escrow(
+            &seller,
+            &None::<Address>,
+            &resolver,
+            &token,
+            &1000_i128,
+            &100_u32,
+            &3600_u64,
+        );
         client.fund_escrow(&id, &buyer);
-        client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "TRACK-WITHDRAW-1"));
+        client.mark_shipped(
+            &seller,
+            &id,
+            &soroban_sdk::String::from_str(&env, "TRACK-WITHDRAW-1"),
+        );
         client.raise_dispute(
             &buyer,
             &id,
@@ -91,9 +103,21 @@ fn test_withdraw_fees_multiple_tokens() {
 
     // Accrue fees for Token A (1000 amount, 1% fee = 10)
     mint_tokens(&env, &token_a, &buyer, 1000);
-    let id_a = client.create_escrow(&seller, &None::<Address>, &resolver, &token_a, &1000_i128, &100_u32, &3600_u64);
+    let id_a = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token_a,
+        &1000_i128,
+        &100_u32,
+        &3600_u64,
+    );
     client.fund_escrow(&id_a, &buyer);
-    client.mark_shipped(&seller, &id_a, &soroban_sdk::String::from_str(&env, "TRACK-WITHDRAW-A"));
+    client.mark_shipped(
+        &seller,
+        &id_a,
+        &soroban_sdk::String::from_str(&env, "TRACK-WITHDRAW-A"),
+    );
     client.raise_dispute(
         &buyer,
         &id_a,
@@ -105,9 +129,21 @@ fn test_withdraw_fees_multiple_tokens() {
 
     // Accrue fees for Token B (2000 amount, 2% fee = 40)
     mint_tokens(&env, &token_b, &buyer, 2000);
-    let id_b = client.create_escrow(&seller, &None::<Address>, &resolver, &token_b, &2000_i128, &200_u32, &3600_u64);
+    let id_b = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token_b,
+        &2000_i128,
+        &200_u32,
+        &3600_u64,
+    );
     client.fund_escrow(&id_b, &buyer);
-    client.mark_shipped(&seller, &id_b, &soroban_sdk::String::from_str(&env, "TRACK-WITHDRAW-B"));
+    client.mark_shipped(
+        &seller,
+        &id_b,
+        &soroban_sdk::String::from_str(&env, "TRACK-WITHDRAW-B"),
+    );
     client.raise_dispute(
         &buyer,
         &id_b,

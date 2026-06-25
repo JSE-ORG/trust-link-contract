@@ -48,7 +48,9 @@ pub enum StorageKey {
 }
 
 pub fn write_admin_address(env: &Env, admin: &Address) {
-    env.storage().instance().set(&StorageKey::AdminAddress, admin);
+    env.storage()
+        .instance()
+        .set(&StorageKey::AdminAddress, admin);
 }
 
 pub fn read_admin_address(env: &Env) -> Option<Address> {
@@ -56,7 +58,9 @@ pub fn read_admin_address(env: &Env) -> Option<Address> {
 }
 
 pub fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
-    env.storage().instance().set(&StorageKey::FeeConfig, fee_config);
+    env.storage()
+        .instance()
+        .set(&StorageKey::FeeConfig, fee_config);
 }
 
 pub fn read_fee_config(env: &Env) -> Option<FeeConfig> {
@@ -64,7 +68,9 @@ pub fn read_fee_config(env: &Env) -> Option<FeeConfig> {
 }
 
 pub fn write_escrow_counter(env: &Env, counter: u64) {
-    env.storage().instance().set(&StorageKey::EscrowCounter, &counter);
+    env.storage()
+        .instance()
+        .set(&StorageKey::EscrowCounter, &counter);
 }
 
 pub fn read_escrow_counter(env: &Env) -> u64 {
@@ -115,23 +121,32 @@ pub fn read_buyer_escrow_index(env: &Env, buyer: &Address) -> Vec<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Escrow, EscrowClient};
     use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn admin_and_counter_helpers_roundtrip() {
         let env = Env::default();
+        let contract_id = env.register(Escrow, ());
+        let _client = EscrowClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
 
-        write_admin_address(&env, &admin);
-        write_escrow_counter(&env, 42);
+        env.as_contract(&contract_id, || {
+            write_admin_address(&env, &admin);
+            write_escrow_counter(&env, 42);
+        });
 
-        assert_eq!(read_admin_address(&env), Some(admin));
-        assert_eq!(read_escrow_counter(&env), 42);
+        let read_admin = env.as_contract(&contract_id, || read_admin_address(&env));
+        let read_counter = env.as_contract(&contract_id, || read_escrow_counter(&env));
+
+        assert_eq!(read_admin, Some(admin));
+        assert_eq!(read_counter, 42);
     }
 
     #[test]
     fn vendor_and_buyer_index_helpers_roundtrip() {
         let env = Env::default();
+        let contract_id = env.register(Escrow, ());
         let vendor = Address::generate(&env);
         let buyer = Address::generate(&env);
 
@@ -143,10 +158,16 @@ mod tests {
         buyer_ids.push_back(2);
         buyer_ids.push_back(9);
 
-        write_vendor_escrow_index(&env, &vendor, &vendor_ids);
-        write_buyer_escrow_index(&env, &buyer, &buyer_ids);
+        env.as_contract(&contract_id, || {
+            write_vendor_escrow_index(&env, &vendor, &vendor_ids);
+            write_buyer_escrow_index(&env, &buyer, &buyer_ids);
+        });
 
-        assert_eq!(read_vendor_escrow_index(&env, &vendor), vendor_ids);
-        assert_eq!(read_buyer_escrow_index(&env, &buyer), buyer_ids);
+        let read_vendors =
+            env.as_contract(&contract_id, || read_vendor_escrow_index(&env, &vendor));
+        let read_buyers = env.as_contract(&contract_id, || read_buyer_escrow_index(&env, &buyer));
+
+        assert_eq!(read_vendors, vendor_ids);
+        assert_eq!(read_buyers, buyer_ids);
     }
 }
