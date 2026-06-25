@@ -54,6 +54,13 @@ const MAX_COMBINED_FEE_BPS: u32 = 1_000;
 /// Keeps the contract from accepting zero or negative escrows.
 pub const MIN_ESCROW_AMOUNT: i128 = 1;
 
+/// Length of the dispute window in seconds (172_800 = 48 hours).
+///
+/// On `fund_escrow` the contract sets `dispute_deadline = funded_at +
+/// DISPUTE_WINDOW`. Until that deadline the buyer may `raise_dispute`, and
+/// `confirm_delivery` is rejected; once the deadline passes the funds become
+/// releasable to the seller.
+const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
 const DEFAULT_TTL_EXTENSION: u32 = 120_960;
 
@@ -929,6 +936,47 @@ impl Escrow {
         Ok(())
     }
 
+    /// Cancels a funded—but not yet shipped—escrow by mutual agreement and
+    /// refunds the buyer in full.
+    ///
+    /// Unlike `raise_dispute`/`resolve_dispute`, this provides a no-dispute exit
+    /// for an order that both sides agree to call off while it is still in
+    /// `Funded` (e.g. the seller can no longer fulfil it). Both the seller and
+    /// the buyer must authorize the call; the full escrowed amount is returned
+    /// to the buyer and the escrow transitions to `Canceled`.
+    pub fn mutual_cancel(env: Env, escrow_id: u64) -> Result<(), ContractError> {
+        ensure_not_paused(&env)?;
+
+        let mut escrow = load_escrow(&env, escrow_id)?;
+        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
+
+        // Require both parties to sign: a mutual cancellation is only valid with
+        // the explicit consent of both the seller and the buyer.
+        escrow.seller.require_auth();
+        buyer.require_auth();
+
+        // Only a funded, unshipped escrow can be mutually cancelled. Once it has
+        // shipped or entered a dispute, the dispute/resolution flow governs the
+        // outcome instead.
+        if escrow.state != EscrowState::Funded {
+            return Err(ContractError::InvalidState);
+        }
+
+        // Return the locked funds to the buyer in full — no fee is taken on a
+        // cancellation.
+        token::Client::new(&env, &escrow.token).transfer(
+            &env.current_contract_address(),
+            &buyer,
+            &escrow.amount,
+        );
+
+        escrow.state = EscrowState::Canceled;
+        save_escrow(&env, escrow_id, &escrow);
+
+        emit_escrow_cancelled(&env, escrow_id, escrow.seller.clone());
+        Ok(())
+    }
+
     /// Seller marks an escrow as shipped. Transitions Funded → Shipped.
     pub fn mark_shipped(
         env: Env,
@@ -1489,6 +1537,7 @@ mod test_overflow;
 mod test_pause;
 mod test_resolution;
 mod test_resolver_rotation;
+mod test_mutual_cancel;
 mod test_set_fee_boundary;
 mod test_string_length;
 mod test_ttl;
