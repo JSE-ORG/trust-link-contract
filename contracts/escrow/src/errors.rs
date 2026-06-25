@@ -58,4 +58,6 @@ pub enum ContractError {
     /// Returned when two roles that must be distinct are assigned the same address
     /// (e.g. resolver == seller, buyer == seller, or buyer == resolver).
     ConflictingRoles = 23,
+    /// Returned when raising a dispute after the dispute window has closed.
+    DisputeWindowClosed = 24,
 }
