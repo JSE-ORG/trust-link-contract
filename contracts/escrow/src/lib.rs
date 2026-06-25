@@ -55,6 +55,9 @@ pub const MIN_ESCROW_AMOUNT: i128 = 1;
 const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
 const DEFAULT_TTL_EXTENSION: u32 = 120_960;
+/// How long (in seconds) a Pending escrow waits for funding before it can be
+/// auto-cancelled.  Default: 7 days.
+const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 
 /// Maximum length for user-supplied string fields.
 /// - `tracking_id`: 64 characters
@@ -612,6 +615,11 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow);
 
+        let expires_at = env.ledger().timestamp().saturating_add(PENDING_EXPIRY_WINDOW);
+        let ext = get_ttl_extension(&env);
+        env.storage().persistent().set(&DataKey::PendingExpiry(escrow_id), &expires_at);
+        env.storage().persistent().extend_ttl(&DataKey::PendingExpiry(escrow_id), ext / 2, ext);
+
         let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &escrow.seller);
         vendor_escrows.push_back(escrow_id);
         // write_vendor_escrow_index now handles TTL extension automatically
@@ -643,6 +651,12 @@ impl Escrow {
 
         if escrow.state != EscrowState::Pending {
             return Err(ContractError::InvalidState);
+        }
+
+        if let Some(expires_at) = env.storage().persistent().get::<DataKey, u64>(&DataKey::PendingExpiry(escrow_id)) {
+            if env.ledger().timestamp() > expires_at {
+                return Err(ContractError::EscrowExpired);
+            }
         }
 
         escrow.buyer = Some(buyer.clone());
@@ -1040,6 +1054,36 @@ impl Escrow {
         Ok(())
     }
 
+    /// Cancels a Pending escrow whose funding deadline has passed.
+    ///
+    /// Anyone may call this once `expires_at` has elapsed so that stale
+    /// Pending entries can be cleaned up permissionlessly.  No funds are in
+    /// the contract at this point (the escrow was never funded), so no token
+    /// transfers occur.
+    pub fn auto_cancel_pending(env: Env, escrow_id: u64) -> Result<(), ContractError> {
+        ensure_not_paused(&env)?;
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        if escrow.state != EscrowState::Pending {
+            return Err(ContractError::InvalidState);
+        }
+
+        let expires_at: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingExpiry(escrow_id))
+            .unwrap_or(0);
+
+        if env.ledger().timestamp() <= expires_at {
+            return Err(ContractError::ShippingWindowNotElapsed);
+        }
+
+        escrow.state = EscrowState::Canceled;
+        save_escrow(&env, escrow_id, &escrow);
+        emit_escrow_cancelled(&env, escrow_id, escrow.seller);
+        Ok(())
+    }
+
     pub fn get_escrow(env: Env, escrow_id: u64) -> Result<EscrowData, ContractError> {
         load_escrow(&env, escrow_id)
     }
@@ -1212,3 +1256,4 @@ mod test_concurrent_vendor_escrows;
 mod test_not_found;
 mod test_get_escrows_by_vendor;
 mod test_resolver_rotation;
+mod test_pending_expiry;

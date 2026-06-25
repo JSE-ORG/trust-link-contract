@@ -20,6 +20,10 @@ pub enum DataKey {
     TotalRefunded,
     FeeConfig,
     BuyerEscrowIndex(Address),
+    /// Stores the Unix-timestamp deadline after which a Pending escrow expires and
+    /// can no longer be funded. Written by `create_escrow`, read by `fund_escrow`
+    /// and `auto_cancel_pending`.
+    PendingExpiry(u64),
 }
 
 #[contracttype]

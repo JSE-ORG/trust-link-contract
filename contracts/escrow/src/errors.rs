@@ -60,4 +60,6 @@ pub enum ContractError {
     ConflictingRoles = 23,
     /// Returned when raising a dispute after the dispute window has closed.
     DisputeWindowClosed = 24,
+    /// Returned when fund_escrow is called after the pending escrow's expiry deadline.
+    EscrowExpired = 25,
 }
