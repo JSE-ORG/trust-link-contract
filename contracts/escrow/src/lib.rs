@@ -21,7 +21,7 @@ pub use crate::events::{
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowState,
-    FeeConfig, PublicContractConfig, ResolutionType,
+    FeeConfig, PublicContractConfig, ResolutionType, Payee,
 };
 
 /// Maximum escrow fee in basis points (300 = 3%).
@@ -138,12 +138,13 @@ fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowData {
-    pub seller: Address,
+    pub payees: Vec<Payee>,
     pub buyer: Option<Address>,
     pub resolver: Address,
     pub token: Address,
     pub amount: i128,
     pub fee_bps: u32,
+    pub resolver_fee_bps: u32,
     pub shipping_window: u64,
     pub funded_at: u64,
     pub dispute_deadline: u64,
@@ -157,6 +158,43 @@ fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
     if fee_bps > MAX_ESCROW_FEE_BPS {
         return Err(ContractError::FeeExceedsMax);
     }
+    Ok(())
+}
+
+fn validate_resolver_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
+    if fee_bps > MAX_ESCROW_FEE_BPS {
+        return Err(ContractError::FeeExceedsMax);
+    }
+    Ok(())
+}
+
+fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), ContractError> {
+    if payees.is_empty() {
+        return Err(ContractError::InvalidAddress);
+    }
+    
+    let mut total_bps: u32 = 0;
+    for i in 0..payees.len() {
+        let payee = payees.get(i).unwrap();
+        let bps = payee.bps;
+        
+        // Check for overflow
+        total_bps = total_bps.checked_add(bps).ok_or(ContractError::ArithmeticError)?;
+        
+        // Validate each payee address is not zero
+        let zero = Address::from_string(&String::from_str(
+            env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        ));
+        if payee.address == zero {
+            return Err(ContractError::InvalidAddress);
+        }
+    }
+    
+    if total_bps != 10_000 {
+        return Err(ContractError::InvalidAmount);
+    }
+    
     Ok(())
 }
 
@@ -335,6 +373,39 @@ fn transfer_with_protocol_fee(
     }
 
     Ok((fee, net))
+}
+
+fn distribute_to_payees(
+    env: &Env,
+    token_addr: &Address,
+    payees: &Vec<Payee>,
+    amount: i128,
+) -> Result<(), ContractError> {
+    let token_client = token::Client::new(env, token_addr);
+    let contract_addr = env.current_contract_address();
+    
+    let mut remaining = amount;
+    let mut first_payee_amount: Option<i128> = None;
+    
+    // Calculate amounts for all payees except the first
+    for i in 1..payees.len() {
+        let payee = payees.get(i).unwrap();
+        let payee_amount = (amount * payee.bps as i128) / 10_000;
+        
+        if payee_amount > 0 {
+            token_client.transfer(&contract_addr, &payee.address, &payee_amount);
+        }
+        
+        remaining = remaining.checked_sub(payee_amount).ok_or(ContractError::ArithmeticError)?;
+    }
+    
+    // First payee gets the remainder (rounding goes to first payee)
+    let first_payee = payees.get(0).unwrap();
+    if remaining > 0 {
+        token_client.transfer(&contract_addr, &first_payee.address, &remaining);
+    }
+    
+    Ok(())
 }
 
 fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
@@ -540,17 +611,23 @@ impl Escrow {
 
     pub fn create_escrow(
         env: Env,
-        seller: Address,
+        payees: Vec<Payee>,
         buyer: Option<Address>,
         resolver: Address,
         token: Address,
         amount: i128,
         fee_bps: u32,
+        resolver_fee_bps: u32,
         shipping_window: u64,
     ) -> Result<u64, ContractError> {
         // SECURITY:
         // Authenticate before any state reads.
-        seller.require_auth();
+        // Authenticate the first payee as the seller representative
+        if payees.is_empty() {
+            return Err(ContractError::InvalidAddress);
+        }
+        let first_payee = payees.get(0).unwrap();
+        first_payee.address.require_auth();
 
         ensure_not_paused(&env)?;
 
@@ -566,17 +643,19 @@ impl Escrow {
         }
 
         validate_escrow_fee_bps(fee_bps)?;
+        validate_resolver_fee_bps(resolver_fee_bps)?;
+        validate_payees(&env, &payees)?;
 
-        // Security: all three roles must be distinct to preserve the trustless
-        // three-party separation.  A resolver that equals the seller or buyer can
-        // unilaterally resolve disputes in their own favour; a buyer that equals
-        // the seller makes the escrow a self-dealing no-op.
-        if resolver == seller {
-            return Err(ContractError::ConflictingRoles);
-        }
-        if let Some(ref b) = buyer {
-            if b == &seller || b == &resolver {
+        // Security: resolver must be distinct from all payees and buyer
+        for i in 0..payees.len() {
+            let payee = payees.get(i).unwrap();
+            if resolver == payee.address {
                 return Err(ContractError::ConflictingRoles);
+            }
+            if let Some(ref b) = buyer {
+                if b == &payee.address {
+                    return Err(ContractError::ConflictingRoles);
+                }
             }
         }
 
@@ -584,7 +663,7 @@ impl Escrow {
             .storage()
             .instance()
             .get(&DataKey::EscrowCounter)
-            .expect("counter initialized");
+            .ok_or(ContractError::NotAuthorized)?;
         let next_id = escrow_id.checked_add(1).ok_or(ContractError::ArithmeticError)?;
         env.storage()
             .instance()
@@ -595,12 +674,13 @@ impl Escrow {
         env.storage().instance().extend_ttl(ext / 2, ext);
 
         let escrow = EscrowData {
-            seller,
+            payees,
             buyer,
             resolver,
             token,
             amount,
             fee_bps,
+            resolver_fee_bps,
             shipping_window,
             funded_at: 0,
             dispute_deadline: 0,
@@ -612,20 +692,25 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow);
 
-        let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &escrow.seller);
-        vendor_escrows.push_back(escrow_id);
-        // write_vendor_escrow_index now handles TTL extension automatically
-        storage::write_vendor_escrow_index(&env, &escrow.seller, &vendor_escrows);
+        // Index escrows for each payee
+        for i in 0..escrow.payees.len() {
+            let payee = escrow.payees.get(i).unwrap();
+            let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &payee.address);
+            vendor_escrows.push_back(escrow_id);
+            storage::write_vendor_escrow_index(&env, &payee.address, &vendor_escrows);
+        }
 
         increment_counter(&env, &DataKey::TotalCreated)?;
+        let first_payee = escrow.payees.get(0).unwrap();
         emit_escrow_created(
             &env,
             escrow_id,
-            escrow.seller.clone(),
+            first_payee.address.clone(),
             escrow.resolver.clone(),
             escrow.token.clone(),
             escrow.amount,
             escrow.fee_bps,
+            escrow.resolver_fee_bps,
             escrow.shipping_window,
         );
         Ok(escrow_id)
@@ -722,10 +807,20 @@ impl Escrow {
         ensure_not_paused(&env)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
-        let is_seller = caller == escrow.seller;
+        let is_payee = {
+            let mut found = false;
+            for i in 0..escrow.payees.len() {
+                let payee = escrow.payees.get(i).unwrap();
+                if caller == payee.address {
+                    found = true;
+                    break;
+                }
+            }
+            found
+        };
         let is_buyer = Some(&caller) == escrow.buyer.as_ref();
 
-        if !is_seller && !is_buyer {
+        if !is_payee && !is_buyer {
             return Err(ContractError::NotAuthorized);
         }
 
@@ -733,7 +828,7 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        if is_seller && !is_buyer && escrow.state != EscrowState::Pending && escrow.state != EscrowState::Funded {
+        if is_payee && !is_buyer && escrow.state != EscrowState::Pending && escrow.state != EscrowState::Funded {
             return Err(ContractError::InvalidState);
         }
 
@@ -753,7 +848,8 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow);
 
-        emit_escrow_cancelled(&env, escrow_id, caller);
+        let first_payee = escrow.payees.get(0).unwrap();
+        emit_escrow_cancelled(&env, escrow_id, first_payee.address.clone());
         Ok(())
     }
 
@@ -766,7 +862,20 @@ impl Escrow {
         ensure_not_paused(&env)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
-        if escrow.seller != caller {
+        // Check if caller is any of the payees
+        let is_authorized = {
+            let mut found = false;
+            for i in 0..escrow.payees.len() {
+                let payee = escrow.payees.get(i).unwrap();
+                if caller == payee.address {
+                    found = true;
+                    break;
+                }
+            }
+            found
+        };
+
+        if !is_authorized {
             return Err(ContractError::NotAuthorized);
         }
 
@@ -786,8 +895,9 @@ impl Escrow {
         escrow.shipped_at = shipped_at;
         escrow.tracking_id = Some(tracking_id);
         let tracking = escrow.tracking_id.clone().unwrap_or(String::from_str(&env, ""));
+        let first_payee = escrow.payees.get(0).unwrap();
         save_escrow(&env, escrow_id, &escrow);
-        emit_escrow_shipped(&env, escrow_id, escrow.seller, tracking);
+        emit_escrow_shipped(&env, escrow_id, first_payee.address.clone(), tracking);
         Ok(())
     }
 
@@ -855,22 +965,27 @@ impl Escrow {
             .get(&DataKey::FeeCollector)
             .ok_or(ContractError::NotAuthorized)?;
 
-        transfer_with_protocol_fee(
+        // Calculate protocol fee
+        let (protocol_fee, net_amount) = transfer_with_protocol_fee(
             &env,
             &escrow.token,
-            &escrow.seller,
+            &escrow.payees.get(0).unwrap().address,
             &fee_collector,
             escrow.amount,
             fee_config.protocol_fee_bps,
         )?;
 
+        // Distribute net amount to all payees
+        distribute_to_payees(&env, &escrow.token, &escrow.payees, net_amount)?;
+
         escrow.state = EscrowState::Completed;
         save_escrow(&env, escrow_id, &escrow);
         increment_counter(&env, &DataKey::TotalCompleted)?;
+        let first_payee = escrow.payees.get(0).unwrap();
         emit_escrow_completed(
             &env,
             escrow_id,
-            escrow.seller.clone(),
+            first_payee.address.clone(),
             escrow.amount,
             fee_config.protocol_fee_bps,
         );
@@ -896,6 +1011,26 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
+        // Calculate and deduct resolver fee
+        let resolver_fee = crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?;
+        if resolver_fee > escrow.amount {
+            return Err(ContractError::InsufficientBalance);
+        }
+        escrow.amount = escrow
+            .amount
+            .checked_sub(resolver_fee)
+            .ok_or(ContractError::ArithmeticError)?;
+
+        // Transfer resolver fee to resolver
+        if resolver_fee > 0 {
+            token::Client::new(&env, &escrow.token).transfer(
+                &env.current_contract_address(),
+                &escrow.resolver,
+                &resolver_fee,
+            );
+        }
+
+        // Calculate and deduct arbitration fee
         let arbitration_fee_bps = read_fee_config(&env).arbitration_fee_bps;
         let arbitration_fee = crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;
 
@@ -914,7 +1049,7 @@ impl Escrow {
         env.storage().instance().set(&total_key, &next_total);
 
         let recipient = match resolution {
-            ResolutionType::Release => escrow.seller.clone(),
+            ResolutionType::Release => escrow.payees.get(0).unwrap().address.clone(),
             ResolutionType::Refund => escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?,
         };
 
@@ -932,7 +1067,24 @@ impl Escrow {
             .ok_or(ContractError::ArithmeticError)?;
         env.storage().instance().set(&acc_key, &new_acc);
 
-        deduct_and_transfer(&env, &escrow.token, &recipient, escrow.amount, escrow.fee_bps)?;
+        // For Release resolution, distribute to payees; for Refund, send to buyer
+        if resolution == ResolutionType::Release {
+            // Calculate protocol fee and net amount
+            let (protocol_fee, net_amount) = transfer_with_protocol_fee(
+                &env,
+                &escrow.token,
+                &escrow.payees.get(0).unwrap().address,
+                &env.storage().instance().get(&DataKey::FeeCollector).unwrap_or(escrow.payees.get(0).unwrap().address.clone()),
+                escrow.amount,
+                escrow.fee_bps,
+            )?;
+            
+            // Distribute net amount to all payees
+            distribute_to_payees(&env, &escrow.token, &escrow.payees, net_amount)?;
+        } else {
+            // Refund to buyer
+            deduct_and_transfer(&env, &escrow.token, &recipient, escrow.amount, escrow.fee_bps)?;
+        }
 
         let mut updated = escrow;
         updated.state = match resolution {
@@ -959,6 +1111,7 @@ impl Escrow {
             recipient,
             updated.amount,
             arbitration_fee,
+            resolver_fee,
         );
         Ok(())
     }
@@ -1024,19 +1177,24 @@ impl Escrow {
             .get(&DataKey::FeeCollector)
             .ok_or(ContractError::NotAuthorized)?;
 
-        transfer_with_protocol_fee(
+        // Calculate protocol fee
+        let (protocol_fee, net_amount) = transfer_with_protocol_fee(
             &env,
             &escrow.token,
-            &escrow.seller,
+            &escrow.payees.get(0).unwrap().address,
             &fee_collector,
             escrow.amount,
             fee_config.protocol_fee_bps,
         )?;
 
+        // Distribute net amount to all payees
+        distribute_to_payees(&env, &escrow.token, &escrow.payees, net_amount)?;
+
         escrow.state = EscrowState::Completed;
         save_escrow(&env, escrow_id, &escrow);
         increment_counter(&env, &DataKey::TotalCompleted)?;
-        emit_auto_released(&env, escrow_id, escrow.seller, escrow.amount, escrow.fee_bps);
+        let first_payee = escrow.payees.get(0).unwrap();
+        emit_auto_released(&env, escrow_id, first_payee.address.clone(), escrow.amount, escrow.fee_bps);
         Ok(())
     }
 
@@ -1129,8 +1287,8 @@ impl Escrow {
         read_fee_config(&env)
     }
 
-    /// Rotates the resolver for an escrow. Callable by the seller or admin.
-    /// New resolver must differ from current resolver, seller, and buyer.
+    /// Rotates the resolver for an escrow. Callable by any payee or admin.
+    /// New resolver must differ from current resolver, all payees, and buyer.
     pub fn rotate_resolver(
         env: Env,
         caller: Address,
@@ -1143,7 +1301,20 @@ impl Escrow {
         let mut escrow = load_escrow(&env, escrow_id)?;
         let admin = require_admin(&env)?;
 
-        if caller != escrow.seller && caller != admin {
+        // Check if caller is any of the payees or admin
+        let is_payee = {
+            let mut found = false;
+            for i in 0..escrow.payees.len() {
+                let payee = escrow.payees.get(i).unwrap();
+                if caller == payee.address {
+                    found = true;
+                    break;
+                }
+            }
+            found
+        };
+
+        if !is_payee && caller != admin {
             return Err(ContractError::NotAuthorized);
         }
 
@@ -1160,8 +1331,12 @@ impl Escrow {
             return Err(ContractError::SameAddress);
         }
 
-        if new_resolver == escrow.seller {
-            return Err(ContractError::InvalidAddress);
+        // New resolver must differ from all payees
+        for i in 0..escrow.payees.len() {
+            let payee = escrow.payees.get(i).unwrap();
+            if new_resolver == payee.address {
+                return Err(ContractError::InvalidAddress);
+            }
         }
 
         if escrow.buyer.as_ref() == Some(&new_resolver) {

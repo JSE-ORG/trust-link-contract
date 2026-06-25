@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, String, Symbol};
+use soroban_sdk::{contracttype, Address, BytesN, Env, String, Symbol, Vec};
 
 /// Storage keys for persisting escrow data and the global escrow counter.
 #[contracttype]
@@ -83,6 +83,14 @@ pub struct ContractStats {
     pub total_completed: u64,
     pub total_disputed: u64,
     pub total_refunded: u64,
+}
+
+/// Payee with address and basis points share.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Payee {
+    pub address: Address,
+    pub bps: u32,
 }
 
 /// Lifecycle states of an escrow transaction.
