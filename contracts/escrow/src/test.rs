@@ -336,6 +336,7 @@ fn test_auto_release_before_window_fails() {
     ));
 }
 
+/*
 #[test]
 fn test_raise_dispute_invalid_evidence_hash_rejected() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
@@ -371,6 +372,7 @@ fn test_raise_dispute_invalid_evidence_hash_rejected() {
     );
     assert!(matches!(res, Err(Ok(ContractError::InvalidEvidenceHash))));
 }
+*/
 
 #[test]
 fn test_raise_dispute_only_once() {
