@@ -628,6 +628,52 @@ impl Escrow {
         Ok(escrow_id)
     }
 
+    pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
+        ensure_not_paused(&env)?;
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        if escrow.state != EscrowState::Pending {
+            return Err(ContractError::InvalidState);
+        }
+
+        // If a buyer was pre-designated at creation enforce it; otherwise
+        // designate the funder as the buyer. Explicit auth is required from the
+        // funding address in all cases (Soroban requires `require_auth` on the
+        // address that initiates the token transfer).
+        if escrow.buyer.is_none() {
+            escrow.buyer = Some(buyer.clone());
+        }
+
+        let escrow_buyer = escrow.buyer.as_ref().ok_or(ContractError::NotAuthorized)?;
+        escrow_buyer.require_auth();
+
+        if &buyer != escrow_buyer {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        escrow.state = EscrowState::Funded;
+        escrow.funded_at = env.ledger().timestamp();
+        escrow.dispute_deadline = escrow.funded_at + DISPUTE_WINDOW;
+
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(escrow_buyer, &env.current_contract_address(), &escrow.amount);
+
+        save_escrow(&env, escrow_id, &escrow);
+
+        let mut buyer_escrows: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
+            .unwrap_or(Vec::new(&env));
+        buyer_escrows.push_back(escrow_id);
+        env.storage()
+            .persistent()
+            .set(&DataKey::BuyerEscrowIndex(buyer.clone()), &buyer_escrows);
+
+        emit_escrow_funded(&env, escrow_id, buyer, escrow.amount);
+        Ok(())
+    }
+
     pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
 
@@ -767,8 +813,63 @@ impl Escrow {
             fee_config.protocol_fee_bps,
         );
         Ok(())
-    }
+    }    pub fn raise_dispute(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        reason: Symbol,
+        description: String,
+        evidence_hash: BytesN<32>,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
 
+        ensure_not_paused(&env)?;
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
+        if caller != buyer {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        // Allowed from Funded or Shipped
+        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+            return Err(ContractError::InvalidState);
+        }
+
+        // Window check: after issue #212, this uses ledger timestamp comparison
+        if env.ledger().timestamp() >= escrow.dispute_deadline {
+            return Err(ContractError::InvalidState); // Temporarily using InvalidState until specific error is restored
+        }
+
+        if description.len() > MAX_DESCRIPTION_LEN {
+            return Err(ContractError::InputTooLong);
+        }
+
+        escrow.state = EscrowState::Disputed;
+
+        let dispute_data = DisputeData {
+            escrow_id,
+            reason: reason.clone(),
+            description: description.clone(),
+            evidence_hash: evidence_hash.clone(),
+            status: DisputeStatus::Active,
+            disputed_at: env.ledger().timestamp(),
+            tracking_id: escrow.tracking_id.clone(),
+        };
+
+        save_escrow(&env, escrow_id, &escrow);
+        save_dispute(&env, escrow_id, &dispute_data);
+        increment_counter(&env, &DataKey::TotalDisputed)?;
+        emit_dispute_raised(
+            &env,
+            escrow_id,
+            buyer,
+            reason,
+            description,
+            evidence_hash,
+        );
+        Ok(())
+    }
 
 
     pub fn resolve_dispute(env: Env, caller: Address, escrow_id: u64, resolution: ResolutionType) -> Result<(), ContractError> {
