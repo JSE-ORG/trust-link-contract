@@ -12,6 +12,9 @@ non-user-facing repository maintenance.
 
 ### Added
 
+- Added a complete storage layout reference in `docs/storage.md` documenting
+  every `DataKey`/`StorageKey` entry with its type, storage tier, and TTL
+  strategy.
 - Added event schema reference for indexer developers in `docs/events.md`.
 - Added Soroban SDK and environment compatibility matrix in
   `docs/soroban-compatibility.md`.
