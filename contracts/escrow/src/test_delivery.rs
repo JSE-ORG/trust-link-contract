@@ -401,21 +401,133 @@ fn test_record_delivery_overwrites_prior_timestamp() {
 }
 
 #[test]
-fn test_confirm_delivery_from_funded_state_fails() {
-    let env = soroban_sdk::Env::default();
+fn test_confirm_delivery_from_pending_state_fails() {
+    let env = Env::default();
     env.mock_all_auths();
 
     let token = register_token(&env);
-    let (_contract_id, client, _admin, _fee_collector) = crate::test_helpers::setup_contract(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
 
-    let seller = soroban_sdk::Address::generate(&env);
-    let buyer = soroban_sdk::Address::generate(&env);
-    let resolver = soroban_sdk::Address::generate(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
 
-    let id = crate::test_helpers::create_funded_escrow(
+    // Create escrow with an explicit buyer so authorization passes.
+    let id = client.create_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &1000_i128,
+        &100_u32,
+        &3600_u64,
+    );
+
+    let res = client.try_confirm_delivery(&buyer, &id);
+    assert_eq!(res, Err(Ok(ContractError::InvalidState)));
+}
+
+#[test]
+fn test_confirm_delivery_from_funded_state_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let id = create_funded_escrow(
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
     let res = client.try_confirm_delivery(&buyer, &id);
-    assert_eq!(res, Err(Ok(crate::ContractError::InvalidStateTransition)));
+    assert_eq!(res, Err(Ok(ContractError::InvalidState)));
 }
+
+#[test]
+fn test_confirm_delivery_from_disputed_state_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+    );
+
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &Symbol::new(&env, "reason"),
+        &SorobanString::from_str(&env, "dispute description"),
+        &soroban_sdk::BytesN::from_array(&env, &[0; 32]),
+    );
+
+    let res = client.try_confirm_delivery(&buyer, &id);
+    assert_eq!(res, Err(Ok(ContractError::InvalidState)));
+}
+
+#[test]
+fn test_confirm_delivery_from_canceled_state_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    // Create escrow with an explicit buyer.
+    let id = client.create_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &1000_i128,
+        &100_u32,
+        &3600_u64,
+    );
+
+    client.cancel_escrow(&seller, &id);
+
+    let res = client.try_confirm_delivery(&buyer, &id);
+    assert_eq!(res, Err(Ok(ContractError::InvalidState)));
+}
+
+#[test]
+fn test_confirm_delivery_from_completed_state_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
+
+    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-001"));
+
+    let escrow = client.get_escrow(&id);
+    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+
+    client.confirm_delivery(&buyer, &id);
+
+    let res = client.try_confirm_delivery(&buyer, &id);
+    assert_eq!(res, Err(Ok(ContractError::InvalidState)));
+}
+
