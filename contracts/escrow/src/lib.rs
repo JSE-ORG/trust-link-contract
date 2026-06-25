@@ -5,15 +5,7 @@ use soroban_sdk::{
 
 // Added import for Message
 use crate::events::emit_message_posted;
-<<<<<<< HEAD
-#![no_std]
-#![allow(deprecated, clippy::too_many_arguments)]
-use soroban_sdk::{
-    contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec,
-};
-=======
 use crate::types::Message;
->>>>>>> 6329d33 (fixed ci failure)
 
 pub mod errors;
 pub mod events;
@@ -33,13 +25,8 @@ pub use crate::events::{
     ProtocolFeeUpdated, ResolverRotated,
 };
 pub use crate::types::{
-<<<<<<< HEAD
-    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowState, FeeConfig,
-    PublicContractConfig, ResolutionType,
-=======
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowState,
     FeeConfig, PublicContractConfig, ResolutionType,
->>>>>>> 6329d33 (fixed ci failure)
 };
 
 /// Maximum escrow fee in basis points (300 = 3%).
@@ -70,6 +57,12 @@ const MAX_COMBINED_FEE_BPS: u32 = 1_000;
 /// Keeps the contract from accepting zero or negative escrows.
 pub const MIN_ESCROW_AMOUNT: i128 = 1;
 
+/// Length of the dispute window in seconds (172_800 = 48 hours).
+///
+/// On `fund_escrow` the contract sets `dispute_deadline = funded_at +
+/// DISPUTE_WINDOW`. Until that deadline the buyer may `raise_dispute`, and
+/// `confirm_delivery` is rejected; once the deadline passes the funds become
+/// releasable to the seller.
 const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
 const DEFAULT_TTL_EXTENSION: u32 = 120_960;
@@ -165,30 +158,6 @@ fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
         .set(&DataKey::FeeConfig, fee_config);
 }
 
-<<<<<<< HEAD
-
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EscrowData {
-    pub seller: Address,
-    pub buyer: Option<Address>,
-    pub resolver: Address,
-    pub token: Address,
-    pub amount: i128,
-    pub fee_bps: u32,
-    pub shipping_window: u64,
-    pub funded_at: u64,
-    pub dispute_deadline: u64,
-    pub shipped_at: u64,
-    pub delivered_at: Option<u64>,
-    pub tracking_id: Option<String>,
-    pub state: EscrowState,
-    pub notes: Option<String>,
-}
-
-=======
->>>>>>> 6329d33 (fixed ci failure)
 fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
     if fee_bps > MAX_ESCROW_FEE_BPS {
         return Err(ContractError::FeeExceedsMax);
@@ -264,21 +233,6 @@ fn update_arbitration_fee(env: &Env, caller: &Address, fee_bps: u32) -> Result<u
     Ok(old_fee)
 }
 
-<<<<<<< HEAD
-#[allow(unused_macros)]
-macro_rules! require_state {
-    ($escrow:expr, $expected:expr) => {
-        assert!(
-            $escrow.state == $expected,
-            "escrow state must be {:?}, found {:?}",
-            $expected,
-            $escrow.state
-        )
-    };
-}
-
-=======
->>>>>>> 6329d33 (fixed ci failure)
 fn get_ttl_extension(env: &Env) -> u32 {
     env.storage()
         .instance()
@@ -911,8 +865,6 @@ impl Escrow {
         Ok(())
     }
 
-<<<<<<< HEAD
-=======
     /// Posts a message for a given escrow. Messages are immutable and stored on-chain.
     /// Returns an error if the contract is paused or the escrow does not exist.
     pub fn post_message(
@@ -969,7 +921,6 @@ impl Escrow {
         }
         result
     }
->>>>>>> 6329d33 (fixed ci failure)
 
     pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
@@ -978,41 +929,9 @@ impl Escrow {
         let mut escrow = load_escrow(&env, escrow_id)?;
         let buyer = escrow.buyer.clone();
 
-<<<<<<< HEAD
-        let is_seller = caller == escrow.seller;
-        let is_buyer = buyer.as_ref() == Some(&caller);
-
-        match escrow.state {
-            EscrowState::Pending => {
-                if !is_seller && !is_buyer {
-                    return Err(ContractError::InvalidState);
-                }
-                escrow.state = EscrowState::Canceled;
-            }
-            EscrowState::Funded => {
-                if is_buyer {
-                    token::Client::new(&env, &escrow.token).transfer(
-                        &env.current_contract_address(),
-                        &caller,
-                        &escrow.amount,
-                    );
-                    if escrow.fee_bps > 0 {
-                        escrow.state = EscrowState::Refunded;
-                    } else {
-                        escrow.state = EscrowState::Canceled;
-                    }
-                } else if is_seller {
-                    escrow.state = EscrowState::Canceled;
-                } else {
-                    return Err(ContractError::InvalidState);
-                }
-            }
-            _ => return Err(ContractError::InvalidState),
-=======
         let buyer = escrow.buyer.clone();
         if escrow.seller != caller && buyer.as_ref() != Some(&caller) {
             return Err(ContractError::NotAuthorized);
->>>>>>> 6329d33 (fixed ci failure)
         }
 
         save_escrow(&env, escrow_id, &escrow);
@@ -1020,57 +939,44 @@ impl Escrow {
         Ok(())
     }
 
-    pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
+    /// Cancels a funded—but not yet shipped—escrow by mutual agreement and
+    /// refunds the buyer in full.
+    ///
+    /// Unlike `raise_dispute`/`resolve_dispute`, this provides a no-dispute exit
+    /// for an order that both sides agree to call off while it is still in
+    /// `Funded` (e.g. the seller can no longer fulfil it). Both the seller and
+    /// the buyer must authorize the call; the full escrowed amount is returned
+    /// to the buyer and the escrow transitions to `Canceled`.
+    pub fn mutual_cancel(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_not_paused(&env)?;
 
         let mut escrow = load_escrow(&env, escrow_id)?;
+        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
 
-        if escrow.state != EscrowState::Pending {
+        // Require both parties to sign: a mutual cancellation is only valid with
+        // the explicit consent of both the seller and the buyer.
+        escrow.seller.require_auth();
+        buyer.require_auth();
+
+        // Only a funded, unshipped escrow can be mutually cancelled. Once it has
+        // shipped or entered a dispute, the dispute/resolution flow governs the
+        // outcome instead.
+        if escrow.state != EscrowState::Funded {
             return Err(ContractError::InvalidState);
         }
 
-        // If a buyer was pre-designated at creation enforce it; otherwise
-        // designate the funder as the buyer. Explicit auth is required from the
-        // funding address in all cases (Soroban requires `require_auth` on the
-        // address that initiates the token transfer).
-        if escrow.buyer.is_none() {
-            escrow.buyer = Some(buyer.clone());
-        }
+        // Return the locked funds to the buyer in full — no fee is taken on a
+        // cancellation.
+        token::Client::new(&env, &escrow.token).transfer(
+            &env.current_contract_address(),
+            &buyer,
+            &escrow.amount,
+        );
 
-        let escrow_buyer = escrow.buyer.as_ref().ok_or(ContractError::NotAuthorized)?;
-        escrow_buyer.require_auth();
-
-        if &buyer != escrow_buyer {
-            return Err(ContractError::NotAuthorized);
-        }
-
-        // Security: buyer must not overlap with seller or resolver.
-        if buyer == escrow.seller || buyer == escrow.resolver {
-            return Err(ContractError::ConflictingRoles);
-        }
-
-        escrow.state = EscrowState::Funded;
-        escrow.funded_at = env.ledger().timestamp();
-        escrow.dispute_deadline = escrow.funded_at + DISPUTE_WINDOW;
-
-        let token_client = token::Client::new(&env, &escrow.token);
-        token_client.transfer(escrow_buyer, env.current_contract_address(), &escrow.amount);
-
+        escrow.state = EscrowState::Canceled;
         save_escrow(&env, escrow_id, &escrow);
 
-        let mut buyer_escrows: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
-            .unwrap_or(Vec::new(&env));
-        buyer_escrows.push_back(escrow_id);
-
-        let key = DataKey::BuyerEscrowIndex(buyer.clone());
-        let ext = get_ttl_extension(&env);
-        env.storage().persistent().set(&key, &buyer_escrows);
-        env.storage().persistent().extend_ttl(&key, ext / 2, ext);
-
-        emit_escrow_funded(&env, escrow_id, buyer, escrow.amount);
+        emit_escrow_cancelled(&env, escrow_id, escrow.seller.clone());
         Ok(())
     }
 
@@ -1135,11 +1041,8 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-<<<<<<< HEAD
-=======
 
 
->>>>>>> 6329d33 (fixed ci failure)
         let delivered_at = env.ledger().timestamp();
         escrow.delivered_at = Some(delivered_at);
         save_escrow(&env, escrow_id, &escrow);
@@ -1170,11 +1073,7 @@ impl Escrow {
         }
 
         if escrow.state != EscrowState::Shipped {
-<<<<<<< HEAD
-            return Err(ContractError::InvalidState);
-=======
             return Err(ContractError::InvalidStateTransition);
->>>>>>> 6329d33 (fixed ci failure)
         }
 
         if env.ledger().timestamp() < escrow.dispute_deadline {
@@ -1221,52 +1120,6 @@ impl Escrow {
 
         ensure_not_paused(&env)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
-<<<<<<< HEAD
-
-        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
-        if caller != buyer {
-            return Err(ContractError::NotAuthorized);
-        }
-
-        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-            return Err(ContractError::InvalidStateTransition);
-        }
-
-        if env.ledger().timestamp() >= escrow.dispute_deadline {
-            return Err(ContractError::DeliveryBeforeDisputeWindow);
-        }
-
-        if description.len() > MAX_DESCRIPTION_LEN {
-            return Err(ContractError::InputTooLong);
-        }
-
-        escrow.state = EscrowState::Disputed;
-
-        let dispute_data = DisputeData {
-            escrow_id,
-            reason,
-            description,
-            evidence_hash,
-            status: DisputeStatus::Active,
-            disputed_at: env.ledger().timestamp(),
-            tracking_id: escrow.tracking_id.clone(),
-        };
-
-        save_escrow(&env, escrow_id, &escrow);
-        save_dispute(&env, escrow_id, &dispute_data);
-        increment_counter(&env, &DataKey::TotalDisputed)?;
-        emit_dispute_raised(
-            &env,
-            escrow_id,
-            buyer,
-            dispute_data.reason.clone(),
-            dispute_data.description.clone(),
-            dispute_data.evidence_hash.clone(),
-        );
-        Ok(())
-    }
-=======
->>>>>>> 6329d33 (fixed ci failure)
 
         let buyer = escrow
             .buyer
@@ -1697,13 +1550,9 @@ mod test_overflow;
 mod test_pause;
 mod test_resolution;
 mod test_resolver_rotation;
+mod test_mutual_cancel;
 mod test_set_fee_boundary;
 mod test_string_length;
 mod test_ttl;
 mod test_unauthorized;
 mod test_withdraw_fees;
-<<<<<<< HEAD
-mod test_double_funding;
-mod test_storage_collision;
-=======
->>>>>>> 6329d33 (fixed ci failure)

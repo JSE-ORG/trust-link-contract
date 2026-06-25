@@ -218,6 +218,10 @@ fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
             &env, &client, &seller, &buyer, &resolver, &token, amount, fee_bps, 3600,
         );
 
+        // Ship the order so the escrow reaches the Shipped state required by
+        // confirm_delivery.
+        client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DUST"));
+
         // Move past the dispute window so the buyer can confirm delivery.
         advance_time(&env, DISPUTE_WINDOW_SECS + 1);
         client.confirm_delivery(&buyer, &id);
