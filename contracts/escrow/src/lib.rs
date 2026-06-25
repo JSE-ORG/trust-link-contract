@@ -840,7 +840,7 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+        if escrow.state != EscrowState::Shipped {
             return Err(ContractError::InvalidState);
         }
 

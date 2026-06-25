@@ -417,5 +417,5 @@ fn test_confirm_delivery_from_funded_state_fails() {
     );
 
     let res = client.try_confirm_delivery(&buyer, &id);
-    assert_eq!(res, Err(Ok(crate::ContractError::InvalidStateTransition)));
+    assert_eq!(res, Err(Ok(crate::ContractError::InvalidState)));
 }
