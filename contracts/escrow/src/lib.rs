@@ -722,18 +722,38 @@ impl Escrow {
         ensure_not_paused(&env)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
-        if caller != escrow.seller {
+        let is_seller = caller == escrow.seller;
+        let is_buyer = Some(&caller) == escrow.buyer.as_ref();
+
+        if !is_seller && !is_buyer {
             return Err(ContractError::NotAuthorized);
         }
 
-        if escrow.state != EscrowState::Pending {
+        if is_buyer && escrow.state != EscrowState::Funded {
             return Err(ContractError::InvalidState);
         }
 
-        escrow.state = EscrowState::Canceled;
+        if is_seller && !is_buyer && escrow.state != EscrowState::Pending && escrow.state != EscrowState::Funded {
+            return Err(ContractError::InvalidState);
+        }
+
+        if is_buyer {
+            if let Some(buyer) = &escrow.buyer {
+                token::Client::new(&env, &escrow.token)
+                    .transfer(&env.current_contract_address(), buyer, &(escrow.amount as i128));
+            }
+            if escrow.fee_bps > 0 {
+                escrow.state = EscrowState::Refunded;
+            } else {
+                escrow.state = EscrowState::Canceled;
+            }
+        } else {
+            escrow.state = EscrowState::Canceled;
+        }
+
         save_escrow(&env, escrow_id, &escrow);
 
-        emit_escrow_cancelled(&env, escrow_id, escrow.seller);
+        emit_escrow_cancelled(&env, escrow_id, caller);
         Ok(())
     }
 
