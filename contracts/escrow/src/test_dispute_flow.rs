@@ -6,11 +6,11 @@
 //! receive `amount - arbitration_fee`, the buyer must not be refunded, and
 //! the on-chain dispute record must be marked `Resolved`.
 
-use crate::{DataKey, DisputeData, DisputeStatus, Escrow, EscrowClient, EscrowData, EscrowState, ResolutionType};
-use soroban_sdk::{
-    testutils::Address as _,
-    token, Address, BytesN, Env, String, Symbol,
+use crate::{
+    DataKey, DisputeData, DisputeStatus, Escrow, EscrowClient, EscrowData, EscrowState,
+    ResolutionType,
 };
+use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String, Symbol};
 
 #[test]
 fn full_dispute_release_to_vendor() {
@@ -39,7 +39,15 @@ fn full_dispute_release_to_vendor() {
     // dispute window is enforced separately on raise_dispute.
     // fee_bps = 0 isolates the arbitration-fee accounting the issue specifies
     // (a non-zero protocol fee would further reduce the seller's payout).
-    let escrow_id = client.create_escrow(&seller, &None::<Address>, &resolver, &token_address, &amount, &0_u32, &0_u64);
+    let escrow_id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token_address,
+        &amount,
+        &0_u32,
+        &0_u64,
+    );
 
     // Fund the buyer and the escrow.
     let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
@@ -58,7 +66,9 @@ fn full_dispute_release_to_vendor() {
 
     // Sanity: state is now Disputed before resolution.
     let mid: EscrowData = env
-        .as_contract(&contract_id, || env.storage().persistent().get(&DataKey::Escrow(escrow_id)))
+        .as_contract(&contract_id, || {
+            env.storage().persistent().get(&DataKey::Escrow(escrow_id))
+        })
         .expect("escrow exists");
     assert_eq!(mid.state, EscrowState::Disputed);
 
@@ -84,13 +94,17 @@ fn full_dispute_release_to_vendor() {
 
     // Escrow state advanced to Completed.
     let after: EscrowData = env
-        .as_contract(&contract_id, || env.storage().persistent().get(&DataKey::Escrow(escrow_id)))
+        .as_contract(&contract_id, || {
+            env.storage().persistent().get(&DataKey::Escrow(escrow_id))
+        })
         .expect("escrow exists");
     assert_eq!(after.state, EscrowState::Completed);
 
     // Dispute record is marked Resolved.
     let dispute: DisputeData = env
-        .as_contract(&contract_id, || env.storage().persistent().get(&DataKey::Dispute(escrow_id)))
+        .as_contract(&contract_id, || {
+            env.storage().persistent().get(&DataKey::Dispute(escrow_id))
+        })
         .expect("dispute exists");
     assert_eq!(dispute.status, DisputeStatus::Resolved);
 }

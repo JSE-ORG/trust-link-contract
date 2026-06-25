@@ -1,0 +1,1896 @@
+﻿commit 08be4ca62991cb4a4129e0cb402b3d494a103d0e
+Author: mshodipo <michealshodipo56@gmail.com>
+Date:   Tue Jun 2 12:19:55 2026 +0100
+
+    security: validate resolver Γëá seller Γëá buyer at create_escrow and fund_escrow
+    
+    Add ConflictingRoles = 23 error variant to ContractError.
+    
+    In create_escrow, reject calls where resolver == seller or, when a
+    buyer is pre-designated, buyer == seller or buyer == resolver.
+    
+    In fund_escrow, reject calls where the funding buyer equals the escrow
+    seller or resolver.
+    
+    These guards preserve the trustless three-party separation that makes
+    the escrow contract meaningful: a resolver that shares an address with
+    the seller or buyer can unilaterally resolve disputes in their own
+    favour, collapsing the neutral-third-party model.
+    
+    Also restores lib.rs from a clean baseline (commit 23780bb) to remove
+    syntax errors and duplicate function definitions introduced by
+    conflicting merges, and applies the legitimate ContractInitialized
+    event emission from PR #199.
+    
+    Closes: JSE-ORG/trust-link-contract (security issue ΓÇö resolver/seller/buyer role conflict)
+    
+    Tests added in test_unauthorized.rs:
+      - create_escrow_rejects_resolver_equal_to_seller
+      - fund_escrow_rejects_buyer_equal_to_seller
+      - fund_escrow_rejects_buyer_equal_to_resolver
+    
+    Co-authored-by: Cursor <cursoragent@cursor.com>
+
+diff --git a/contracts/escrow/src/lib.rs b/contracts/escrow/src/lib.rs
+index cb05fac..7ad30ce 100644
+--- a/contracts/escrow/src/lib.rs
++++ b/contracts/escrow/src/lib.rs
+@@ -84,18 +84,10 @@ pub fn transition_state(
+         Err(ContractError::InvalidStateTransition)
+     }
+ }
+-import { Env, Address, BytesN, Symbol, log };
+-use crate::types::{EscrowData, EscrowState, DataKey, Error};
+ 
+-// Realize structural definitions for the mock pipeline execution context
+-#[soroban_sdk::contract]
++#[contract]
+ pub struct Escrow;
+ 
+-#[soroban_sdk::contractimpl]
+-impl Escrow {
+-    pub fn initialize(env: Env, admin: Address, default_fee_bps: u32) {
+-        if env.storage().instance().has(&DataKey::Admin) {
+-            panic!("Contract is already initialized.");
+ fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
+     let paused: bool = env.storage().instance().get(&DataKey::Paused).unwrap_or(false);
+     if paused {
+@@ -201,18 +193,6 @@ fn save_escrow(env: &Env, id: u64, escrow: &EscrowData) {
+     env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+ }
+ 
+-fn push_buyer_escrow(env: &Env, buyer: &Address, escrow_id: u64) {
+-    let mut buyer_escrows: Vec<u64> = env
+-        .storage()
+-        .persistent()
+-        .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
+-        .unwrap_or(Vec::new(env));
+-    buyer_escrows.push_back(escrow_id);
+-    env.storage()
+-        .persistent()
+-        .set(&DataKey::BuyerEscrowIndex(buyer.clone()), &buyer_escrows);
+-}
+-
+ fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractError> {
+     let key = DataKey::Escrow(id);
+     let escrow: EscrowData = env
+@@ -244,11 +224,23 @@ fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
+     Ok(dispute)
+ }
+ 
++/// Deducts the protocol fee from `amount` and transfers the net to `recipient`,
++/// leaving the fee in the contract vault for the admin to sweep via
++/// `withdraw_fees`.
++///
++/// Rounding policy: **floor** ΓÇö `fee = floor(amount * fee_bps / 10_000)` and
++/// `net = amount - fee`, so the truncated remainder accrues to `recipient` and
++/// the invariant `net + fee == amount` always holds (no stranded dust). This
++/// mirrors [`helpers::payout::calculate_fee`]; the two implementations must stay
++/// in sync. The calculation is split to avoid overflowing `i128` for large
++/// amounts. Overflow surfaces as `ArithmeticError` (distinct from the helper's
++/// `ArithmeticOverflow`).
+ fn deduct_and_transfer(env: &Env, token_addr: &Address, recipient: &Address, amount: i128, fee_bps: u32) -> Result<(), ContractError> {
+     if amount < 0 {
+         return Err(ContractError::InvalidAmount);
+     }
+ 
++    // Split calculation to avoid overflow for large amounts
+     let part1 = (amount / 10_000)
+         .checked_mul(fee_bps as i128)
+         .ok_or(ContractError::ArithmeticError)?;
+@@ -297,6 +289,12 @@ fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
+ #[contractimpl]
+ #[allow(deprecated)]
+ impl Escrow {
++    /// Sets the protocol fee collector, admin address, and arbitration fee. Must be called once.
++    ///
++    /// Returns `Err(ContractError::InvalidAddress)` if `admin` or `fee_collector` is the
++    /// all-zero/empty Stellar account address (#55). Returning early on validation failure
++    /// guarantees no storage entries (`Admin`, `FeeCollector`, `ArbitrationFee`,
++    /// `EscrowCounter`, `Paused`) are written, leaving the contract uninitialized.
+     pub fn initialize(
+         env: Env,
+         admin: Address,
+@@ -306,6 +304,8 @@ impl Escrow {
+         if env.storage().instance().has(&DataKey::Admin) {
+             return Err(ContractError::AlreadyInitialized);
+         }
++        // admin and fee_collector must be distinct keys: sharing one address
++        // means compromising the admin key also compromises all fee revenue.
+         if admin == fee_collector {
+             return Err(ContractError::InvalidAddress);
+         }
+@@ -321,24 +321,45 @@ impl Escrow {
+ 
+         env.storage().instance().set(&DataKey::Admin, &admin);
+         env.storage().instance().set(&DataKey::FeeCollector, &fee_collector);
+-        env.storage().instance().set(&DataKey::FeeConfig, &FeeConfig {
+-            protocol_fee_bps: 0,
+-            arbitration_fee_bps,
+-        });
++        write_fee_config(
++            &env,
++            &FeeConfig {
++                protocol_fee_bps: 0,
++                arbitration_fee_bps,
++            },
++        );
++        env.storage().instance().set(&DataKey::EscrowCounter, &1u64);
+         env.storage().instance().set(&DataKey::Paused, &false);
+-        env.storage().instance().set(&DataKey::EscrowCounter, &1_u64);
+ 
+         emit_contract_initialized(&env, admin, fee_collector, arbitration_fee_bps);
+         Ok(())
+     }
+ 
+-    pub fn set_fee(env: Env, admin: Address, new_fee_bps: u32) {
+-        admin.require_auth();
+-        let current_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+-        if admin != current_admin {
+-            panic!("Unauthorized access boundaries.");
++    pub fn pause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
++        // SECURITY:
++        // Authenticate before any state reads.
++        caller.require_auth();
++
++        let admin = require_admin(&env);
++        if caller != admin {
++            return Err(ContractError::NotAuthorized);
+         }
+-        env.storage().instance().set(&DataKey::DefaultFeeBps, &new_fee_bps);
++
++        env.storage().instance().set(&DataKey::Paused, &true);
++        emit_contract_paused(&env, admin);
++        Ok(())
++    }
++
++    pub fn unpause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
++        // SECURITY:
++        // Authenticate before any state reads.
++        caller.require_auth();
++
++        let admin = require_admin(&env);
++        if caller != admin {
++            return Err(ContractError::NotAuthorized);
++        }
++
+         env.storage().instance().set(&DataKey::Paused, &false);
+         emit_contract_unpaused(&env, admin);
+         Ok(())
+@@ -357,6 +378,8 @@ impl Escrow {
+             .get(&DataKey::Admin)
+             .expect("not initialized");
+         old_admin.require_auth();
++        // Reject no-op rotations to the same address so monitoring isn't polluted
++        // with misleading AdminRotated events.
+         if new_admin == old_admin {
+             return Err(ContractError::SameAddress);
+         }
+@@ -381,15 +404,20 @@ impl Escrow {
+ 
+     /// Configures the TTL extension (in ledgers) applied to persistent storage entries.
+     pub fn set_ttl_extension(env: Env, caller: Address, ledgers: u32) -> Result<(), ContractError> {
++        // SECURITY:
++        // Authenticate before any state reads.
+         caller.require_auth();
++
+         let admin: Address = env
+             .storage()
+             .instance()
+             .get(&DataKey::Admin)
+             .expect("not initialized");
++        
+         if caller != admin {
+             return Err(ContractError::NotAuthorized);
+         }
++
+         env.storage().instance().set(&DataKey::TtlExtensionLedgers, &ledgers);
+         Ok(())
+     }
+@@ -401,21 +429,19 @@ impl Escrow {
+         to: Address,
+         amount: i128,
+     ) -> Result<(), ContractError> {
++        // SECURITY:
++        // Authenticate before any state reads.
+         caller.require_auth();
++
+         ensure_not_paused(&env)?;
+         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+         if caller != admin {
+             return Err(ContractError::NotAuthorized);
+         }
++
+         if amount <= 0 {
+             return Err(ContractError::InvalidAmount);
+         }
+-        let token_client = token::Client::new(&env, &token);
+-        let contract_balance = token_client.balance(&env.current_contract_address());
+-        if amount > contract_balance {
+-            return Err(ContractError::InsufficientBalance);
+-        }
+-        token_client.transfer(&env.current_contract_address(), &to, &amount);
+ 
+         // Only allow withdrawals up to the fees that have actually accumulated in
+         // the vault from dispute resolutions. This prevents draining buyer funds
+@@ -433,6 +459,7 @@ impl Escrow {
+         env.storage().instance().set(&fee_key, &new_accumulated);
+ 
+         emit_fees_withdrawn(&env, token, to, amount);
++
+         Ok(())
+     }
+ 
+@@ -443,17 +470,41 @@ impl Escrow {
+         resolver: Address,
+         token: Address,
+         amount: i128,
+-        shipping_window: u64
+-    ) -> u32 {
++        fee_bps: u32,
++        shipping_window: u64,
++    ) -> Result<u64, ContractError> {
++        // SECURITY:
++        // Authenticate before any state reads.
+         seller.require_auth();
+ 
+-        let mut counter: u32 = env.storage().instance().get(&DataKey::EscrowCounter).unwrap_or(1);
+-        let global_fee_bps: u32 = env.storage().instance().get(&DataKey::DefaultFeeBps).unwrap_or(0);
++        ensure_not_paused(&env)?;
++
++        if amount <= 0 {
++            return Err(ContractError::InvalidAmount);
++        }
++        if amount > MAX_ESCROW_AMOUNT {
++            return Err(ContractError::AmountExceedsMaximum);
++        }
++
++        if amount < MIN_ESCROW_AMOUNT {
++            return Err(ContractError::InvalidAmount);
++        }
++
++        validate_escrow_fee_bps(fee_bps)?;
++
++        // Security: all three roles must be distinct to preserve the trustless
++        // three-party separation.  A resolver that equals the seller or buyer can
++        // unilaterally resolve disputes in their own favour; a buyer that equals
++        // the seller makes the escrow a self-dealing no-op.
++        if resolver == seller {
++            return Err(ContractError::ConflictingRoles);
++        }
++        if let Some(ref b) = buyer {
++            if b == &seller || b == &resolver {
++                return Err(ContractError::ConflictingRoles);
++            }
++        }
+ 
+-        // FIX: Explicitly snapshot the global contract fee parameters at the precise moment of creation
+-        let escrow_data = EscrowData {
+-            seller: seller.clone(),
+-            buyer: None,
+         let escrow_id: u64 = env
+             .storage()
+             .instance()
+@@ -474,12 +525,14 @@ impl Escrow {
+             resolver,
+             token,
+             amount,
++            fee_bps,
+             shipping_window,
+-            fee_bps: global_fee_bps, // Structural fix applied here
+             funded_at: 0,
+-            shipped_at: 0,
+-            created_at: env.ledger().timestamp(),
++            dispute_deadline: 0,
+             state: EscrowState::Pending,
++            shipped_at: 0,
++            delivered_at: None,
++            tracking_id: None,
+         };
+ 
+         save_escrow(&env, escrow_id, &escrow);
+@@ -533,16 +586,12 @@ impl Escrow {
+         }
+ 
+         escrow.state = EscrowState::Canceled;
+-        env.storage().persistent().set(&DataKey::Escrow(escrow_id), &escrow);
++
++        save_escrow(&env, escrow_id, &escrow);
+         emit_escrow_cancelled(&env, escrow_id, escrow.seller);
+         Ok(())
+     }
+ 
+-    pub fn fund_escrow(env: Env, escrow_id: u32, buyer: Address) {
+-        buyer.require_auth();
+-        let mut escrow = Self::get_escrow(env.clone(), escrow_id);
+-        if !matches!(escrow.state, EscrowState::Pending) {
+-            panic!("Escrow is not pending.");
+     pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
+         ensure_not_paused(&env)?;
+ 
+@@ -567,43 +616,213 @@ impl Escrow {
+             return Err(ContractError::NotAuthorized);
+         }
+ 
+-        escrow.buyer = Some(buyer);
++        // Security: buyer must not overlap with seller or resolver.
++        if buyer == escrow.seller || buyer == escrow.resolver {
++            return Err(ContractError::ConflictingRoles);
++        }
++
+         escrow.state = EscrowState::Funded;
+         escrow.funded_at = env.ledger().timestamp();
++        escrow.dispute_deadline = escrow.funded_at + DISPUTE_WINDOW;
+ 
+-        env.storage().persistent().set(&DataKey::Escrow(escrow_id), &escrow);
+         let token_client = token::Client::new(&env, &escrow.token);
+         token_client.transfer(escrow_buyer, &env.current_contract_address(), &escrow.amount);
+ 
+         save_escrow(&env, escrow_id, &escrow);
+-        push_buyer_escrow(&env, &buyer, escrow_id);
++
++        let mut buyer_escrows: Vec<u64> = env
++            .storage()
++            .persistent()
++            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
++            .unwrap_or(Vec::new(&env));
++        buyer_escrows.push_back(escrow_id);
++        env.storage()
++            .persistent()
++            .set(&DataKey::BuyerEscrowIndex(buyer.clone()), &buyer_escrows);
+ 
+         emit_escrow_funded(&env, escrow_id, buyer, escrow.amount);
+-        emit_escrow_funded(&env, escrow_id, escrow_buyer.clone(), escrow.amount);
+         Ok(())
+     }
+ 
+-    pub fn confirm_delivery(env: Env, escrow_id: u32) -> i128 {
+-        let mut escrow = Self::get_escrow(env.clone(), escrow_id);
+-        let buyer = escrow.buyer.clone().expect("Escrow has no designated funding buyer profile context.");
+-        buyer.require_auth();
++    /// Seller marks an escrow as shipped. Transitions Funded ΓåÆ Shipped.
++    pub fn mark_shipped(env: Env, caller: Address, escrow_id: u64, tracking_id: String) -> Result<(), ContractError> {
++        // SECURITY:
++        // Authenticate before any state reads.
++        caller.require_auth();
+ 
+-        // Enforce parsing calculation based strictly on the immutable snapshotted instance fee
+-        let fee_payout = (escrow.amount * escrow.fee_bps as i128) / 10000;
+-        let net_vendor_payout = escrow.amount - fee_payout;
++        ensure_not_paused(&env)?;
++        let mut escrow = load_escrow(&env, escrow_id)?;
+ 
+-        escrow.state = EscrowState::Completed;
+-        env.storage().persistent().set(&DataKey::Escrow(escrow_id), &escrow);
++        if escrow.seller != caller {
++            return Err(ContractError::NotAuthorized);
++        }
++
++        if escrow.state != EscrowState::Funded {
++            return Err(ContractError::InvalidState);
++        }
++
++        if tracking_id.len() == 0 {
++            return Err(ContractError::InvalidTrackingId);
++        }
++        if tracking_id.len() > MAX_TRACKING_ID_LEN {
++            return Err(ContractError::InputTooLong);
++        }
++
++        let shipped_at = env.ledger().timestamp();
++        escrow.state = EscrowState::Shipped;
++        escrow.shipped_at = shipped_at;
++        escrow.tracking_id = Some(tracking_id);
++        let tracking = escrow.tracking_id.clone().expect("tracking id set");
++        save_escrow(&env, escrow_id, &escrow);
++        emit_escrow_shipped(&env, escrow_id, escrow.seller, tracking);
++        Ok(())
++    }
++
++    /// Admin oracle records delivery timestamp. Only callable from Shipped state.
++    pub fn record_delivery(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
++        // SECURITY:
++        // Authenticate before any state reads.
++        caller.require_auth();
++
++        let admin: Address = env
++            .storage()
++            .instance()
++            .get(&DataKey::Admin)
++            .expect("not initialized");
++        
++        if caller != admin {
++            return Err(ContractError::NotAuthorized);
++        }
++
++        let mut escrow = load_escrow(&env, escrow_id)?;
++        if escrow.state != EscrowState::Shipped {
++            return Err(ContractError::InvalidState);
++        }
++
++        let delivered_at = env.ledger().timestamp();
++        escrow.delivered_at = Some(delivered_at);
++        save_escrow(&env, escrow_id, &escrow);
++
++        emit_delivery_recorded(&env, escrow_id, delivered_at);
++        Ok(())
++    }
++
++    pub fn confirm_delivery(
++        env: Env,
++        caller: Address,
++        escrow_id: u64,
++    ) -> Result<(), ContractError> {
++        // Authenticate before reading escrow state or performing any transfers.
++        // This guarantees the buyer authorization check applies even if future
++        // state branches are added here.
++        caller.require_auth();
++
++        ensure_not_paused(&env)?;
++        let mut escrow = load_escrow(&env, escrow_id)?;
++
++        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
++        if caller != buyer {
++            return Err(ContractError::NotAuthorized);
++        }
+ 
+-        net_vendor_payout
++        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
++            return Err(ContractError::InvalidState);
++        }
++
++        if env.ledger().timestamp() < escrow.dispute_deadline {
++            return Err(ContractError::DisputeWindowClosed);
++        }
++
++        let fee_config = read_fee_config(&env);
++        let fee_collector: Address = env
++            .storage()
++            .instance()
++            .get(&DataKey::FeeCollector)
++            .expect("not initialized");
++
++        transfer_with_protocol_fee(
++            &env,
++            &escrow.token,
++            &escrow.seller,
++            &fee_collector,
++            escrow.amount,
++            fee_config.protocol_fee_bps,
++        )?;
++
++        escrow.state = EscrowState::Completed;
++        save_escrow(&env, escrow_id, &escrow);
++        increment_counter(&env, &DataKey::TotalCompleted)?;
++        emit_escrow_completed(
++            &env,
++            escrow_id,
++            escrow.seller.clone(),
++            escrow.amount,
++            fee_config.protocol_fee_bps,
++        );
++        Ok(())
+     }
+ 
+-    pub fn get_escrow(env: Env, escrow_id: u32) -> EscrowData {
+-        env.storage().persistent().get(&DataKey::Escrow(escrow_id)).expect("Escrow instance data payload not found.")
++    pub fn raise_dispute(
++        env: Env,
++        caller: Address,
++        escrow_id: u64,
++        reason: Symbol,
++        description: String,
++        evidence_hash: BytesN<32>,
++    ) -> Result<(), ContractError> {
++        caller.require_auth();
++
++        ensure_not_paused(&env)?;
++        let mut escrow = load_escrow(&env, escrow_id)?;
++
++        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
++        if caller != buyer {
++            return Err(ContractError::NotAuthorized);
++        }
++
++        if escrow.state != EscrowState::Shipped {
++            return Err(ContractError::InvalidState);
++        }
++
++        if env.ledger().timestamp() >= escrow.dispute_deadline {
++            return Err(ContractError::DisputeWindowClosed);
++        }
++
++        if description.len() > MAX_DESCRIPTION_LEN {
++            return Err(ContractError::InputTooLong);
++        }
++
++        escrow.state = EscrowState::Disputed;
++
++        let dispute_data = DisputeData {
++            escrow_id,
++            reason,
++            description,
++            evidence_hash,
++            status: DisputeStatus::Active,
++            disputed_at: env.ledger().timestamp(),
++            tracking_id: escrow.tracking_id.clone(),
++        };
++
++        save_escrow(&env, escrow_id, &escrow);
++        save_dispute(&env, escrow_id, &dispute_data);
++        increment_counter(&env, &DataKey::TotalDisputed)?;
++        emit_dispute_raised(
++            &env,
++            escrow_id,
++            buyer,
++            dispute_data.reason.clone(),
++            dispute_data.description.clone(),
++            dispute_data.evidence_hash.clone(),
++        );
++        Ok(())
+     }
+ 
+     pub fn resolve_dispute(env: Env, caller: Address, escrow_id: u64, resolution: ResolutionType) -> Result<(), ContractError> {
++        // SECURITY:
++        // Authenticate before any state reads.
+         caller.require_auth();
++
+         ensure_not_paused(&env)?;
+         let mut escrow = load_escrow(&env, escrow_id)?;
+         let admin = require_admin(&env);
+@@ -721,6 +940,7 @@ impl Escrow {
+             return Err(ContractError::InvalidState);
+         }
+ 
++        let fee_config = read_fee_config(&env);
+         let fee_collector: Address = env
+             .storage()
+             .instance()
+@@ -733,7 +953,7 @@ impl Escrow {
+             &escrow.seller,
+             &fee_collector,
+             escrow.amount,
+-            escrow.fee_bps,
++            fee_config.protocol_fee_bps,
+         )?;
+ 
+         escrow.state = EscrowState::Completed;
+@@ -744,7 +964,7 @@ impl Escrow {
+             escrow_id,
+             escrow.seller.clone(),
+             escrow.amount,
+-            escrow.fee_bps,
++            fee_config.protocol_fee_bps,
+         );
+         Ok(())
+     }
+@@ -761,10 +981,6 @@ impl Escrow {
+         if let Some(ids) = env.storage().persistent().get(&DataKey::BuyerEscrowIndex(buyer.clone())) {
+             return ids;
+         }
+-        if let Some(index) = env.storage().persistent().get(&DataKey::BuyerEscrowIndex(buyer.clone())) {
+-            return index;
+-        }
+-
+         let mut result = Vec::new(&env);
+         let counter: u64 = env
+             .storage()
+@@ -793,8 +1009,6 @@ impl Escrow {
+             total_disputed: env.storage().instance().get(&DataKey::TotalDisputed).unwrap_or(0),
+             total_refunded: env.storage().instance().get(&DataKey::TotalRefunded).unwrap_or(0),
+         }
+-    pub fn get_fee_config(env: Env) -> FeeConfig {
+-        read_fee_config(&env)
+     }
+ 
+     /// Returns public-safe contract configuration (no admin or fee collector addresses).
+@@ -804,17 +1018,20 @@ impl Escrow {
+             .instance()
+             .get(&DataKey::DefaultFeeBps)
+             .unwrap_or(0);
++
+         let paused: bool = env
+             .storage()
+             .instance()
+             .get(&DataKey::Paused)
+             .unwrap_or(false);
++
+         let current_counter: u64 = env
+             .storage()
+             .instance()
+             .get(&DataKey::EscrowCounter)
+             .unwrap_or(1);
+         let escrow_count = current_counter.saturating_sub(1);
++
+         PublicContractConfig {
+             fee_bps,
+             paused,
+@@ -822,9 +1039,6 @@ impl Escrow {
+         }
+     }
+ 
+-    /// Returns full contract configuration including privileged addresses.
+-    pub fn get_contract_config(env: Env) -> ContractConfig {
+-        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+     /// Returns full contract configuration including privileged addresses. Requires admin auth.
+     pub fn get_contract_config(env: Env) -> ContractConfig {
+         let admin = require_admin(&env);
+@@ -852,6 +1066,7 @@ impl Escrow {
+     pub fn get_fee_config(env: Env) -> FeeConfig {
+         read_fee_config(&env)
+     }
++
+ }
+ 
+ mod test;
+
+commit c4bb31101c9ccdc499ff6bc31929b400ca4819f6
+Author: Luchi <ftoluchi@gmail.com>
+Date:   Tue Jun 2 05:39:21 2026 +0100
+
+    fix: enforce immutable fee snapshotting on escrow creation
+
+diff --git a/contracts/escrow/src/lib.rs b/contracts/escrow/src/lib.rs
+index 1181bb8..a02d3be 100644
+--- a/contracts/escrow/src/lib.rs
++++ b/contracts/escrow/src/lib.rs
+@@ -1,951 +1,94 @@
+-#![no_std]
+-use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, String, Symbol, Vec};
++import { Env, Address, BytesN, Symbol, log };
++use crate::types::{EscrowData, EscrowState, DataKey, Error};
+ 
+-pub mod errors;
+-pub mod events;
+-pub mod helpers;
+-pub mod types;
+-pub use crate::errors::ContractError;
+-pub use crate::events::{
+-    AdminRotated, AutoReleased, ContractPausedEvent, ContractUnpausedEvent, DeliveryRecorded,
+-    DisputeRaised, DisputeResolved, EscrowCancelled, EscrowCompleted, EscrowCreated,
+-    EscrowFunded, EscrowShipped, FeeUpdated, FeesWithdrawn, ArbitrationFeeUpdated,
+-    ProtocolFeeUpdated,
+-    emit_admin_rotated, emit_auto_released, emit_contract_paused, emit_contract_unpaused,
+-    emit_delivery_recorded, emit_dispute_raised, emit_dispute_resolved, emit_escrow_cancelled,
+-    emit_escrow_completed, emit_escrow_created, emit_escrow_funded, emit_escrow_shipped,
+-    emit_fee_updated, emit_fees_withdrawn, emit_arbitration_fee_updated,
+-    emit_protocol_fee_updated,
+-};
+-pub use crate::types::{
+-    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowState,
+-    FeeConfig, PublicContractConfig, ResolutionType,
+-};
+-
+-/// Maximum escrow fee in basis points (300 = 3%).
+-const MAX_ESCROW_FEE_BPS: u32 = 300;
+-
+-/// Maximum configurable protocol/arbitration fee in basis points.
+-const MAX_CONFIG_FEE_BPS: u32 = 10_000;
+-
+-/// Minimum escrow amount in stroops.
+-pub const MIN_ESCROW_AMOUNT: i128 = 1;
+-
+-const DISPUTE_WINDOW: u64 = 172_800;
+-const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
+-const DEFAULT_TTL_EXTENSION: u32 = 120_960;
+-
+-/// Grace period after shipping window expires during which disputes can no longer be raised.
+-/// This fallback deadline ensures disputes cannot be opened arbitrarily long after shipping,
+-/// even if `record_delivery` was never called.
+-/// Set to 7 days = 604,800 seconds.
+-const GRACE_PERIOD_SECS: u64 = 604_800;
+-
+-/// Maximum length for user-supplied string fields.
+-pub const MAX_TRACKING_ID_LEN: u32 = 64;
+-pub const MAX_DESCRIPTION_LEN: u32 = 256;
+-
+-/// Maximum escrow amount intentionally capped to preserve arithmetic safety.
+-pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 10_000;
+-
+-/// Validity matrix for escrow state transitions.
+-pub fn transition_state(
+-    from: &EscrowState,
+-    to: &EscrowState,
+-) -> Result<(), ContractError> {
+-    use EscrowState::*;
+-    let allowed = matches!(
+-        (from, to),
+-        (Pending, Funded)
+-            | (Pending, Canceled)
+-            | (Funded, Shipped)
+-            | (Funded, Completed)
+-            | (Funded, Refunded)
+-            | (Shipped, Completed)
+-            | (Shipped, Disputed)
+-            | (Shipped, Refunded)
+-            | (Disputed, Completed)
+-            | (Disputed, Refunded)
+-    );
+-    if allowed {
+-        Ok(())
+-    } else {
+-        Err(ContractError::InvalidStateTransition)
+-    }
+-}
+-
+-#[contract]
++// Realize structural definitions for the mock pipeline execution context
++#[soroban_sdk::contract]
+ pub struct Escrow;
+ 
+-fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
+-    let paused: bool = env.storage().instance().get(&DataKey::Paused).unwrap_or(false);
+-    if paused {
+-        return Err(ContractError::ContractPaused);
+-    }
+-    Ok(())
+-}
+-
+-fn require_admin(env: &Env) -> Address {
+-    env.storage()
+-        .instance()
+-        .get(&DataKey::Admin)
+-        .expect("not initialized")
+-}
+-
+-fn default_fee_config() -> FeeConfig {
+-    FeeConfig {
+-        protocol_fee_bps: 0,
+-        arbitration_fee_bps: 0,
+-    }
+-}
+-
+-fn read_fee_config(env: &Env) -> FeeConfig {
+-    env.storage()
+-        .instance()
+-        .get(&DataKey::FeeConfig)
+-        .unwrap_or_else(|| default_fee_config())
+-}
+-
+-fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
+-    env.storage().instance().set(&DataKey::FeeConfig, fee_config);
+-}
+-
+-fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
+-    if fee_bps > MAX_ESCROW_FEE_BPS {
+-        return Err(ContractError::FeeExceedsMax);
+-    }
+-    Ok(())
+-}
+-
+-fn validate_config_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
+-    if fee_bps > MAX_CONFIG_FEE_BPS {
+-        return Err(ContractError::FeeExceedsMax);
+-    }
+-    Ok(())
+-}
+-
+-fn update_default_fee(env: &Env, caller: &Address, fee_bps: u32) -> Result<u32, ContractError> {
+-    caller.require_auth();
+-    let admin = require_admin(env);
+-    if caller != &admin {
+-        return Err(ContractError::NotAuthorized);
+-    }
+-    validate_escrow_fee_bps(fee_bps)?;
+-    let old_fee: u32 = env
+-        .storage()
+-        .instance()
+-        .get(&DataKey::DefaultFeeBps)
+-        .unwrap_or(0);
+-    env.storage().instance().set(&DataKey::DefaultFeeBps, &fee_bps);
+-    Ok(old_fee)
+-}
+-
+-fn update_protocol_fee(env: &Env, caller: &Address, fee_bps: u32) -> Result<u32, ContractError> {
+-    caller.require_auth();
+-    let admin = require_admin(env);
+-    if caller != &admin {
+-        return Err(ContractError::NotAuthorized);
+-    }
+-    validate_config_fee_bps(fee_bps)?;
+-    let mut config = read_fee_config(env);
+-    let old_fee = config.protocol_fee_bps;
+-    config.protocol_fee_bps = fee_bps;
+-    write_fee_config(env, &config);
+-    Ok(old_fee)
+-}
+-
+-fn update_arbitration_fee(env: &Env, caller: &Address, fee_bps: u32) -> Result<u32, ContractError> {
+-    caller.require_auth();
+-    let admin = require_admin(env);
+-    if caller != &admin {
+-        return Err(ContractError::NotAuthorized);
+-    }
+-    validate_config_fee_bps(fee_bps)?;
+-    let mut config = read_fee_config(env);
+-    let old_fee = config.arbitration_fee_bps;
+-    config.arbitration_fee_bps = fee_bps;
+-    write_fee_config(env, &config);
+-    Ok(old_fee)
+-}
+-
+-fn get_ttl_extension(env: &Env) -> u32 {
+-    env.storage()
+-        .instance()
+-        .get(&DataKey::TtlExtensionLedgers)
+-        .unwrap_or(DEFAULT_TTL_EXTENSION)
+-}
+-
+-fn save_escrow(env: &Env, id: u64, escrow: &EscrowData) {
+-    let key = DataKey::Escrow(id);
+-    let ext = get_ttl_extension(env);
+-    env.storage().persistent().set(&key, escrow);
+-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+-}
+-
+-fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractError> {
+-    let key = DataKey::Escrow(id);
+-    let escrow: EscrowData = env
+-        .storage()
+-        .persistent()
+-        .get(&key)
+-        .ok_or(ContractError::EscrowNotFound)?;
+-    let ext = get_ttl_extension(env);
+-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+-    Ok(escrow)
+-}
+-
+-fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
+-    let key = DataKey::Dispute(id);
+-    let ext = get_ttl_extension(env);
+-    env.storage().persistent().set(&key, dispute);
+-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+-}
+-
+-fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
+-    let key = DataKey::Dispute(id);
+-    let dispute: DisputeData = env
+-        .storage()
+-        .persistent()
+-        .get(&key)
+-        .ok_or(ContractError::DisputeNotFound)?;
+-    let ext = get_ttl_extension(env);
+-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+-    Ok(dispute)
+-}
+-
+-fn deduct_and_transfer(env: &Env, token_addr: &Address, recipient: &Address, amount: i128, fee_bps: u32) -> Result<(), ContractError> {
+-    if amount < 0 {
+-        return Err(ContractError::InvalidAmount);
+-    }
+-
+-    let part1 = (amount / 10_000)
+-        .checked_mul(fee_bps as i128)
+-        .ok_or(ContractError::ArithmeticError)?;
+-    let part2 = (amount % 10_000)
+-        .checked_mul(fee_bps as i128)
+-        .ok_or(ContractError::ArithmeticError)?
+-        / 10_000;
+-
+-    let fee = part1.checked_add(part2).ok_or(ContractError::ArithmeticError)?;
+-    let net = amount.checked_sub(fee).ok_or(ContractError::ArithmeticError)?;
+-
+-    token::Client::new(env, token_addr).transfer(&env.current_contract_address(), recipient, &net);
+-    Ok(())
+-}
+-
+-fn transfer_with_protocol_fee(
+-    env: &Env,
+-    token_addr: &Address,
+-    recipient: &Address,
+-    fee_collector: &Address,
+-    amount: i128,
+-    fee_bps: u32,
+-) -> Result<(i128, i128), ContractError> {
+-    let (fee, net) = crate::helpers::payout::calculate_protocol_fee(amount, fee_bps)?;
+-    let token_client = token::Client::new(env, token_addr);
+-    let contract_addr = env.current_contract_address();
+-
+-    if net > 0 {
+-        token_client.transfer(&contract_addr, recipient, &net);
+-    }
+-
+-    if fee > 0 {
+-        token_client.transfer(&contract_addr, fee_collector, &fee);
+-    }
+-
+-    Ok((fee, net))
+-}
+-
+-fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
+-    let current: u64 = env.storage().instance().get(key).unwrap_or(0);
+-    let next = current.checked_add(1).ok_or(ContractError::ArithmeticError)?;
+-    env.storage().instance().set(key, &next);
+-    Ok(())
+-}
+-
+-#[contractimpl]
+-#[allow(deprecated)]
++#[soroban_sdk::contractimpl]
+ impl Escrow {
+-    pub fn initialize(
+-        env: Env,
+-        admin: Address,
+-        fee_collector: Address,
+-        arbitration_fee: i128,
+-        arbitration_fee_bps: u32,
+-    ) -> Result<(), ContractError> {
++    pub fn initialize(env: Env, admin: Address, default_fee_bps: u32) {
+         if env.storage().instance().has(&DataKey::Admin) {
+-            panic!("already initialized");
+-        }
+-        if admin == fee_collector {
+-            return Err(ContractError::InvalidAddress);
+-        }
+-        validate_config_fee_bps(arbitration_fee_bps)?;
+-
+-        let zero = Address::from_string(&String::from_str(
+-            &env,
+-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+-        ));
+-        if admin == zero || fee_collector == zero {
+-            return Err(ContractError::InvalidAddress);
++            panic!("Contract is already initialized.");
+         }
+-
+         env.storage().instance().set(&DataKey::Admin, &admin);
+-        env.storage().instance().set(&DataKey::FeeCollector, &fee_collector);
+-        write_fee_config(
+-            &env,
+-            &FeeConfig {
+-                protocol_fee_bps: 0,
+-                arbitration_fee_bps,
+-            },
+-        );
+-        env.storage().instance().set(&DataKey::EscrowCounter, &1u64);
+-        env.storage().instance().set(&DataKey::Paused, &false);
+-        Ok(())
+-    }
+-
+-    pub fn pause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
+-        caller.require_auth();
+-        let admin = require_admin(&env);
+-        if caller != admin {
+-            return Err(ContractError::NotAuthorized);
+-        }
+-        env.storage().instance().set(&DataKey::Paused, &true);
+-        emit_contract_paused(&env, admin);
+-        Ok(())
++        env.storage().instance().set(&DataKey::DefaultFeeBps, &default_fee_bps);
++        env.storage().instance().set(&DataKey::EscrowCounter, &1_u32);
+     }
+ 
+-    pub fn unpause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
+-        caller.require_auth();
+-        let admin = require_admin(&env);
+-        if caller != admin {
+-            return Err(ContractError::NotAuthorized);
++    pub fn set_fee(env: Env, admin: Address, new_fee_bps: u32) {
++        admin.require_auth();
++        let current_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
++        if admin != current_admin {
++            panic!("Unauthorized access boundaries.");
+         }
+-        env.storage().instance().set(&DataKey::Paused, &false);
+-        emit_contract_unpaused(&env, admin);
+-        Ok(())
+-    }
+-
+-    /// Returns whether the contract is currently paused.
+-    pub fn is_paused(env: Env) -> bool {
+-        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+-    }
+-
+-    /// Rotates the admin to a new address. Requires auth from the current admin.
+-    pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
+-        let old_admin: Address = env
+-            .storage()
+-            .instance()
+-            .get(&DataKey::Admin)
+-            .expect("not initialized");
+-        old_admin.require_auth();
+-        if new_admin == old_admin {
+-            return Err(ContractError::SameAddress);
+-        }
+-        env.storage().instance().set(&DataKey::Admin, &new_admin);
+-        emit_admin_rotated(&env, old_admin, new_admin);
+-        Ok(())
+-    }
+-
+-    /// Updates the default protocol fee. Requires admin auth.
+-    pub fn set_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+-        let old_fee_bps = update_default_fee(&env, &caller, fee_bps)?;
+-        emit_fee_updated(&env, old_fee_bps, fee_bps);
+-        Ok(())
+-    }
+-
+-    /// Updates the protocol fee configuration in basis points. Requires admin auth.
+-    pub fn set_protocol_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+-        let old_fee_bps = update_protocol_fee(&env, &caller, fee_bps)?;
+-        emit_protocol_fee_updated(&env, old_fee_bps, fee_bps);
+-        Ok(())
+-    }
+-
+-    /// Configures the TTL extension (in ledgers) applied to persistent storage entries.
+-    pub fn set_ttl_extension(env: Env, caller: Address, ledgers: u32) -> Result<(), ContractError> {
+-        caller.require_auth();
+-        let admin: Address = env
+-            .storage()
+-            .instance()
+-            .get(&DataKey::Admin)
+-            .expect("not initialized");
+-        if caller != admin {
+-            return Err(ContractError::NotAuthorized);
+-        }
+-        env.storage().instance().set(&DataKey::TtlExtensionLedgers, &ledgers);
+-        Ok(())
+-    }
+-
+-    pub fn withdraw_fees(
+-        env: Env,
+-        caller: Address,
+-        token: Address,
+-        to: Address,
+-        amount: i128,
+-    ) -> Result<(), ContractError> {
+-        caller.require_auth();
+-        ensure_not_paused(&env)?;
+-        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+-        if caller != admin {
+-            return Err(ContractError::NotAuthorized);
+-        }
+-        if amount <= 0 {
+-            return Err(ContractError::InvalidAmount);
+-        }
+-        let token_client = token::Client::new(&env, &token);
+-        let contract_balance = token_client.balance(&env.current_contract_address());
+-        if amount > contract_balance {
+-            return Err(ContractError::InsufficientBalance);
+-        }
+-        token_client.transfer(&env.current_contract_address(), &to, &amount);
+-        emit_fees_withdrawn(&env, token, to, amount);
+-        Ok(())
++        env.storage().instance().set(&DataKey::DefaultFeeBps, &new_fee_bps);
+     }
+ 
+     pub fn create_escrow(
+         env: Env,
+         seller: Address,
+-        buyer: Address,
+         resolver: Address,
+         token: Address,
+         amount: i128,
+-        fee_bps: u32,
+-        shipping_window: u64,
+-    ) -> Result<u64, ContractError> {
++        shipping_window: u64
++    ) -> u32 {
+         seller.require_auth();
+-        ensure_not_paused(&env)?;
+-
+-        if amount <= 0 {
+-            return Err(ContractError::InvalidAmount);
+-        }
+-        if amount > MAX_ESCROW_AMOUNT {
+-            return Err(ContractError::AmountExceedsMaximum);
+-        }
+-        if amount < MIN_ESCROW_AMOUNT {
+-            return Err(ContractError::InvalidAmount);
+-        }
+ 
+-        validate_escrow_fee_bps(fee_bps)?;
++        let mut counter: u32 = env.storage().instance().get(&DataKey::EscrowCounter).unwrap_or(1);
++        let global_fee_bps: u32 = env.storage().instance().get(&DataKey::DefaultFeeBps).unwrap_or(0);
+ 
+-        let escrow_id: u64 = env
+-            .storage()
+-            .instance()
+-            .get(&DataKey::EscrowCounter)
+-            .expect("counter initialized");
+-        let next_id = escrow_id.checked_add(1).ok_or(ContractError::ArithmeticError)?;
+-        env.storage()
+-            .instance()
+-            .set(&DataKey::EscrowCounter, &next_id);
+-
+-        let escrow = EscrowData {
+-            seller,
+-            buyer: Some(buyer),
++        // FIX: Explicitly snapshot the global contract fee parameters at the precise moment of creation
++        let escrow_data = EscrowData {
++            seller: seller.clone(),
++            buyer: None,
+             resolver,
+             token,
+             amount,
+-            fee_bps,
+             shipping_window,
++            fee_bps: global_fee_bps, // Structural fix applied here
+             funded_at: 0,
+-            dispute_deadline: 0,
+-            state: EscrowState::Pending,
+             shipped_at: 0,
+-            delivered_at: None,
+-            tracking_id: None,
++            created_at: env.ledger().timestamp(),
++            state: EscrowState::Pending,
+         };
+ 
+-        save_escrow(&env, escrow_id, &escrow);
+-        increment_counter(&env, &DataKey::TotalCreated)?;
+-        emit_escrow_created(
+-            &env,
+-            escrow_id,
+-            escrow.seller.clone(),
+-            escrow.resolver.clone(),
+-            escrow.token.clone(),
+-            escrow.amount,
+-            escrow.fee_bps,
+-            escrow.shipping_window,
+-        );
+-        Ok(escrow_id)
+-    }
+-
+-    pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
+-        caller.require_auth();
+-        ensure_not_paused(&env)?;
+-        let mut escrow = load_escrow(&env, escrow_id)?;
+-
+-        let buyer = escrow.buyer.clone();
+-        if escrow.seller != caller && buyer.as_ref() != Some(&caller) {
+-            return Err(ContractError::NotAuthorized);
+-        }
+-
+-        if escrow.state != EscrowState::Pending {
+-            return Err(ContractError::InvalidState);
+-        }
+-
+-        if let Some(ref buyer) = escrow.buyer {
+-            buyer.clone().require_auth();
+-        } else {
+-            escrow.seller.clone().require_auth();
+-        }
++        env.storage().persistent().set(&DataKey::Escrow(counter), &escrow_data);
++        env.storage().instance().set(&DataKey::EscrowCounter, &(counter + 1));
+ 
+-        escrow.state = EscrowState::Canceled;
+-        save_escrow(&env, escrow_id, &escrow);
+-        emit_escrow_cancelled(&env, escrow_id, escrow.seller);
+-        Ok(())
++        counter
+     }
+ 
+-    pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
+-        ensure_not_paused(&env)?;
+-
+-        let mut escrow = load_escrow(&env, escrow_id)?;
+-
+-        if escrow.state != EscrowState::Pending {
+-            return Err(ContractError::InvalidState);
+-        }
+-
+-        if escrow.buyer.is_none() {
+-            escrow.buyer = Some(buyer.clone());
+-        }
+-
+-        let escrow_buyer = escrow.buyer.as_ref().ok_or(ContractError::NotAuthorized)?;
+-        escrow_buyer.require_auth();
+-
+-        if &buyer != escrow_buyer {
+-            return Err(ContractError::NotAuthorized);
++    pub fn fund_escrow(env: Env, escrow_id: u32, buyer: Address) {
++        buyer.require_auth();
++        let mut escrow = Self::get_escrow(env.clone(), escrow_id);
++        if !matches!(escrow.state, EscrowState::Pending) {
++            panic!("Escrow is not pending.");
+         }
+ 
++        escrow.buyer = Some(buyer);
+         escrow.state = EscrowState::Funded;
+         escrow.funded_at = env.ledger().timestamp();
+-        escrow.dispute_deadline = escrow.funded_at + DISPUTE_WINDOW;
+ 
+-        let token_client = token::Client::new(&env, &escrow.token);
+-        token_client.transfer(escrow_buyer, &env.current_contract_address(), &escrow.amount);
+-
+-        save_escrow(&env, escrow_id, &escrow);
+-        emit_escrow_funded(&env, escrow_id, escrow_buyer.clone(), escrow.amount);
+-        Ok(())
++        env.storage().persistent().set(&DataKey::Escrow(escrow_id), &escrow);
+     }
+ 
+-    /// Seller marks an escrow as shipped. Transitions Funded ΓåÆ Shipped.
+-    pub fn mark_shipped(env: Env, caller: Address, escrow_id: u64, tracking_id: String) -> Result<(), ContractError> {
+-        caller.require_auth();
+-        ensure_not_paused(&env)?;
+-        let mut escrow = load_escrow(&env, escrow_id)?;
++    pub fn confirm_delivery(env: Env, escrow_id: u32) -> i128 {
++        let mut escrow = Self::get_escrow(env.clone(), escrow_id);
++        let buyer = escrow.buyer.clone().expect("Escrow has no designated funding buyer profile context.");
++        buyer.require_auth();
+ 
+-        if escrow.seller != caller {
+-            return Err(ContractError::NotAuthorized);
+-        }
+-        if escrow.state != EscrowState::Funded {
+-            return Err(ContractError::InvalidState);
+-        }
+-        if tracking_id.len() == 0 {
+-            return Err(ContractError::InvalidTrackingId);
+-        }
+-        if tracking_id.len() > MAX_TRACKING_ID_LEN {
+-            return Err(ContractError::InputTooLong);
+-        }
+-
+-        let shipped_at = env.ledger().timestamp();
+-        escrow.state = EscrowState::Shipped;
+-        escrow.shipped_at = shipped_at;
+-        escrow.tracking_id = Some(tracking_id);
+-        let tracking = escrow.tracking_id.clone().expect("tracking id set");
+-        save_escrow(&env, escrow_id, &escrow);
+-        emit_escrow_shipped(&env, escrow_id, escrow.seller, tracking);
+-        Ok(())
+-    }
+-
+-    /// Admin oracle records delivery timestamp. Only callable from Shipped state.
+-    pub fn record_delivery(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
+-        caller.require_auth();
+-        let admin: Address = env
+-            .storage()
+-            .instance()
+-            .get(&DataKey::Admin)
+-            .expect("not initialized");
+-        if caller != admin {
+-            return Err(ContractError::NotAuthorized);
+-        }
+-
+-        let mut escrow = load_escrow(&env, escrow_id)?;
+-        if escrow.state != EscrowState::Shipped {
+-            return Err(ContractError::InvalidState);
+-        }
+-
+-        let delivered_at = env.ledger().timestamp();
+-        escrow.delivered_at = Some(delivered_at);
+-        save_escrow(&env, escrow_id, &escrow);
+-        emit_delivery_recorded(&env, escrow_id, delivered_at);
+-        Ok(())
+-    }
+-
+-    pub fn confirm_delivery(
+-        env: Env,
+-        caller: Address,
+-        escrow_id: u64,
+-    ) -> Result<(), ContractError> {
+-        caller.require_auth();
+-        ensure_not_paused(&env)?;
+-        let mut escrow = load_escrow(&env, escrow_id)?;
+-
+-        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
+-        if caller != buyer {
+-            return Err(ContractError::NotAuthorized);
+-        }
+-
+-        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+-            return Err(ContractError::InvalidState);
+-        }
+-
+-        if env.ledger().timestamp() < escrow.dispute_deadline {
+-            return Err(ContractError::DisputeWindowClosed);
+-        }
+-        let fee_collector: Address = env
+-            .storage()
+-            .instance()
+-            .get(&DataKey::FeeCollector)
+-            .expect("not initialized");
+-
+-        transfer_with_protocol_fee(
+-            &env,
+-            &escrow.token,
+-            &escrow.seller,
+-            &fee_collector,
+-            escrow.amount,
+-            escrow.fee_bps,
+-        )?;
++        // Enforce parsing calculation based strictly on the immutable snapshotted instance fee
++        let fee_payout = (escrow.amount * escrow.fee_bps as i128) / 10000;
++        let net_vendor_payout = escrow.amount - fee_payout;
+ 
+         escrow.state = EscrowState::Completed;
+-        save_escrow(&env, escrow_id, &escrow);
+-        increment_counter(&env, &DataKey::TotalCompleted)?;
+-        emit_escrow_completed(
+-            &env,
+-            escrow_id,
+-            escrow.seller.clone(),
+-            escrow.amount,
+-            escrow.fee_bps,
+-        );
+-        Ok(())
+-    }
+-
+-    pub fn raise_dispute(
+-        env: Env,
+-        caller: Address,
+-        escrow_id: u64,
+-        reason: Symbol,
+-        description: String,
+-        evidence_hash: BytesN<32>,
+-    ) -> Result<(), ContractError> {
+-        caller.require_auth();
+-        ensure_not_paused(&env)?;
+-        let mut escrow = load_escrow(&env, escrow_id)?;
+-
+-        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
+-        if caller != buyer {
+-            return Err(ContractError::NotAuthorized);
+-        }
+-
+-        if escrow.state != EscrowState::Shipped {
+-            return Err(ContractError::InvalidState);
+-        }
+-
+-        let current_time = env.ledger().timestamp();
+-
+-        // Check the original dispute deadline (funded_at + DISPUTE_WINDOW).
+-        if current_time >= escrow.dispute_deadline {
+-            return Err(ContractError::DisputeWindowClosed);
+-        }
+-
+-        // Fallback deadline: even if record_delivery was never called, disputes
+-        // cannot be raised after shipped_at + shipping_window + GRACE_PERIOD_SECS.
+-        // This closes the infinite dispute window bug where dispute_deadline alone
+-        // was insufficient when delivery was never recorded on-chain.
+-        let max_dispute_deadline = escrow
+-            .shipped_at
+-            .checked_add(escrow.shipping_window)
+-            .and_then(|t| t.checked_add(GRACE_PERIOD_SECS))
+-            .ok_or(ContractError::ArithmeticOverflow)?;
++        env.storage().persistent().set(&DataKey::Escrow(escrow_id), &escrow);
+ 
+-        if current_time >= max_dispute_deadline {
+-            return Err(ContractError::DisputeWindowClosed);
+-        }
+-
+-        if description.len() > MAX_DESCRIPTION_LEN {
+-            return Err(ContractError::InputTooLong);
+-        }
+-
+-        escrow.state = EscrowState::Disputed;
+-
+-        let dispute_data = DisputeData {
+-            escrow_id,
+-            reason,
+-            description,
+-            evidence_hash,
+-            status: DisputeStatus::Active,
+-            disputed_at: env.ledger().timestamp(),
+-            tracking_id: escrow.tracking_id.clone(),
+-        };
+-
+-        save_escrow(&env, escrow_id, &escrow);
+-        save_dispute(&env, escrow_id, &dispute_data);
+-        increment_counter(&env, &DataKey::TotalDisputed)?;
+-        emit_dispute_raised(
+-            &env,
+-            escrow_id,
+-            buyer,
+-            dispute_data.reason.clone(),
+-            dispute_data.description.clone(),
+-            dispute_data.evidence_hash.clone(),
+-        );
+-        Ok(())
++        net_vendor_payout
+     }
+ 
+-    pub fn resolve_dispute(env: Env, caller: Address, escrow_id: u64, resolution: ResolutionType) -> Result<(), ContractError> {
+-        caller.require_auth();
+-        ensure_not_paused(&env)?;
+-        let mut escrow = load_escrow(&env, escrow_id)?;
+-        let admin = require_admin(&env);
+-
+-        if caller != escrow.resolver && caller != admin {
+-            return Err(ContractError::NotAuthorized);
+-        }
+-
+-        if escrow.state != EscrowState::Disputed {
+-            return Err(ContractError::InvalidState);
+-        }
+-
+-        let arbitration_fee_bps = read_fee_config(&env).arbitration_fee_bps;
+-        let arbitration_fee = crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;
+-
+-        if arbitration_fee > escrow.amount {
+-            return Err(ContractError::InsufficientBalance);
+-        }
+-
+-        escrow.amount = escrow
+-            .amount
+-            .checked_sub(arbitration_fee)
+-            .ok_or(ContractError::ArithmeticError)?;
+-
+-        let total_key = DataKey::TotalArbitrationFees(escrow.token.clone());
+-        let current_total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
+-        let next_total = current_total.checked_add(arbitration_fee).ok_or(ContractError::ArithmeticError)?;
+-        env.storage().instance().set(&total_key, &next_total);
+-
+-        let recipient = match resolution {
+-            ResolutionType::Release => escrow.seller.clone(),
+-            ResolutionType::Refund => escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?,
+-        };
+-
+-        deduct_and_transfer(&env, &escrow.token, &recipient, escrow.amount, escrow.fee_bps)?;
+-
+-        let mut updated = escrow;
+-        updated.state = match resolution {
+-            ResolutionType::Release => EscrowState::Completed,
+-            ResolutionType::Refund => EscrowState::Refunded,
+-        };
+-
+-        let mut dispute_data = load_dispute(&env, escrow_id)?;
+-        dispute_data.status = DisputeStatus::Resolved;
+-
+-        save_escrow(&env, escrow_id, &updated);
+-        save_dispute(&env, escrow_id, &dispute_data);
+-
+-        match resolution {
+-            ResolutionType::Release => increment_counter(&env, &DataKey::TotalCompleted)?,
+-            ResolutionType::Refund => increment_counter(&env, &DataKey::TotalRefunded)?,
+-        };
+-
+-        emit_dispute_resolved(
+-            &env,
+-            escrow_id,
+-            updated.resolver.clone(),
+-            resolution,
+-            recipient,
+-            updated.amount,
+-            arbitration_fee,
+-        );
+-        Ok(())
+-    }
+-
+-    pub fn set_arbitration_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+-        let old_fee_bps = update_arbitration_fee(&env, &caller, fee_bps)?;
+-        emit_arbitration_fee_updated(&env, old_fee_bps, fee_bps);
+-        Ok(())
+-    }
+-
+-    pub fn get_arbitration_fee(env: Env) -> u32 {
+-        read_fee_config(&env).arbitration_fee_bps
+-    }
+-
+-    pub fn get_total_arbitration_fees(env: Env, token: Address) -> i128 {
+-        env.storage().instance().get(&DataKey::TotalArbitrationFees(token)).unwrap_or(0)
+-    }
+-
+-    pub fn auto_release(env: Env, escrow_id: u64) -> Result<(), ContractError> {
+-        ensure_not_paused(&env)?;
+-        let mut escrow = load_escrow(&env, escrow_id)?;
+-
+-        if escrow.state != EscrowState::Shipped {
+-            return Err(ContractError::InvalidState);
+-        }
+-
+-        if escrow.delivered_at.is_none() {
+-            return Err(ContractError::DeliveryNotRecorded);
+-        }
+-
+-        let delivered_at = escrow.delivered_at.unwrap();
+-        let eligible_at = delivered_at
+-            .checked_add(DELIVERY_RELEASE_WINDOW)
+-            .ok_or(ContractError::ArithmeticOverflow)?;
+-        if env.ledger().timestamp() < eligible_at {
+-            return Err(ContractError::ShippingWindowNotElapsed);
+-        }
+-
+-        if load_dispute(&env, escrow_id).is_ok() {
+-            return Err(ContractError::InvalidState);
+-        }
+-
+-        let fee_collector: Address = env
+-            .storage()
+-            .instance()
+-            .get(&DataKey::FeeCollector)
+-            .expect("not initialized");
+-
+-        transfer_with_protocol_fee(
+-            &env,
+-            &escrow.token,
+-            &escrow.seller,
+-            &fee_collector,
+-            escrow.amount,
+-            escrow.fee_bps,
+-        )?;
+-
+-        escrow.state = EscrowState::Completed;
+-        save_escrow(&env, escrow_id, &escrow);
+-        increment_counter(&env, &DataKey::TotalCompleted)?;
+-        emit_auto_released(
+-            &env,
+-            escrow_id,
+-            escrow.seller.clone(),
+-            escrow.amount,
+-            escrow.fee_bps,
+-        );
+-        Ok(())
+-    }
+-
+-    pub fn get_escrow(env: Env, escrow_id: u64) -> EscrowData {
+-        load_escrow(&env, escrow_id).expect("escrow not found")
+-    }
+-
+-    pub fn get_dispute(env: Env, escrow_id: u64) -> Option<DisputeData> {
+-        load_dispute(&env, escrow_id).ok()
+-    }
+-
+-    pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
+-        let mut result = Vec::new(&env);
+-        let counter: u64 = env
+-            .storage()
+-            .instance()
+-            .get(&DataKey::EscrowCounter)
+-            .unwrap_or(1);
+-        for id in 1..counter {
+-            if let Ok(escrow) = load_escrow(&env, id) {
+-                if escrow.buyer.as_ref() == Some(&buyer) {
+-                    result.push_back(id);
+-                }
+-            }
+-        }
+-        result
+-    }
+-
+-    pub fn get_fee_config(env: Env) -> FeeConfig {
+-        read_fee_config(&env)
+-    }
+-
+-    /// Returns public-safe contract configuration (no admin or fee collector addresses).
+-    pub fn get_public_config(env: Env) -> PublicContractConfig {
+-        let fee_bps: u32 = env
+-            .storage()
+-            .instance()
+-            .get(&DataKey::DefaultFeeBps)
+-            .unwrap_or(0);
+-        let paused: bool = env
+-            .storage()
+-            .instance()
+-            .get(&DataKey::Paused)
+-            .unwrap_or(false);
+-        let current_counter: u64 = env
+-            .storage()
+-            .instance()
+-            .get(&DataKey::EscrowCounter)
+-            .unwrap_or(1);
+-        let escrow_count = current_counter.saturating_sub(1);
+-        PublicContractConfig {
+-            fee_bps,
+-            paused,
+-            escrow_count,
+-        }
+-    }
+-
+-    /// Returns full contract configuration including privileged addresses.
+-    pub fn get_contract_config(env: Env) -> ContractConfig {
+-        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+-        let fee_collector: Address = env
+-            .storage()
+-            .instance()
+-            .get(&DataKey::FeeCollector)
+-            .expect("not initialized");
+-        let fee_config = read_fee_config(&env);
+-        let escrow_count: u64 = env.storage().instance().get(&DataKey::EscrowCounter).unwrap_or(1) - 1;
+-        ContractConfig {
+-            admin,
+-            fee_bps: fee_config.protocol_fee_bps,
+-            fee_collector,
+-            escrow_count,
+-        }
+-    }
+-
+-    /// Returns on-chain counters for escrow lifecycle events.
+-    pub fn get_stats(env: Env) -> ContractStats {
+-        ContractStats {
+-            total_created: env.storage().instance().get(&DataKey::TotalCreated).unwrap_or(0),
+-            total_completed: env.storage().instance().get(&DataKey::TotalCompleted).unwrap_or(0),
+-            total_disputed: env.storage().instance().get(&DataKey::TotalDisputed).unwrap_or(0),
+-            total_refunded: env.storage().instance().get(&DataKey::TotalRefunded).unwrap_or(0),
+-        }
++    pub fn get_escrow(env: Env, escrow_id: u32) -> EscrowData {
++        env.storage().persistent().get(&DataKey::Escrow(escrow_id)).expect("Escrow instance data payload not found.")
+     }
+ }
+-
+-mod test;
+-mod test_edge_cases;
+-mod test_withdraw_fees;
+-mod test_dispute;
+-mod test_escrow_id;
+-mod test_resolution;
+-mod test_pause;
+-mod test_overflow;
+-mod test_fee_minimum;
+-mod test_minimum_amount_guard;
+-mod test_fee_calculation_accuracy;
+-mod test_arbitration_fee;
+-mod test_fee_config;
+-mod test_helpers;
+-mod test_admin;
+-mod test_ttl;
+-mod test_escrow_states;
+-mod test_admin_rotation;
+-mod test_auto_release;
+-mod test_initialize_twice;
+-mod test_initialize_zero_admin;
+-mod test_contract_config;
+-mod test_string_length;
+-mod test_get_escrows_by_buyer;
+-mod test_delivery;
+-mod test_auth_ordering;
+-mod test_dispute_flow;
+-mod test_set_fee_boundary;
+-mod test_cancel_restrictions;
+-mod test_dispute_window;
+-mod test_unauthorized;
+-mod test_concurrent_vendor_escrows;
+-mod test_dispute_deadline_fallback;
+-mod test_fee_snapshot;
+
+commit 535c1f004c95a3ce045b1ea7dbf5730836c93984
+Author: JSE19 <joysundayegbala@gmail.com>
+Date:   Sun May 17 17:19:53 2026 +0100
+
+    contracts
+
+diff --git a/contracts/escrow/src/lib.rs b/contracts/escrow/src/lib.rs
+new file mode 100644
+index 0000000..0570e9c
+--- /dev/null
++++ b/contracts/escrow/src/lib.rs
+@@ -0,0 +1,228 @@
++#![no_std]
++use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env};
++
++#[contracttype]
++pub enum DataKey {
++    Escrow(u32),
++    EscrowCount,
++}
++
++#[contracttype]
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct EscrowData {
++    pub seller: Address,
++    pub buyer: Option<Address>,
++    pub resolver: Address,
++    pub token: Address,
++    pub amount: i128,
++    pub shipping_window: u64,
++    pub funded_at: u64,
++    pub state: EscrowState,
++}
++
++#[contracttype]
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub enum EscrowState {
++    Pending,
++    Funded,
++    Completed,
++    Disputed,
++    Refunded,
++}
++
++#[contract]
++pub struct Escrow;
++
++#[contractimpl]
++#[allow(deprecated)]
++impl Escrow {
++    pub fn create_escrow(
++        env: Env,
++        seller: Address,
++        resolver: Address,
++        token: Address,
++        amount: i128,
++        shipping_window: u64,
++    ) -> u32 {
++        seller.require_auth();
++
++        let mut count: u32 = env
++            .storage()
++            .instance()
++            .get(&DataKey::EscrowCount)
++            .unwrap_or(0);
++        count += 1;
++
++        let escrow = EscrowData {
++            seller,
++            buyer: None,
++            resolver,
++            token,
++            amount,
++            shipping_window,
++            funded_at: 0,
++            state: EscrowState::Pending,
++        };
++
++        env.storage()
++            .instance()
++            .set(&DataKey::Escrow(count), &escrow);
++        env.storage()
++            .instance()
++            .set(&DataKey::EscrowCount, &count);
++
++        env.events().publish(("create_escrow",), count);
++        count
++    }
++
++    pub fn fund_escrow(env: Env, escrow_id: u32, buyer: Address) {
++        buyer.require_auth();
++
++        let mut escrow: EscrowData = env
++            .storage()
++            .instance()
++            .get(&DataKey::Escrow(escrow_id))
++            .expect("escrow not found");
++
++        assert!(escrow.state == EscrowState::Pending, "escrow not pending");
++
++        escrow.buyer = Some(buyer.clone());
++        escrow.state = EscrowState::Funded;
++        escrow.funded_at = env.ledger().timestamp();
++
++        let token_client = token::Client::new(&env, &escrow.token);
++        token_client.transfer(&buyer, &env.current_contract_address(), &escrow.amount);
++
++        env.storage()
++            .instance()
++            .set(&DataKey::Escrow(escrow_id), &escrow);
++        env.events().publish(("fund_escrow",), escrow_id);
++    }
++
++    pub fn confirm_delivery(env: Env, escrow_id: u32) {
++        let escrow: EscrowData = env
++            .storage()
++            .instance()
++            .get(&DataKey::Escrow(escrow_id))
++            .expect("escrow not found");
++
++        assert!(escrow.state == EscrowState::Funded, "escrow not funded");
++
++        let buyer = escrow.buyer.clone().expect("escrow has no buyer");
++        buyer.require_auth();
++
++        let token_client = token::Client::new(&env, &escrow.token);
++        token_client.transfer(
++            &env.current_contract_address(),
++            &escrow.seller,
++            &escrow.amount,
++        );
++
++        let mut updated = escrow;
++        updated.state = EscrowState::Completed;
++
++        env.storage()
++            .instance()
++            .set(&DataKey::Escrow(escrow_id), &updated);
++        env.events().publish(("confirm_delivery",), escrow_id);
++    }
++
++    pub fn raise_dispute(env: Env, escrow_id: u32) {
++        let escrow: EscrowData = env
++            .storage()
++            .instance()
++            .get(&DataKey::Escrow(escrow_id))
++            .expect("escrow not found");
++
++        assert!(escrow.state == EscrowState::Funded, "escrow not funded");
++
++        let buyer = escrow.buyer.clone().expect("escrow has no buyer");
++        buyer.require_auth();
++
++        let mut updated = escrow;
++        updated.state = EscrowState::Disputed;
++
++        env.storage()
++            .instance()
++            .set(&DataKey::Escrow(escrow_id), &updated);
++        env.events().publish(("raise_dispute",), escrow_id);
++    }
++
++    pub fn resolve_dispute(env: Env, escrow_id: u32, release_to_seller: bool) {
++        let escrow: EscrowData = env
++            .storage()
++            .instance()
++            .get(&DataKey::Escrow(escrow_id))
++            .expect("escrow not found");
++
++        assert!(escrow.state == EscrowState::Disputed, "escrow not disputed");
++
++        escrow.resolver.require_auth();
++
++        let token_client = token::Client::new(&env, &escrow.token);
++        if release_to_seller {
++            token_client.transfer(
++                &env.current_contract_address(),
++                &escrow.seller,
++                &escrow.amount,
++            );
++        } else {
++            token_client.transfer(
++                &env.current_contract_address(),
++                &escrow.buyer.clone().expect("escrow has no buyer"),
++                &escrow.amount,
++            );
++        }
++
++        let mut updated = escrow;
++        updated.state = if release_to_seller {
++            EscrowState::Completed
++        } else {
++            EscrowState::Refunded
++        };
++
++        env.storage()
++            .instance()
++            .set(&DataKey::Escrow(escrow_id), &updated);
++        env.events()
++            .publish(("resolve_dispute",), (escrow_id, release_to_seller));
++    }
++
++    pub fn auto_release(env: Env, escrow_id: u32) {
++        let escrow: EscrowData = env
++            .storage()
++            .instance()
++            .get(&DataKey::Escrow(escrow_id))
++            .expect("escrow not found");
++
++        assert!(escrow.state == EscrowState::Funded, "escrow not funded");
++        assert!(
++            env.ledger().timestamp() >= escrow.funded_at + escrow.shipping_window,
++            "shipping window not elapsed"
++        );
++
++        let token_client = token::Client::new(&env, &escrow.token);
++        token_client.transfer(
++            &env.current_contract_address(),
++            &escrow.seller,
++            &escrow.amount,
++        );
++
++        let mut updated = escrow;
++        updated.state = EscrowState::Completed;
++
++        env.storage()
++            .instance()
++            .set(&DataKey::Escrow(escrow_id), &updated);
++        env.events().publish(("auto_release",), escrow_id);
++    }
++
++    pub fn get_escrow(env: Env, escrow_id: u32) -> EscrowData {
++        env.storage()
++            .instance()
++            .get(&DataKey::Escrow(escrow_id))
++            .expect("escrow not found")
++    }
++}
++
++mod test;

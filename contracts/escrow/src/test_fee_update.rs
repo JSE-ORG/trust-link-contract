@@ -97,6 +97,29 @@ fn test_set_fee_requires_admin_auth() {
     assert!(result.is_err(), "set_protocol_fee requires admin auth");
 }
 
+/// Test: legacy set_fee rejects non-admin callers with NotAuthorized
+#[test]
+fn test_set_fee_rejects_non_admin_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let intruder = Address::generate(&env);
+    let result = client.try_set_fee(&intruder, &100_u32);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+
+    let stored = env.as_contract(&client.address, || {
+        env.storage().instance().get(&DataKey::FeeConfig)
+    });
+    assert_eq!(
+        stored,
+        Some(FeeConfig {
+            protocol_fee_bps: 0,
+            arbitration_fee_bps: 0
+        })
+    );
+}
+
 /// Test: set_protocol_fee emits ProtocolFeeUpdated event with old and new values
 #[test]
 fn test_set_fee_emits_event() {
