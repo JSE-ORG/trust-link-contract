@@ -1,8 +1,9 @@
-#![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec};
+#![allow(deprecated, unused_imports)]
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, String, Vec};
 
 // Added import for Message
 use crate::types::Message;
+use crate::events::emit_message_posted;
 
 pub mod errors;
 pub mod events;
@@ -139,21 +140,7 @@ fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EscrowData {
-    pub seller: Address,
-    pub buyer: Option<Address>,
-    pub resolver: Address,
-    pub token: Address,
-    pub amount: i128,
-    pub fee_bps: u32,
-    pub shipping_window: u64,
-    pub funded_at: u64,
-    pub dispute_deadline: u64,
-    pub shipped_at: u64,
-    pub delivered_at: Option<u64>,
-    pub tracking_id: Option<String>,
-    pub state: EscrowState,
-}
+
 
 fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
     if fee_bps > MAX_ESCROW_FEE_BPS {
@@ -596,8 +583,9 @@ impl Escrow {
         ensure_not_paused(&env)?;
         // Verify escrow exists
         let _ = load_escrow(&env, escrow_id)?;
+
         let message = Message {
-            sender,
+            sender: sender.clone(),
             timestamp: env.ledger().timestamp(),
             content,
         };
@@ -606,7 +594,7 @@ impl Escrow {
         let mut msgs: Vec<Message> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(&env));
         msgs.push_back(message);
         env.storage().persistent().set(&key, &msgs);
-        emit_message_posted(&env, escrow_id, sender);
+        emit_message_posted(&env, escrow_id, sender.clone());
         Ok(())
     }
 
@@ -625,7 +613,7 @@ impl Escrow {
         let end = (start + max_limit).min(total);
         let mut i = start;
         while i < end {
-            if let Some(m) = msgs.get(i as usize) {
+            if let Some(m) = msgs.get(i as u32) {
                 result.push_back(m.clone());
             }
             i += 1;
@@ -1058,8 +1046,8 @@ impl Escrow {
         let escrow_count: u64 = env
             .storage()
             .instance()
-            .get::<DataKey, u64>(&DataKey::EscrowCounter)
-            .unwrap_or(1)
+            .get(&DataKey::EscrowCounter)
+            .unwrap_or(1u64)
             .saturating_sub(1);
         Ok(ContractConfig { admin, fee_bps, fee_collector, escrow_count })
     }

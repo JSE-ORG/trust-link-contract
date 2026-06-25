@@ -15,6 +15,7 @@ pub enum DataKey {
     TotalArbitrationFees(Address),
     AccumulatedFees(Address),
     TotalCreated,
+    TotalDisputed,
     TotalCompleted,
     Messages(u64),
     TotalRefunded,
