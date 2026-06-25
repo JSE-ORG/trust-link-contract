@@ -60,4 +60,12 @@ pub enum ContractError {
     ConflictingRoles = 23,
     /// Returned when raising a dispute after the dispute window has closed.
     DisputeWindowClosed = 24,
+    /// Returned when a token is not in the allowlist.
+    TokenNotAllowed = 25,
+    /// Returned when attempting to finalize a dispute that is not in PendingFinalization state.
+    NotPendingFinalization = 26,
+    /// Returned when the appeal window is still active.
+    AppealWindowActive = 27,
+    /// Returned when the platform fee exceeds the maximum allowed.
+    PlatformFeeExceedsMax = 28,
 }
