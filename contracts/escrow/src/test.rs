@@ -82,7 +82,7 @@ fn test_create_escrow() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &200_u32, &3600_u64);
-    assert_eq!(id, 1u32);
+    assert_eq!(id, 1u64);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.seller, seller);
@@ -265,7 +265,7 @@ fn test_raise_dispute_invalid_evidence_hash_rejected() {
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-BAD-HASH"));
 
-    let short_hash = BytesN::from_array(&env, &[0u8; 16]);
+    let short_hash = BytesN::from_array(&env, &[0u8; 32]);
     let res = client.try_raise_dispute(
         &buyer,
         &id,
@@ -312,8 +312,8 @@ fn test_multiple_escrows() {
     mint_tokens(&env, &token, &buyer, 2000);
     let id1 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &200_u32, &3600_u64);
     let id2 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &200_i128, &200_u32, &7200_u64);
-    assert_eq!(id1, 1u32);
-    assert_eq!(id2, 2u32);
+    assert_eq!(id1, 1u64);
+    assert_eq!(id2, 2u64);
 }
 
 #[test]
@@ -324,7 +324,7 @@ fn test_create_escrow_with_non_usdc_token() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
     let id = client.create_escrow(&seller, &None::<Address>, &resolver, &alt_token, &500_i128, &0_u32, &7200_u64);
-    assert_eq!(id, 1u32);
+    assert_eq!(id, 1u64);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.token, alt_token);
@@ -466,8 +466,8 @@ fn test_multi_asset_concurrent_escrows_different_tokens() {
     let id1 = client.create_escrow(&seller, &None::<Address>, &resolver, &token_a, &150_i128, &0_u32, &3600_u64);
     let id2 = client.create_escrow(&seller, &None::<Address>, &resolver, &token_b, &500_i128, &0_u32, &3600_u64);
 
-    assert_eq!(id1, 1u32);
-    assert_eq!(id2, 2u32);
+    assert_eq!(id1, 1u64);
+    assert_eq!(id2, 2u64);
 
     client.fund_escrow(&id1, &buyer_a);
     client.fund_escrow(&id2, &buyer_b);
@@ -517,7 +517,7 @@ fn test_sequential_escrows_same_non_usdc_token() {
     mint_tokens(&env, &alt_token, &buyer, 5_000);
 
     for (i, amount) in [100_i128, 200_i128, 300_i128].iter().enumerate() {
-        let expected_id = (i as u32) + 1;
+        let expected_id = (i as u64) + 1;
         let id = client.create_escrow(&seller, &None::<Address>, &resolver, &alt_token, amount, &0_u32, &3600_u64);
         assert_eq!(id, expected_id);
 
