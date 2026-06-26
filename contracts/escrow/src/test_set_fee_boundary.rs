@@ -23,7 +23,10 @@ fn stored_fee(env: &Env, contract_id: &Address) -> u32 {
         env.storage()
             .instance()
             .get::<_, FeeConfig>(&crate::DataKey::FeeConfig)
-            .unwrap_or(FeeConfig { protocol_fee_bps: 0, arbitration_fee_bps: 0 })
+            .unwrap_or(FeeConfig {
+                protocol_fee_bps: 0,
+                arbitration_fee_bps: 0,
+            })
             .protocol_fee_bps
     })
 }

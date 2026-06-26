@@ -1,0 +1,81 @@
+   Compiling trustlink-escrow v0.1.0 (C:\Users\ADMIN\Desktop\mide-drips\trust-link-contract\contracts\escrow)
+contracts\escrow\src\lib.rs:227:14: warning: unused macro definition: `require_state`
+contracts\escrow\src\test.rs:5:34: warning: unused import: `IntoVal`
+contracts\escrow\src\test_edge_cases.rs:5:50: warning: unused import: `MIN_ESCROW_AMOUNT`
+contracts\escrow\src\test_edge_cases.rs:6:59: warning: unused import: `token`
+contracts\escrow\src\test_withdraw_fees.rs:5:31: warning: unused import: `Ledger`
+contracts\escrow\src\test_dispute.rs:3:13: warning: unused imports: `ContractError` and `ResolutionType`
+contracts\escrow\src\test_escrow_id.rs:6:19: warning: unused import: `IntoVal`
+contracts\escrow\src\test_arbitration_fee.rs:6:26: warning: unused import: `IntoVal`
+contracts\escrow\src\test_string_length.rs:5:45: warning: unused imports: `Bytes` and `Ledger`
+contracts\escrow\src\test_delivery.rs:7:5: warning: unused imports: `IntoVal` and `vec`
+contracts\escrow\src\test_get_escrows_by_vendor.rs:4:26: warning: unused import: `EscrowData`
+contracts\escrow\src\test_resolver_rotation.rs:5:50: warning: unused import: `EscrowState`
+contracts\escrow\src\events.rs:21:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:41:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:61:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:81:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:100:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:118:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:138:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:173:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:199:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:221:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:241:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:265:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:297:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:332:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:364:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:386:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:412:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\events.rs:439:18: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\lib.rs:531:22: warning: use of deprecated method `soroban_sdk::events::Events::publish`: use the #[contractevent] macro on a contract event type
+contracts\escrow\src\test.rs:23:29: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test.rs:40:29: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_edge_cases.rs:167:21: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_edge_cases.rs:203:25: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_edge_cases.rs:245:21: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_edge_cases.rs:284:21: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_edge_cases.rs:322:21: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_withdraw_fees.rs:20:29: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_withdraw_fees.rs:90:23: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_dispute.rs:17:29: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_pause.rs:19:29: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_overflow.rs:19:29: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_fee_minimum.rs:16:21: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_minimum_amount_guard.rs:13:21: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_arbitration_fee.rs:16:21: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_admin.rs:9:9: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_ttl.rs:8:9: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_string_length.rs:8:9: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_delivery.rs:12:9: warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+contracts\escrow\src\test_auth_ordering.rs:11:27: warning: use of deprecated method `soroban_sdk::Env::register_contract`: use `register`
+contracts\escrow\src\test_auth_ordering.rs:26:27: warning: use of deprecated method `soroban_sdk::Env::register_contract`: use `register`
+contracts\escrow\src\test_auth_ordering.rs:41:27: warning: use of deprecated method `soroban_sdk::Env::register_contract`: use `register`
+contracts\escrow\src\test_auth_ordering.rs:56:27: warning: use of deprecated method `soroban_sdk::Env::register_contract`: use `register`
+warning: `trustlink-escrow` (lib) generated 20 warnings (1 duplicate)
+contracts\escrow\tests\happy_path.rs:85:13: warning: unreachable pattern: no value can reach this
+contracts\escrow\src\test.rs:73:13: warning: unreachable pattern: no value can reach this
+contracts\escrow\src\test_edge_cases.rs:195:14: warning: unused variable: `contract_id`: help: if this is intentional, prefix it with an underscore: `_contract_id`
+contracts\escrow\src\test_escrow_id.rs:49:13: warning: unreachable pattern: no value can reach this
+contracts\escrow\src\test_escrow_id.rs:100:9: warning: unused variable: `id2`: help: if this is intentional, prefix it with an underscore: `_id2`
+contracts\escrow\src\test_escrow_id.rs:147:9: warning: unused variable: `id3`: help: if this is intentional, prefix it with an underscore: `_id3`
+contracts\escrow\src\test_overflow.rs:116:9: warning: unused variable: `res`: help: if this is intentional, prefix it with an underscore: `_res`
+contracts\escrow\src\test_overflow.rs:150:9: warning: unused variable: `escrow_id`: help: if this is intentional, prefix it with an underscore: `_escrow_id`
+contracts\escrow\src\test_arbitration_fee.rs:141:13: warning: unreachable pattern: no value can reach this
+contracts\escrow\src\test_admin.rs:17:9: warning: unused variable: `token`: help: if this is intentional, prefix it with an underscore: `_token`
+contracts\escrow\src\test_admin.rs:18:10: warning: unused variable: `contract_id`: help: if this is intentional, prefix it with an underscore: `_contract_id`
+contracts\escrow\src\test_admin.rs:18:31: warning: unused variable: `admin`: help: if this is intentional, prefix it with an underscore: `_admin`
+contracts\escrow\src\test_admin.rs:18:38: warning: unused variable: `fee_collector`: help: if this is intentional, prefix it with an underscore: `_fee_collector`
+contracts\escrow\src\test_delivery.rs:47:13: warning: unreachable pattern: no value can reach this
+contracts\escrow\src\test_delivery.rs:57:31: warning: unused variable: `admin`: help: if this is intentional, prefix it with an underscore: `_admin`
+contracts\escrow\src\test_delivery.rs:89:32: warning: unused variable: `admin`: help: if this is intentional, prefix it with an underscore: `_admin`
+contracts\escrow\src\test_delivery.rs:162:31: warning: unused variable: `admin`: help: if this is intentional, prefix it with an underscore: `_admin`
+contracts\escrow\src\test_delivery.rs:325:9: warning: unused variable: `escrow_before`: help: if this is intentional, prefix it with an underscore: `_escrow_before`
+contracts\escrow\src\test_get_escrows_by_vendor.rs:35:9: warning: unused variable: `buyer`: help: if this is intentional, prefix it with an underscore: `_buyer`
+contracts\escrow\src\test_get_escrows_by_vendor.rs:63:39: warning: unused variable: `fee_collector`: help: if this is intentional, prefix it with an underscore: `_fee_collector`
+contracts\escrow\src\test_helpers.rs:9:28: warning: hiding a lifetime that's elided elsewhere is confusing: the lifetime is elided here, the same lifetime is hidden here
+contracts\escrow\src\test_initialize_twice.rs:8:25: warning: hiding a lifetime that's elided elsewhere is confusing: the lifetime is elided here, the same lifetime is hidden here
+warning: `trustlink-escrow` (test "happy_path") generated 1 warning
+warning: `trustlink-escrow` (lib test) generated 75 warnings (19 duplicates) (run `cargo fix --lib -p trustlink-escrow --tests` to apply 28 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 41.36s
