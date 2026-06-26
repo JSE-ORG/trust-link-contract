@@ -238,6 +238,9 @@ pub struct EscrowData {
     pub delivered_at: Option<u64>,
     pub tracking_id: Option<String>,
     pub state: EscrowState,
+}
+
+fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
     env.storage()
         .instance()
         .set(&DataKey::FeeConfig, fee_config);
@@ -603,7 +606,10 @@ fn create_escrow_internal(
         escrow.token.clone(),
         escrow.amount,
         escrow.fee_bps,
+        0,
         escrow.shipping_window,
+        crate::EscrowState::Pending,
+        crate::EscrowState::Pending,
     );
     Ok(escrow_id)
 }
@@ -885,7 +891,6 @@ impl Escrow {
         let ext = get_ttl_extension(&env);
         env.storage().instance().extend_ttl(ext / 2, ext);
 
-        let escrow = EscrowData {
         create_escrow_internal(
             &env,
             seller,
@@ -894,7 +899,6 @@ impl Escrow {
             token,
             amount,
             fee_bps,
-            resolver_fee_bps,
             shipping_window,
             None,
         )
@@ -976,7 +980,7 @@ impl Escrow {
         env.storage().persistent().extend_ttl(&buyer_key, ext / 2, ext);
 
         save_escrow(&env, escrow_id, &escrow);
-        emit_escrow_funded(&env, escrow_id, buyer, escrow.amount);
+        emit_escrow_funded(&env, escrow_id, buyer, escrow.amount, crate::EscrowState::Pending, crate::EscrowState::Funded);
         Ok(())
     }
 
@@ -1017,6 +1021,8 @@ impl Escrow {
             return Err(ContractError::InputTooLong);
         }
 
+        let prev_state = escrow.state.clone();
+        let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Disputed;
 
         let dispute_data = DisputeData {
@@ -1039,6 +1045,8 @@ impl Escrow {
             reason,
             description,
             evidence_hash,
+            prev_state,
+            crate::EscrowState::Disputed,
         );
         Ok(())
     }
@@ -1113,7 +1121,7 @@ impl Escrow {
         }
 
         save_escrow(&env, escrow_id, &escrow);
-        emit_escrow_cancelled(&env, escrow_id, caller);
+        emit_escrow_cancelled(&env, escrow_id, caller, prev_state.clone(), crate::EscrowState::Canceled);
         Ok(())
     }
 
@@ -1151,10 +1159,12 @@ impl Escrow {
             &escrow.amount,
         );
 
+        let prev_state = escrow.state.clone();
+        let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Canceled;
         save_escrow(&env, escrow_id, &escrow);
 
-        emit_escrow_cancelled(&env, escrow_id, escrow.seller.clone());
+        emit_escrow_cancelled(&env, escrow_id, escrow.seller.clone(), prev_state.clone(), crate::EscrowState::Canceled);
         Ok(())
     }
 
@@ -1201,6 +1211,8 @@ impl Escrow {
         }
 
         let shipped_at = env.ledger().timestamp();
+        let prev_state = escrow.state.clone();
+        let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Shipped;
         escrow.shipped_at = shipped_at;
         escrow.tracking_id = Some(tracking_id);
@@ -1209,7 +1221,7 @@ impl Escrow {
             .clone()
             .unwrap_or(String::from_str(&env, ""));
         save_escrow(&env, escrow_id, &escrow);
-        emit_escrow_shipped(&env, escrow_id, first_payee.address.clone(), tracking);
+        emit_escrow_shipped(&env, escrow_id, first_payee.address.clone(), tracking, prev_state, crate::EscrowState::Shipped);
         Ok(())
     }
 
@@ -1292,6 +1304,8 @@ impl Escrow {
         // Distribute net amount to all payees
         distribute_to_payees(&env, &escrow.token, &escrow.payees, net_amount)?;
 
+        let prev_state = escrow.state.clone();
+        let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Completed;
         save_escrow(&env, escrow_id, &escrow);
         increment_counter(&env, &DataKey::TotalCompleted)?;
@@ -1302,6 +1316,8 @@ impl Escrow {
             first_payee.address.clone(),
             escrow.amount,
             escrow.fee_bps,
+            prev_state.clone(),
+            crate::EscrowState::Completed,
         );
         Ok(())
     }
@@ -1511,6 +1527,8 @@ impl Escrow {
         // Distribute net amount to all payees
         distribute_to_payees(&env, &escrow.token, &escrow.payees, net_amount)?;
 
+        let prev_state = escrow.state.clone();
+        let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Completed;
         save_escrow(&env, escrow_id, &escrow);
         increment_counter(&env, &DataKey::TotalCompleted)?;
@@ -1520,6 +1538,8 @@ impl Escrow {
             escrow.seller,
             escrow.amount,
             escrow.fee_bps,
+            prev_state.clone(),
+            crate::EscrowState::Completed,
         );
         Ok(())
     }
@@ -1617,6 +1637,9 @@ impl Escrow {
             recipient,
             escrow.amount,
             0, // arbitration fee already deducted
+            0,
+            prev_state.clone(),
+            crate::EscrowState::Completed,
         );
         Ok(())
     }
@@ -1653,6 +1676,8 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
+        let prev_state = escrow.state.clone();
+        let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Disputed;
 
         let mut updated_dispute = dispute_data;
@@ -2116,10 +2141,12 @@ impl Escrow {
             return Err(ContractError::InvalidStateTransition);
         }
 
+        let prev_state = escrow.state.clone();
+        let prev_state = escrow.state.clone();
         escrow.state = EscrowState::RefundRequested;
         save_escrow(&env, escrow_id, &escrow);
 
-        emit_refund_requested(&env, escrow_id, caller);
+        emit_refund_requested(&env, escrow_id, caller, prev_state.clone(), crate::EscrowState::RefundRequested);
         Ok(())
     }
 
@@ -2141,11 +2168,13 @@ impl Escrow {
         let token_client = token::Client::new(&env, &escrow.token);
         token_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);
 
+        let prev_state = escrow.state.clone();
+        let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow);
         increment_counter(&env, &DataKey::TotalRefunded)?;
 
-        emit_refund_approved(&env, escrow_id, caller);
+        emit_refund_approved(&env, escrow_id, caller, prev_state.clone(), crate::EscrowState::Refunded);
         Ok(())
     }
 

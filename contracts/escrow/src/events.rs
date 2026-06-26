@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env, String, Symbol};
+use soroban_sdk::{contracttype, symbol_short, Address, BytesN, Env, String, Symbol};
 
 use crate::ResolutionType;
 
@@ -158,6 +158,8 @@ pub struct EscrowCreated {
     pub resolver_fee_bps: u32,
     pub shipping_window: u64,
     pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Created"), seller.clone(),)`, data: `EscrowCreated`.
@@ -172,6 +174,8 @@ pub fn emit_escrow_created(
     fee_bps: u32,
     resolver_fee_bps: u32,
     shipping_window: u64,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
 ) {
     env.events().publish(
         (symbol_short!("Escrow"), symbol_short!("Created"), seller.clone(),),
@@ -185,6 +189,8 @@ pub fn emit_escrow_created(
             resolver_fee_bps,
             shipping_window,
             timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -195,18 +201,22 @@ pub struct EscrowFunded {
     pub escrow_id: u64,
     pub buyer: Address,
     pub amount: i128,
-    pub funded_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Funded"), buyer.clone(),)`, data: `EscrowFunded`.
-pub fn emit_escrow_funded(env: &Env, escrow_id: u64, buyer: Address, amount: i128) {
+pub fn emit_escrow_funded(env: &Env, escrow_id: u64, buyer: Address, amount: i128, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
     env.events().publish(
         (symbol_short!("Escrow"), symbol_short!("Funded"), buyer.clone(),),
         EscrowFunded {
             escrow_id,
             buyer,
             amount,
-            funded_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -217,18 +227,22 @@ pub struct EscrowShipped {
     pub escrow_id: u64,
     pub seller: Address,
     pub tracking_id: String,
-    pub shipped_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Shipped"), seller.clone(),)`, data: `EscrowShipped`.
-pub fn emit_escrow_shipped(env: &Env, escrow_id: u64, seller: Address, tracking_id: String) {
+pub fn emit_escrow_shipped(env: &Env, escrow_id: u64, seller: Address, tracking_id: String, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
     env.events().publish(
         (symbol_short!("Escrow"), symbol_short!("Shipped"), seller.clone(),),
         EscrowShipped {
             escrow_id,
             seller,
             tracking_id,
-            shipped_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -258,7 +272,9 @@ pub struct EscrowCompleted {
     pub recipient: Address,
     pub amount: i128,
     pub fee_bps: u32,
-    pub completed_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Completed"), recipient.clone(),)`, data: `EscrowCompleted`.
@@ -268,6 +284,8 @@ pub fn emit_escrow_completed(
     recipient: Address,
     amount: i128,
     fee_bps: u32,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
 ) {
     env.events().publish(
         (symbol_short!("Escrow"), symbol_short!("Completed"), recipient.clone(),),
@@ -276,7 +294,9 @@ pub fn emit_escrow_completed(
             recipient,
             amount,
             fee_bps,
-            completed_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -289,7 +309,9 @@ pub struct DisputeRaised {
     pub reason: Symbol,
     pub description: String,
     pub evidence_hash: BytesN<32>,
-    pub disputed_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
 /// Topic: `(symbol_short!("Dispute"), symbol_short!("Raised"), buyer.clone(),)`, data: `DisputeRaised`.
@@ -300,6 +322,8 @@ pub fn emit_dispute_raised(
     reason: Symbol,
     description: String,
     evidence_hash: BytesN<32>,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
 ) {
     env.events().publish(
         (symbol_short!("Dispute"), symbol_short!("Raised"), buyer.clone(),),
@@ -309,7 +333,9 @@ pub fn emit_dispute_raised(
             reason,
             description,
             evidence_hash,
-            disputed_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -324,7 +350,9 @@ pub struct DisputeResolved {
     pub amount: i128,
     pub arbitration_fee: i128,
     pub resolver_fee: i128,
-    pub resolved_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
 /// Topic: `(symbol_short!("Dispute"), symbol_short!("Resolved"), resolver.clone(),)`, data: `DisputeResolved`.
@@ -337,6 +365,8 @@ pub fn emit_dispute_resolved(
     amount: i128,
     arbitration_fee: i128,
     resolver_fee: i128,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
 ) {
     env.events().publish(
         (symbol_short!("Dispute"), symbol_short!("Resolved"), resolver.clone(),),
@@ -348,7 +378,9 @@ pub fn emit_dispute_resolved(
             amount,
             arbitration_fee,
             resolver_fee,
-            resolved_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -360,11 +392,13 @@ pub struct AutoReleased {
     pub seller: Address,
     pub amount: i128,
     pub fee_bps: u32,
-    pub released_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Released"), seller.clone(),)`, data: `AutoReleased`.
-pub fn emit_auto_released(env: &Env, escrow_id: u64, seller: Address, amount: i128, fee_bps: u32) {
+pub fn emit_auto_released(env: &Env, escrow_id: u64, seller: Address, amount: i128, fee_bps: u32, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
     env.events().publish(
         (symbol_short!("Escrow"), symbol_short!("Released"), seller.clone(),),
         AutoReleased {
@@ -372,7 +406,9 @@ pub fn emit_auto_released(env: &Env, escrow_id: u64, seller: Address, amount: i1
             seller,
             amount,
             fee_bps,
-            released_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -382,17 +418,21 @@ pub fn emit_auto_released(env: &Env, escrow_id: u64, seller: Address, amount: i1
 pub struct EscrowCancelled {
     pub escrow_id: u64,
     pub seller: Address,
-    pub cancelled_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Canceled"), seller.clone(),)`, data: `EscrowCancelled`.
-pub fn emit_escrow_cancelled(env: &Env, escrow_id: u64, seller: Address) {
+pub fn emit_escrow_cancelled(env: &Env, escrow_id: u64, seller: Address, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
     env.events().publish(
         (symbol_short!("Escrow"), symbol_short!("Canceled"), seller.clone(),),
         EscrowCancelled {
             escrow_id,
             seller,
-            cancelled_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -635,16 +675,20 @@ pub struct RefundRequestedEvent {
     pub escrow_id: u64,
     pub buyer: Address,
     pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
 /// Topic: `(symbol_short!("Refund"), symbol_short!("Requested"), buyer.clone(),)`, data: `RefundRequestedEvent`.
-pub fn emit_refund_requested(env: &Env, escrow_id: u64, buyer: Address) {
+pub fn emit_refund_requested(env: &Env, escrow_id: u64, buyer: Address, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
     env.events().publish(
         (symbol_short!("Refund"), symbol_short!("Requested"), buyer.clone(),),
         RefundRequestedEvent {
             escrow_id,
             buyer,
             timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -655,16 +699,20 @@ pub struct RefundApprovedEvent {
     pub escrow_id: u64,
     pub seller: Address,
     pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
 /// Topic: `(symbol_short!("Refund"), symbol_short!("Approved"), seller.clone(),)`, data: `RefundApprovedEvent`.
-pub fn emit_refund_approved(env: &Env, escrow_id: u64, seller: Address) {
+pub fn emit_refund_approved(env: &Env, escrow_id: u64, seller: Address, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
     env.events().publish(
         (symbol_short!("Refund"), symbol_short!("Approved"), seller.clone(),),
         RefundApprovedEvent {
             escrow_id,
             seller,
             timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
