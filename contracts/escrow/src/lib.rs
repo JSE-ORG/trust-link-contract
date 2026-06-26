@@ -28,6 +28,7 @@ pub use crate::events::{
     emit_dispute_pending_finalization, emit_dispute_appealed,
     emit_platform_fee_updated, emit_treasury_updated,
     emit_basket_escrow_created, emit_refund_requested, emit_refund_approved,
+    emit_contract_upgraded, ContractUpgradedEvent,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowState,
@@ -711,6 +712,20 @@ impl Escrow {
         }
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         emit_admin_rotated(&env, old_admin, new_admin);
+        Ok(())
+    }
+
+    /// Upgrades the contract WASM. Only callable by admin.
+    pub fn upgrade(env: Env, caller: Address, new_wasm_hash: BytesN<32>) -> Result<(), ContractError> {
+        caller.require_auth();
+
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        emit_contract_upgraded(&env, admin, new_wasm_hash);
         Ok(())
     }
 

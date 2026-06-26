@@ -669,3 +669,23 @@ pub fn emit_refund_approved(env: &Env, escrow_id: u64, seller: Address) {
     );
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractUpgradedEvent {
+    pub admin: Address,
+    pub new_wasm_hash: soroban_sdk::BytesN<32>,
+    pub timestamp: u64,
+}
+
+/// Topic: `(\"contract_upgraded\",)`, data: `ContractUpgradedEvent`.
+pub fn emit_contract_upgraded(env: &Env, admin: Address, new_wasm_hash: soroban_sdk::BytesN<32>) {
+    env.events().publish(
+        (Symbol::new(env, "contract_upgraded"),),
+        ContractUpgradedEvent {
+            admin,
+            new_wasm_hash,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
