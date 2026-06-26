@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_USER: stellar
+      POSTGRES_PASSWORD: stellar
+      POSTGRES_DB: stellar
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "stellar"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  stellar-quickstart:
+    image: stellar/quickstart:latest
+    command: ["--standalone", "--postgres-host", "postgres", "--postgres-user", "stellar", "--postgres-db", "stellar", "--postgres-password", "stellar"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"   # Horizon UI
+      - "11626:11626" # Stellar Core
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=stellar
+      - POSTGRES_PASSWORD=stellar
+      - POSTGRES_DB=stellar
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

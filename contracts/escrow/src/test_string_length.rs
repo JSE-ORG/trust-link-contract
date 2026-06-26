@@ -1,8 +1,11 @@
 #![cfg(test)]
 
-use crate::{ContractError, MAX_TRACKING_ID_LEN, MAX_DESCRIPTION_LEN};
-use crate::test_helpers::{setup_contract, create_funded_escrow};
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Bytes, Env, String as SorobanString, Symbol, BytesN};
+use crate::test_helpers::{create_funded_escrow, setup_contract};
+use crate::{ContractError, MAX_DESCRIPTION_LEN, MAX_TRACKING_ID_LEN};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Bytes, BytesN, Env, String as SorobanString, Symbol,
+};
 
 fn register_token(env: &Env) -> Address {
     env.register_stellar_asset_contract(Address::generate(env))
@@ -27,11 +30,13 @@ fn test_tracking_id_at_limit_succeeds() {
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
-    let id = create_funded_escrow(&env, &client, &seller, &buyer, &resolver, &token, 100, 0, 3600);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 100, 0, 3600,
+    );
     // Exactly MAX_TRACKING_ID_LEN characters — must succeed
     let tracking = make_string(&env, MAX_TRACKING_ID_LEN);
     client.mark_shipped(&seller, &id, &tracking);
-    
+
     // Verify the full boundary string is recorded precisely as intended
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.tracking_id, Some(tracking));
@@ -46,7 +51,9 @@ fn test_tracking_id_over_limit_reverts() {
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
-    let id = create_funded_escrow(&env, &client, &seller, &buyer, &resolver, &token, 100, 0, 3600);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 100, 0, 3600,
+    );
     // One character over the limit — must revert
     let tracking = make_string(&env, MAX_TRACKING_ID_LEN + 1);
     let res = client.try_mark_shipped(&seller, &id, &tracking);
@@ -64,7 +71,9 @@ fn test_description_at_limit_succeeds() {
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
-    let id = create_funded_escrow(&env, &client, &seller, &buyer, &resolver, &token, 100, 0, 3600);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 100, 0, 3600,
+    );
     // Exactly MAX_DESCRIPTION_LEN characters — must succeed
     let desc = make_string(&env, MAX_DESCRIPTION_LEN);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DESC"));
@@ -86,7 +95,9 @@ fn test_description_over_limit_reverts() {
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
-    let id = create_funded_escrow(&env, &client, &seller, &buyer, &resolver, &token, 100, 0, 3600);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 100, 0, 3600,
+    );
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DESC"));
     // One character over the limit — must revert
     let desc = make_string(&env, MAX_DESCRIPTION_LEN + 1);

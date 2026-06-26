@@ -1,12 +1,7 @@
 #![cfg(test)]
 
-use soroban_sdk::{
-    testutils::{Address as _},
-    token, Address, Env,
-};
-use trustlink_escrow::{
-    ContractError, Escrow, EscrowClient, EscrowData, EscrowState,
-};
+use soroban_sdk::{testutils::Address as _, token, Address, Env};
+use trustlink_escrow::{ContractError, Escrow, EscrowClient, EscrowData, EscrowState};
 
 #[test]
 fn test_unauthorized_attacker_cannot_fund_escrow() {
@@ -29,26 +24,37 @@ fn test_unauthorized_attacker_cannot_fund_escrow() {
     client.initialize(&admin, &fee_collector, &100_u32);
 
     let amount = 1000;
-    
+
     // Create the escrow.
-    let escrow_id = client.create_escrow(&seller, &None::<Address>, &resolver, &token_addr, &amount, &100_u32, &3600_u64);
+    let escrow_id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
 
     // Pre-assign the legitimate buyer in contract storage.
     use trustlink_escrow::types::DataKey;
-    let mut escrow: EscrowData = env.as_contract(&contract_id, || {
-        env.storage().persistent().get(&DataKey::Escrow(escrow_id))
-    })
-    .expect("escrow exists");
-    
+    let mut escrow: EscrowData = env
+        .as_contract(&contract_id, || {
+            env.storage().persistent().get(&DataKey::Escrow(escrow_id))
+        })
+        .expect("escrow exists");
+
     escrow.buyer = Some(legitimate_buyer.clone());
-    
+
     env.as_contract(&contract_id, || {
-        env.storage().persistent().set(&DataKey::Escrow(escrow_id), &escrow);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(escrow_id), &escrow);
     });
 
     // Mint tokens to the attacker and approve the contract.
     token::StellarAssetClient::new(&env, &token_addr).mint(&attacker, &amount);
-    
+
     // Attacker attempts to fund the escrow using their own address.
     let result = client.try_fund_escrow(&escrow_id, &attacker);
 

@@ -30,6 +30,7 @@ fn test_resolve_dispute_refund_no_buyer_returns_error() {
         shipped_at: 0,
         delivered_at: None,
         tracking_id: None,
+        notes: None,
     };
 
     env.storage().persistent().set(&DataKey::Escrow(id), &escrow);
