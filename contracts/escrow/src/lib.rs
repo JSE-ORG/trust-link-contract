@@ -662,6 +662,7 @@ impl Escrow {
     }
 
     /// Pauses the contract. Only callable by admin.
+    /// Acts as a global circuit breaker for all state-mutating operations.
     pub fn pause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
         // SECURITY:
         // Authenticate before any state reads.
