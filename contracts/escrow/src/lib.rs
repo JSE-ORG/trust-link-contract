@@ -59,6 +59,9 @@ const MAX_ARBITRATION_FEE_BPS: u32 = 500;
 /// preventing the malicious admin attack where combined fees drain entire escrows.
 const MAX_COMBINED_FEE_BPS: u32 = 1_000;
 
+/// The semantic version of the contract.
+pub const CONTRACT_VERSION: u32 = 1;
+
 /// Maximum platform fee in basis points (200 = 2%).
 ///
 /// Platform fees are per-escrow fees forwarded to the treasury on successful release.
@@ -625,6 +628,10 @@ fn create_escrow_internal(
 #[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl Escrow {
+    /// Returns the current version of the contract.
+    pub fn get_version(_env: Env) -> u32 {
+        CONTRACT_VERSION
+    }
     /// Sets the protocol fee collector, admin address, and arbitration fee. Must be called once.
     ///
     /// Returns `Err(ContractError::InvalidAddress)` if `admin` or `fee_collector` is the
