@@ -108,7 +108,9 @@ fn contract_can_be_initialized_after_a_failed_zero_admin_attempt() {
     client.initialize(&real_admin, &fee_collector, &99_u32);
 
     let stored_admin: Address = env
-        .as_contract(&client.address, || env.storage().instance().get(&DataKey::Admin))
+        .as_contract(&client.address, || {
+            env.storage().instance().get(&DataKey::Admin)
+        })
         .expect("admin set after successful initialize");
     assert_eq!(stored_admin, real_admin);
 }

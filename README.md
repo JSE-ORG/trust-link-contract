@@ -3,6 +3,10 @@
 
 > Trustless escrow for social commerce on Stellar: funds move only when the contract can prove the requested lifecycle event has happened.
 
+[![CI](https://img.shields.io/github/actions/workflow/status/JSE-ORG/trust-link-contract/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/JSE-ORG/trust-link-contract/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-248%20passing-success?style=flat-square&logo=rust)](contracts/escrow)
+[![Coverage](https://img.shields.io/codecov/c/github/JSE-ORG/trust-link-contract?style=flat-square&logo=codecov&label=coverage)](https://codecov.io/gh/JSE-ORG/trust-link-contract)
+[![Crate](https://img.shields.io/badge/crate-v0.1.0-blue?style=flat-square&logo=rust)](contracts/escrow/Cargo.toml)
 [![Stellar](https://img.shields.io/badge/Stellar-Soroban-7B68EE?style=flat-square&logo=stellar)](https://stellar.org)
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange?style=flat-square&logo=rust)](https://rustup.rs)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
@@ -330,6 +334,57 @@ stellar contract invoke \
   --id $CONTRACT_ID --source seller --network testnet -- \
   mark_shipped \
   --escrow_id 1
+```
+
+### Usage Examples
+
+#### Create escrow
+```bash
+stellar contract invoke \
+  --id $CONTRACT_ID --source seller --network testnet -- \
+  create_escrow \
+  --seller $SELLER_ADDR \
+  --resolver $RESOLVER_ADDR \
+  --token $USDC_CONTRACT \
+  --amount 50000000 \
+  --shipping_window 604800
+```
+
+#### Fund escrow
+```bash
+stellar contract invoke \
+  --id $CONTRACT_ID --source buyer --network testnet -- \
+  fund_escrow \
+  --escrow_id 1 \
+  --buyer $BUYER_ADDR
+```
+
+#### Confirm delivery
+```bash
+stellar contract invoke \
+  --id $CONTRACT_ID --source buyer --network testnet -- \
+  confirm_delivery \
+  --escrow_id 1
+```
+
+#### Raise dispute
+```bash
+stellar contract invoke \
+  --id $CONTRACT_ID --source buyer --network testnet -- \
+  raise_dispute \
+  --escrow_id 1 \
+  --reason "Item not as described" \
+  --description "The received item differs from the listing." \
+  --evidence_hash $EVIDENCE_HASH
+```
+
+#### Resolve dispute (release to seller)
+```bash
+stellar contract invoke \
+  --id $CONTRACT_ID --source $RESOLVER_ADDR --network testnet -- \
+  resolve_dispute \
+  --escrow_id 1 \
+  --release_to_seller true
 ```
 
 ---

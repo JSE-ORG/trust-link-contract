@@ -201,3 +201,144 @@ fn test_sep41_token_address_stored_in_escrow() {
     // Verify the stored token address matches what was passed in
     assert_eq!(client.get_escrow(&id).token, token);
 }
+
+#[test]
+fn test_sep41_cancel_escrow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_sep41_token(&env);
+    let (contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    mint(&env, &token, &buyer, 1000);
+
+    // Create escrow (starts in Pending state)
+    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+
+    let escrow_before = client.get_escrow(&id);
+    assert_eq!(escrow_before.state, EscrowState::Pending);
+
+    // Seller cancels the unfunded escrow
+    client.cancel_escrow(&seller, &id);
+
+    let escrow_after = client.get_escrow(&id);
+    assert_eq!(escrow_after.state, EscrowState::Canceled);
+
+    // Verify escrow_cancelled event
+    assert!(has_event::<crate::EscrowCancelled, _>(&env, &contract_id, "escrow_cancelled", |event| {
+        event.escrow_id == id && event.seller == seller
+    }));
+
+    // Verify it cannot be funded
+    let fund_result = client.try_fund_escrow(&id, &buyer);
+    assert!(matches!(fund_result, Err(Ok(crate::ContractError::InvalidState))));
+}
+
+#[test]
+fn test_sep41_dispute_and_release() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_sep41_token(&env);
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    // Set arbitration fee to 50 BPS (0.5%)
+    client.set_arbitration_fee(&admin, &50_u32);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    mint(&env, &token, &buyer, 1000);
+
+    // Create escrow with 1000 amount, 100 BPS (1.0%) fee
+    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &1000_i128, &100_u32, &3600_u64);
+    client.fund_escrow(&id, &buyer);
+    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-RELEASE"));
+
+    // Buyer raises a dispute
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &Symbol::new(&env, "defective"),
+        &SorobanString::from_str(&env, "item was defective"),
+        &BytesN::from_array(&env, &[0xdf; 32]),
+    );
+
+    assert!(has_event::<crate::DisputeRaised, _>(&env, &contract_id, "dispute_raised", |event| {
+        event.escrow_id == id && event.buyer == buyer
+    }));
+
+    // Resolver decides in favor of seller (Release)
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Release);
+
+    assert!(has_event::<crate::DisputeResolved, _>(&env, &contract_id, "dispute_resolved", |event| {
+        event.escrow_id == id && event.resolution == crate::ResolutionType::Release && event.recipient == seller
+    }));
+
+    // Calculations:
+    // arbitration_fee = 1000 * 50 / 10000 = 5
+    // escrow.amount becomes 995
+    // escrow_fee = 995 * 100 / 10000 = 9
+    // net payout = 995 - 9 = 986
+    // fees retained in vault = 5 + 9 = 14
+    assert_eq!(balance(&env, &token, &seller), 986);
+    assert_eq!(balance(&env, &token, &buyer), 0);
+    assert_eq!(balance(&env, &token, &contract_id), 14);
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Completed);
+
+    // Verify fee tracking
+    assert_eq!(client.get_total_arbitration_fees(&token), 5);
+
+    // Admin withdraws accumulated fees
+    let withdraw_to = Address::generate(&env);
+    client.withdraw_fees(&admin, &token, &withdraw_to, &14_i128);
+    assert_eq!(balance(&env, &token, &withdraw_to), 14);
+    assert_eq!(balance(&env, &token, &contract_id), 0);
+}
+
+#[test]
+fn test_sep41_auto_release_with_fees() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_sep41_token(&env);
+    let (contract_id, client, admin, fee_collector) = setup_contract(&env);
+
+    // Set global protocol fee rate to 100 BPS (1%)
+    client.set_protocol_fee(&admin, &100_u32);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    mint(&env, &token, &buyer, 1000);
+
+    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+    client.fund_escrow(&id, &buyer);
+    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO-FEES"));
+    env.ledger().set_timestamp(1_700_000_000);
+    client.record_delivery(&admin, &id);
+
+    // Advance 48 hours past delivery.
+    let escrow = client.get_escrow(&id);
+    env.ledger().set_timestamp(escrow.delivered_at.unwrap() + 172_801);
+    client.auto_release(&id);
+
+    assert!(has_event::<crate::AutoReleased, _>(&env, &contract_id, "auto_released", |event| {
+        event.escrow_id == id && event.seller == seller
+    }));
+
+    // Calculation:
+    // fee_bps = 100 BPS (1%)
+    // fee = 1000 * 100 / 10000 = 10
+    // net = 1000 - 10 = 990
+    assert_eq!(balance(&env, &token, &seller), 990);
+    assert_eq!(balance(&env, &token, &fee_collector), 10);
+    assert_eq!(balance(&env, &token, &contract_id), 0);
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Completed);
+}
