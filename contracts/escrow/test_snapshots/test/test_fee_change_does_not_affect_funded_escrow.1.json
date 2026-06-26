@@ -400,7 +400,11 @@
           },
           "ext": "v0"
         },
+<<<<<<< HEAD
         "live_until": 4095
+=======
+        "live_until": 120960
+>>>>>>> 6329d33 (fixed ci failure)
       },
       {
         "entry": {
@@ -717,7 +721,11 @@
                       "symbol": "amount"
                     },
                     "val": {
+<<<<<<< HEAD
                       "i128": "990000"
+=======
+                      "i128": "970000"
+>>>>>>> 6329d33 (fixed ci failure)
                     }
                   },
                   {
@@ -821,7 +829,11 @@
                       "symbol": "amount"
                     },
                     "val": {
+<<<<<<< HEAD
                       "i128": "10000"
+=======
+                      "i128": "30000"
+>>>>>>> 6329d33 (fixed ci failure)
                     }
                   },
                   {

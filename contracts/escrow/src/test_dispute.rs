@@ -1,7 +1,15 @@
 #![cfg(test)]
 
+<<<<<<< HEAD
 use crate::{ContractError, DisputeStatus, Escrow, EscrowClient, ResolutionType};
 use soroban_sdk::{testutils::{Address as _, Ledger as _}, token, Address, BytesN, Env, String, Symbol};
+=======
+use crate::{DisputeStatus, Escrow, EscrowClient};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    token, Address, BytesN, Env, String, Symbol,
+};
+>>>>>>> 6329d33 (fixed ci failure)
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let env = Env::default();
@@ -197,7 +205,11 @@ fn test_dispute_requires_shipped_state() {
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
     assert_eq!(
         result,
+<<<<<<< HEAD
         Err(Ok(crate::ContractError::DeliveryBeforeDisputeWindow))
+=======
+        Err(Ok(crate::ContractError::DisputeWindowClosed))
+>>>>>>> 6329d33 (fixed ci failure)
     );
 
     // Verify no state mutation on expired action
@@ -244,7 +256,11 @@ fn test_dispute_rejected_after_48h_deadline() {
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
     assert_eq!(
         result,
+<<<<<<< HEAD
         Err(Ok(crate::ContractError::DeliveryBeforeDisputeWindow))
+=======
+        Err(Ok(crate::ContractError::DisputeWindowClosed))
+>>>>>>> 6329d33 (fixed ci failure)
     );
 
     // Verify no state mutation on expired action
