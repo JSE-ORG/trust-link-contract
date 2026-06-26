@@ -27,5 +27,3 @@
   },
   "rust-analyzer.check.command": "clippy"
 }
-    "kiroAgent.configureMCP": "Disabled"
-}
