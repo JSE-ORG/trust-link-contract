@@ -27,6 +27,7 @@ fn legal_transitions_are_accepted() {
         (EscrowState::Pending, EscrowState::Canceled),
         (EscrowState::Funded, EscrowState::Shipped),
         (EscrowState::Funded, EscrowState::Refunded),
+        (EscrowState::Funded, EscrowState::Canceled),
         (EscrowState::Shipped, EscrowState::Completed),
         (EscrowState::Shipped, EscrowState::Disputed),
         (EscrowState::Shipped, EscrowState::Refunded),

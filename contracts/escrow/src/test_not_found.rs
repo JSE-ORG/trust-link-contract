@@ -1,8 +1,8 @@
 #![cfg(test)]
 
-use crate::ContractError;
 use crate::test_helpers::setup_contract;
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, String as SorobanString, BytesN};
+use crate::ContractError;
+use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String as SorobanString, Symbol};
 
 const MISSING_ID: u64 = 999_999;
 
@@ -31,7 +31,11 @@ fn test_mark_shipped_not_found() {
     env.mock_all_auths();
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
     let seller = Address::generate(&env);
-    let res = client.try_mark_shipped(&seller, &MISSING_ID, &SorobanString::from_str(&env, "TRACK"));
+    let res = client.try_mark_shipped(
+        &seller,
+        &MISSING_ID,
+        &SorobanString::from_str(&env, "TRACK"),
+    );
     assert!(matches!(res, Err(Ok(ContractError::EscrowNotFound))));
 }
 

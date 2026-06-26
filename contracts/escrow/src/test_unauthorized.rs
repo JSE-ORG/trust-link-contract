@@ -114,7 +114,8 @@ fn withdraw_fees_rejects_unauthorized_caller() {
 /// Helper: register a SAC token and return its address.
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
-    env.register_stellar_asset_contract_v2(token_admin).address()
+    env.register_stellar_asset_contract_v2(token_admin)
+        .address()
 }
 
 #[test]
