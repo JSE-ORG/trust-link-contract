@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-
+  
 CONTRACT_NAME="trustlink-escrow"
 WASM_DIR="target/wasm32-unknown-unknown/release"
 WASM_FILE="${WASM_DIR}/${CONTRACT_NAME}.wasm"
