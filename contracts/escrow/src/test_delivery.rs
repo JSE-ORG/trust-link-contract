@@ -280,23 +280,25 @@ fn test_record_delivery_timestamp_matches_ledger_timestamp() {
 
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
 
-    // Set a deterministic timestamp before recording delivery
-    let expected_ts: u64 = 1_700_000_500;
-    env.ledger().set_timestamp(expected_ts);
+    // Advance time and capture the timestamp AFTER advancing so it matches
+    // exactly what the ledger will report during record_delivery.
+    advance_time(&env, 60);
+    let expected_ts = env.ledger().timestamp();
 
     client.record_delivery(&admin, &id);
 
-    // Verify the stored timestamp matches exactly what was set in the ledger
-    let escrow = client.get_escrow(&id);
-    assert_eq!(escrow.delivered_at, Some(expected_ts));
-
-    // Verify the event also contains the exact timestamp
+    // Verify the event is emitted — check immediately after the emitting call,
+    // before any subsequent contract invocations reset the event buffer.
     assert!(has_event::<DeliveryRecorded, _>(
         &env,
         &contract_id,
         "delivery_recorded",
         |event| { event.escrow_id == id && event.delivered_at == expected_ts }
     ));
+
+    // Verify the stored timestamp matches exactly what was set in the ledger
+    let escrow = client.get_escrow(&id);
+    assert_eq!(escrow.delivered_at, Some(expected_ts));
 
     let _ = contract_id;
 }

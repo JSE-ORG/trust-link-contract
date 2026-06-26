@@ -680,55 +680,6 @@ impl Escrow {
         fee_bps: u32,
         shipping_window: u64,
     ) -> Result<u64, ContractError> {
-        // SECURITY:
-        // Authenticate before any state reads.
-        seller.require_auth();
-
-        ensure_not_paused(&env)?;
-
-        if amount <= 0 {
-            return Err(ContractError::InvalidAmount);
-        }
-        if amount > MAX_ESCROW_AMOUNT {
-            return Err(ContractError::AmountExceedsMaximum);
-        }
-
-        if amount < MIN_ESCROW_AMOUNT {
-            return Err(ContractError::InvalidAmount);
-        }
-
-        validate_escrow_fee_bps(fee_bps)?;
-
-        // Security: all three roles must be distinct to preserve the trustless
-        // three-party separation.  A resolver that equals the seller or buyer can
-        // unilaterally resolve disputes in their own favour; a buyer that equals
-        // the seller makes the escrow a self-dealing no-op.
-        if resolver == seller {
-            return Err(ContractError::ConflictingRoles);
-        }
-        if let Some(ref b) = buyer {
-            if b == &seller || b == &resolver {
-                return Err(ContractError::ConflictingRoles);
-            }
-        }
-
-        let escrow_id: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCounter)
-            .expect("counter initialized");
-        let next_id = escrow_id
-            .checked_add(1)
-            .ok_or(ContractError::ArithmeticError)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCounter, &next_id);
-        // Extend instance storage TTL on every counter access so the counter key
-        // cannot expire between a read and the subsequent write.
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
-
-        let escrow = EscrowData {
         create_escrow_internal(
             &env,
             seller,
@@ -822,69 +773,6 @@ impl Escrow {
         Ok(())
     }
 
-    /// Buyer raises a dispute on a funded or shipped escrow.
-    ///
-    /// Transitions Funded/Shipped → Disputed, stores dispute metadata,
-    /// and emits the `dispute_raised` event.
-    pub fn raise_dispute(
-        env: Env,
-        caller: Address,
-        escrow_id: u64,
-        reason: Symbol,
-        description: String,
-        evidence_hash: BytesN<32>,
-    ) -> Result<(), ContractError> {
-        caller.require_auth();
-
-        ensure_not_paused(&env)?;
-        let mut escrow = load_escrow(&env, escrow_id)?;
-
-        let buyer = escrow
-            .buyer
-            .clone()
-            .ok_or(ContractError::EscrowHasNoBuyer)?;
-        if caller != buyer {
-            return Err(ContractError::NotAuthorized);
-        }
-
-        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-            return Err(ContractError::InvalidState);
-        }
-
-        if env.ledger().timestamp() >= escrow.dispute_deadline {
-            return Err(ContractError::DeliveryBeforeDisputeWindow);
-        }
-
-        if description.len() > MAX_DESCRIPTION_LEN {
-            return Err(ContractError::InputTooLong);
-        }
-
-        escrow.state = EscrowState::Disputed;
-
-        let dispute_data = DisputeData {
-            escrow_id,
-            reason: reason.clone(),
-            description: description.clone(),
-            evidence_hash: evidence_hash.clone(),
-            status: DisputeStatus::Active,
-            disputed_at: env.ledger().timestamp(),
-            tracking_id: escrow.tracking_id.clone(),
-        };
-
-        save_escrow(&env, escrow_id, &escrow);
-        save_dispute(&env, escrow_id, &dispute_data);
-        increment_counter(&env, &DataKey::TotalDisputed)?;
-        emit_dispute_raised(
-            &env,
-            escrow_id,
-            buyer,
-            reason,
-            description,
-            evidence_hash,
-        );
-        Ok(())
-    }
-
 
     pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
@@ -910,14 +798,10 @@ impl Escrow {
                         &caller,
                         &escrow.amount,
                     );
-                    if escrow.fee_bps > 0 {
-                        escrow.state = EscrowState::Refunded;
-                    } else {
-                        escrow.state = EscrowState::Canceled;
-                    }
-                } else if is_seller {
-                    escrow.state = EscrowState::Canceled;
+                    // Buyer gets their tokens back → always Refunded, regardless of fee_bps.
+                    escrow.state = EscrowState::Refunded;
                 } else {
+                    // Seller cannot cancel once the escrow is funded.
                     return Err(ContractError::InvalidState);
                 }
             }
@@ -1073,6 +957,10 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
+        if escrow.state == EscrowState::Disputed {
+            // Already disputed — this is not a valid state to raise again.
+            return Err(ContractError::InvalidState);
+        }
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
             return Err(ContractError::InvalidStateTransition);
         }
@@ -1250,8 +1138,11 @@ impl Escrow {
             if now < eligible_at {
                 return Err(ContractError::ShippingWindowNotElapsed);
             }
+        } else if escrow.state == EscrowState::Shipped {
+            // Shipped but delivery was never recorded by admin.
+            return Err(ContractError::DeliveryNotRecorded);
         } else {
-            // Path B: dispute deadline closed + shipping window elapsed from funding
+            // Path B: dispute deadline closed + shipping window elapsed from funding (Funded state)
             if now < escrow.dispute_deadline {
                 return Err(ContractError::DeliveryBeforeDisputeWindow);
             }

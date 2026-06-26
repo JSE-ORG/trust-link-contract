@@ -313,7 +313,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 120960
       },
       {
         "entry": {
@@ -380,6 +380,12 @@
                     "val": {
                       "u64": "0"
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "notes"
+                    },
+                    "val": "void"
                   },
                   {
                     "key": {

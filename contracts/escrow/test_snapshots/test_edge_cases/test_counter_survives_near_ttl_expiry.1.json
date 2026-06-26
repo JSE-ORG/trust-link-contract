@@ -476,7 +476,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 124095
+        "live_until": 240960
       },
       {
         "entry": {
@@ -543,6 +543,12 @@
                     "val": {
                       "u64": "0"
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "notes"
+                    },
+                    "val": "void"
                   },
                   {
                     "key": {
@@ -678,6 +684,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "notes"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "resolver"
                     },
                     "val": {
@@ -807,6 +819,12 @@
                     "val": {
                       "u64": "0"
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "notes"
+                    },
+                    "val": "void"
                   },
                   {
                     "key": {

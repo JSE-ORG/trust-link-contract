@@ -671,11 +671,9 @@ fn test_multi_asset_concurrent_escrows_different_tokens() {
     assert_eq!(get_balance(&env, &token_b, &contract_id), 500);
 
     client.mark_shipped(&seller, &id1, &SorobanString::from_str(&env, "TRK-A"));
-    let escrow1 = client.get_escrow(&id1);
-    env.ledger().set_timestamp(escrow1.dispute_deadline + 1);
-    client.confirm_delivery(&buyer_a, &id1);
-
     client.mark_shipped(&seller, &id2, &SorobanString::from_str(&env, "TRK-B"));
+
+    // Raise dispute for id2 while still within its dispute window.
     client.raise_dispute(
         &buyer_b,
         &id2,
@@ -683,6 +681,12 @@ fn test_multi_asset_concurrent_escrows_different_tokens() {
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
+
+    // Advance past id1's dispute deadline and confirm delivery.
+    let escrow1 = client.get_escrow(&id1);
+    env.ledger().set_timestamp(escrow1.dispute_deadline + 1);
+    client.confirm_delivery(&buyer_a, &id1);
+
     client.resolve_dispute(&resolver, &id2, &ResolutionType::Refund);
 
     let escrow1 = client.get_escrow(&id1);
@@ -1475,7 +1479,8 @@ fn test_cancel_escrow_with_zero_fee() {
     client.cancel_escrow(&buyer, &id);
 
     let escrow = client.get_escrow(&id);
-    assert_eq!(escrow.state, EscrowState::Canceled);
+    // Buyer cancellation always results in Refunded, even with zero fee_bps.
+    assert_eq!(escrow.state, EscrowState::Refunded);
 
     assert_eq!(get_balance(&env, &token, &buyer), 500);
     assert_eq!(get_balance(&env, &token, &contract_id), 0);
@@ -1500,7 +1505,8 @@ fn test_cancel_escrow_preserves_escrow_metadata() {
         &86400_u64,
     );
     client.fund_escrow(&id, &buyer);
-    client.cancel_escrow(&seller, &id);
+    // Buyer cancels the funded escrow; seller can no longer cancel once funded.
+    client.cancel_escrow(&buyer, &id);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.seller, seller);
@@ -1510,5 +1516,6 @@ fn test_cancel_escrow_preserves_escrow_metadata() {
     assert_eq!(escrow.amount, 1500);
     assert_eq!(escrow.fee_bps, 250);
     assert_eq!(escrow.shipping_window, 86400);
-    assert_eq!(escrow.state, EscrowState::Canceled);
+    // Buyer cancellation of a funded escrow always results in Refunded state.
+    assert_eq!(escrow.state, EscrowState::Refunded);
 }
