@@ -14,7 +14,12 @@
     "build": "node scripts/optimize-wasm.js && stellar contract bindings typescript --wasm ../target/wasm32-unknown-unknown/release/trustlink_escrow.wasm --output-dir src --overwrite",
     "generate": "stellar contract bindings typescript --wasm ../target/wasm32-unknown-unknown/release/trustlink_escrow.wasm --output-dir src --overwrite",
     "optimize": "node scripts/optimize-wasm.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": ">=20.0.0",
+    "typescript": ">=5.4.0"
   },
   "peerDependencies": {
     "@stellar/freighter-api": ">=2.0.0",
