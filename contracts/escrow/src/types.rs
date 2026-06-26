@@ -9,6 +9,7 @@ pub enum DataKey {
     FeeCollector,
     Dispute(u64),
     Paused,
+    ActionPaused(Symbol),
     DefaultFeeBps,
     TtlExtensionLedgers,
     ArbitrationFee,

@@ -142,6 +142,19 @@ fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
     Ok(())
 }
 
+fn ensure_action_not_paused(env: &Env, action: Symbol) -> Result<(), ContractError> {
+    ensure_not_paused(env)?;
+    let action_paused: bool = env
+        .storage()
+        .instance()
+        .get(&DataKey::ActionPaused(action))
+        .unwrap_or(false);
+    if action_paused {
+        return Err(ContractError::ContractPaused);
+    }
+    Ok(())
+}
+
 fn require_admin(env: &Env) -> Result<Address, ContractError> {
     env.storage()
         .instance()
@@ -521,7 +534,7 @@ fn create_escrow_internal(
 ) -> Result<u64, ContractError> {
     seller.require_auth();
 
-    ensure_not_paused(env)?;
+    ensure_action_not_paused(env, Symbol::new(env, "CREATE"))?;
 
     if amount <= 0 {
         return Err(ContractError::InvalidAmount);
@@ -699,6 +712,36 @@ impl Escrow {
         env.storage()
             .instance()
             .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    /// Pauses a specific action. Only callable by admin.
+    pub fn pause_action(env: Env, caller: Address, action: Symbol) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::ActionPaused(action), &true);
+        Ok(())
+    }
+
+    /// Unpauses a specific action. Only callable by admin.
+    pub fn unpause_action(env: Env, caller: Address, action: Symbol) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::ActionPaused(action), &false);
+        Ok(())
+    }
+
+    /// Returns whether a specific action is currently paused.
+    pub fn is_action_paused(env: Env, action: Symbol) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::ActionPaused(action))
             .unwrap_or(false)
     }
 
@@ -947,7 +990,7 @@ impl Escrow {
     pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
         buyer.require_auth();
 
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "FUND"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Pending {
@@ -1334,7 +1377,7 @@ impl Escrow {
         // Authenticate before any state reads.
         caller.require_auth();
 
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "RESOLVE"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
         let admin = require_admin(&env)?;
 
