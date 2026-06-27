@@ -1,7 +1,6 @@
 {
-  "name": "trustlink-escrow-bindings",
+  "name": "@trustlink/contract-bindings",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "TypeScript bindings, React hooks, and Soroban adapter for the TrustLink escrow contract.",
   "exports": {
@@ -10,6 +9,9 @@
     "./soroban-react": "./src/soroban-react.ts",
     "./errors": "./src/errors.ts"
   },
+  "files": [
+    "src"
+  ],
   "scripts": {
     "build": "node scripts/optimize-wasm.js && stellar contract bindings typescript --wasm ../target/wasm32v1-none/release/trustlink_escrow.wasm --output-dir src --overwrite",
     "generate": "stellar contract bindings typescript --wasm ../target/wasm32v1-none/release/trustlink_escrow.wasm --output-dir src --overwrite",
@@ -20,6 +22,10 @@
   "devDependencies": {
     "@types/node": ">=20.0.0",
     "typescript": ">=5.4.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JSE-ORG/trust-link-contract.git"
   },
   "peerDependencies": {
     "@soroban-react/core": ">=2.0.0",

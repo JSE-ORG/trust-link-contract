@@ -1,267 +1,109 @@
-# Event Schema Reference
+# Escrow Contract Events
 
-This document is the indexer-facing event contract for TrustLink escrow events.
-Event schemas are defined in `contracts/escrow/src/events.rs`, with one legacy
-inline event in `set_fee_collector`.
+This document details the events emitted by the Soroban TrustLink Escrow contract. Events use structured `symbol_short!` topics to enable efficient filtering by indexers, alongside detailed XDR data payloads.
 
-## Encoding Rules
+## Topic Structure
 
-- Events are Soroban contract events emitted with `env.events().publish(topic, data)`.
-- Canonical event topics use a one-element topic tuple: `(Symbol("<event_name>"),)`.
-- Event data is the XDR encoding of the listed `#[contracttype]` payload struct.
-- Unless explicitly listed otherwise, there are no additional indexed topic
-  parameters. Indexers should filter by `contract_id` and topic element `0`.
-- Address fields are Soroban `Address` values. Integer fields use the exact Rust
-  width shown below. Timestamps are ledger timestamps in seconds.
-
-## Event Index
-
-| Topic | Payload | Indexed topic params | Emitted by |
-|---|---|---|---|
-| `contract_initialized` | `ContractInitialized` | `topic[0] = "contract_initialized"` | `initialize` |
-| `contract_paused` | `ContractPausedEvent` | `topic[0] = "contract_paused"` | `pause_contract` |
-| `contract_unpaused` | `ContractUnpausedEvent` | `topic[0] = "contract_unpaused"` | `unpause_contract` |
-| `admin_rotated` | `AdminRotated` | `topic[0] = "admin_rotated"` | `set_admin` |
-| `fee_updated` | `FeeUpdated` | `topic[0] = "fee_updated"` | `set_fee` |
-| `protocol_fee_updated` | `ProtocolFeeUpdated` | `topic[0] = "protocol_fee_updated"` | `set_protocol_fee` |
-| `arbitration_fee_updated` | `ArbitrationFeeUpdated` | `topic[0] = "arbitration_fee_updated"` | `set_arbitration_fee` |
-| `fees_withdrawn` | `FeesWithdrawn` | `topic[0] = "fees_withdrawn"` | `withdraw_fees` |
-| `escrow_created` | `EscrowCreated` | `topic[0] = "escrow_created"` | `create_escrow` |
-| `escrow_funded` | `EscrowFunded` | `topic[0] = "escrow_funded"` | funding flow |
-| `escrow_shipped` | `EscrowShipped` | `topic[0] = "escrow_shipped"` | `mark_shipped` |
-| `delivery_recorded` | `DeliveryRecorded` | `topic[0] = "delivery_recorded"` | `record_delivery` |
-| `escrow_completed` | `EscrowCompleted` | `topic[0] = "escrow_completed"` | `confirm_delivery` |
-| `dispute_raised` | `DisputeRaised` | `topic[0] = "dispute_raised"` | dispute flow |
-| `dispute_resolved` | `DisputeResolved` | `topic[0] = "dispute_resolved"` | `resolve_dispute` |
-| `auto_released` | `AutoReleased` | `topic[0] = "auto_released"` | `auto_release` |
-| `escrow_cancelled` | `EscrowCancelled` | `topic[0] = "escrow_cancelled"` | `cancel_escrow` |
-| `resolver_rotated` | `ResolverRotated` | `topic[0] = "resolver_rotated"` | `rotate_resolver` |
-| `FeeCollectorUpdated` | tuple | `topic[0] = "FeeCollectorUpdated"` | `set_fee_collector` |
-
-## Payload Schemas
-
-### `contract_initialized`
+Most events contain a standard structure:
 
 ```rust
-pub struct ContractInitialized {
-    pub admin: Address,
-    pub fee_collector: Address,
-    pub arbitration_fee_bps: u32,
-    pub timestamp: u64,
-}
+(symbol_short!("Topic1"), symbol_short!("Topic2"), [indexed_participant_address])
 ```
 
-### `contract_paused`
+By placing relevant addresses in the topics, indexers can filter directly for events involving a specific `Address` (e.g. all escrows created by a specific seller).
 
-```rust
-pub struct ContractPausedEvent {
-    pub admin: Address,
-    pub timestamp: u64,
-}
-```
+## Event Reference
 
-### `contract_unpaused`
+### Contract Initialization & Config
+- **contract_initialized**: 
+  - Topics: `["Contract", "Init"]`
+  - Payload: `ContractInitialized` `{ admin, fee_collector, arbitration_fee_bps, timestamp }`
+- **admin_rotated**: 
+  - Topics: `["Admin", "Rotated"]`
+  - Payload: `AdminRotated` `{ old_admin, new_admin, timestamp }`
+- **contract_paused**: 
+  - Topics: `["Contract", "Paused", admin]`
+  - Payload: `ContractPausedEvent` `{ admin, timestamp }`
+- **contract_unpaused**: 
+  - Topics: `["Contract", "Unpaused", admin]`
+  - Payload: `ContractUnpausedEvent` `{ admin, timestamp }`
+- **allowlist_toggled**:
+  - Topics: `["Allowlist", "Toggled"]`
+  - Payload: `AllowlistToggled` `{ enabled, timestamp }`
+- **token_allowlist_updated**:
+  - Topics: `["Token", "Allowlist", token]`
+  - Payload: `TokenAllowlistUpdated` `{ token, added, timestamp }`
+- **treasury_updated**:
+  - Topics: `["Treasury", "Updated"]`
+  - Payload: `TreasuryUpdated` `{ old_treasury, new_treasury, timestamp }`
 
-```rust
-pub struct ContractUnpausedEvent {
-    pub admin: Address,
-    pub timestamp: u64,
-}
-```
+### Fees
+- **fee_updated**: 
+  - Topics: `["Fee", "Updated"]`
+  - Payload: `FeeUpdated` `{ old_fee_bps, new_fee_bps, timestamp }`
+- **protocol_fee_updated**: 
+  - Topics: `["ProtoFee", "Updated"]`
+  - Payload: `ProtocolFeeUpdated` `{ old_fee_bps, new_fee_bps, timestamp }`
+- **arbitration_fee_updated**: 
+  - Topics: `["ArbFee", "Updated"]`
+  - Payload: `ArbitrationFeeUpdated` `{ old_fee_bps, new_fee_bps, timestamp }`
+- **platform_fee_updated**:
+  - Topics: `["PlatFee", "Updated"]`
+  - Payload: `PlatformFeeUpdated` `{ old_fee_bps, new_fee_bps, timestamp }`
+- **fees_withdrawn**: 
+  - Topics: `["Fee", "Withdrawn", to]`
+  - Payload: `FeesWithdrawn` `{ token, to, amount, timestamp }`
 
-### `admin_rotated`
+### Escrow Lifecycle
+- **escrow_created**: 
+  - Topics: `["Escrow", "Created", seller]`
+  - Payload: `EscrowCreated` `{ escrow_id, seller, resolver, token, amount, fee_bps, resolver_fee_bps, shipping_window, timestamp }`
+- **basket_escrow_created**:
+  - Topics: `["Basket", "Created", seller]`
+  - Payload: `BasketEscrowCreated` `{ escrow_id, seller, token_count, timestamp }`
+- **escrow_funded**: 
+  - Topics: `["Escrow", "Funded", buyer]`
+  - Payload: `EscrowFunded` `{ escrow_id, buyer, amount, funded_at }`
+- **escrow_shipped**: 
+  - Topics: `["Escrow", "Shipped", seller]`
+  - Payload: `EscrowShipped` `{ escrow_id, seller, tracking_id, shipped_at }`
+- **delivery_recorded**: 
+  - Topics: `["Escrow", "Delivered"]`
+  - Payload: `DeliveryRecorded` `{ escrow_id, delivered_at }`
+- **escrow_completed**: 
+  - Topics: `["Escrow", "Completed", recipient]`
+  - Payload: `EscrowCompleted` `{ escrow_id, recipient, amount, fee_bps, completed_at }`
+- **auto_released**: 
+  - Topics: `["Escrow", "Released", seller]`
+  - Payload: `AutoReleased` `{ escrow_id, seller, amount, fee_bps, released_at }`
+- **escrow_cancelled**: 
+  - Topics: `["Escrow", "Canceled", seller]`
+  - Payload: `EscrowCancelled` `{ escrow_id, seller, cancelled_at }`
 
-```rust
-pub struct AdminRotated {
-    pub old_admin: Address,
-    pub new_admin: Address,
-    pub timestamp: u64,
-}
-```
+### Dispute & Resolution
+- **dispute_raised**: 
+  - Topics: `["Dispute", "Raised", buyer]`
+  - Payload: `DisputeRaised` `{ escrow_id, buyer, reason, description, evidence_hash, disputed_at }`
+- **dispute_resolved**: 
+  - Topics: `["Dispute", "Resolved", resolver]`
+  - Payload: `DisputeResolved` `{ escrow_id, resolver, resolution, recipient, amount, arbitration_fee, resolver_fee, resolved_at }`
+- **dispute_pending_finalization**:
+  - Topics: `["Dispute", "Pending", resolver]`
+  - Payload: `DisputePendingFinalization` `{ escrow_id, resolver, resolution, amount, appeal_deadline, pending_at }`
+- **dispute_appealed**:
+  - Topics: `["Dispute", "Appealed", appellant]`
+  - Payload: `DisputeAppealed` `{ escrow_id, appellant, timestamp }`
+- **resolver_rotated**: 
+  - Topics: `["Resolver", "Rotated"]`
+  - Payload: `ResolverRotated` `{ escrow_id, old_resolver, new_resolver, rotated_at }`
 
-### `fee_updated`
-
-```rust
-pub struct FeeUpdated {
-    pub old_fee_bps: u32,
-    pub new_fee_bps: u32,
-    pub timestamp: u64,
-}
-```
-
-### `protocol_fee_updated`
-
-```rust
-pub struct ProtocolFeeUpdated {
-    pub old_fee_bps: u32,
-    pub new_fee_bps: u32,
-    pub timestamp: u64,
-}
-```
-
-### `arbitration_fee_updated`
-
-```rust
-pub struct ArbitrationFeeUpdated {
-    pub old_fee_bps: u32,
-    pub new_fee_bps: u32,
-    pub timestamp: u64,
-}
-```
-
-### `fees_withdrawn`
-
-```rust
-pub struct FeesWithdrawn {
-    pub token: Address,
-    pub to: Address,
-    pub amount: i128,
-    pub timestamp: u64,
-}
-```
-
-### `escrow_created`
-
-```rust
-pub struct EscrowCreated {
-    pub escrow_id: u64,
-    pub seller: Address,
-    pub resolver: Address,
-    pub token: Address,
-    pub amount: i128,
-    pub fee_bps: u32,
-    pub shipping_window: u64,
-    pub timestamp: u64,
-}
-```
-
-### `escrow_funded`
-
-```rust
-pub struct EscrowFunded {
-    pub escrow_id: u64,
-    pub buyer: Address,
-    pub amount: i128,
-    pub funded_at: u64,
-}
-```
-
-### `escrow_shipped`
-
-```rust
-pub struct EscrowShipped {
-    pub escrow_id: u64,
-    pub seller: Address,
-    pub tracking_id: String,
-    pub shipped_at: u64,
-}
-```
-
-### `delivery_recorded`
-
-```rust
-pub struct DeliveryRecorded {
-    pub escrow_id: u64,
-    pub delivered_at: u64,
-}
-```
-
-### `escrow_completed`
-
-```rust
-pub struct EscrowCompleted {
-    pub escrow_id: u64,
-    pub recipient: Address,
-    pub amount: i128,
-    pub fee_bps: u32,
-    pub completed_at: u64,
-}
-```
-
-### `dispute_raised`
-
-```rust
-pub struct DisputeRaised {
-    pub escrow_id: u64,
-    pub buyer: Address,
-    pub reason: Symbol,
-    pub description: String,
-    pub evidence_hash: BytesN<32>,
-    pub disputed_at: u64,
-}
-```
-
-### `dispute_resolved`
-
-```rust
-pub struct DisputeResolved {
-    pub escrow_id: u64,
-    pub resolver: Address,
-    pub resolution: ResolutionType,
-    pub recipient: Address,
-    pub amount: i128,
-    pub arbitration_fee: i128,
-    pub resolved_at: u64,
-}
-
-pub enum ResolutionType {
-    Release,
-    Refund,
-}
-```
-
-### `auto_released`
-
-```rust
-pub struct AutoReleased {
-    pub escrow_id: u64,
-    pub seller: Address,
-    pub amount: i128,
-    pub fee_bps: u32,
-    pub released_at: u64,
-}
-```
-
-### `escrow_cancelled`
-
-```rust
-pub struct EscrowCancelled {
-    pub escrow_id: u64,
-    pub seller: Address,
-    pub cancelled_at: u64,
-}
-```
-
-### `resolver_rotated`
-
-```rust
-pub struct ResolverRotated {
-    pub escrow_id: u64,
-    pub old_resolver: Address,
-    pub new_resolver: Address,
-    pub rotated_at: u64,
-}
-```
-
-### `FeeCollectorUpdated`
-
-This legacy event is emitted inline rather than through a named `#[contracttype]`
-struct.
-
-```rust
-topic = ("FeeCollectorUpdated",)
-data = (old_collector: Address, new_collector: Address)
-```
-
-## Indexer Guidance
-
-- Treat `escrow_id` as the primary business key for escrow lifecycle events.
-- Treat `token` as the asset key for fee accounting events.
-- Use `funded_at`, `shipped_at`, `delivered_at`, `completed_at`,
-  `disputed_at`, `resolved_at`, `released_at`, `cancelled_at`, and `timestamp`
-  as event-time fields sourced from `env.ledger().timestamp()`.
-- Store raw `i128` token amounts. Token decimal handling belongs to the token
-  metadata layer, not this event stream.
-- `FeeCollectorUpdated` uses PascalCase while all other canonical topics use
-  snake_case. Indexers should preserve this exact topic string.
-
+### Messaging & Refunds
+- **message_posted**:
+  - Topics: `["Message", "Posted", sender]`
+  - Payload: `MessagePosted` `{ escrow_id, sender, timestamp }`
+- **refund_requested**:
+  - Topics: `["Refund", "Requested", buyer]`
+  - Payload: `RefundRequestedEvent` `{ escrow_id, buyer, timestamp }`
+- **refund_approved**:
+  - Topics: `["Refund", "Approved", seller]`
+  - Payload: `RefundApprovedEvent` `{ escrow_id, seller, timestamp }`
