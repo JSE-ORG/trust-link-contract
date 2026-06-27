@@ -864,9 +864,20 @@ impl Escrow {
     }
 
     /// Sets a new fee collector address. Only callable by admin.
+    ///
+    /// Returns `Err(ContractError::InvalidAddress)` if `new_collector` is the
+    /// zero address, which can never sign for or receive fee withdrawals.
     pub fn set_fee_collector(env: Env, new_collector: Address) -> Result<(), ContractError> {
         let admin = require_admin(&env)?;
         admin.require_auth();
+
+        let zero = Address::from_string(&String::from_str(
+            &env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        ));
+        if new_collector == zero {
+            return Err(ContractError::InvalidAddress);
+        }
 
         let old_collector: Address = env
             .storage()
@@ -1913,3 +1924,4 @@ mod test_overflow;
 mod test_pause;
 mod test_resolution;
 mod test_resolver_rotation;
+mod test_set_fee_collector;
