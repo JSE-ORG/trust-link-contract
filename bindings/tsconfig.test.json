@@ -6,10 +6,8 @@
     "noEmitOnError": true
   },
   "include": [
-    "src/types.ts",
-    "src/errors.ts",
-    "src/client.ts",
-    "src/simulation.ts",
-    "src/simulation.test.ts"
-  ]
+    "src/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": [] 
 }

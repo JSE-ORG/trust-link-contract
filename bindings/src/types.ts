@@ -3,6 +3,11 @@ export type ContractSymbol = string;
 export type Bytes32 = Uint8Array;
 export type Result<T> = T | null;
 
+export interface ContractCall {
+  function: string;
+  args: readonly unknown[];
+}
+
 export enum EscrowState {
   Pending = "Pending",
   Funded = "Funded",

@@ -5,12 +5,12 @@
  * Each test verifies that EscrowClient correctly serialises the method name and
  * argument list and returns the value produced by the transport.
  *
- * To run against Soroban testnet, replace MockTransport with a real
- * SorobanTransport (see README for connection details).
+ * Run with: `npm run test` (compiles tests to `dist-test/` then runs Node's test runner).
  */
 
-import { describe, it, expect, vi } from "vitest";
-import { EscrowClient, type ContractTransport } from "../src/client.js";
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { EscrowClient, createBatch, type ContractTransport } from "./client.js";
 import {
   EscrowState,
   DisputeStatus,
@@ -18,7 +18,7 @@ import {
   type EscrowData,
   type DisputeData,
   type FeeConfig,
-} from "../src/types.js";
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Mock transport
@@ -55,12 +55,13 @@ const FEE_BPS = 50;
 const SHIPPING_WINDOW = 172_800n;
 
 const MOCK_ESCROW: EscrowData = {
-  seller: SELLER,
+  payees: [{ address: SELLER, bps: 10000 }],
   buyer: BUYER,
   resolver: RESOLVER,
   token: TOKEN,
   amount: AMOUNT,
   fee_bps: FEE_BPS,
+  resolver_fee_bps: 0,
   shipping_window: SHIPPING_WINDOW,
   funded_at: 1_700_000_000n,
   dispute_deadline: 1_700_172_800n,
@@ -68,6 +69,7 @@ const MOCK_ESCROW: EscrowData = {
   shipped_at: 0n,
   tracking_id: null,
   delivered_at: 0n,
+  notes: null,
 };
 
 const MOCK_DISPUTE: DisputeData = {
@@ -85,249 +87,190 @@ const MOCK_FEE_CONFIG: FeeConfig = {
 };
 
 // ---------------------------------------------------------------------------
-// initialize
+// Single method invocation tests
 // ---------------------------------------------------------------------------
 
 describe("initialize", () => {
   it("invokes 'initialize' with admin and feeCollector args", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
-    client.initialize(ADMIN, FEE_COLLECTOR);
-    expect(calls).toHaveLength(1);
-    expect(calls[0].method).toBe("initialize");
-    expect(calls[0].args).toEqual([ADMIN, FEE_COLLECTOR]);
+    client.initialize(ADMIN, FEE_COLLECTOR, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "initialize");
+    assert.deepEqual(calls[0].args, [ADMIN, FEE_COLLECTOR, 200]);
   });
 });
 
-// ---------------------------------------------------------------------------
-// pause / unpause
-// ---------------------------------------------------------------------------
-
 describe("pause_contract", () => {
-  it("invokes 'pause_contract' with no args", () => {
+  it("invokes 'pause_contract' with caller", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
-    client.pause_contract();
-    expect(calls[0].method).toBe("pause_contract");
-    expect(calls[0].args).toEqual([]);
+    client.pause_contract(ADMIN);
+    assert.equal(calls[0].method, "pause_contract");
+    assert.deepEqual(calls[0].args, [ADMIN]);
   });
 });
 
 describe("unpause_contract", () => {
-  it("invokes 'unpause_contract' with no args", () => {
+  it("invokes 'unpause_contract' with caller", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
-    client.unpause_contract();
-    expect(calls[0].method).toBe("unpause_contract");
-    expect(calls[0].args).toEqual([]);
+    client.unpause_contract(ADMIN);
+    assert.equal(calls[0].method, "unpause_contract");
+    assert.deepEqual(calls[0].args, [ADMIN]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// withdraw_fees
-// ---------------------------------------------------------------------------
 
 describe("withdraw_fees", () => {
-  it("invokes 'withdraw_fees' with token, to, and amount", () => {
+  it("invokes 'withdraw_fees' with caller, token, to, and amount", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
-    client.withdraw_fees(TOKEN, FEE_COLLECTOR, AMOUNT);
-    expect(calls[0].method).toBe("withdraw_fees");
-    expect(calls[0].args).toEqual([TOKEN, FEE_COLLECTOR, AMOUNT]);
+    client.withdraw_fees(ADMIN, TOKEN, FEE_COLLECTOR, AMOUNT);
+    assert.equal(calls[0].method, "withdraw_fees");
+    assert.deepEqual(calls[0].args, [ADMIN, TOKEN, FEE_COLLECTOR, AMOUNT]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// create_escrow
-// ---------------------------------------------------------------------------
 
 describe("create_escrow", () => {
   it("invokes 'create_escrow' and returns the escrow id", () => {
     const { transport, calls } = makeMockTransport(ESCROW_ID);
     const client = new EscrowClient(transport);
-    const id = client.create_escrow(SELLER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, SHIPPING_WINDOW);
-    expect(calls[0].method).toBe("create_escrow");
-    expect(calls[0].args).toEqual([SELLER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, SHIPPING_WINDOW]);
-    expect(id).toBe(ESCROW_ID);
+    const payees = [{ address: SELLER, bps: 10000 }];
+    const id = client.create_escrow(payees, BUYER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, 0, SHIPPING_WINDOW);
+    assert.equal(calls[0].method, "create_escrow");
+    assert.deepEqual(calls[0].args, [payees, BUYER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, 0, SHIPPING_WINDOW]);
+    assert.equal(id, ESCROW_ID);
   });
 });
-
-// ---------------------------------------------------------------------------
-// fund_escrow
-// ---------------------------------------------------------------------------
 
 describe("fund_escrow", () => {
   it("invokes 'fund_escrow' with escrowId and buyer", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
     client.fund_escrow(ESCROW_ID, BUYER);
-    expect(calls[0].method).toBe("fund_escrow");
-    expect(calls[0].args).toEqual([ESCROW_ID, BUYER]);
+    assert.equal(calls[0].method, "fund_escrow");
+    assert.deepEqual(calls[0].args, [ESCROW_ID, BUYER]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// mark_shipped
-// ---------------------------------------------------------------------------
 
 describe("mark_shipped", () => {
   it("invokes 'mark_shipped' with caller, escrowId, and trackingId", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
     client.mark_shipped(SELLER, ESCROW_ID, "TRACK001");
-    expect(calls[0].method).toBe("mark_shipped");
-    expect(calls[0].args).toEqual([SELLER, ESCROW_ID, "TRACK001"]);
+    assert.equal(calls[0].method, "mark_shipped");
+    assert.deepEqual(calls[0].args, [SELLER, ESCROW_ID, "TRACK001"]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// confirm_delivery
-// ---------------------------------------------------------------------------
 
 describe("confirm_delivery", () => {
   it("invokes 'confirm_delivery' with caller and escrowId", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
     client.confirm_delivery(BUYER, ESCROW_ID);
-    expect(calls[0].method).toBe("confirm_delivery");
-    expect(calls[0].args).toEqual([BUYER, ESCROW_ID]);
+    assert.equal(calls[0].method, "confirm_delivery");
+    assert.deepEqual(calls[0].args, [BUYER, ESCROW_ID]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// raise_dispute
-// ---------------------------------------------------------------------------
 
 describe("raise_dispute", () => {
   it("invokes 'raise_dispute' with all required args", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
     const evidenceHash = new Uint8Array(32);
-    client.raise_dispute(ESCROW_ID, "damaged", "Item arrived damaged", evidenceHash);
-    expect(calls[0].method).toBe("raise_dispute");
-    expect(calls[0].args).toEqual([ESCROW_ID, "damaged", "Item arrived damaged", evidenceHash]);
+    client.raise_dispute(BUYER, ESCROW_ID, "damaged", "Item arrived damaged", evidenceHash);
+    assert.equal(calls[0].method, "raise_dispute");
+    assert.deepEqual(calls[0].args, [BUYER, ESCROW_ID, "damaged", "Item arrived damaged", evidenceHash]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// resolve_dispute
-// ---------------------------------------------------------------------------
 
 describe("resolve_dispute", () => {
   it("invokes 'resolve_dispute' with Release resolution", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
-    client.resolve_dispute(ESCROW_ID, ResolutionType.Release);
-    expect(calls[0].method).toBe("resolve_dispute");
-    expect(calls[0].args).toEqual([ESCROW_ID, ResolutionType.Release]);
+    client.resolve_dispute(RESOLVER, ESCROW_ID, ResolutionType.Release);
+    assert.equal(calls[0].method, "resolve_dispute");
+    assert.deepEqual(calls[0].args, [RESOLVER, ESCROW_ID, ResolutionType.Release]);
   });
 
   it("invokes 'resolve_dispute' with Refund resolution", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
-    client.resolve_dispute(ESCROW_ID, ResolutionType.Refund);
-    expect(calls[0].args).toEqual([ESCROW_ID, ResolutionType.Refund]);
+    client.resolve_dispute(RESOLVER, ESCROW_ID, ResolutionType.Refund);
+    assert.deepEqual(calls[0].args, [RESOLVER, ESCROW_ID, ResolutionType.Refund]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// auto_release
-// ---------------------------------------------------------------------------
 
 describe("auto_release", () => {
   it("invokes 'auto_release' with escrowId", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
     client.auto_release(ESCROW_ID);
-    expect(calls[0].method).toBe("auto_release");
-    expect(calls[0].args).toEqual([ESCROW_ID]);
+    assert.equal(calls[0].method, "auto_release");
+    assert.deepEqual(calls[0].args, [ESCROW_ID]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// get_escrow
-// ---------------------------------------------------------------------------
 
 describe("get_escrow", () => {
   it("invokes 'get_escrow' and returns EscrowData", () => {
     const { transport, calls } = makeMockTransport(MOCK_ESCROW);
     const client = new EscrowClient(transport);
     const data = client.get_escrow(ESCROW_ID);
-    expect(calls[0].method).toBe("get_escrow");
-    expect(calls[0].args).toEqual([ESCROW_ID]);
-    expect(data).toEqual(MOCK_ESCROW);
+    assert.equal(calls[0].method, "get_escrow");
+    assert.deepEqual(calls[0].args, [ESCROW_ID]);
+    assert.deepEqual(data, MOCK_ESCROW);
   });
 });
-
-// ---------------------------------------------------------------------------
-// get_dispute
-// ---------------------------------------------------------------------------
 
 describe("get_dispute", () => {
   it("invokes 'get_dispute' and returns DisputeData when present", () => {
     const { transport, calls } = makeMockTransport(MOCK_DISPUTE);
     const client = new EscrowClient(transport);
     const dispute = client.get_dispute(ESCROW_ID);
-    expect(calls[0].method).toBe("get_dispute");
-    expect(calls[0].args).toEqual([ESCROW_ID]);
-    expect(dispute).toEqual(MOCK_DISPUTE);
+    assert.equal(calls[0].method, "get_dispute");
+    assert.deepEqual(calls[0].args, [ESCROW_ID]);
+    assert.deepEqual(dispute, MOCK_DISPUTE);
   });
 
   it("returns null when no dispute exists", () => {
     const { transport } = makeMockTransport(null);
     const client = new EscrowClient(transport);
     const dispute = client.get_dispute(ESCROW_ID);
-    expect(dispute).toBeNull();
+    assert.equal(dispute, null);
   });
 });
-
-// ---------------------------------------------------------------------------
-// get_fee_config
-// ---------------------------------------------------------------------------
 
 describe("get_fee_config", () => {
   it("invokes 'get_fee_config' and returns FeeConfig", () => {
     const { transport, calls } = makeMockTransport(MOCK_FEE_CONFIG);
     const client = new EscrowClient(transport);
     const config = client.get_fee_config();
-    expect(calls[0].method).toBe("get_fee_config");
-    expect(calls[0].args).toEqual([]);
-    expect(config).toEqual(MOCK_FEE_CONFIG);
+    assert.equal(calls[0].method, "get_fee_config");
+    assert.deepEqual(calls[0].args, []);
+    assert.deepEqual(config, MOCK_FEE_CONFIG);
   });
 });
-
-// ---------------------------------------------------------------------------
-// set_arbitration_fee
-// ---------------------------------------------------------------------------
 
 describe("set_arbitration_fee", () => {
   it("invokes 'set_arbitration_fee' with caller and feeBps", () => {
     const { transport, calls } = makeMockTransport();
     const client = new EscrowClient(transport);
     client.set_arbitration_fee(ADMIN, 200);
-    expect(calls[0].method).toBe("set_arbitration_fee");
-    expect(calls[0].args).toEqual([ADMIN, 200]);
+    assert.equal(calls[0].method, "set_arbitration_fee");
+    assert.deepEqual(calls[0].args, [ADMIN, 200]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// get_arbitration_fee
-// ---------------------------------------------------------------------------
 
 describe("get_arbitration_fee", () => {
   it("invokes 'get_arbitration_fee' and returns the fee value", () => {
     const { transport, calls } = makeMockTransport(200);
     const client = new EscrowClient(transport);
     const fee = client.get_arbitration_fee();
-    expect(calls[0].method).toBe("get_arbitration_fee");
-    expect(calls[0].args).toEqual([]);
-    expect(fee).toBe(200);
+    assert.equal(calls[0].method, "get_arbitration_fee");
+    assert.deepEqual(calls[0].args, []);
+    assert.equal(fee, 200);
   });
 });
-
-// ---------------------------------------------------------------------------
-// rotate_resolver
-// ---------------------------------------------------------------------------
 
 describe("rotate_resolver", () => {
   it("invokes 'rotate_resolver' with caller, escrowId, and newResolver", () => {
@@ -335,8 +278,18 @@ describe("rotate_resolver", () => {
     const client = new EscrowClient(transport);
     const newResolver = "GNEWRESOLV0000000000000000000000000000000000000000000000000";
     client.rotate_resolver(SELLER, ESCROW_ID, newResolver);
-    expect(calls[0].method).toBe("rotate_resolver");
-    expect(calls[0].args).toEqual([SELLER, ESCROW_ID, newResolver]);
+    assert.equal(calls[0].method, "rotate_resolver");
+    assert.deepEqual(calls[0].args, [SELLER, ESCROW_ID, newResolver]);
+  });
+});
+
+describe("cancel_escrow", () => {
+  it("invokes 'cancel_escrow' with caller and escrowId", () => {
+    const { transport, calls } = makeMockTransport();
+    const client = new EscrowClient(transport);
+    client.cancel_escrow(SELLER, ESCROW_ID);
+    assert.equal(calls[0].method, "cancel_escrow");
+    assert.deepEqual(calls[0].args, [SELLER, ESCROW_ID]);
   });
 });
 
@@ -353,7 +306,7 @@ describe("async transport", () => {
     };
     const client = new EscrowClient(asyncTransport);
     const data = await client.get_escrow(ESCROW_ID);
-    expect(data).toEqual(MOCK_ESCROW);
+    assert.deepEqual(data, MOCK_ESCROW);
   });
 
   it("get_dispute resolves null when no dispute exists (async)", async () => {
@@ -364,6 +317,103 @@ describe("async transport", () => {
     };
     const client = new EscrowClient(asyncTransport);
     const result = await client.get_dispute(ESCROW_ID);
-    expect(result).toBeNull();
+    assert.equal(result, null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multicall and Batching Tests
+// ---------------------------------------------------------------------------
+
+describe("multicall", () => {
+  it("invokes 'multicall' with calls array and returns results", () => {
+    const mockResults = [null, null];
+    const { transport, calls } = makeMockTransport(mockResults);
+    const client = new EscrowClient(transport);
+    const results = client.multicall([
+      { function: "fund_escrow", args: [ESCROW_ID, BUYER] },
+      { function: "mark_shipped", args: [SELLER, ESCROW_ID, "TRACK001"] },
+    ]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "multicall");
+    assert.deepEqual(calls[0].args, [[
+      { function: "fund_escrow", args: [ESCROW_ID, BUYER] },
+      { function: "mark_shipped", args: [SELLER, ESCROW_ID, "TRACK001"] },
+    ]]);
+    assert.deepEqual(results, mockResults);
+  });
+});
+
+describe("EscrowBatch / batch / createBatch", () => {
+  it("builds calls and invokes multicall on client.execute()", async () => {
+    const mockResults = [null, null, MOCK_ESCROW];
+    const { transport, calls } = makeMockTransport(mockResults);
+    const client = new EscrowClient(transport);
+    const results = await client
+      .batch()
+      .fund_escrow(ESCROW_ID, BUYER)
+      .mark_shipped(SELLER, ESCROW_ID, "TRACK001")
+      .get_escrow(ESCROW_ID)
+      .execute();
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "multicall");
+    assert.deepEqual(calls[0].args, [[
+      { function: "fund_escrow", args: [ESCROW_ID, BUYER] },
+      { function: "mark_shipped", args: [SELLER, ESCROW_ID, "TRACK001"] },
+      { function: "get_escrow", args: [ESCROW_ID] },
+    ]]);
+    assert.deepEqual(results, mockResults);
+  });
+
+  it("createBatch creates and executes a batch using the transport directly", async () => {
+    const mockResults = [true];
+    const { transport, calls } = makeMockTransport(mockResults);
+    const results = await createBatch(transport)
+      .auto_release(ESCROW_ID)
+      .execute();
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "multicall");
+    assert.deepEqual(calls[0].args, [[
+      { function: "auto_release", args: [ESCROW_ID] }
+    ]]);
+    assert.deepEqual(results, mockResults);
+  });
+
+  it("pendingCalls returns a snapshot of calls", () => {
+    const { transport } = makeMockTransport();
+    const batch = new EscrowClient(transport).batch()
+      .fund_escrow(ESCROW_ID, BUYER)
+      .mark_shipped(SELLER, ESCROW_ID, "TRACK001");
+
+    assert.deepEqual(batch.pendingCalls(), [
+      { function: "fund_escrow", args: [ESCROW_ID, BUYER] },
+      { function: "mark_shipped", args: [SELLER, ESCROW_ID, "TRACK001"] },
+    ]);
+  });
+
+  it("handles alternative fluent builders correctly", () => {
+    const { transport } = makeMockTransport();
+    const evidenceHash = new Uint8Array(32);
+    const payees = [{ address: SELLER, bps: 10000 }];
+    
+    const batch = new EscrowClient(transport).batch()
+      .initialize(ADMIN, FEE_COLLECTOR, 200)
+      .pause_contract(ADMIN)
+      .unpause_contract(ADMIN)
+      .withdraw_fees(ADMIN, TOKEN, FEE_COLLECTOR, AMOUNT)
+      .create_escrow(payees, BUYER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, 0, SHIPPING_WINDOW)
+      .confirm_delivery(BUYER, ESCROW_ID)
+      .raise_dispute(BUYER, ESCROW_ID, "damaged", "Item arrived damaged", evidenceHash)
+      .resolve_dispute(RESOLVER, ESCROW_ID, ResolutionType.Release)
+      .get_dispute(ESCROW_ID)
+      .get_fee_config()
+      .set_arbitration_fee(ADMIN, 200)
+      .get_arbitration_fee()
+      .cancel_escrow(SELLER, ESCROW_ID)
+      .rotate_resolver(SELLER, ESCROW_ID, RESOLVER);
+
+    assert.equal(batch.pendingCalls().length, 14);
   });
 });
