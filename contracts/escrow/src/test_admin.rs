@@ -85,3 +85,28 @@ fn test_set_ttl_extension() {
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
     client.set_ttl_extension(&admin, &60_480_u32);
 }
+
+#[test]
+fn test_upgrade() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    let new_wasm_hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
+    client.upgrade(&admin, &new_wasm_hash);
+}
+
+#[test]
+fn test_upgrade_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let fake_admin = Address::generate(&env);
+    let new_wasm_hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
+    
+    let result = client.try_upgrade(&fake_admin, &new_wasm_hash);
+    assert!(matches!(result, Err(Ok(ContractError::NotAuthorized))));
+}

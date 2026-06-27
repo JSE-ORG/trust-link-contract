@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "outDir": "dist-test",
+    "noEmitOnError": true
+  },
+  "include": [
+    "src/types.ts",
+    "src/errors.ts",
+    "src/client.ts",
+    "src/simulation.ts",
+    "src/simulation.test.ts"
+  ]
+}
