@@ -1,0 +1,9 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-test
+
+# npm lockfile is intentionally omitted for this library package
+package-lock.json
