@@ -1,29 +1,38 @@
 {
-  "editor.insertSpaces": true,
-  "editor.tabSize": 2,
-  "editor.trimAutoWhitespace": true,
-  "files.trimTrailingWhitespace": true,
-  "files.insertFinalNewline": true,
+  // General Workbench Settings
+  "editor.renderWhitespace": "selection",
+  "editor.rulers": [100],
   "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+
+  // Global Auto-format behavior
   "editor.formatOnSave": true,
+
+  // --- Rust Language Settings ---
   "[rust]": {
-    "editor.tabSize": 4,
-    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    "editor.defaultFormatter": "rust-analyzer",
+    "editor.semanticHighlighting.enabled": true
   },
+  "rust-analyzer.cargo.target": "wasm32v1-none",
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.allTargets": false, // Soroban needs this false for the wasm target in workspace setups
+
+  // --- TypeScript / JavaScript Settings ---
   "[typescript]": {
-    "editor.tabSize": 2
+    "editor.defaultFormatter": "vscode.typescript-language-features"
   },
-  "[javascript]": {
-    "editor.tabSize": 2
-  },
+  "typescript.tsdk": "node_modules/typescript/lib",
+
+  // --- JSON & Markdown Settings ---
   "[json]": {
-    "editor.tabSize": 2
+    "editor.defaultFormatter": "vscode.json-language-features"
   },
-  "[yaml]": {
-    "editor.tabSize": 2
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
   },
   "[markdown]": {
-    "files.trimTrailingWhitespace": false
-  },
-  "rust-analyzer.check.command": "clippy"
+    "editor.defaultFormatter": "vscode.markdown-language-features",
+    "editor.wordWrap": "on"
+  }
 }
