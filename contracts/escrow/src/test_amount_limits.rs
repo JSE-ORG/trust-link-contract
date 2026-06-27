@@ -2,7 +2,7 @@
 
 use crate::{ContractError, EscrowClient};
 use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
-use soroban_sdk::{token, Address, Env};
+use soroban_sdk::{token, Address, Env, Vec};
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let env = Env::default();
@@ -54,25 +54,31 @@ fn test_amount_limits_enforced() {
     assert_eq!(res, Err(Ok(ContractError::AmountBelowMinimum)));
 
     // Test exactly minimum
+    let mut payees_2 = Vec::new(&env);
+    payees_2.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id1 = client.create_escrow(
-        &seller,
+        &payees_2,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &500,
         &100,
+        &0_u32,
         &3600,
     );
     assert_eq!(id1, 1);
 
     // Test exactly maximum
+    let mut payees_1 = Vec::new(&env);
+    payees_1.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id2 = client.create_escrow(
-        &seller,
+        &payees_1,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &5000,
         &100,
+        &0_u32,
         &3600,
     );
     assert_eq!(id2, 2);

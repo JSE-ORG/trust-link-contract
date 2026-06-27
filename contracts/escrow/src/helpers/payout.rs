@@ -97,7 +97,7 @@ pub fn calculate_dispute_allocations(
     let (fee, net_amount) = calculate_protocol_fee(remaining_amount, escrow.fee_bps)?;
 
     let recipient = match resolution {
-        ResolutionType::Release => escrow.seller.clone(),
+        ResolutionType::Release => escrow.payees.get(0).unwrap().address.clone(),
         ResolutionType::Refund => escrow
             .buyer
             .clone()

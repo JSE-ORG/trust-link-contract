@@ -2,7 +2,7 @@
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::{Address as _, Ledger, Vec},
     Address, Env,
 };
 
@@ -47,13 +47,16 @@ fn test_fee_calculation_max_escrow_amount() {
     let amount = MAX_ESCROW_AMOUNT;
     let fee_bps = 300; // 3%
 
+    let mut payees_54 = Vec::new(&env);
+    payees_54.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_54,
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &fee_bps,
+        &0_u32,
         &3600_u64,
     );
 
@@ -226,23 +229,29 @@ fn test_addition_overflow_shipping_window() {
     let amount = 1000;
     mint_tokens(&env, &token, &buyer, amount);
 
+    let mut payees_53 = Vec::new(&env);
+    payees_53.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let escrow_id = client.create_escrow(
-        &seller,
+        &payees_53,
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &300,
+        &0_u32,
         &u64::MAX,
     );
     env.ledger().set_timestamp(1000);
+    let mut payees_52 = Vec::new(&env);
+    payees_52.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let escrow_id = client.create_escrow(
-        &seller,
+        &payees_52,
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &300,
+        &0_u32,
         &u64::MAX,
     );
     client.fund_escrow(&escrow_id, &buyer);

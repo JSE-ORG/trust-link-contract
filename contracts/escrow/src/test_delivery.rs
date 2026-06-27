@@ -416,13 +416,16 @@ fn test_confirm_delivery_from_pending_state_fails() {
     let resolver = Address::generate(&env);
 
     // Create escrow with an explicit buyer so authorization passes.
+    let mut payees_16 = Vec::new(&env);
+    payees_16.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_16,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &1000_i128,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 
@@ -491,13 +494,16 @@ fn test_confirm_delivery_from_canceled_state_fails() {
     let resolver = Address::generate(&env);
 
     // Create escrow with an explicit buyer.
+    let mut payees_15 = Vec::new(&env);
+    payees_15.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_15,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &1000_i128,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 

@@ -61,20 +61,27 @@ export interface ContractUnpausedEvent {
   timestamp: bigint;
 }
 
+export interface Payee {
+  address: AddressLike;
+  bps: number;
+}
+
 export interface EscrowData {
-  seller: AddressLike;
+  payees: Payee[];
   buyer: AddressLike | null;
   resolver: AddressLike;
   token: AddressLike;
   amount: bigint;
   fee_bps: number;
+  resolver_fee_bps: number;
   shipping_window: bigint;
   funded_at: bigint;
   dispute_deadline: bigint;
-  state: EscrowState;
   shipped_at: bigint;
+  delivered_at: bigint | null;
   tracking_id: string | null;
-  delivered_at: bigint;
+  state: EscrowState;
+  notes: string | null;
 }
 
 export interface DisputeData {
@@ -91,4 +98,16 @@ export interface ResolverRotated {
   old_resolver: AddressLike;
   new_resolver: AddressLike;
   rotated_at: bigint;
+}
+
+/**
+ * A single call descriptor for the {@link EscrowBatch} / `multicall` entry-point.
+ * `function` is the on-chain method name; `args` are its Soroban-native
+ * arguments in the order expected by the contract.
+ */
+export interface ContractCall {
+  /** The exact name of the contract function to invoke. */
+  function: string;
+  /** Ordered arguments for the function (Soroban-native types). */
+  args: readonly unknown[];
 }

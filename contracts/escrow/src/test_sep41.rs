@@ -7,11 +7,11 @@
 //! payout path (`deduct_and_transfer`).  These tests verify that the full
 //! lifecycle works correctly with a generic SEP-41 token that is not USDC.
 
-use crate::EscrowState;
+use crate::{EscrowState, Payee};
 use crate::test_helpers::setup_contract;
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
-    token, Address, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val,
+    token, Address, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val, Vec,
     BytesN,
 };
 
@@ -79,7 +79,9 @@ fn test_sep41_fund_and_confirm_delivery() {
 
     mint(&env, &token, &buyer, 500);
 
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &500_i128, &100_u32, &3600_u64);
+    let mut payees1 = Vec::new(&env);
+    payees1.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    let id = client.create_escrow(&payees1, &None::<Address>, &resolver, &token, &500_i128, &100_u32, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
 
@@ -124,7 +126,9 @@ fn test_sep41_auto_release() {
 
     mint(&env, &token, &buyer, 1000);
 
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+    let mut payees2 = Vec::new(&env);
+    payees2.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    let id = client.create_escrow(&payees2, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO"));
     env.ledger().set_timestamp(1_700_000_000);
@@ -158,7 +162,9 @@ fn test_sep41_dispute_and_refund() {
 
     mint(&env, &token, &buyer, 800);
 
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &800_i128, &0_u32, &3600_u64);
+    let mut payees3 = Vec::new(&env);
+    payees3.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    let id = client.create_escrow(&payees3, &None::<Address>, &resolver, &token, &800_i128, &0_u32, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DISPUTE"));
 
@@ -197,7 +203,9 @@ fn test_sep41_token_address_stored_in_escrow() {
     let seller = Address::generate(&env);
     let resolver = Address::generate(&env);
 
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
+    let mut payees4 = Vec::new(&env);
+    payees4.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    let id = client.create_escrow(&payees4, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &0_u32, &3600_u64);
     // Verify the stored token address matches what was passed in
     assert_eq!(client.get_escrow(&id).token, token);
 }
@@ -217,7 +225,9 @@ fn test_sep41_cancel_escrow() {
     mint(&env, &token, &buyer, 1000);
 
     // Create escrow (starts in Pending state)
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+    let mut payees5 = Vec::new(&env);
+    payees5.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    let id = client.create_escrow(&payees5, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &0_u32, &3600_u64);
 
     let escrow_before = client.get_escrow(&id);
     assert_eq!(escrow_before.state, EscrowState::Pending);
@@ -256,7 +266,9 @@ fn test_sep41_dispute_and_release() {
     mint(&env, &token, &buyer, 1000);
 
     // Create escrow with 1000 amount, 100 BPS (1.0%) fee
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &1000_i128, &100_u32, &3600_u64);
+    let mut payees6 = Vec::new(&env);
+    payees6.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    let id = client.create_escrow(&payees6, &None::<Address>, &resolver, &token, &1000_i128, &100_u32, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-RELEASE"));
 
@@ -318,7 +330,9 @@ fn test_sep41_auto_release_with_fees() {
 
     mint(&env, &token, &buyer, 1000);
 
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+    let mut payees7 = Vec::new(&env);
+    payees7.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    let id = client.create_escrow(&payees7, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO-FEES"));
     env.ledger().set_timestamp(1_700_000_000);
