@@ -3,6 +3,10 @@
 
 > Trustless escrow for social commerce on Stellar: funds move only when the contract can prove the requested lifecycle event has happened.
 
+[![CI](https://img.shields.io/github/actions/workflow/status/JSE-ORG/trust-link-contract/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/JSE-ORG/trust-link-contract/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-248%20passing-success?style=flat-square&logo=rust)](contracts/escrow)
+[![Coverage](https://img.shields.io/codecov/c/github/JSE-ORG/trust-link-contract?style=flat-square&logo=codecov&label=coverage)](https://codecov.io/gh/JSE-ORG/trust-link-contract)
+[![Crate](https://img.shields.io/badge/crate-v0.1.0-blue?style=flat-square&logo=rust)](contracts/escrow/Cargo.toml)
 [![Stellar](https://img.shields.io/badge/Stellar-Soroban-7B68EE?style=flat-square&logo=stellar)](https://stellar.org)
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange?style=flat-square&logo=rust)](https://rustup.rs)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)

@@ -426,7 +426,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Refunded"
+                          "symbol": "Funded"
                         }
                       ]
                     }
@@ -622,7 +622,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "1000"
+                      "i128": "700"
                     }
                   },
                   {
@@ -674,7 +674,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "0"
+                      "i128": "300"
                     }
                   },
                   {

@@ -155,6 +155,7 @@ pub struct EscrowCreated {
     pub token: Address,
     pub amount: i128,
     pub fee_bps: u32,
+    pub resolver_fee_bps: u32,
     pub shipping_window: u64,
     pub timestamp: u64,
 }
@@ -169,6 +170,7 @@ pub fn emit_escrow_created(
     token: Address,
     amount: i128,
     fee_bps: u32,
+    resolver_fee_bps: u32,
     shipping_window: u64,
 ) {
     env.events().publish(
@@ -180,6 +182,7 @@ pub fn emit_escrow_created(
             token,
             amount,
             fee_bps,
+            resolver_fee_bps,
             shipping_window,
             timestamp: env.ledger().timestamp(),
         },
@@ -320,6 +323,7 @@ pub struct DisputeResolved {
     pub recipient: Address,
     pub amount: i128,
     pub arbitration_fee: i128,
+    pub resolver_fee: i128,
     pub resolved_at: u64,
 }
 
@@ -332,6 +336,7 @@ pub fn emit_dispute_resolved(
     recipient: Address,
     amount: i128,
     arbitration_fee: i128,
+    resolver_fee: i128,
 ) {
     env.events().publish(
         (Symbol::new(env, "dispute_resolved"),),
@@ -342,6 +347,7 @@ pub fn emit_dispute_resolved(
             recipient,
             amount,
             arbitration_fee,
+            resolver_fee,
             resolved_at: env.ledger().timestamp(),
         },
     );
@@ -444,3 +450,222 @@ pub fn emit_resolver_rotated(
         },
     );
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TokenAllowlistUpdated {
+    pub token: Address,
+    pub added: bool,
+    pub timestamp: u64,
+}
+
+/// Topic: `("token_allowlist_updated",)`, data: `TokenAllowlistUpdated`.
+pub fn emit_token_allowlist_updated(env: &Env, token: Address, added: bool) {
+    env.events().publish(
+        (Symbol::new(env, "token_allowlist_updated"),),
+        TokenAllowlistUpdated {
+            token,
+            added,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AllowlistToggled {
+    pub enabled: bool,
+    pub timestamp: u64,
+}
+
+/// Topic: `("allowlist_toggled",)`, data: `AllowlistToggled`.
+pub fn emit_allowlist_toggled(env: &Env, enabled: bool) {
+    env.events().publish(
+        (Symbol::new(env, "allowlist_toggled"),),
+        AllowlistToggled {
+            enabled,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputePendingFinalization {
+    pub escrow_id: u64,
+    pub resolver: Address,
+    pub resolution: crate::ResolutionType,
+    pub amount: i128,
+    pub appeal_deadline: u64,
+    pub pending_at: u64,
+}
+
+/// Topic: `("dispute_pending_finalization",)`, data: `DisputePendingFinalization`.
+pub fn emit_dispute_pending_finalization(
+    env: &Env,
+    escrow_id: u64,
+    resolver: Address,
+    resolution: crate::ResolutionType,
+    amount: i128,
+    appeal_deadline: u64,
+) {
+    env.events().publish(
+        (Symbol::new(env, "dispute_pending_finalization"),),
+        DisputePendingFinalization {
+            escrow_id,
+            resolver,
+            resolution,
+            amount,
+            appeal_deadline,
+            pending_at: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeAppealed {
+    pub escrow_id: u64,
+    pub appellant: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `("dispute_appealed",)`, data: `DisputeAppealed`.
+pub fn emit_dispute_appealed(env: &Env, escrow_id: u64, appellant: Address) {
+    env.events().publish(
+        (Symbol::new(env, "dispute_appealed"),),
+        DisputeAppealed {
+            escrow_id,
+            appellant,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformFeeUpdated {
+    pub old_fee_bps: u32,
+    pub new_fee_bps: u32,
+    pub timestamp: u64,
+}
+
+/// Topic: `("platform_fee_updated",)`, data: `PlatformFeeUpdated`.
+pub fn emit_platform_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
+    env.events().publish(
+        (Symbol::new(env, "platform_fee_updated"),),
+        PlatformFeeUpdated {
+            old_fee_bps,
+            new_fee_bps,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreasuryUpdated {
+    pub old_treasury: Address,
+    pub new_treasury: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `("treasury_updated",)`, data: `TreasuryUpdated`.
+pub fn emit_treasury_updated(env: &Env, old_treasury: Address, new_treasury: Address) {
+    env.events().publish(
+        (Symbol::new(env, "treasury_updated"),),
+        TreasuryUpdated {
+            old_treasury,
+            new_treasury,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BasketEscrowCreated {
+    pub escrow_id: u64,
+    pub seller: Address,
+    pub token_count: u32,
+    pub timestamp: u64,
+}
+
+/// Topic: `("basket_escrow_created",)`, data: `BasketEscrowCreated`.
+pub fn emit_basket_escrow_created(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    token_count: u32,
+) {
+    env.events().publish(
+        (Symbol::new(env, "basket_escrow_created"),),
+        BasketEscrowCreated {
+            escrow_id,
+            seller,
+            token_count,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MessagePosted {
+    pub escrow_id: u64,
+    pub sender: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(\"message_posted\",)`, data: `MessagePosted`.
+pub fn emit_message_posted(env: &Env, escrow_id: u64, sender: Address) {
+    env.events().publish(
+        (Symbol::new(env, "message_posted"),),
+        MessagePosted {
+            escrow_id,
+            sender,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundRequestedEvent {
+    pub escrow_id: u64,
+    pub buyer: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(\"refund_requested\",)`, data: `RefundRequestedEvent`.
+pub fn emit_refund_requested(env: &Env, escrow_id: u64, buyer: Address) {
+    env.events().publish(
+        (Symbol::new(env, "refund_requested"),),
+        RefundRequestedEvent {
+            escrow_id,
+            buyer,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundApprovedEvent {
+    pub escrow_id: u64,
+    pub seller: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(\"refund_approved\",)`, data: `RefundApprovedEvent`.
+pub fn emit_refund_approved(env: &Env, escrow_id: u64, seller: Address) {
+    env.events().publish(
+        (Symbol::new(env, "refund_approved"),),
+        RefundApprovedEvent {
+            escrow_id,
+            seller,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+

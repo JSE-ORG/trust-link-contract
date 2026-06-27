@@ -152,6 +152,7 @@
         }
       ]
     ],
+<<<<<<< HEAD
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
@@ -183,6 +184,9 @@
         }
       ]
     ]
+=======
+    []
+>>>>>>> 6329d33 (fixed ci failure)
   ],
   "ledger": {
     "protocol_version": 26,
@@ -284,6 +288,7 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
               "key": {
                 "ledger_key_nonce": {
+<<<<<<< HEAD
                   "nonce": "4270020994084947596"
                 }
               },
@@ -304,6 +309,8 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
               "key": {
                 "ledger_key_nonce": {
+=======
+>>>>>>> 6329d33 (fixed ci failure)
                   "nonce": "4837995959683129791"
                 }
               },
@@ -364,6 +371,7 @@
           },
           "ext": "v0"
         },
+<<<<<<< HEAD
         "live_until": 4095
       },
       {
@@ -452,6 +460,8 @@
           },
           "ext": "v0"
         },
+=======
+>>>>>>> 6329d33 (fixed ci failure)
         "live_until": 120960
       },
       {
@@ -559,7 +569,11 @@
                     "val": {
                       "vec": [
                         {
+<<<<<<< HEAD
                           "symbol": "Disputed"
+=======
+                          "symbol": "Shipped"
+>>>>>>> 6329d33 (fixed ci failure)
                         }
                       ]
                     }
@@ -722,6 +736,7 @@
                       "val": {
                         "u64": "1"
                       }
+<<<<<<< HEAD
                     },
                     {
                       "key": {
@@ -734,6 +749,8 @@
                       "val": {
                         "u64": "1"
                       }
+=======
+>>>>>>> 6329d33 (fixed ci failure)
                     }
                   ]
                 }
@@ -967,6 +984,7 @@
       }
     ]
   },
+<<<<<<< HEAD
   "events": [
     {
       "event": {
@@ -1038,4 +1056,7 @@
       "failed_call": false
     }
   ]
+=======
+  "events": []
+>>>>>>> 6329d33 (fixed ci failure)
 }

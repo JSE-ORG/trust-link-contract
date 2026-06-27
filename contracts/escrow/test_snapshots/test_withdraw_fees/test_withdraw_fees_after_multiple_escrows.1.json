@@ -1845,18 +1845,6 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "TotalCompleted"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u64": "3"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
                             "symbol": "TotalCreated"
                           }
                         ]

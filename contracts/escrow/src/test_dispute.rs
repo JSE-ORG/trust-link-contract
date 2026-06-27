@@ -1,7 +1,10 @@
 #![cfg(test)]
 
 use crate::{ContractError, DisputeStatus, Escrow, EscrowClient, ResolutionType};
-use soroban_sdk::{testutils::{Address as _, Ledger as _}, token, Address, BytesN, Env, String, Symbol};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    token, Address, BytesN, Env, String, Symbol,
+};
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let env = Env::default();
@@ -197,7 +200,7 @@ fn test_dispute_requires_shipped_state() {
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
     assert_eq!(
         result,
-        Err(Ok(crate::ContractError::DeliveryBeforeDisputeWindow))
+        Err(Ok(crate::ContractError::DisputeWindowClosed))
     );
 
     // Verify no state mutation on expired action
@@ -244,7 +247,7 @@ fn test_dispute_rejected_after_48h_deadline() {
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
     assert_eq!(
         result,
-        Err(Ok(crate::ContractError::DeliveryBeforeDisputeWindow))
+        Err(Ok(crate::ContractError::DisputeWindowClosed))
     );
 
     // Verify no state mutation on expired action
