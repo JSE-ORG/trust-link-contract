@@ -9,6 +9,7 @@ pub enum DataKey {
     FeeCollector,
     Dispute(u64),
     Paused,
+    ActionPaused(Symbol),
     DefaultFeeBps,
     TtlExtensionLedgers,
     ArbitrationFee,
@@ -21,12 +22,6 @@ pub enum DataKey {
     TotalRefunded,
     FeeConfig,
     BuyerEscrowIndex(Address),
-    TokenAllowlistEnabled,
-    TokenAllowlist,
-    PlatformFeeBps,
-    Treasury,
-    MinAmount,
-    MaxAmount,
 }
 
 #[contracttype]

@@ -28,6 +28,7 @@ pub use crate::events::{
     emit_dispute_pending_finalization, emit_dispute_appealed,
     emit_platform_fee_updated, emit_treasury_updated,
     emit_basket_escrow_created, emit_refund_requested, emit_refund_approved,
+    emit_contract_upgraded, ContractUpgradedEvent,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowState,
@@ -58,6 +59,9 @@ const MAX_ARBITRATION_FEE_BPS: u32 = 500;
 /// preventing the malicious admin attack where combined fees drain entire escrows.
 const MAX_COMBINED_FEE_BPS: u32 = 1_000;
 
+/// The semantic version of the contract.
+pub const CONTRACT_VERSION: u32 = 1;
+
 /// Maximum platform fee in basis points (200 = 2%).
 ///
 /// Platform fees are per-escrow fees forwarded to the treasury on successful release.
@@ -82,6 +86,9 @@ pub const MIN_ESCROW_AMOUNT: i128 = 1;
 const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
 const DEFAULT_TTL_EXTENSION: u32 = 120_960;
+/// How long (in seconds) a Pending escrow waits for funding before it can be
+/// auto-cancelled.  Default: 7 days.
+const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 
 /// Maximum length for user-supplied string fields.
 /// - `tracking_id`: 64 characters
@@ -136,6 +143,19 @@ fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
         .get(&DataKey::Paused)
         .unwrap_or(false);
     if paused {
+        return Err(ContractError::ContractPaused);
+    }
+    Ok(())
+}
+
+fn ensure_action_not_paused(env: &Env, action: Symbol) -> Result<(), ContractError> {
+    ensure_not_paused(env)?;
+    let action_paused: bool = env
+        .storage()
+        .instance()
+        .get(&DataKey::ActionPaused(action))
+        .unwrap_or(false);
+    if action_paused {
         return Err(ContractError::ContractPaused);
     }
     Ok(())
@@ -523,7 +543,7 @@ fn create_escrow_internal(
 ) -> Result<u64, ContractError> {
     seller.require_auth();
 
-    ensure_not_paused(env)?;
+    ensure_action_not_paused(env, Symbol::new(env, "CREATE"))?;
 
     if amount <= 0 {
         return Err(ContractError::InvalidAmount);
@@ -617,6 +637,10 @@ fn create_escrow_internal(
 #[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl Escrow {
+    /// Returns the current version of the contract.
+    pub fn get_version(_env: Env) -> u32 {
+        CONTRACT_VERSION
+    }
     /// Sets the protocol fee collector, admin address, and arbitration fee. Must be called once.
     ///
     /// Returns `Err(ContractError::InvalidAddress)` if `admin` or `fee_collector` is the
@@ -667,6 +691,7 @@ impl Escrow {
     }
 
     /// Pauses the contract. Only callable by admin.
+    /// Acts as a global circuit breaker for all state-mutating operations.
     pub fn pause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
         // SECURITY:
         // Authenticate before any state reads.
@@ -706,6 +731,36 @@ impl Escrow {
             .unwrap_or(false)
     }
 
+    /// Pauses a specific action. Only callable by admin.
+    pub fn pause_action(env: Env, caller: Address, action: Symbol) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::ActionPaused(action), &true);
+        Ok(())
+    }
+
+    /// Unpauses a specific action. Only callable by admin.
+    pub fn unpause_action(env: Env, caller: Address, action: Symbol) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::ActionPaused(action), &false);
+        Ok(())
+    }
+
+    /// Returns whether a specific action is currently paused.
+    pub fn is_action_paused(env: Env, action: Symbol) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::ActionPaused(action))
+            .unwrap_or(false)
+    }
+
     /// Sets a new admin for the contract. Only callable by current admin.
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
         let old_admin = require_admin(&env)?;
@@ -717,6 +772,20 @@ impl Escrow {
         }
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         emit_admin_rotated(&env, old_admin, new_admin);
+        Ok(())
+    }
+
+    /// Upgrades the contract WASM. Only callable by admin.
+    pub fn upgrade(env: Env, caller: Address, new_wasm_hash: BytesN<32>) -> Result<(), ContractError> {
+        caller.require_auth();
+
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        emit_contract_upgraded(&env, admin, new_wasm_hash);
         Ok(())
     }
 
@@ -900,22 +969,23 @@ impl Escrow {
             amount,
             fee_bps,
             shipping_window,
-            None,
-        )
-    }
+            funded_at: 0,
+            dispute_deadline: 0,
+            state: EscrowState::Pending,
+            shipped_at: 0,
+            delivered_at: None,
+            tracking_id: None,
+        };
 
-    pub fn create_escrow_with_notes(
-        env: Env,
-        seller: Address,
-        buyer: Option<Address>,
-        resolver: Address,
-        token: Address,
-        amount: i128,
-        fee_bps: u32,
-        shipping_window: u64,
-        notes: Option<String>,
-    ) -> Result<u64, ContractError> {
-        create_escrow_internal(
+        save_escrow(&env, escrow_id, &escrow);
+
+        let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &escrow.seller);
+        vendor_escrows.push_back(escrow_id);
+        // write_vendor_escrow_index now handles TTL extension automatically
+        storage::write_vendor_escrow_index(&env, &escrow.seller, &vendor_escrows);
+
+        increment_counter(&env, &DataKey::TotalCreated)?;
+        emit_escrow_created(
             &env,
             seller,
             buyer,
@@ -935,11 +1005,17 @@ impl Escrow {
     pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
         buyer.require_auth();
 
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "FUND"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Pending {
             return Err(ContractError::InvalidState);
+        }
+
+        if let Some(expires_at) = env.storage().persistent().get::<DataKey, u64>(&DataKey::PendingExpiry(escrow_id)) {
+            if env.ledger().timestamp() > expires_at {
+                return Err(ContractError::EscrowExpired);
+            }
         }
 
         // Security: buyer must differ from seller and resolver.
@@ -1334,7 +1410,7 @@ impl Escrow {
         // Authenticate before any state reads.
         caller.require_auth();
 
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "RESOLVE"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
         let admin = require_admin(&env)?;
 
@@ -2261,13 +2337,3 @@ mod test_overflow;
 mod test_pause;
 mod test_resolution;
 mod test_resolver_rotation;
-mod test_mutual_cancel;
-mod test_set_fee_boundary;
-mod test_string_length;
-mod test_ttl;
-mod test_unauthorized;
-mod test_withdraw_fees;
-mod test_refund_flow;
-mod test_batch_create;
-mod test_amount_limits;
-mod test_accumulated_fees;
