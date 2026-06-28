@@ -2,7 +2,7 @@
 
 use crate::{DisputeResolved, Escrow, EscrowClient, ResolutionType};
 use soroban_sdk::{
-    testutils::{Address as _, Events as _, Ledger},
+    testutils::{Address as _, Events as _, Ledger, Vec},
     token, Address, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val,
 };
 
@@ -39,7 +39,18 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
     let amount = 1000_i128;
     let fee_bps = 200; // 2%
 
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &fee_bps, &3600_u64);
+    let mut payees_4 = Vec::new(&env);
+    payees_4.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    let id = client.create_escrow(
+        &payees_4,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &fee_bps,
+        &0_u32,
+        &3600_u64,
+    );
 
     mint(&env, &token, &buyer, amount);
     client.fund_escrow(&id, &buyer);
@@ -94,7 +105,18 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
     let amount = 1000_i128;
     let fee_bps = 300; // 3%
 
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &fee_bps, &3600_u64);
+    let mut payees_3 = Vec::new(&env);
+    payees_3.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    let id = client.create_escrow(
+        &payees_3,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &fee_bps,
+        &0_u32,
+        &3600_u64,
+    );
 
     mint(&env, &token, &buyer, amount);
     client.fund_escrow(&id, &buyer);
@@ -135,12 +157,17 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
                 };
 
                 DisputeResolved::try_from_val(&env, &data)
-                    .map(|event| event.escrow_id == id && event.resolution == ResolutionType::Refund)
+                    .map(|event| {
+                        event.escrow_id == id && event.resolution == ResolutionType::Refund
+                    })
                     .unwrap_or(false)
             }
             _ => false,
         });
-    assert!(saw_refund_event, "dispute_resolved refund event should be emitted");
+    assert!(
+        saw_refund_event,
+        "dispute_resolved refund event should be emitted"
+    );
 
     // Calculation:
     // 1. amount = 1000

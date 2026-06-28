@@ -1,0 +1,655 @@
+﻿cmd : contracts\escrow\s
+rc\lib.rs:227:14: 
+warning: unused macro 
+definition: 
+`require_state`
+At line:1 char:1
++ cmd /c cargo test 
+test_dispute > 
+test_output.log 2>&1
++ ~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~
+    + CategoryInfo      
+        : NotSpecified  
+  : (contracts\escro.   
+ ..`require_state`:S    
+tring) [], RemoteEx    
+ception
+    + FullyQualifiedErr 
+   orId : NativeComman  
+  dError
+ 
+contracts\escrow\src\eve
+nts.rs:21:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:41:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:61:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:81:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:100:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:118:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:138:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:173:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:199:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:221:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:241:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:265:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:297:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:332:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:364:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:386:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:412:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\eve
+nts.rs:439:18: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\lib
+.rs:531:22: warning: 
+use of deprecated 
+method `soroban_sdk::eve
+nts::Events::publish`: 
+use the 
+#[contractevent] macro 
+on a contract event type
+contracts\escrow\src\tes
+t.rs:5:34: warning: 
+unused import: `IntoVal`
+contracts\escrow\src\tes
+t_edge_cases.rs:5:50: 
+warning: unused import: 
+`MIN_ESCROW_AMOUNT`
+contracts\escrow\src\tes
+t_edge_cases.rs:6:59: 
+warning: unused import: 
+`token`
+contracts\escrow\src\tes
+t_withdraw_fees.rs:5:31:
+ warning: unused 
+import: `Ledger`
+contracts\escrow\src\tes
+t_dispute.rs:3:13: 
+warning: unused 
+imports: 
+`ContractError` and 
+`ResolutionType`
+contracts\escrow\src\tes
+t_escrow_id.rs:6:19: 
+warning: unused import: 
+`IntoVal`
+contracts\escrow\src\tes
+t_arbitration_fee.rs:6:2
+6: warning: unused 
+import: `IntoVal`
+contracts\escrow\src\tes
+t_string_length.rs:5:45:
+ warning: unused 
+imports: `Bytes` and 
+`Ledger`
+contracts\escrow\src\tes
+t_delivery.rs:7:5: 
+warning: unused 
+imports: `IntoVal` and 
+`vec`
+contracts\escrow\src\tes
+t_get_escrows_by_vendor.
+rs:4:26: warning: 
+unused import: 
+`EscrowData`
+contracts\escrow\src\tes
+t_resolver_rotation.rs:5
+:50: warning: unused 
+import: `EscrowState`
+contracts\escrow\src\tes
+t.rs:23:29: warning: 
+use of deprecated 
+method `soroban_sdk::Env
+::register_stellar_asset
+_contract`: use [Env::re
+gister_stellar_asset_con
+tract_v2]
+contracts\escrow\src\tes
+t.rs:40:29: warning: 
+use of deprecated 
+method `soroban_sdk::Env
+::register_stellar_asset
+_contract`: use [Env::re
+gister_stellar_asset_con
+tract_v2]
+contracts\escrow\src\tes
+t_edge_cases.rs:167:21: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_edge_cases.rs:203:25: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_edge_cases.rs:245:21: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_edge_cases.rs:284:21: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_edge_cases.rs:322:21: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_withdraw_fees.rs:20:29
+: warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_withdraw_fees.rs:90:23
+: warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_dispute.rs:17:29: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_pause.rs:19:29: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_overflow.rs:19:29: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_fee_minimum.rs:16:21: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_minimum_amount_guard.r
+s:13:21: warning: use 
+of deprecated method `so
+roban_sdk::Env::register
+_stellar_asset_contract`
+: use [Env::register_ste
+llar_asset_contract_v2]
+contracts\escrow\src\tes
+t_arbitration_fee.rs:16:
+21: warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_admin.rs:9:9: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_ttl.rs:8:9: warning: 
+use of deprecated 
+method `soroban_sdk::Env
+::register_stellar_asset
+_contract`: use [Env::re
+gister_stellar_asset_con
+tract_v2]
+contracts\escrow\src\tes
+t_string_length.rs:8:9: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_delivery.rs:12:9: 
+warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_st
+ellar_asset_contract`: 
+use [Env::register_stell
+ar_asset_contract_v2]
+contracts\escrow\src\tes
+t_auth_ordering.rs:11:27
+: warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_co
+ntract`: use `register`
+contracts\escrow\src\tes
+t_auth_ordering.rs:26:27
+: warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_co
+ntract`: use `register`
+contracts\escrow\src\tes
+t_auth_ordering.rs:41:27
+: warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_co
+ntract`: use `register`
+contracts\escrow\src\tes
+t_auth_ordering.rs:56:27
+: warning: use of 
+deprecated method `sorob
+an_sdk::Env::register_co
+ntract`: use `register`
+contracts\escrow\src\tes
+t.rs:73:13: warning: 
+unreachable pattern: no 
+value can reach this
+contracts\escrow\src\tes
+t_edge_cases.rs:195:14: 
+warning: unused 
+variable: 
+`contract_id`: help: if 
+this is intentional, 
+prefix it with an 
+underscore: 
+`_contract_id`
+contracts\escrow\src\tes
+t_escrow_id.rs:49:13: 
+warning: unreachable 
+pattern: no value can 
+reach this
+contracts\escrow\src\tes
+t_escrow_id.rs:100:9: 
+warning: unused 
+variable: `id2`: help: 
+if this is intentional, 
+prefix it with an 
+underscore: `_id2`
+contracts\escrow\src\tes
+t_escrow_id.rs:147:9: 
+warning: unused 
+variable: `id3`: help: 
+if this is intentional, 
+prefix it with an 
+underscore: `_id3`
+contracts\escrow\src\tes
+t_overflow.rs:116:9: 
+warning: unused 
+variable: `res`: help: 
+if this is intentional, 
+prefix it with an 
+underscore: `_res`
+contracts\escrow\src\tes
+t_overflow.rs:150:9: 
+warning: unused 
+variable: `escrow_id`: 
+help: if this is 
+intentional, prefix it 
+with an underscore: 
+`_escrow_id`
+contracts\escrow\src\tes
+t_arbitration_fee.rs:141
+:13: warning: 
+unreachable pattern: no 
+value can reach this
+contracts\escrow\src\tes
+t_admin.rs:17:9: 
+warning: unused 
+variable: `token`: 
+help: if this is 
+intentional, prefix it 
+with an underscore: 
+`_token`
+contracts\escrow\src\tes
+t_admin.rs:18:10: 
+warning: unused 
+variable: 
+`contract_id`: help: if 
+this is intentional, 
+prefix it with an 
+underscore: 
+`_contract_id`
+contracts\escrow\src\tes
+t_admin.rs:18:31: 
+warning: unused 
+variable: `admin`: 
+help: if this is 
+intentional, prefix it 
+with an underscore: 
+`_admin`
+contracts\escrow\src\tes
+t_admin.rs:18:38: 
+warning: unused 
+variable: 
+`fee_collector`: help: 
+if this is intentional, 
+prefix it with an 
+underscore: 
+`_fee_collector`
+contracts\escrow\src\tes
+t_delivery.rs:47:13: 
+warning: unreachable 
+pattern: no value can 
+reach this
+contracts\escrow\src\tes
+t_delivery.rs:57:31: 
+warning: unused 
+variable: `admin`: 
+help: if this is 
+intentional, prefix it 
+with an underscore: 
+`_admin`
+contracts\escrow\src\tes
+t_delivery.rs:89:32: 
+warning: unused 
+variable: `admin`: 
+help: if this is 
+intentional, prefix it 
+with an underscore: 
+`_admin`
+contracts\escrow\src\tes
+t_delivery.rs:162:31: 
+warning: unused 
+variable: `admin`: 
+help: if this is 
+intentional, prefix it 
+with an underscore: 
+`_admin`
+contracts\escrow\src\tes
+t_delivery.rs:325:9: 
+warning: unused 
+variable: 
+`escrow_before`: help: 
+if this is intentional, 
+prefix it with an 
+underscore: 
+`_escrow_before`
+contracts\escrow\src\tes
+t_get_escrows_by_vendor.
+rs:35:9: warning: 
+unused variable: 
+`buyer`: help: if this 
+is intentional, prefix 
+it with an underscore: 
+`_buyer`
+contracts\escrow\src\tes
+t_get_escrows_by_vendor.
+rs:63:39: warning: 
+unused variable: 
+`fee_collector`: help: 
+if this is intentional, 
+prefix it with an 
+underscore: 
+`_fee_collector`
+contracts\escrow\src\tes
+t_helpers.rs:9:28: 
+warning: hiding a 
+lifetime that's elided 
+elsewhere is confusing: 
+the lifetime is elided 
+here, the same lifetime 
+is hidden here
+contracts\escrow\src\tes
+t_initialize_twice.rs:8:
+25: warning: hiding a 
+lifetime that's elided 
+elsewhere is confusing: 
+the lifetime is elided 
+here, the same lifetime 
+is hidden here
+warning: 
+`trustlink-escrow` 
+(lib) generated 20 
+warnings
+warning: 
+`trustlink-escrow` (lib 
+test) generated 75 
+warnings (20 
+duplicates) (run `cargo 
+fix --lib -p 
+trustlink-escrow 
+--tests` to apply 28 
+suggestions)
+contracts\escrow\tests\h
+appy_path.rs:85:13: 
+warning: unreachable 
+pattern: no value can 
+reach this
+warning: 
+`trustlink-escrow` 
+(test "happy_path") 
+generated 1 warning
+    Finished `test` 
+profile [unoptimized + 
+debuginfo] target(s) in 
+0.66s
+     Running unittests 
+src\lib.rs (C:\Users\ADM
+IN\Desktop\mide-drips\tr
+ust-link-contract\target
+\debug\deps\trustlink_es
+crow-3f40a3927b6cc858.ex
+e)
+
+running 21 tests
+test test_dispute::test_dispute_from_canceled_state ... FAILED
+test test_dispute::test_dispute_from_completed_state ... FAILED
+test test::test_dispute_requires_shipped_state ... ok
+test test::test_dispute_after_shipping_succeeds ... ok
+test test_dispute::test_dispute_allowed_after_shipping ... ok
+test test::test_dispute_refunded_to_buyer_with_non_usdc_token ... ok
+test test::test_dispute_resolved_to_seller_with_non_usdc_token ... ok
+test test_dispute::test_dispute_allowed_on_late_shipped_escrow ... ok
+test test_dispute::test_dispute_from_pending_state ... FAILED
+test test_dispute::test_dispute_from_funded_state ... ok
+test test_dispute::test_get_dispute_returns_none_when_no_dispute_exists ... ok
+test test_fee_calculation_accuracy::test_dispute_allocations_include_protocol_fee ... ok
+test test_dispute::test_dispute_from_refunded_state ... ok
+test test_fee_calculation_accuracy::test_dispute_allocations_zero_fee_no_fee_transfer ... ok
+test test_dispute::test_dispute_rejected_after_48h_deadline ... ok
+test test_dispute::test_get_dispute_returns_accurate_data_after_raise ... ok
+test test_dispute_window::dispute_can_be_opened_while_shipped ... ok
+test test_dispute::test_dispute_requires_shipped_state ... ok
+test test_dispute_flow::full_dispute_release_to_vendor ... ok
+test test_dispute_window::auto_release_rejects_when_dispute_exists ... ok
+test test_ttl::test_dispute_stored_in_persistent_storage ... ok
+
+failures:
+
+---- test_dispute::test_dispute_from_canceled_state stdout ----
+
+thread 'test_dispute::test_dispute_from_canceled_state' (33012) panicked at contracts\escrow\src\test_dispute.rs:287:5:
+assertion `left == right` failed
+  left: Err(Ok(EscrowHasNoBuyer))
+ right: Err(Ok(InvalidStateTransition))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Writing test snapshot file for test "test_dispute::test_dispute_from_canceled_state" to "test_snapshots\\test_dispute\\test_dispute_from_canceled_state.1.json".
+
+---- test_dispute::test_dispute_from_completed_state stdout ----
+
+thread 'test_dispute::test_dispute_from_completed_state' (21448) panicked at C:\Users\ADMIN\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-env-host-26.1.3\src\host.rs:907:9:
+HostError: Error(Contract, #13)
+
+Event log (newest first):
+   0: [Diagnostic Event] topics:[error, Error(Contract, #13)], data:"escalating error to panic"
+   1: [Diagnostic Event] topics:[error, Error(Contract, #13)], data:["contract call failed", confirm_delivery, [CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M, 1]]
+   2: [Failed Diagnostic Event (not emitted)] contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5, topics:[error, Error(Contract, #13)], data:"escalating Ok(ScErrorType::Contract) frame-exit to Err"
+   3: [Failed Diagnostic Event (not emitted)] contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5, topics:[fn_return, confirm_delivery], data:Error(Contract, #13)
+   4: [Diagnostic Event] topics:[fn_call, CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5, confirm_delivery], data:[CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M, 1]
+
+Writing test snapshot file for test "test_dispute::test_dispute_from_completed_state" to "test_snapshots\\test_dispute\\test_dispute_from_completed_state.1.json".
+
+---- test_dispute::test_dispute_from_pending_state stdout ----
+
+thread 'test_dispute::test_dispute_from_pending_state' (31548) panicked at contracts\escrow\src\test_dispute.rs:266:5:
+assertion `left == right` failed
+  left: Err(Ok(EscrowHasNoBuyer))
+ right: Err(Ok(InvalidStateTransition))
+Writing test snapshot file for test "test_dispute::test_dispute_from_pending_state" to "test_snapshots\\test_dispute\\test_dispute_from_pending_state.1.json".
+
+
+failures:
+    test_dispute::test_dispute_from_canceled_state
+    test_dispute::test_dispute_from_completed_state
+    test_dispute::test_dispute_from_pending_state
+
+test result: FAILED. 18 passed; 3 failed; 0 ignored; 0 measured; 195 filtered out; finished in 0.83s
+
+error: test failed, to 
+rerun pass `--lib`

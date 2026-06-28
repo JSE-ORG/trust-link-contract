@@ -1,0 +1,14 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone workspace: keeping xtask out of the root workspace means the
+# wasm contract builds (`cargo build --workspace --target wasm32v1-none`) never
+# try to compile this host-only dev tool.
+[workspace]
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"

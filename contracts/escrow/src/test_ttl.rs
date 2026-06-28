@@ -67,7 +67,11 @@ fn test_dispute_stored_in_persistent_storage() {
     let id = create_funded_escrow(
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
-    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "TRACK-TTL"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-TTL"),
+    );
 
     client.raise_dispute(
         &buyer,
