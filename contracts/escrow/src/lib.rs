@@ -1007,7 +1007,7 @@ impl Escrow {
             shipped_at: 0,
             delivered_at: None,
             tracking_id: None,
-        };
+        );
 
         save_escrow(&env, escrow_id, &escrow);
 
