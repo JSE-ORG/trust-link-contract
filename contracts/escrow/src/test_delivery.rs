@@ -419,7 +419,10 @@ fn test_confirm_delivery_from_pending_state_fails() {
 
     // Create escrow with an explicit buyer so authorization passes.
     let mut payees_16 = Vec::new(&env);
-    payees_16.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_16.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_16,
         &Some(buyer.clone()),
@@ -497,7 +500,10 @@ fn test_confirm_delivery_from_canceled_state_fails() {
 
     // Create escrow with an explicit buyer.
     let mut payees_15 = Vec::new(&env);
-    payees_15.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_15.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_15,
         &Some(buyer.clone()),
@@ -541,4 +547,3 @@ fn test_confirm_delivery_from_completed_state_fails() {
     let res = client.try_confirm_delivery(&buyer, &id);
     assert_eq!(res, Err(Ok(ContractError::InvalidState)));
 }
-

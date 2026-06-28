@@ -37,7 +37,10 @@ fn same_vendor_can_create_multiple_escrows_without_collision() {
         // Vary the amount slightly for each escrow to ensure isolated data
         let amount = 100_i128 + ((i + 1) as i128);
         let mut payees_13 = Vec::new(&env);
-        payees_13.push_back(Payee { address: seller.clone(), bps: 10_000 });
+        payees_13.push_back(Payee {
+            address: seller.clone(),
+            bps: 10_000,
+        });
         let id = client.create_escrow(
             &payees_13,
             &None::<Address>,
@@ -86,7 +89,10 @@ fn escrow_storage_entries_remain_isolated() {
 
     // Create multiple escrows
     let mut payees_12 = Vec::new(&env);
-    payees_12.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_12.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id1 = client.create_escrow(
         &payees_12,
         &None::<Address>,
@@ -98,7 +104,10 @@ fn escrow_storage_entries_remain_isolated() {
         &3600_u64,
     );
     let mut payees_11 = Vec::new(&env);
-    payees_11.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_11.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id2 = client.create_escrow(
         &payees_11,
         &None::<Address>,
@@ -110,7 +119,10 @@ fn escrow_storage_entries_remain_isolated() {
         &3600_u64,
     );
     let mut payees_10 = Vec::new(&env);
-    payees_10.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_10.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id3 = client.create_escrow(
         &payees_10,
         &None::<Address>,
@@ -147,7 +159,10 @@ fn escrow_counter_remains_monotonic_under_rapid_creation() {
 
     for i in 1..=50 {
         let mut payees_9 = Vec::new(&env);
-        payees_9.push_back(Payee { address: seller.clone(), bps: 10_000 });
+        payees_9.push_back(Payee {
+            address: seller.clone(),
+            bps: 10_000,
+        });
         let id = client.create_escrow(
             &payees_9,
             &None::<Address>,

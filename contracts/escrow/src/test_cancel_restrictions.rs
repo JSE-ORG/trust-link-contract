@@ -35,7 +35,10 @@ fn setup() -> Fx {
     client.initialize(&admin, &fee_collector, &0_u32);
     let amount: i128 = 1_000;
     let mut payees_8 = Vec::new(&env);
-    payees_8.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_8.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees_8,
         &None::<Address>,

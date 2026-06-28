@@ -27,7 +27,10 @@ fn test_auto_release_before_record_delivery_reverts() {
 
     // 1. Create Escrow
     let mut payees = Vec::new(&env);
-    payees.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees,
         &None::<Address>,

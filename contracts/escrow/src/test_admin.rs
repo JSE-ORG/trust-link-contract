@@ -106,7 +106,7 @@ fn test_upgrade_unauthorized() {
 
     let fake_admin = Address::generate(&env);
     let new_wasm_hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
-    
+
     let result = client.try_upgrade(&fake_admin, &new_wasm_hash);
     assert!(matches!(result, Err(Ok(ContractError::NotAuthorized))));
 }

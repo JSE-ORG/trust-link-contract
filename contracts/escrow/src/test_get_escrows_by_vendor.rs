@@ -41,7 +41,10 @@ fn test_get_escrows_by_vendor_multiple() {
 
     // Create escrows for vendor 1
     let mut payees_51 = Vec::new(&env);
-    payees_51.push_back(Payee { address: vendor_1.clone(), bps: 10_000 });
+    payees_51.push_back(Payee {
+        address: vendor_1.clone(),
+        bps: 10_000,
+    });
     let id1 = client.create_escrow(
         &payees_51,
         &None::<Address>,
@@ -53,7 +56,10 @@ fn test_get_escrows_by_vendor_multiple() {
         &3600_u64,
     );
     let mut payees_50 = Vec::new(&env);
-    payees_50.push_back(Payee { address: vendor_1.clone(), bps: 10_000 });
+    payees_50.push_back(Payee {
+        address: vendor_1.clone(),
+        bps: 10_000,
+    });
     let id2 = client.create_escrow(
         &payees_50,
         &None::<Address>,
@@ -67,7 +73,10 @@ fn test_get_escrows_by_vendor_multiple() {
 
     // Create escrow for vendor 2
     let mut payees_49 = Vec::new(&env);
-    payees_49.push_back(Payee { address: vendor_2.clone(), bps: 10_000 });
+    payees_49.push_back(Payee {
+        address: vendor_2.clone(),
+        bps: 10_000,
+    });
     let id3 = client.create_escrow(
         &payees_49,
         &None::<Address>,
@@ -105,7 +114,10 @@ fn test_vendor_escrow_data_integrity_and_state_transitions() {
 
     // Create
     let mut payees_48 = Vec::new(&env);
-    payees_48.push_back(Payee { address: vendor.clone(), bps: 10_000 });
+    payees_48.push_back(Payee {
+        address: vendor.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_48,
         &None::<Address>,

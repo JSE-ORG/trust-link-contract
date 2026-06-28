@@ -40,7 +40,10 @@ fn full_dispute_release_to_vendor() {
     // fee_bps = 0 isolates the arbitration-fee accounting the issue specifies
     // (a non-zero protocol fee would further reduce the seller's payout).
     let mut payees_23 = Vec::new(&env);
-    payees_23.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_23.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees_23,
         &None::<Address>,

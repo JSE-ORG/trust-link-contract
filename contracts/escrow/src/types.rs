@@ -109,7 +109,6 @@ pub struct EscrowInput {
     pub notes: Option<String>,
 }
 
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Message {

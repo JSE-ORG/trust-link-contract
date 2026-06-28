@@ -38,7 +38,10 @@ fn setup() -> Fx {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let mut payees_67 = Vec::new(&env);
-    payees_67.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_67.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees_67,
         &None::<Address>,
@@ -164,7 +167,10 @@ fn terminal_state_rejected() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let mut payees_66 = Vec::new(&env);
-    payees_66.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_66.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees_66,
         &None::<Address>,
@@ -219,8 +225,11 @@ fn resolver_rotated_emitted(fx: &Fx, old: &Address, new: &Address) -> bool {
 /// Drives the escrow in the fixture all the way to the `Disputed` state.
 fn drive_to_dispute(fx: &Fx) {
     fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
-    fx.client
-        .mark_shipped(&fx.seller, &fx.escrow_id, &SorobanString::from_str(&fx.env, "TRK-ROT"));
+    fx.client.mark_shipped(
+        &fx.seller,
+        &fx.escrow_id,
+        &SorobanString::from_str(&fx.env, "TRK-ROT"),
+    );
     fx.client.raise_dispute(
         &fx.buyer,
         &fx.escrow_id,
@@ -236,10 +245,14 @@ fn drive_to_dispute(fx: &Fx) {
 fn admin_can_rotate_resolver_during_active_dispute() {
     let fx = setup();
     drive_to_dispute(&fx);
-    assert_eq!(fx.client.get_escrow(&fx.escrow_id).state, EscrowState::Disputed);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::Disputed
+    );
 
     let new_resolver = Address::generate(&fx.env);
-    fx.client.rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    fx.client
+        .rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
 
     let escrow = fx.client.get_escrow(&fx.escrow_id);
     assert_eq!(escrow.resolver, new_resolver);
@@ -255,11 +268,17 @@ fn rotation_rejected_after_dispute_resolved() {
     drive_to_dispute(&fx);
 
     // Resolve the dispute in the seller's favour → Completed (terminal).
-    fx.client.resolve_dispute(&fx.admin, &fx.escrow_id, &ResolutionType::Release);
-    assert_eq!(fx.client.get_escrow(&fx.escrow_id).state, EscrowState::Completed);
+    fx.client
+        .resolve_dispute(&fx.admin, &fx.escrow_id, &ResolutionType::Release);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::Completed
+    );
 
     let new_resolver = Address::generate(&fx.env);
-    let result = fx.client.try_rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    let result = fx
+        .client
+        .try_rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
     assert_eq!(result, Err(Ok(ContractError::InvalidState)));
 }
 
@@ -271,7 +290,8 @@ fn rotation_emits_resolver_rotated_event() {
     drive_to_dispute(&fx);
 
     let new_resolver = Address::generate(&fx.env);
-    fx.client.rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    fx.client
+        .rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
 
     assert!(
         resolver_rotated_emitted(&fx, &fx.resolver, &new_resolver),

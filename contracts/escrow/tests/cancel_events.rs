@@ -46,7 +46,10 @@ fn seller_pending_cancel_emits_event() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let mut payees = Vec::new(&env);
-    payees.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees,
         &None::<Address>,
@@ -87,7 +90,10 @@ fn buyer_funded_cancel_emits_event() {
     sac.mint(&buyer, &1_000_i128);
 
     let mut payees2 = Vec::new(&env);
-    payees2.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees2.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees2,
         &None::<Address>,

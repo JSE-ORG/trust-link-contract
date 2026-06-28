@@ -5,7 +5,8 @@ use soroban_sdk::{
     token, Address, Env, String as SorobanString, Symbol, TryFromVal, Val,
 };
 use trustlink_escrow::{
-    Escrow, EscrowClient, EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, EscrowState, Payee,
+    Escrow, EscrowClient, EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, EscrowState,
+    Payee,
 };
 
 fn has_event<T, F>(env: &Env, contract_id: &Address, topic: &str, predicate: F) -> bool
@@ -74,7 +75,10 @@ fn test_happy_path_escrow_lifecycle() {
 
     // 1. Create Escrow
     let mut payees = Vec::new(&env);
-    payees.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees,
         &None::<soroban_sdk::Address>,
@@ -110,10 +114,7 @@ fn test_happy_path_escrow_lifecycle() {
 
     let escrow_funded = fx.client.get_escrow(&escrow_id);
     assert_eq!(escrow_funded.state, EscrowState::Funded);
-    assert_eq!(
-        token::Client::new(&env, &token_addr).balance(&buyer),
-        0
-    );
+    assert_eq!(token::Client::new(&env, &token_addr).balance(&buyer), 0);
     assert_eq!(
         token::Client::new(&env, &token_addr).balance(&contract_id),
         amount
@@ -150,8 +151,7 @@ fn test_happy_path_escrow_lifecycle() {
     // 5. Assert Payout and Fee Allocation
     // Amount = 10,000. Fee = 1% = 100. Seller gets 9,900. Fee collector gets 100.
     let seller_balance = token::Client::new(&env, &token_addr).balance(&seller);
-    let fee_collector_balance =
-        token::Client::new(&env, &token_addr).balance(&fee_collector);
+    let fee_collector_balance = token::Client::new(&env, &token_addr).balance(&fee_collector);
     let contract_balance = token::Client::new(&env, &token_addr).balance(&contract_id);
 
     assert_eq!(seller_balance, 9_900);

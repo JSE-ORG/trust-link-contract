@@ -37,7 +37,10 @@ fn test_get_public_config() {
     let token = Address::generate(&env);
 
     let mut payees_14 = Vec::new(&env);
-    payees_14.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_14.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     client.create_escrow(
         &payees_14,
         &None::<Address>,

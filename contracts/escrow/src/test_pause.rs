@@ -63,7 +63,10 @@ fn test_fund_escrow_blocked_when_paused() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let mut payees_64 = Vec::new(&env);
-    payees_64.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_64.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_64,
         &None::<Address>,
@@ -84,7 +87,10 @@ fn test_pause_blocks_mutations_but_keeps_views_available() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let mut payees_63 = Vec::new(&env);
-    payees_63.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_63.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_63,
         &None::<Address>,
@@ -111,7 +117,10 @@ fn test_confirm_delivery_blocked_when_paused() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let mut payees_62 = Vec::new(&env);
-    payees_62.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_62.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_62,
         &None::<Address>,
@@ -135,7 +144,10 @@ fn test_raise_dispute_blocked_when_paused() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let mut payees_61 = Vec::new(&env);
-    payees_61.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_61.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_61,
         &None::<Address>,
@@ -166,7 +178,10 @@ fn test_resolve_dispute_blocked_when_paused() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let mut payees_60 = Vec::new(&env);
-    payees_60.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_60.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_60,
         &None::<Address>,
@@ -198,7 +213,10 @@ fn test_auto_release_blocked_when_paused() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let mut payees_59 = Vec::new(&env);
-    payees_59.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_59.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_59,
         &None::<Address>,
@@ -233,7 +251,10 @@ fn test_read_only_views_work_while_paused() {
     let (env, admin, seller, _buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let mut payees_58 = Vec::new(&env);
-    payees_58.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_58.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_58,
         &None::<Address>,
@@ -271,7 +292,10 @@ fn test_unpause_resumes_operations() {
     client.pause_contract(&admin);
     client.unpause_contract(&admin);
     let mut payees_57 = Vec::new(&env);
-    payees_57.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_57.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_57,
         &None::<Address>,
@@ -288,7 +312,10 @@ fn test_unpause_resumes_operations() {
 
     mint_tokens(&env, &token, &buyer, 1_000);
     let mut payees_56 = Vec::new(&env);
-    payees_56.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_56.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees_56,
         &None::<Address>,
@@ -338,7 +365,10 @@ fn test_unpause_resumes_operations() {
     client.unpause_contract(&admin);
     mint_tokens(&env, &token, &buyer, 100);
     let mut payees_55 = Vec::new(&env);
-    payees_55.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_55.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let second_id = client.create_escrow(
         &payees_55,
         &None::<Address>,

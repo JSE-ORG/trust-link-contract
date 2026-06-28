@@ -48,7 +48,10 @@ fn test_fee_calculation_max_escrow_amount() {
     let fee_bps = 300; // 3%
 
     let mut payees_54 = Vec::new(&env);
-    payees_54.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_54.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_54,
         &None::<Address>,
@@ -230,7 +233,10 @@ fn test_addition_overflow_shipping_window() {
     mint_tokens(&env, &token, &buyer, amount);
 
     let mut payees_53 = Vec::new(&env);
-    payees_53.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_53.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees_53,
         &None::<Address>,
@@ -243,7 +249,10 @@ fn test_addition_overflow_shipping_window() {
     );
     env.ledger().set_timestamp(1000);
     let mut payees_52 = Vec::new(&env);
-    payees_52.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_52.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees_52,
         &None::<Address>,

@@ -37,7 +37,10 @@ pub fn create_funded_escrow(
 ) -> u64 {
     mint_token(env, token, buyer, amount);
     let mut payees = Vec::new(env);
-    payees.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees,
         &None::<Address>,

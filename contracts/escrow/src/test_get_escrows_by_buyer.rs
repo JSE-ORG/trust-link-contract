@@ -42,7 +42,10 @@ fn test_get_escrows_by_buyer() {
 
     // Create 1 pending escrow (no buyer yet)
     let mut payees_47 = Vec::new(&env);
-    payees_47.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_47.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let _id4 = client.create_escrow(
         &payees_47,
         &None::<Address>,
@@ -86,7 +89,10 @@ fn test_buyer_index_populated_on_fund() {
     mint_tokens(&env, &token, &buyer, 1000);
 
     let mut payees_46 = Vec::new(&env);
-    payees_46.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_46.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_46,
         &None::<Address>,

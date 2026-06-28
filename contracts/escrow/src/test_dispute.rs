@@ -40,7 +40,10 @@ fn test_get_dispute_returns_accurate_data_after_raise() {
 
     let amount = 1000_i128;
     let mut payees_22 = Vec::new(&env);
-    payees_22.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_22.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_22,
         &None::<Address>,
@@ -99,7 +102,10 @@ fn test_dispute_allowed_after_shipping() {
 
     let amount = 1000_i128;
     let mut payees_21 = Vec::new(&env);
-    payees_21.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_21.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_21,
         &None::<Address>,
@@ -142,7 +148,10 @@ fn test_dispute_allowed_on_late_shipped_escrow() {
 
     let amount = 1000_i128;
     let mut payees_20 = Vec::new(&env);
-    payees_20.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_20.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_20,
         &None::<Address>,
@@ -183,7 +192,10 @@ fn test_dispute_requires_shipped_state() {
 
     let amount = 1000_i128;
     let mut payees_19 = Vec::new(&env);
-    payees_19.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_19.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_19,
         &None::<Address>,
@@ -210,10 +222,7 @@ fn test_dispute_requires_shipped_state() {
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
 
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    assert_eq!(
-        result,
-        Err(Ok(crate::ContractError::DisputeWindowClosed))
-    );
+    assert_eq!(result, Err(Ok(crate::ContractError::DisputeWindowClosed)));
 
     // Verify no state mutation on expired action
     let escrow_after = client.get_escrow(&id);
@@ -230,7 +239,10 @@ fn test_dispute_rejected_after_48h_deadline() {
 
     let amount = 1000_i128;
     let mut payees_18 = Vec::new(&env);
-    payees_18.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_18.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_18,
         &None::<Address>,
@@ -260,10 +272,7 @@ fn test_dispute_rejected_after_48h_deadline() {
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
 
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    assert_eq!(
-        result,
-        Err(Ok(crate::ContractError::DisputeWindowClosed))
-    );
+    assert_eq!(result, Err(Ok(crate::ContractError::DisputeWindowClosed)));
 
     // Verify no state mutation on expired action
     let escrow_after = client.get_escrow(&id);
@@ -280,7 +289,10 @@ fn test_dispute_from_funded_state() {
 
     let amount = 1000_i128;
     let mut payees_17 = Vec::new(&env);
-    payees_17.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_17.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_17,
         &None::<Address>,
@@ -329,15 +341,26 @@ fn test_dispute_from_pending_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
+    let id = client.create_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
 
     let reason = soroban_sdk::Symbol::new(&env, "reason");
     let description = soroban_sdk::String::from_str(&env, "desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
-    
+
     // Attempt dispute from Pending
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    assert_eq!(result, Err(Ok(crate::ContractError::InvalidStateTransition)));
+    assert_eq!(
+        result,
+        Err(Ok(crate::ContractError::InvalidStateTransition))
+    );
 }
 
 #[test]
@@ -348,17 +371,28 @@ fn test_dispute_from_canceled_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
-    
+    let id = client.create_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+
     client.cancel_escrow(&seller, &id);
 
     let reason = soroban_sdk::Symbol::new(&env, "reason");
     let description = soroban_sdk::String::from_str(&env, "desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
-    
+
     // Attempt dispute from Canceled
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    assert_eq!(result, Err(Ok(crate::ContractError::InvalidStateTransition)));
+    assert_eq!(
+        result,
+        Err(Ok(crate::ContractError::InvalidStateTransition))
+    );
 }
 
 #[test]
@@ -369,13 +403,21 @@ fn test_dispute_from_completed_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
-    
+    let id = client.create_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     sac.mint(&buyer, &amount);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "TRK"));
-    
+
     // Force completion by confirm_delivery
     env.ledger().set_timestamp(172_801);
     client.confirm_delivery(&buyer, &id);
@@ -383,10 +425,13 @@ fn test_dispute_from_completed_state() {
     let reason = soroban_sdk::Symbol::new(&env, "reason");
     let description = soroban_sdk::String::from_str(&env, "desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
-    
+
     // Attempt dispute from Completed
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    assert_eq!(result, Err(Ok(crate::ContractError::InvalidStateTransition)));
+    assert_eq!(
+        result,
+        Err(Ok(crate::ContractError::InvalidStateTransition))
+    );
 }
 
 #[test]
@@ -397,12 +442,20 @@ fn test_dispute_from_refunded_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
-    
+    let id = client.create_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     sac.mint(&buyer, &amount);
     client.fund_escrow(&id, &buyer);
-    
+
     // To refund, dispute then resolve with refund.
     let reason = soroban_sdk::Symbol::new(&env, "reason");
     let description = soroban_sdk::String::from_str(&env, "desc");
@@ -413,5 +466,8 @@ fn test_dispute_from_refunded_state() {
 
     // Attempt dispute from Refunded
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    assert_eq!(result, Err(Ok(crate::ContractError::InvalidStateTransition)));
+    assert_eq!(
+        result,
+        Err(Ok(crate::ContractError::InvalidStateTransition))
+    );
 }

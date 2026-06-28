@@ -40,7 +40,10 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
     let fee_bps = 200; // 2%
 
     let mut payees_4 = Vec::new(&env);
-    payees_4.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_4.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_4,
         &None::<Address>,
@@ -106,7 +109,10 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
     let fee_bps = 300; // 3%
 
     let mut payees_3 = Vec::new(&env);
-    payees_3.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_3.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_3,
         &None::<Address>,

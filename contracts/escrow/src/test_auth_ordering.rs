@@ -47,7 +47,10 @@ fn test_unauthorized_create_escrow_fails_early() {
 
     // Will panic on `seller.require_auth()` instead of `ensure_not_paused`
     let mut payees_5 = Vec::new(&env);
-    payees_5.push_back(Payee { address: fake_seller.clone(), bps: 10_000 });
+    payees_5.push_back(Payee {
+        address: fake_seller.clone(),
+        bps: 10_000,
+    });
     client.create_escrow(
         &payees_5,
         &None::<Address>,
