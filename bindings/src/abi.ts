@@ -6,7 +6,7 @@ export const contractAbi = {
     { name: "initialize", inputs: ["admin", "fee_collector"], output: "void" },
     { name: "pause_contract", inputs: [], output: "void" },
     { name: "unpause_contract", inputs: [], output: "void" },
-    { name: "withdraw_fees", inputs: ["token", "to", "amount"], output: "void" },
+    { name: "withdraw_fe  es", inputs: ["token", "to", "amount"], output: "void" },
     {
       name: "create_escrow",
       inputs: ["seller", "resolver", "token", "amount", "fee_bps", "shipping_window"],

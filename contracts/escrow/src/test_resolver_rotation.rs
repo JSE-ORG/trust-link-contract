@@ -4,7 +4,7 @@
 
 use crate::{ContractError, Escrow, EscrowClient, EscrowState, ResolutionType, ResolverRotated};
 use soroban_sdk::{
-    testutils::{Address as _, Events as _},
+    testutils::{Address as _, Events as _, Vec},
     token, Address, BytesN, Env, String as SorobanString, Symbol, TryFromVal, Val,
 };
 
@@ -37,12 +37,15 @@ fn setup() -> Fx {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
+    let mut payees_67 = Vec::new(&env);
+    payees_67.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let escrow_id = client.create_escrow(
-        &seller,
+        &payees_67,
         &None::<Address>,
         &resolver,
         &token_addr,
         &500_i128,
+        &0_u32,
         &0_u32,
         &0_u64,
     );
@@ -160,12 +163,15 @@ fn terminal_state_rejected() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
+    let mut payees_66 = Vec::new(&env);
+    payees_66.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let escrow_id = client.create_escrow(
-        &seller,
+        &payees_66,
         &None::<Address>,
         &resolver,
         &token_addr,
         &100_i128,
+        &0_u32,
         &0_u32,
         &0_u64,
     );

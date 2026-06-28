@@ -3,6 +3,11 @@ export type ContractSymbol = string;
 export type Bytes32 = Uint8Array;
 export type Result<T> = T | null;
 
+export interface ContractCall {
+  function: string;
+  args: readonly unknown[];
+}
+
 export enum EscrowState {
   Pending = "Pending",
   Funded = "Funded",
@@ -62,20 +67,27 @@ export interface ContractUnpausedEvent {
   timestamp: bigint;
 }
 
+export interface Payee {
+  address: AddressLike;
+  bps: number;
+}
+
 export interface EscrowData {
-  seller: AddressLike;
+  payees: Payee[];
   buyer: AddressLike | null;
   resolver: AddressLike;
   token: AddressLike;
   amount: bigint;
   fee_bps: number;
+  resolver_fee_bps: number;
   shipping_window: bigint;
   funded_at: bigint;
   dispute_deadline: bigint;
-  state: EscrowState;
   shipped_at: bigint;
+  delivered_at: bigint | null;
   tracking_id: string | null;
-  delivered_at: bigint;
+  state: EscrowState;
+  notes: string | null;
 }
 
 export interface DisputeData {

@@ -2,7 +2,7 @@
 
 use crate::{Escrow, EscrowClient, EscrowState};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    testutils::{Address as _, Ledger as _, Vec},
     Address, Env,
 };
 
@@ -36,12 +36,15 @@ fn same_vendor_can_create_multiple_escrows_without_collision() {
     for i in 0..num_escrows {
         // Vary the amount slightly for each escrow to ensure isolated data
         let amount = 100_i128 + ((i + 1) as i128);
+        let mut payees_13 = Vec::new(&env);
+        payees_13.push_back(Payee { address: seller.clone(), bps: 10_000 });
         let id = client.create_escrow(
-            &seller,
+            &payees_13,
             &None::<Address>,
             &resolver,
             &token,
             &amount,
+            &0_u32,
             &0_u32,
             &3600_u64,
         );
@@ -82,30 +85,39 @@ fn escrow_storage_entries_remain_isolated() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     // Create multiple escrows
+    let mut payees_12 = Vec::new(&env);
+    payees_12.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id1 = client.create_escrow(
-        &seller,
+        &payees_12,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
+        &0_u32,
         &3600_u64,
     );
+    let mut payees_11 = Vec::new(&env);
+    payees_11.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id2 = client.create_escrow(
-        &seller,
+        &payees_11,
         &None::<Address>,
         &resolver,
         &token,
         &200_i128,
         &0_u32,
+        &0_u32,
         &3600_u64,
     );
+    let mut payees_10 = Vec::new(&env);
+    payees_10.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id3 = client.create_escrow(
-        &seller,
+        &payees_10,
         &None::<Address>,
         &resolver,
         &token,
         &300_i128,
+        &0_u32,
         &0_u32,
         &3600_u64,
     );
@@ -134,12 +146,15 @@ fn escrow_counter_remains_monotonic_under_rapid_creation() {
     env.ledger().set_sequence_number(100);
 
     for i in 1..=50 {
+        let mut payees_9 = Vec::new(&env);
+        payees_9.push_back(Payee { address: seller.clone(), bps: 10_000 });
         let id = client.create_escrow(
-            &seller,
+            &payees_9,
             &None::<Address>,
             &resolver,
             &token,
             &100_i128,
+            &0_u32,
             &0_u32,
             &3600_u64,
         );

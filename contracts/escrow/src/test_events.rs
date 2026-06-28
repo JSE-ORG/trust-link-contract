@@ -18,9 +18,9 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
-    let token_admin = Address::generate(&env);
+    let tokenadmin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env.register_stellar_asset_contract(tokenadmin.clone());
     let contract_id = env.register(Escrow, ());
     {
         let client = EscrowClient::new(&env, &contract_id);
@@ -29,89 +29,87 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     (env, admin, seller, buyer, resolver, token_address, contract_id)
 }
 
-fn mint_tokens(env: &Env, token: &Address, to: &Address, amount: i128) {
+fn minttokens(env: &Env, token: &Address, to: &Address, amount: i128) {
     let sac = token::StellarAssetClient::new(env, token);
     sac.mint(to, &amount);
 }
 
-fn last_event_symbol(env: &Env) -> Symbol {
-    // env.events().all() returns a Vec of (contract_id, (topic...), data)
+use soroban_sdk::{symbol_short, Val, Vec};
+
+fn last_event_topics(env: &Env) -> Vec<Val> {
     let events = env.events().all();
-    // Grab the last event's topic symbol
     let (_, topics, _) = events.last().expect("no events emitted");
-    // topics is a tuple of symbols, we assume single symbol
-    let symbol: Symbol = topics.clone().into_val(env);
-    symbol
+    topics
 }
 
 #[test]
 fn test_initialize_emits_event() {
-    let (env, admin, _seller, _buyer, _resolver, token, contract_id) = setup_env();
+    let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let events = env.events().all();
     assert_eq!(events.len(), 1);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "contract_initialized"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Contract").into_val(&env), symbol_short!("Init").into_val(&env)]);
 }
 
 #[test]
 fn test_pause_emits_event() {
-    let (env, admin, _seller, _buyer, _resolver, _token, contract_id) = setup_env();
+    let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     client.pause_contract(&admin);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "contract_paused"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Contract").into_val(&env), symbol_short!("Paused").into_val(&env), admin.into_val(&env)]);
 }
 
 #[test]
 fn test_unpause_emits_event() {
-    let (env, admin, _seller, _buyer, _resolver, _token, contract_id) = setup_env();
+    let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     client.pause_contract(&admin);
     client.unpause_contract(&admin);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "contract_unpaused"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Contract").into_val(&env), symbol_short!("Unpaused").into_val(&env), admin.into_val(&env)]);
 }
 
 #[test]
-fn test_set_admin_emits_event() {
-    let (env, admin, _seller, _buyer, _resolver, _token, contract_id) = setup_env();
+fn test_setadmin_emits_event() {
+    let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let new_admin = Address::generate(&env);
-    client.set_admin(&new_admin);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "admin_rotated"));
+    let newadmin = Address::generate(&env);
+    client.setadmin(&newadmin);
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Admin").into_val(&env), symbol_short!("Rotated").into_val(&env)]);
 }
 
 #[test]
 fn test_set_fee_emits_event() {
-    let (env, admin, _seller, _buyer, _resolver, _token, contract_id) = setup_env();
+    let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     client.set_fee(&admin, 150);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "fee_updated"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Fee").into_val(&env), symbol_short!("Updated").into_val(&env)]);
 }
 
 #[test]
 fn test_set_protocol_fee_emits_event() {
-    let (env, admin, _seller, _buyer, _resolver, _token, contract_id) = setup_env();
+    let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     client.set_protocol_fee(&admin, 100);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "protocol_fee_updated"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("ProtoFee").into_val(&env), symbol_short!("Updated").into_val(&env)]);
 }
 
 #[test]
 fn test_set_arbitration_fee_emits_event() {
-    let (env, admin, _seller, _buyer, _resolver, _token, contract_id) = setup_env();
+    let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     client.set_arbitration_fee(&admin, 100);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "arbitration_fee_updated"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("ArbFee").into_val(&env), symbol_short!("Updated").into_val(&env)]);
 }
 
 #[test]
 fn test_withdraw_fees_emits_event() {
-    let (env, admin, _seller, _buyer, _resolver, token, contract_id) = setup_env();
+    let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     // Populate some accumulated fees first via a dispute resolution
     let client = EscrowClient::new(&env, &contract_id);
     let id = client.create_escrow(&admin, &None::<Address>, &admin, &token, &100_i128, &0_u32, &6000_u64);
@@ -125,27 +123,27 @@ fn test_withdraw_fees_emits_event() {
     client.resolve_dispute(&admin, &id, &ResolutionType::Refund).unwrap();
     // Now withdraw fees
     client.withdraw_fees(&admin, &token, &admin, &1_i128).unwrap();
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "fees_withdrawn"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Fee").into_val(&env), symbol_short!("Withdrawn").into_val(&env), admin.into_val(&env)]);
 }
 
 #[test]
 fn test_create_escrow_emits_event() {
-    let (env, _admin, seller, _buyer, resolver, token, contract_id) = setup_env();
+    let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "escrow_created"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Escrow").into_val(&env), symbol_short!("Created").into_val(&env), seller.into_val(&env)]);
 }
 
 #[test]
 fn test_cancel_escrow_emits_event() {
-    let (env, admin, seller, _buyer, _resolver, _token, contract_id) = setup_env();
+    let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let id = client.create_escrow(&seller, &None::<Address>, &admin, &admin, &100_i128, &0_u32, &6000_u64);
     client.cancel_escrow(&seller, &id);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "escrow_cancelled"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Escrow").into_val(&env), symbol_short!("Canceled").into_val(&env), seller.into_val(&env)]);
 }
 
 #[test]
@@ -153,11 +151,11 @@ fn test_mark_shipped_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
-    mint_tokens(&env, &token, &buyer, 100);
+    minttokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK123"));
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "escrow_shipped"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Escrow").into_val(&env), symbol_short!("Shipped").into_val(&env), seller.into_val(&env)]);
 }
 
 #[test]
@@ -165,12 +163,12 @@ fn test_record_delivery_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
-    mint_tokens(&env, &token, &buyer, 100);
+    minttokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
     client.record_delivery(&admin, &id);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "delivery_recorded"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Escrow").into_val(&env), symbol_short!("Delivered").into_val(&env)]);
 }
 
 #[test]
@@ -178,13 +176,13 @@ fn test_confirm_delivery_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
-    mint_tokens(&env, &token, &buyer, 100);
+    minttokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
     env.ledger().set_timestamp(DISPUTE_WINDOW + 1);
     client.confirm_delivery(&buyer, &id);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "escrow_completed"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Escrow").into_val(&env), symbol_short!("Completed").into_val(&env), buyer.into_val(&env)]);
 }
 
 #[test]
@@ -192,13 +190,13 @@ fn test_raise_dispute_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
-    mint_tokens(&env, &token, &buyer, 100);
+    minttokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
     let hash = BytesN::from_array(&env, &[0u8; 32]);
     client.raise_dispute(&buyer, &id, &Symbol::new(&env, "fraud"), &SorobanString::from_str(&env, "desc"), &hash);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "dispute_raised"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Dispute").into_val(&env), symbol_short!("Raised").into_val(&env), buyer.into_val(&env)]);
 }
 
 #[test]
@@ -206,14 +204,14 @@ fn test_resolve_dispute_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
-    mint_tokens(&env, &token, &buyer, 100);
+    minttokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
     let hash = BytesN::from_array(&env, &[0u8; 32]);
     client.raise_dispute(&buyer, &id, &Symbol::new(&env, "fraud"), &SorobanString::from_str(&env, "desc"), &hash);
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund).unwrap();
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "dispute_resolved"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Dispute").into_val(&env), symbol_short!("Resolved").into_val(&env), resolver.into_val(&env)]);
 }
 
 #[test]
@@ -224,17 +222,17 @@ fn test_auto_release_emits_event() {
     let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
     env.ledger().set_timestamp(DISPUTE_WINDOW + 10);
     client.auto_release(&id);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "auto_released"));
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Escrow").into_val(&env), symbol_short!("Released").into_val(&env), seller.into_val(&env)]);
 }
 
 #[test]
-fn test_rotate_resolver_emits_event() {
+fn test_rotateresolver_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
-    let new_resolver = Address::generate(&env);
-    client.rotate_resolver(&admin, &id, &new_resolver);
-    let symbol = last_event_symbol(&env);
-    assert_eq!(symbol, Symbol::new(&env, "resolver_rotated"));
+    let newresolver = Address::generate(&env);
+    client.rotateresolver(&admin, &id, &newresolver);
+    let topics = last_event_topics(&env);
+    assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Resolver").into_val(&env), symbol_short!("Rotated").into_val(&env)]);
 }

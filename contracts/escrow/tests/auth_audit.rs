@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, token, Address, Env};
-use trustlink_escrow::{ContractError, Escrow, EscrowClient, EscrowData, EscrowState};
+use soroban_sdk::{testutils::Address as _, token, Address, Env, Vec};
+use trustlink_escrow::{ContractError, Escrow, EscrowClient, EscrowData, EscrowState, Payee};
 
 #[test]
 fn test_unauthorized_attacker_cannot_fund_escrow() {
@@ -26,13 +26,16 @@ fn test_unauthorized_attacker_cannot_fund_escrow() {
     let amount = 1000;
 
     // Create the escrow.
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let escrow_id = client.create_escrow(
-        &seller,
+        &payees,
         &None::<Address>,
         &resolver,
         &token_addr,
         &amount,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 
