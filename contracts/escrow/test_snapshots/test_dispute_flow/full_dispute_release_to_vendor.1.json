@@ -418,11 +418,7 @@
           },
           "ext": "v0"
         },
-<<<<<<< HEAD
-        "live_until": 4095
-=======
         "live_until": 120960
->>>>>>> 6329d33 (fixed ci failure)
       },
       {
         "entry": {
@@ -797,18 +793,6 @@
                       },
                       "val": {
                         "i128": "5"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "TotalCompleted"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u64": "1"
                       }
                     },
                     {

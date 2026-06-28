@@ -284,8 +284,6 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-<<<<<<< HEAD
-=======
                   "u64": "2"
                 },
                 {
@@ -342,7 +340,6 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
->>>>>>> 6329d33 (fixed ci failure)
                   "u64": "1"
                 },
                 {
@@ -380,40 +377,25 @@
     ],
     [
       [
-<<<<<<< HEAD
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-=======
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
->>>>>>> 6329d33 (fixed ci failure)
         {
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN",
-<<<<<<< HEAD
-              "function_name": "mark_shipped",
-              "args": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-=======
               "function_name": "resolve_dispute",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
->>>>>>> 6329d33 (fixed ci failure)
                 },
                 {
                   "u64": "2"
                 },
                 {
-<<<<<<< HEAD
-                  "string": "TRK-B"
-=======
                   "vec": [
                     {
                       "symbol": "Refund"
                     }
                   ]
->>>>>>> 6329d33 (fixed ci failure)
                 }
               ]
             }
@@ -422,15 +404,12 @@
         }
       ]
     ],
-<<<<<<< HEAD
-=======
     [],
     [],
     [],
     [],
     [],
     [],
->>>>>>> 6329d33 (fixed ci failure)
     []
   ],
   "ledger": {
@@ -655,11 +634,7 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
               "key": {
                 "ledger_key_nonce": {
-<<<<<<< HEAD
-                  "nonce": "115220454072064130"
-=======
                   "nonce": "1301173170172112462"
->>>>>>> 6329d33 (fixed ci failure)
                 }
               },
               "durability": "temporary",
@@ -696,8 +671,6 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-<<<<<<< HEAD
-=======
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
               "key": {
                 "ledger_key_nonce": {
@@ -738,7 +711,6 @@
           "data": {
             "contract_data": {
               "ext": "v0",
->>>>>>> 6329d33 (fixed ci failure)
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
               "key": {
                 "ledger_key_nonce": {
@@ -822,11 +794,7 @@
           },
           "ext": "v0"
         },
-<<<<<<< HEAD
-        "live_until": 4095
-=======
         "live_until": 120960
->>>>>>> 6329d33 (fixed ci failure)
       },
       {
         "entry": {
@@ -857,9 +825,6 @@
           },
           "ext": "v0"
         },
-<<<<<<< HEAD
-        "live_until": 4095
-=======
         "live_until": 120960
       },
       {
@@ -949,7 +914,6 @@
           "ext": "v0"
         },
         "live_until": 120960
->>>>>>> 6329d33 (fixed ci failure)
       },
       {
         "entry": {
@@ -1172,11 +1136,7 @@
                       "symbol": "shipped_at"
                     },
                     "val": {
-<<<<<<< HEAD
-                      "u64": "172801"
-=======
                       "u64": "0"
->>>>>>> 6329d33 (fixed ci failure)
                     }
                   },
                   {
@@ -1194,11 +1154,7 @@
                     "val": {
                       "vec": [
                         {
-<<<<<<< HEAD
-                          "symbol": "Shipped"
-=======
                           "symbol": "Refunded"
->>>>>>> 6329d33 (fixed ci failure)
                         }
                       ]
                     }
@@ -1280,8 +1236,6 @@
                       "key": {
                         "vec": [
                           {
-<<<<<<< HEAD
-=======
                             "symbol": "AccumulatedFees"
                           },
                           {
@@ -1297,7 +1251,6 @@
                       "key": {
                         "vec": [
                           {
->>>>>>> 6329d33 (fixed ci failure)
                             "symbol": "Admin"
                           }
                         ]
@@ -1375,8 +1328,6 @@
                       "key": {
                         "vec": [
                           {
-<<<<<<< HEAD
-=======
                             "symbol": "TotalArbitrationFees"
                           },
                           {
@@ -1392,7 +1343,6 @@
                       "key": {
                         "vec": [
                           {
->>>>>>> 6329d33 (fixed ci failure)
                             "symbol": "TotalCompleted"
                           }
                         ]
@@ -1412,8 +1362,6 @@
                       "val": {
                         "u64": "2"
                       }
-<<<<<<< HEAD
-=======
                     },
                     {
                       "key": {
@@ -1426,19 +1374,6 @@
                       "val": {
                         "u64": "1"
                       }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "TotalRefunded"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u64": "1"
-                      }
->>>>>>> 6329d33 (fixed ci failure)
                     }
                   ]
                 }
@@ -1474,11 +1409,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-<<<<<<< HEAD
-                      "i128": "1500"
-=======
                       "i128": "2000"
->>>>>>> 6329d33 (fixed ci failure)
                     }
                   },
                   {
@@ -1530,11 +1461,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-<<<<<<< HEAD
-                      "i128": "500"
-=======
                       "i128": "0"
->>>>>>> 6329d33 (fixed ci failure)
                     }
                   },
                   {

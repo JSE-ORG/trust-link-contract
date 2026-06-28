@@ -356,11 +356,7 @@
           },
           "ext": "v0"
         },
-<<<<<<< HEAD
-        "live_until": 4095
-=======
         "live_until": 120960
->>>>>>> 6329d33 (fixed ci failure)
       },
       {
         "entry": {
@@ -677,11 +673,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-<<<<<<< HEAD
                       "i128": "980"
-=======
-                      "i128": "1000"
->>>>>>> 6329d33 (fixed ci failure)
                     }
                   },
                   {
@@ -773,7 +765,6 @@
                     "symbol": "Balance"
                   },
                   {
-<<<<<<< HEAD
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                   }
                 ]
@@ -826,8 +817,6 @@
                     "symbol": "Balance"
                   },
                   {
-=======
->>>>>>> 6329d33 (fixed ci failure)
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
                   }
                 ]
@@ -1009,7 +998,6 @@
               }
             ],
             "data": {
-<<<<<<< HEAD
               "i128": "980"
             }
           }
@@ -1040,9 +1028,6 @@
             ],
             "data": {
               "i128": "20"
-=======
-              "i128": "1000"
->>>>>>> 6329d33 (fixed ci failure)
             }
           }
         }
@@ -1092,11 +1077,7 @@
                     "symbol": "fee_bps"
                   },
                   "val": {
-<<<<<<< HEAD
                     "u32": 200
-=======
-                    "u32": 0
->>>>>>> 6329d33 (fixed ci failure)
                   }
                 },
                 {

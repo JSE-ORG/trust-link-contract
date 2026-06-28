@@ -425,7 +425,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Canceled"
+                          "symbol": "Pending"
                         }
                       ]
                     }
@@ -555,7 +555,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Canceled"
+                          "symbol": "Pending"
                         }
                       ]
                     }

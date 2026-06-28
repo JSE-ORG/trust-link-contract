@@ -413,11 +413,7 @@
           },
           "ext": "v0"
         },
-<<<<<<< HEAD
-        "live_until": 4095
-=======
         "live_until": 120960
->>>>>>> 6329d33 (fixed ci failure)
       },
       {
         "entry": {
@@ -817,18 +813,6 @@
                       "val": {
                         "u64": "1"
                       }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "TotalRefunded"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u64": "1"
-                      }
                     }
                   ]
                 }
@@ -1101,7 +1085,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "dispute_resolved"
+                "symbol": "dispute_pending_finalization"
               }
             ],
             "data": {
@@ -1116,10 +1100,10 @@
                 },
                 {
                   "key": {
-                    "symbol": "arbitration_fee"
+                    "symbol": "appeal_deadline"
                   },
                   "val": {
-                    "i128": "0"
+                    "u64": "86400"
                   }
                 },
                 {
@@ -1132,10 +1116,10 @@
                 },
                 {
                   "key": {
-                    "symbol": "recipient"
+                    "symbol": "pending_at"
                   },
                   "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    "u64": "0"
                   }
                 },
                 {
@@ -1148,14 +1132,6 @@
                         "symbol": "Refund"
                       }
                     ]
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "resolved_at"
-                  },
-                  "val": {
-                    "u64": "0"
                   }
                 },
                 {

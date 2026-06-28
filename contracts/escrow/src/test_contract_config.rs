@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::{Escrow, EscrowClient};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
 #[test]
 fn test_get_public_config() {
@@ -36,13 +36,16 @@ fn test_get_public_config() {
     let resolver = Address::generate(&env);
     let token = Address::generate(&env);
 
+    let mut payees_14 = Vec::new(&env);
+    payees_14.push_back(Payee { address: seller.clone(), bps: 10_000 });
     client.create_escrow(
-        &seller,
+        &payees_14,
         &None::<Address>,
         &resolver,
         &token,
         &1000_0000000,
         &100,
+        &0_u32,
         &86400,
     );
 

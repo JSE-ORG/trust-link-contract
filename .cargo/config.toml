@@ -1,0 +1,4 @@
+[alias]
+# Run the developer task runner: `cargo xtask help`, `cargo xtask ci`, etc.
+# xtask is its own standalone workspace, so it is invoked by manifest path.
+xtask = ["run", "--quiet", "--manifest-path", "xtask/Cargo.toml", "--"]

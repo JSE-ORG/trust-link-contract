@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, String, Symbol};
+use soroban_sdk::{contracttype, Address, BytesN, Env, String, Symbol, Vec};
 
 /// Storage keys for persisting escrow data and the global escrow counter.
 #[contracttype]
@@ -9,6 +9,7 @@ pub enum DataKey {
     FeeCollector,
     Dispute(u64),
     Paused,
+    ActionPaused(Symbol),
     DefaultFeeBps,
     TtlExtensionLedgers,
     ArbitrationFee,
@@ -21,10 +22,6 @@ pub enum DataKey {
     TotalRefunded,
     FeeConfig,
     BuyerEscrowIndex(Address),
-    TokenAllowlistEnabled,
-    TokenAllowlist,
-    PlatformFeeBps,
-    Treasury,
 }
 
 #[contracttype]
@@ -83,20 +80,35 @@ pub struct ContractConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowData {
-    pub seller: Address,
+    pub payees: Vec<Payee>,
+    pub buyer: Option<Address>,
+    pub resolver: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub fee_bps: u32,
+    pub resolver_fee_bps: u32,
+    pub shipping_window: u64,
+    pub funded_at: u64,
+    pub dispute_deadline: u64,
+    pub shipped_at: u64,
+    pub delivered_at: Option<u64>,
+    pub tracking_id: Option<String>,
+    pub state: EscrowState,
+    pub notes: Option<String>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowInput {
     pub buyer: Option<Address>,
     pub resolver: Address,
     pub token: Address,
     pub amount: i128,
     pub fee_bps: u32,
     pub shipping_window: u64,
-    pub funded_at: u64,
-    pub dispute_deadline: u64,
-    pub state: EscrowState,
-    pub shipped_at: u64,
-    pub delivered_at: Option<u64>,
-    pub tracking_id: Option<String>,
+    pub notes: Option<String>,
 }
+
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -115,6 +127,14 @@ pub struct ContractStats {
     pub total_refunded: u64,
 }
 
+/// Payee with address and basis points share.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Payee {
+    pub address: Address,
+    pub bps: u32,
+}
+
 /// Lifecycle states of an escrow transaction.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -124,6 +144,7 @@ pub enum EscrowState {
     Shipped,
     Completed,
     Disputed,
+    RefundRequested,
     Refunded,
     Canceled,
     PendingFinalization,

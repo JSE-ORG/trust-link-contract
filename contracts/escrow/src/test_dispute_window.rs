@@ -7,7 +7,7 @@ use crate::{
     EscrowState,
 };
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    testutils::{Address as _, Ledger as _, Vec},
     token, Address, BytesN, Env, String, Symbol,
 };
 
@@ -40,12 +40,15 @@ fn setup_funded_and_shipped() -> Fx {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount: i128 = 1_000;
+    let mut payees_24 = Vec::new(&env);
+    payees_24.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let escrow_id = client.create_escrow(
-        &seller,
+        &payees_24,
         &None::<Address>,
         &resolver,
         &token_addr,
         &amount,
+        &0_u32,
         &0_u32,
         &0_u64,
     );

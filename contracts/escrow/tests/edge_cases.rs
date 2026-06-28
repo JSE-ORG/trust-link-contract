@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, token, Address, Env, String as SorobanString};
-use trustlink_escrow::{ContractError, Escrow, EscrowClient, EscrowState};
+use soroban_sdk::{testutils::Address as _, token, Address, Env, String as SorobanString, Vec};
+use trustlink_escrow::{ContractError, Escrow, EscrowClient, EscrowState, Payee};
 
 #[test]
 fn test_auto_release_before_record_delivery_reverts() {
@@ -26,13 +26,16 @@ fn test_auto_release_before_record_delivery_reverts() {
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
 
     // 1. Create Escrow
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let escrow_id = client.create_escrow(
-        &seller,
+        &payees,
         &None::<Address>,
         &resolver,
         &token_addr,
         &amount,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 
@@ -46,10 +49,10 @@ fn test_auto_release_before_record_delivery_reverts() {
     // 4. Try auto_release without recording delivery
     let result = client.try_auto_release(&escrow_id);
 
-    // It must return DeliveryNotRecorded
+    // It must return DeliveryBeforeDisputeWindow
     assert!(
-        matches!(result, Err(Ok(ContractError::DeliveryNotRecorded))),
-        "Expected try_auto_release to return DeliveryNotRecorded but got {:?}",
+        matches!(result, Err(Ok(ContractError::DeliveryBeforeDisputeWindow))),
+        "Expected try_auto_release to return DeliveryBeforeDisputeWindow but got {:?}",
         result
     );
 
