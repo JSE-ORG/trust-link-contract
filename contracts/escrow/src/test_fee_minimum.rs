@@ -2,7 +2,7 @@
 
 use crate::{Escrow, EscrowClient, ResolutionType};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::{Address as _, Ledger, Vec},
     token, Address, Env, String as SorobanString, Symbol,
 };
 
@@ -40,13 +40,16 @@ fn test_fee_rounds_to_zero_on_one_stroop_confirm_delivery() {
     mint(&env, &token, &buyer, 1);
 
     // MAX_FEE_BPS = 300 (3%) — still rounds to 0 on 1 stroop
+    let mut payees_45 = Vec::new(&env);
+    payees_45.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_45,
         &None::<Address>,
         &resolver,
         &token,
         &1_i128,
         &300_u32,
+        &0_u32,
         &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
@@ -74,13 +77,16 @@ fn test_fee_rounds_to_zero_on_one_stroop_auto_release() {
 
     mint(&env, &token, &buyer, 1);
 
+    let mut payees_44 = Vec::new(&env);
+    payees_44.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_44,
         &None::<Address>,
         &resolver,
         &token,
         &1_i128,
         &300_u32,
+        &0_u32,
         &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
@@ -113,13 +119,16 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_release() {
 
     mint(&env, &token, &buyer, 1);
 
+    let mut payees_43 = Vec::new(&env);
+    payees_43.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_43,
         &None::<Address>,
         &resolver,
         &token,
         &1_i128,
         &300_u32,
+        &0_u32,
         &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
@@ -152,13 +161,16 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_refund() {
 
     mint(&env, &token, &buyer, 1);
 
+    let mut payees_42 = Vec::new(&env);
+    payees_42.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_42,
         &None::<Address>,
         &resolver,
         &token,
         &1_i128,
         &300_u32,
+        &0_u32,
         &3600_u64,
     );
     client.fund_escrow(&id, &buyer);

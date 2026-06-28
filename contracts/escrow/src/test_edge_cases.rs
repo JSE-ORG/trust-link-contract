@@ -4,7 +4,7 @@ use crate::helpers::payout::calculate_protocol_fee;
 use crate::test_helpers::{advance_time, create_funded_escrow, setup_contract};
 use crate::{ContractError, Escrow, EscrowClient, MIN_ESCROW_AMOUNT};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    testutils::{Address as _, Ledger as _, Vec},
     token, Address, BytesN, Env, String as SorobanString, Symbol,
 };
 
@@ -86,13 +86,16 @@ fn test_buyer_index_populated_on_cancel_by_buyer() {
     let resolver = Address::generate(&env);
 
     // Create a Pending escrow that names the buyer up front.
+    let mut payees_25 = Vec::new(&env);
+    payees_25.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_25,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &1000_i128,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 
@@ -217,6 +220,10 @@ fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
         let id = create_funded_escrow(
             &env, &client, &seller, &buyer, &resolver, &token, amount, fee_bps, 3600,
         );
+
+        // Ship the order so the escrow reaches the Shipped state required by
+        // confirm_delivery.
+        client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DUST"));
 
         // Move past the dispute window so the buyer can confirm delivery.
         advance_time(&env, DISPUTE_WINDOW_SECS + 1);

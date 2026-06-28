@@ -422,6 +422,8 @@ fn test_fee_calculation_invalid_amount() {
 #[test]
 fn test_dispute_allocations_include_protocol_fee() {
     use crate::helpers::payout::calculate_dispute_allocations;
+    use crate::types::{EscrowState, ResolutionType};
+    use crate::EscrowData;
     use crate::{EscrowData, EscrowState, ResolutionType};
     use soroban_sdk::{testutils::Address as _, Address, Env};
 
@@ -447,7 +449,7 @@ fn test_dispute_allocations_include_protocol_fee() {
         shipped_at: 0,
         delivered_at: None,
         tracking_id: None,
-        notes: None,
+
     };
 
     let arbitration_fee = 50_000_i128; // 5% arbitration fee
@@ -487,7 +489,8 @@ fn test_dispute_allocations_include_protocol_fee() {
 #[test]
 fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     use crate::helpers::payout::calculate_dispute_allocations;
-    use crate::{EscrowData, EscrowState, ResolutionType};
+    use crate::types::{EscrowState, ResolutionType};
+    use crate::EscrowData;
     use soroban_sdk::{testutils::Address as _, Address, Env};
 
     let env = Env::default();
@@ -511,7 +514,7 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
         shipped_at: 0,
         delivered_at: None,
         tracking_id: None,
-        notes: None,
+
     };
 
     let arbitration_fee = 50_000_i128;

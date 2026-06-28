@@ -413,7 +413,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 120960
       },
       {
         "entry": {
@@ -794,18 +794,6 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "TotalCompleted"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u64": "1"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
                             "symbol": "TotalCreated"
                           }
                         ]
@@ -1149,7 +1137,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "dispute_resolved"
+                "symbol": "dispute_pending_finalization"
               }
             ],
             "data": {
@@ -1164,10 +1152,10 @@
                 },
                 {
                   "key": {
-                    "symbol": "arbitration_fee"
+                    "symbol": "appeal_deadline"
                   },
                   "val": {
-                    "i128": "0"
+                    "u64": "86400"
                   }
                 },
                 {
@@ -1180,10 +1168,10 @@
                 },
                 {
                   "key": {
-                    "symbol": "recipient"
+                    "symbol": "pending_at"
                   },
                   "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                    "u64": "0"
                   }
                 },
                 {
@@ -1196,14 +1184,6 @@
                         "symbol": "Release"
                       }
                     ]
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "resolved_at"
-                  },
-                  "val": {
-                    "u64": "0"
                   }
                 },
                 {
