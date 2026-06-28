@@ -60,4 +60,20 @@ pub enum ContractError {
     ConflictingRoles = 23,
     /// Returned when a buyer attempts to raise a dispute after the dispute window has closed.
     DisputeWindowClosed = 24,
+    /// Returned when a resolver is not in the approved registry and strict mode is enabled.
+    UnauthorizedResolver = 25,
+    /// Returned when emergency_drain is called but the contract is not paused.
+    ContractNotPaused = 26,
+    /// Returned when a token is not in the allowlist and the allowlist is enabled.
+    TokenNotAllowed = 27,
+    /// Returned when an escrow's pending expiration window has passed.
+    EscrowExpired = 28,
+    /// Returned when an escrow amount is below the configured minimum.
+    AmountBelowMinimum = 29,
+    /// Returned when an action requires the escrow to be in PendingFinalization state.
+    NotPendingFinalization = 30,
+    /// Returned when finalization is attempted while the appeal window is still active.
+    AppealWindowActive = 31,
+    /// Returned when the platform fee exceeds its allowed maximum.
+    PlatformFeeExceedsMax = 32,
 }

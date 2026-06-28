@@ -22,6 +22,15 @@ pub enum DataKey {
     TotalRefunded,
     FeeConfig,
     BuyerEscrowIndex(Address),
+    TokenAllowlistEnabled,
+    TokenAllowlist,
+    PlatformFeeBps,
+    Treasury,
+    MaxAmount,
+    MinAmount,
+    PendingExpiry(u64),
+    ApprovedResolvers,
+    ResolverStrict,
 }
 
 #[contracttype]
@@ -148,4 +157,5 @@ pub enum EscrowState {
     Refunded,
     Canceled,
     PendingFinalization,
+    Expired,
 }
