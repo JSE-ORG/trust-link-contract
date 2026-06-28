@@ -144,12 +144,12 @@ async function invokeSoroban<TReturn>({
     BASE_FEE,
     nativeToScVal,
     scValToNative,
-    SorobanRpc,
+    rpc,
     Account,
     Keypair,
   } = await import("@stellar/stellar-sdk");
 
-  const server = new SorobanRpc.Server(rpcUrl, { allowHttp: false });
+  const server = new rpc.Server(rpcUrl, { allowHttp: false });
 
   // Build a dummy source account when no wallet is connected (simulation only).
   const sourceAddress = callerAddress ?? Keypair.random().publicKey();
@@ -172,10 +172,10 @@ async function invokeSoroban<TReturn>({
   const isReadOnly = method.startsWith("get_");
   if (isReadOnly || !signTransaction) {
     const sim = await server.simulateTransaction(tx);
-    if (SorobanRpc.Api.isSimulationError(sim)) {
+    if (rpc.Api.isSimulationError(sim)) {
       throw new Error(`Simulation failed: ${sim.error}`);
     }
-    if (!SorobanRpc.Api.isSimulationSuccess(sim) || !sim.result) {
+    if (!rpc.Api.isSimulationSuccess(sim) || !sim.result) {
       throw new Error("Simulation returned no result.");
     }
     return scValToNative(sim.result.retval) as TReturn;
@@ -207,7 +207,7 @@ async function invokeSoroban<TReturn>({
   }
 
   // Decode return value when present
-  const returnVal = (getResult as Record<string, unknown>)["returnValue"];
+  const returnVal = (getResult as unknown as Record<string, unknown>)["returnValue"];
   if (returnVal) {
     return scValToNative(returnVal as Parameters<typeof scValToNative>[0]) as TReturn;
   }

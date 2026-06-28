@@ -282,6 +282,7 @@ export function useConfirmDelivery(transport: ContractTransport | null): {
  */
 export function useRaiseDispute(transport: ContractTransport | null): {
   raise: (
+    caller: string,
     escrowId: bigint,
     reason: string,
     description: string,
@@ -300,11 +301,11 @@ export function useRaiseDispute(transport: ContractTransport | null): {
   }
 
   const raise = useCallback(
-    async (escrowId: bigint, reason: string, description: string, evidenceHash: Uint8Array) => {
+    async (caller: string, escrowId: bigint, reason: string, description: string, evidenceHash: Uint8Array) => {
       if (!clientRef.current) return;
       dispatch({ type: "loading" });
       try {
-        await clientRef.current.raise_dispute(escrowId, reason, description, evidenceHash);
+        await clientRef.current.raise_dispute(caller, escrowId, reason, description, evidenceHash);
         dispatch({ type: "success" });
       } catch (err) {
         dispatch({ type: "error", payload: normalizeError(err) });

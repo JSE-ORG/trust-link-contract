@@ -2,7 +2,7 @@
 
 use crate::{ContractError, DisputeStatus, Escrow, EscrowClient, ResolutionType};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    testutils::{Address as _, Ledger as _, Vec},
     token, Address, BytesN, Env, String, Symbol,
 };
 
@@ -39,13 +39,16 @@ fn test_get_dispute_returns_accurate_data_after_raise() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
+    let mut payees_22 = Vec::new(&env);
+    payees_22.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_22,
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 
@@ -95,13 +98,16 @@ fn test_dispute_allowed_after_shipping() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
+    let mut payees_21 = Vec::new(&env);
+    payees_21.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_21,
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 
@@ -135,13 +141,16 @@ fn test_dispute_allowed_on_late_shipped_escrow() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
+    let mut payees_20 = Vec::new(&env);
+    payees_20.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_20,
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 
@@ -173,13 +182,16 @@ fn test_dispute_requires_shipped_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
+    let mut payees_19 = Vec::new(&env);
+    payees_19.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_19,
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 
@@ -217,13 +229,16 @@ fn test_dispute_rejected_after_48h_deadline() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
+    let mut payees_18 = Vec::new(&env);
+    payees_18.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_18,
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 
@@ -264,13 +279,16 @@ fn test_dispute_from_funded_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
+    let mut payees_17 = Vec::new(&env);
+    payees_17.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_17,
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 

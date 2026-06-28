@@ -146,6 +146,45 @@ All 24 error codes from the contract (`InvalidAmount` → `DisputeWindowClosed`)
 
 ---
 
+### Simulating calls before submitting
+
+Soroban can *simulate* a call before you sign and submit it, so you can surface
+the exact error a transaction would produce without spending fees. Wrap any
+client call in `simulateAndCatch` to get a structured result instead of a thrown
+error:
+
+```ts
+import { simulateAndCatch, ErrorCode } from "trustlink-escrow-bindings";
+
+const result = await simulateAndCatch(() => client.fund_escrow(id, buyer));
+
+if (!result.ok) {
+  // `result.code` is the typed ErrorCode (or null for non-contract failures),
+  // `result.error` is a ContractInvokeError, `result.raw` is the original error.
+  if (result.code === ErrorCode.ContractPaused) {
+    alert("The contract is paused — try again later.");
+  }
+  return;
+}
+
+// result.value holds the (typed) return value — safe to submit for real.
+await client.fund_escrow(id, buyer);
+```
+
+Companion helpers:
+
+- `assertSimulationSucceeds(call)` — runs the simulation and **throws** the
+  expected `ContractInvokeError` if it would fail, otherwise returns the value.
+  Handy as a pre-submit guard inside an existing `try/catch`.
+- `isSimulationError(result)` — type guard narrowing a `SimulationResult` to its
+  failure variant.
+- `createEscrowSimulator(transport)` — wraps a `ContractTransport` so
+  `simulate(method, args)` returns a `SimulationResult` for any method by name.
+
+Run the helper test suite with `npm test` (uses Node's built-in test runner).
+
+---
+
 ## Exported modules
 
 ```
@@ -154,6 +193,7 @@ trustlink-escrow-bindings
 ├── client.ts         — EscrowClient + ContractTransport interface
 ├── abi.ts            — contract ABI manifest
 ├── errors.ts         — ErrorCode enum, ContractInvokeError, parseContractError
+├── simulation.ts     — simulateAndCatch, assertSimulationSucceeds, createEscrowSimulator
 ├── hooks.ts          — React hooks (useEscrow, useDispute, useFundEscrow …)
 └── soroban-react.ts  — createSorobanTransport, createFreighterTransport
 ```

@@ -10,7 +10,7 @@ use crate::{
     DataKey, DisputeData, DisputeStatus, Escrow, EscrowClient, EscrowData, EscrowState,
     ResolutionType,
 };
-use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String, Symbol};
+use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String, Symbol, Vec};
 
 #[test]
 fn full_dispute_release_to_vendor() {
@@ -39,12 +39,15 @@ fn full_dispute_release_to_vendor() {
     // dispute window is enforced separately on raise_dispute.
     // fee_bps = 0 isolates the arbitration-fee accounting the issue specifies
     // (a non-zero protocol fee would further reduce the seller's payout).
+    let mut payees_23 = Vec::new(&env);
+    payees_23.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let escrow_id = client.create_escrow(
-        &seller,
+        &payees_23,
         &None::<Address>,
         &resolver,
         &token_address,
         &amount,
+        &0_u32,
         &0_u32,
         &0_u64,
     );
