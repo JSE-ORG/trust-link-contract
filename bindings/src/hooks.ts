@@ -277,7 +277,7 @@ export function useConfirmDelivery(transport: ContractTransport | null): {
  * ```tsx
  * const { raise, loading, error } = useRaiseDispute(transport);
  *
- * raise(42n, "not_received", "Item never arrived", evidenceHashBytes);
+ * raise("G...BUYER", 42n, "not_received", "Item never arrived", evidenceHashBytes);
  * ```
  */
 export function useRaiseDispute(transport: ContractTransport | null): {
@@ -301,7 +301,13 @@ export function useRaiseDispute(transport: ContractTransport | null): {
   }
 
   const raise = useCallback(
-    async (caller: string, escrowId: bigint, reason: string, description: string, evidenceHash: Uint8Array) => {
+    async (
+      caller: string,
+      escrowId: bigint,
+      reason: string,
+      description: string,
+      evidenceHash: Uint8Array,
+    ) => {
       if (!clientRef.current) return;
       dispatch({ type: "loading" });
       try {
