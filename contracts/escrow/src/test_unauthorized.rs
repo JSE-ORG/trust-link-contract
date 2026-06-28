@@ -8,7 +8,7 @@
 //! reject path.
 
 use crate::{ContractError, Escrow, EscrowClient};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
 /// Fresh contract with admin/fee_collector initialised. All auths are mocked
 /// so tests can drive the API freely; each test then exercises authorization
@@ -114,7 +114,8 @@ fn withdraw_fees_rejects_unauthorized_caller() {
 /// Helper: register a SAC token and return its address.
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
-    env.register_stellar_asset_contract_v2(token_admin).address()
+    env.register_stellar_asset_contract_v2(token_admin)
+        .address()
 }
 
 #[test]
@@ -151,12 +152,15 @@ fn fund_escrow_rejects_buyer_equal_to_seller() {
     // Mint tokens to the seller so the transfer would otherwise succeed.
     soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&seller, &1000_i128);
 
+    let mut payees_69 = Vec::new(&env);
+    payees_69.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_69,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
+        &0_u32,
         &0_u32,
         &3600_u64,
     );
@@ -179,12 +183,15 @@ fn fund_escrow_rejects_buyer_equal_to_resolver() {
     // Mint tokens to the resolver so the transfer would otherwise succeed.
     soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&resolver, &1000_i128);
 
+    let mut payees_68 = Vec::new(&env);
+    payees_68.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id = client.create_escrow(
-        &seller,
+        &payees_68,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
+        &0_u32,
         &0_u32,
         &3600_u64,
     );
