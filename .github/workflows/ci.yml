@@ -54,6 +54,28 @@ jobs:
       - run: cargo build --workspace --release
       - run: cargo build --workspace --release --target wasm32v1-none
 
+  snapshot-guard:
+    name: Snapshot Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: taiki-e/install-action@nextest
+      - name: Regenerate snapshots
+        run: cargo nextest run --workspace --retries 1
+      - name: Fail if snapshots are dirty
+        run: |
+          if ! git diff --quiet -- contracts/escrow/test_snapshots; then
+            echo "Snapshot drift detected. Commit the following changes:"
+            git diff -- contracts/escrow/test_snapshots
+            exit 1
+          fi
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
