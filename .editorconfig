@@ -1,0 +1,26 @@
+# EditorConfig for TrustLink Contract Workspace
+root = true
+
+# Global defaults for all files
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+indent_style = space
+indent_size = 4
+
+# Rust specific configurations (Matches standard cargo fmt)
+[*.rs]
+indent_style = space
+indent_size = 4
+
+# TypeScript, JavaScript, JSON, and Markdown configurations
+[*.{ts,js,json,md,yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# Cargo.toml configurations
+[Cargo.toml]
+indent_style = space
+indent_size = 4

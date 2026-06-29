@@ -12,7 +12,6 @@ pub enum DataKey {
     ActionPaused(Symbol),
     DefaultFeeBps,
     TtlExtensionLedgers,
-    ArbitrationFee,
     TotalArbitrationFees(Address),
     AccumulatedFees(Address),
     TotalCreated,
@@ -193,7 +192,6 @@ pub struct EscrowInput {
     pub notes: Option<String>,
 }
 
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Message {
@@ -201,6 +199,7 @@ pub struct Message {
     pub timestamp: u64,
     pub content: String,
 }
+
 /// On-chain counters for escrow lifecycle events.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -32,8 +32,6 @@ pub enum ContractError {
     /// Returned when internal checked arithmetic fails while computing a payout or fee.
     ArithmeticError = 12,
     /// Returned when delivery is attempted before the dispute window opens.
-    /// The name clarifies the condition: you cannot confirm delivery until
-    /// the dispute window has closed.
     DeliveryBeforeDisputeWindow = 13,
     /// Returned when a contract action is blocked because the contract is paused.
     ContractPaused = 14,
@@ -43,11 +41,9 @@ pub enum ContractError {
     InvalidStateTransition = 16,
     /// Returned when a supplied string or payload exceeds the supported length.
     InputTooLong = 17,
-    /// Returned when an address argument is invalid for its role (e.g. admin and
-    /// fee_collector must be distinct keys).
+    /// Returned when an address argument is invalid for its role.
     InvalidAddress = 18,
-    /// Returned when an update is a no-op because the new value equals the
-    /// current one (e.g. rotating admin to the same address).
+    /// Returned when an update is a no-op because the new value equals the current one.
     SameAddress = 19,
     /// Returned when an escrow amount exceeds the maximum allowed limit.
     AmountExceedsMaximum = 20,
@@ -55,8 +51,7 @@ pub enum ContractError {
     InvalidTrackingId = 21,
     /// Returned when auto-release is attempted before delivery has been recorded.
     DeliveryNotRecorded = 22,
-    /// Returned when two roles that must be distinct are assigned the same address
-    /// (e.g. resolver == seller, buyer == seller, or buyer == resolver).
+    /// Returned when two roles that must be distinct are assigned the same address.
     ConflictingRoles = 23,
     /// Returned when a buyer attempts to raise a dispute after the dispute window has closed.
     DisputeWindowClosed = 24,
@@ -76,4 +71,6 @@ pub enum ContractError {
     AppealWindowActive = 31,
     /// Returned when the platform fee exceeds its allowed maximum.
     PlatformFeeExceedsMax = 32,
+    /// Returned when shipping_window is zero or exceeds the maximum allowed value.
+    InvalidShippingWindow = 33,
 }

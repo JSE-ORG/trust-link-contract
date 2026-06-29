@@ -2,7 +2,7 @@
 
 use crate::helpers::payout::calculate_protocol_fee;
 use crate::test_helpers::{advance_time, create_funded_escrow, setup_contract};
-use crate::{ContractError, Escrow, EscrowClient, MIN_ESCROW_AMOUNT};
+use crate::{ContractError, Escrow, EscrowClient, MIN_ESCROW_AMOUNT, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _, Vec},
     token, Address, BytesN, Env, String as SorobanString, Symbol,
@@ -87,7 +87,10 @@ fn test_buyer_index_populated_on_cancel_by_buyer() {
 
     // Create a Pending escrow that names the buyer up front.
     let mut payees_25 = Vec::new(&env);
-    payees_25.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_25.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
         &payees_25,
         &Some(buyer.clone()),

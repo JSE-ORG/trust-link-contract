@@ -780,6 +780,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "notes"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "resolver"
                     },
                     "val": {
@@ -911,6 +917,12 @@
                     "val": {
                       "u64": "172801"
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "notes"
+                    },
+                    "val": "void"
                   },
                   {
                     "key": {

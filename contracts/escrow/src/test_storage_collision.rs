@@ -9,15 +9,17 @@
 
 use crate::{Escrow, EscrowClient, EscrowState, Payee};
 use soroban_sdk::{
-    testutils::Address as _,
-    token, Address, Env, String, Vec,
+    testutils::{Address as _, Ledger as _},
+    token, Address, Env, String,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-fn setup() -> (Env, EscrowClient, Address, Address, Address, Address, Address) {
+fn setup() -> (Env, Address, Address, Address, Address, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
+    // Set a deterministic non-zero timestamp so funded_at is always > 0
+    env.ledger().set_timestamp(1_700_000_000);
 
     let token_admin = Address::generate(&env);
     let token = env.register_stellar_asset_contract_v2(token_admin).address();
@@ -31,7 +33,7 @@ fn setup() -> (Env, EscrowClient, Address, Address, Address, Address, Address) {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    (env, client, admin, fee_collector, seller, resolver, token)
+    (env, contract_id, admin, fee_collector, seller, resolver, token)
 }
 
 fn single_payee(env: &Env, seller: &Address) -> Vec<Payee> {
@@ -41,7 +43,7 @@ fn single_payee(env: &Env, seller: &Address) -> Vec<Payee> {
 }
 
 /// Mint `amount` tokens to `to` and fund an existing escrow.
-fn fund(env: &Env, client: &EscrowClient, token: &Address, buyer: &Address, escrow_id: &u64) {
+fn fund(env: &Env, client: &EscrowClient<'_>, token: &Address, buyer: &Address, escrow_id: &u64) {
     let escrow = client.get_escrow(escrow_id);
     token::StellarAssetClient::new(env, token).mint(buyer, &escrow.amount);
     client.fund_escrow(escrow_id, buyer);
@@ -52,7 +54,8 @@ fn fund(env: &Env, client: &EscrowClient, token: &Address, buyer: &Address, escr
 /// Cancelling escrow 1 (Pending → Canceled) must not affect escrow 2.
 #[test]
 fn cancel_escrow1_does_not_affect_escrow2() {
-    let (env, client, _admin, _fee_collector, seller, resolver, token) = setup();
+    let (env, contract_id, _admin, _fee_collector, seller, resolver, token) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
 
     let payees = single_payee(&env, &seller);
     let id1 = client.create_escrow(&payees, &None::<Address>, &resolver, &token, &500_i128, &0_u32, &0_u32, &3600_u64);
@@ -81,7 +84,8 @@ fn cancel_escrow1_does_not_affect_escrow2() {
 /// Funding escrow 2 (Pending → Funded) must not affect escrow 1.
 #[test]
 fn fund_escrow2_does_not_affect_escrow1() {
-    let (env, client, _admin, _fee_collector, seller, resolver, token) = setup();
+    let (env, contract_id, _admin, _fee_collector, seller, resolver, token) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
 
     let buyer = Address::generate(&env);
     let payees = single_payee(&env, &seller);
@@ -104,7 +108,8 @@ fn fund_escrow2_does_not_affect_escrow1() {
 /// Marking escrow 1 as shipped must not modify escrow 2's tracking or state.
 #[test]
 fn mark_shipped_escrow1_does_not_affect_escrow2() {
-    let (env, client, _admin, _fee_collector, seller, resolver, token) = setup();
+    let (env, contract_id, _admin, _fee_collector, seller, resolver, token) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
 
     let buyer1 = Address::generate(&env);
     let buyer2 = Address::generate(&env);
@@ -132,7 +137,8 @@ fn mark_shipped_escrow1_does_not_affect_escrow2() {
 /// escrow 1 and escrow 3 completely intact.
 #[test]
 fn modifying_middle_escrow_leaves_neighbors_unchanged() {
-    let (env, client, _admin, _fee_collector, seller, resolver, token) = setup();
+    let (env, contract_id, _admin, _fee_collector, seller, resolver, token) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
 
     let payees = single_payee(&env, &seller);
     let id1 = client.create_escrow(&payees, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &0_u32, &3600_u64);
@@ -160,7 +166,8 @@ fn modifying_middle_escrow_leaves_neighbors_unchanged() {
 /// not overwritten when a second escrow with different parameters is created.
 #[test]
 fn independent_escrows_store_correct_fields() {
-    let (env, client, _admin, _fee_collector, seller, resolver, token) = setup();
+    let (env, contract_id, _admin, _fee_collector, seller, resolver, token) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
 
     let seller2 = Address::generate(&env);
     let resolver2 = Address::generate(&env);
@@ -210,7 +217,8 @@ fn independent_escrows_store_correct_fields() {
 /// written to escrow 2 when it was funded.
 #[test]
 fn funded_at_of_escrow2_unchanged_after_cancelling_escrow1() {
-    let (env, client, _admin, _fee_collector, seller, resolver, token) = setup();
+    let (env, contract_id, _admin, _fee_collector, seller, resolver, token) = setup();
+    let client = EscrowClient::new(&env, &contract_id);
 
     let buyer = Address::generate(&env);
     let payees = single_payee(&env, &seller);

@@ -247,7 +247,7 @@ fn test_set_fee_not_retroactive() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     // Create an escrow with fee_bps = 50
-    let escrow_id = client.create_escrow(&seller, &resolver, &token, &1000_i128, &50_u32, &3600_u64);
+    let escrow_id = client.create_escrow_legacy(&seller, &resolver, &token, &1000_i128, &50_u32, &3600_u64);
 
     // Verify escrow has fee_bps = 50
     let escrow = client.get_escrow(&escrow_id);
@@ -265,7 +265,7 @@ fn test_set_fee_not_retroactive() {
     );
 
     // Create a new escrow; it will use the fee_bps passed in create_escrow, not the default
-    let escrow_id2 = client.create_escrow(&seller, &resolver, &token, &1000_i128, &100_u32, &3600_u64);
+    let escrow_id2 = client.create_escrow_legacy(&seller, &resolver, &token, &1000_i128, &100_u32, &3600_u64);
     let escrow2 = client.get_escrow(&escrow_id2);
     assert_eq!(
         escrow2.fee_bps, 100,

@@ -27,7 +27,10 @@ fn test_unauthorized_attacker_cannot_fund_escrow() {
 
     // Create the escrow.
     let mut payees = Vec::new(&env);
-    payees.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
         &payees,
         &None::<Address>,
