@@ -1,13 +1,23 @@
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
-use crate::{EscrowData, FeeConfig};
+use crate::{EscrowData, FeeConfig, DEFAULT_TTL_EXTENSION};
 
-/// Default TTL extension (in ledgers) for persistent storage entries.
-/// This matches the value used in lib.rs to ensure consistent behavior.
-const DEFAULT_TTL_EXTENSION: u32 = 120_960;
+// ============================================================================
+// TTL CONSTANTS — documented here as the canonical reference.
+//
+// DEFAULT_TTL_EXTENSION (120_960 ledgers ≈ 13.7 days at 10 s/ledger) is the
+// fallback used when no admin-configured value exists in instance storage.
+// The threshold for triggering an extension is always set to `ext / 2` so
+// that the key is kept alive as long as it continues to be accessed at least
+// once every half-TTL period.
+//
+// Both instance and persistent entries use the same value so that all storage
+// tiers expire on the same schedule.  Admins can override the value via
+// `set_ttl_extension`.
+// ============================================================================
 
 /// Get the configured TTL extension from the contract, or use the default.
-fn get_ttl_extension(env: &Env) -> u32 {
+pub fn get_ttl_extension(env: &Env) -> u32 {
     use crate::DataKey;
     env.storage()
         .instance()
@@ -15,10 +25,21 @@ fn get_ttl_extension(env: &Env) -> u32 {
         .unwrap_or(DEFAULT_TTL_EXTENSION)
 }
 
+/// Extend the instance-storage TTL.
+///
+/// Called on every public entry point so the singleton configuration keys
+/// (Admin, FeeConfig, EscrowCounter, etc.) never expire between interactions.
+pub fn extend_instance_ttl(env: &Env) {
+    let ext = get_ttl_extension(env);
+    env.storage().instance().extend_ttl(ext / crate::TTL_THRESHOLD_DIVISOR, ext);
+}
+
 /// Helper to extend TTL on a persistent storage key.
 fn extend_ttl_for_key(env: &Env, key: &StorageKey) {
     let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(key, ext / crate::TTL_THRESHOLD_DIVISOR, ext);
 }
 
 /// Typed keys for all contract storage entries.
@@ -87,9 +108,12 @@ pub fn write_escrow_data(env: &Env, escrow_id: u64, escrow: &EscrowData) {
 }
 
 pub fn read_escrow_data(env: &Env, escrow_id: u64) -> Option<EscrowData> {
-    env.storage()
-        .persistent()
-        .get(&StorageKey::EscrowData(escrow_id))
+    let key = StorageKey::EscrowData(escrow_id);
+    let result = env.storage().persistent().get(&key);
+    if result.is_some() {
+        extend_ttl_for_key(env, &key);
+    }
+    result
 }
 
 pub fn write_vendor_escrow_index(env: &Env, vendor: &Address, escrow_ids: &Vec<u64>) {
@@ -99,10 +123,16 @@ pub fn write_vendor_escrow_index(env: &Env, vendor: &Address, escrow_ids: &Vec<u
 }
 
 pub fn read_vendor_escrow_index(env: &Env, vendor: &Address) -> Vec<u64> {
-    env.storage()
+    let key = StorageKey::VendorEscrowIndex(vendor.clone());
+    let result: Vec<u64> = env
+        .storage()
         .persistent()
-        .get(&StorageKey::VendorEscrowIndex(vendor.clone()))
-        .unwrap_or(Vec::new(env))
+        .get(&key)
+        .unwrap_or(Vec::new(env));
+    if env.storage().persistent().has(&key) {
+        extend_ttl_for_key(env, &key);
+    }
+    result
 }
 
 pub fn write_buyer_escrow_index(env: &Env, buyer: &Address, escrow_ids: &Vec<u64>) {
@@ -112,10 +142,16 @@ pub fn write_buyer_escrow_index(env: &Env, buyer: &Address, escrow_ids: &Vec<u64
 }
 
 pub fn read_buyer_escrow_index(env: &Env, buyer: &Address) -> Vec<u64> {
-    env.storage()
+    let key = StorageKey::BuyerEscrowIndex(buyer.clone());
+    let result: Vec<u64> = env
+        .storage()
         .persistent()
-        .get(&StorageKey::BuyerEscrowIndex(buyer.clone()))
-        .unwrap_or(Vec::new(env))
+        .get(&key)
+        .unwrap_or(Vec::new(env));
+    if env.storage().persistent().has(&key) {
+        extend_ttl_for_key(env, &key);
+    }
+    result
 }
 
 #[cfg(test)]

@@ -96,7 +96,17 @@ pub const MIN_ESCROW_AMOUNT: i128 = 1;
 /// releasable to the seller.
 const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
-const DEFAULT_TTL_EXTENSION: u32 = 120_960;
+pub const DEFAULT_TTL_EXTENSION: u32 = 120_960;
+/// Divisor used to compute the TTL threshold from the extension window.
+///
+/// The threshold is set to `extension / TTL_THRESHOLD_DIVISOR`.  An entry is
+/// only bumped when its remaining TTL falls below the threshold, so setting
+/// the threshold to half the extension window means the key will be refreshed
+/// at most once per half-TTL period, bounding the cost of read-time bumps.
+///
+/// Example: with `DEFAULT_TTL_EXTENSION = 120_960` the threshold is `60_480`
+/// ledgers (~7 days).  An entry accessed every ~7 days will never expire.
+pub const TTL_THRESHOLD_DIVISOR: u32 = 2;
 /// How long (in seconds) a Pending escrow waits for funding before it can be
 /// auto-cancelled.  Default: 7 days.
 const PENDING_EXPIRY_WINDOW: u64 = 604_800;
@@ -145,7 +155,7 @@ fn save_resolver_votes(env: &Env, escrow_id: u64, votes: &Vec<ResolverVote>) {
     let ext = get_ttl_extension(env);
     env.storage()
         .persistent()
-        .extend_ttl(&DataKey::ResolverVotes(escrow_id), ext / 2, ext);
+        .extend_ttl(&DataKey::ResolverVotes(escrow_id), ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
 /// Add or update a vote from a resolver
@@ -515,11 +525,23 @@ fn get_ttl_extension(env: &Env) -> u32 {
         .unwrap_or(DEFAULT_TTL_EXTENSION)
 }
 
+/// Extend the instance-storage TTL on every entry point.
+///
+/// Instance storage holds singleton configuration keys (Admin, FeeConfig,
+/// EscrowCounter, Paused, etc.).  Without periodic bumping these keys expire
+/// after `DEFAULT_TTL_EXTENSION` ledgers of inactivity, which would render the
+/// contract permanently unusable.  Calling this helper at the start of every
+/// public method ensures the instance TTL is refreshed on every interaction.
+fn extend_instance_ttl(env: &Env) {
+    let ext = get_ttl_extension(env);
+    env.storage().instance().extend_ttl(ext / TTL_THRESHOLD_DIVISOR, ext);
+}
+
 fn save_escrow(env: &Env, id: u64, escrow: &EscrowData) {
     let key = DataKey::Escrow(id);
     let ext = get_ttl_extension(env);
     env.storage().persistent().set(&key, escrow);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage().persistent().extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
 fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractError> {
@@ -530,7 +552,7 @@ fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractError> {
         .get(&key)
         .ok_or(ContractError::EscrowNotFound)?;
     let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage().persistent().extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
     Ok(escrow)
 }
 
@@ -538,7 +560,7 @@ fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
     let key = DataKey::Dispute(id);
     let ext = get_ttl_extension(env);
     env.storage().persistent().set(&key, dispute);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage().persistent().extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
 fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
@@ -549,7 +571,7 @@ fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
         .get(&key)
         .ok_or(ContractError::DisputeNotFound)?;
     let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage().persistent().extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
     Ok(dispute)
 }
 
@@ -768,8 +790,7 @@ fn create_escrow_internal(
         .instance()
         .set(&DataKey::EscrowCounter, &next_id);
 
-    let ext = get_ttl_extension(env);
-    env.storage().instance().extend_ttl(ext / 2, ext);
+    extend_instance_ttl(env);
 
     let escrow = EscrowData {
         payees: payees.clone(),
@@ -1206,8 +1227,7 @@ impl Escrow {
             .set(&DataKey::EscrowCounter, &next_id);
         // Extend instance storage TTL on every counter access so the counter key
         // cannot expire between a read and the subsequent write.
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        extend_instance_ttl(&env);
 
         let escrow = EscrowData {
         // Authenticate the first payee as the seller representative
@@ -1337,7 +1357,7 @@ impl Escrow {
         buyer_escrows.push_back(escrow_id);
         let buyer_key = DataKey::BuyerEscrowIndex(buyer.clone());
         let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        extend_instance_ttl(&env);
 
         let escrow = EscrowData {
             seller,
@@ -1357,7 +1377,7 @@ impl Escrow {
         env.storage().persistent().set(&buyer_key, &buyer_escrows);
         env.storage()
             .persistent()
-            .extend_ttl(&buyer_key, ext / 2, ext);
+            .extend_ttl(&buyer_key, ext / TTL_THRESHOLD_DIVISOR, ext);
 
         save_escrow(&env, escrow_id, &escrow);
         emit_escrow_funded(
@@ -1521,8 +1541,7 @@ impl Escrow {
             .instance()
             .set(&DataKey::EscrowCounter, &next_id);
         // Extend instance storage TTL on every counter access
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        extend_instance_ttl(&env);
 
         let escrow = EscrowData {
             seller,
@@ -1694,8 +1713,7 @@ impl Escrow {
             .instance()
             .set(&DataKey::EscrowCounter, &next_id);
         // Extend instance storage TTL on every counter access
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        extend_instance_ttl(&env);
 
         let escrow = EscrowData {
             seller,
@@ -1783,8 +1801,7 @@ impl Escrow {
             .instance()
             .set(&DataKey::EscrowCounter, &next_id);
 
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        extend_instance_ttl(&env);
 
         let escrow = EscrowData {
             seller,
@@ -2795,8 +2812,7 @@ impl Escrow {
             .instance()
             .set(&DataKey::EscrowCounter, &next_id);
 
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        extend_instance_ttl(&env);
 
         let primary_amount = amounts.get(0).ok_or(ContractError::InvalidAmount)?;
         let primary_token = tokens.get(0).ok_or(ContractError::InvalidAmount)?;
@@ -3714,5 +3730,6 @@ mod test_unauthorized;
 mod test_auth_matrix;
 mod test_shipping_window;
 mod test_withdraw_fees;
+mod test_ttl;
 mod malicious_token;
 mod test_malicious_token;
