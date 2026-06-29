@@ -65,7 +65,7 @@ fn test_escrow_ids_monotonic_and_unique() {
             address: seller.clone(),
             bps: 10_000,
         });
-        let id = client.create_escrow(
+        let id = client.create_escrow_8(
             &payees_41,
             &None::<Address>,
             &resolver,
@@ -112,7 +112,7 @@ fn test_escrow_ids_increment_sequentially() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id1 = client.create_escrow(
+    let id1 = client.create_escrow_8(
         &payees_39,
         &None::<Address>,
         &resolver,
@@ -127,7 +127,7 @@ fn test_escrow_ids_increment_sequentially() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id2 = client.create_escrow(
+    let id2 = client.create_escrow_8(
         &payees_38,
         &None::<Address>,
         &resolver,
@@ -142,7 +142,7 @@ fn test_escrow_ids_increment_sequentially() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id3 = client.create_escrow(
+    let id3 = client.create_escrow_8(
         &payees_37,
         &None::<Address>,
         &resolver,
@@ -171,7 +171,7 @@ fn test_cancelled_escrow_does_not_reset_counter() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id1 = client.create_escrow(
+    let id1 = client.create_escrow_8(
         &payees_36,
         &None::<Address>,
         &resolver,
@@ -186,7 +186,7 @@ fn test_cancelled_escrow_does_not_reset_counter() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id2 = client.create_escrow(
+    let id2 = client.create_escrow_8(
         &payees_35,
         &None::<Address>,
         &resolver,
@@ -207,7 +207,7 @@ fn test_cancelled_escrow_does_not_reset_counter() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let next_id = client.create_escrow(
+    let next_id = client.create_escrow_8(
         &payees_34,
         &None::<Address>,
         &resolver,
@@ -233,7 +233,7 @@ fn test_escrow_counter_does_not_skip_after_cancellation() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id1 = client.create_escrow(
+    let id1 = client.create_escrow_8(
         &payees_33,
         &None::<Address>,
         &resolver,
@@ -248,7 +248,7 @@ fn test_escrow_counter_does_not_skip_after_cancellation() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id2 = client.create_escrow(
+    let id2 = client.create_escrow_8(
         &payees_32,
         &None::<Address>,
         &resolver,
@@ -266,7 +266,7 @@ fn test_escrow_counter_does_not_skip_after_cancellation() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id3 = client.create_escrow(
+    let id3 = client.create_escrow_8(
         &payees_31,
         &None::<Address>,
         &resolver,
@@ -281,7 +281,7 @@ fn test_escrow_counter_does_not_skip_after_cancellation() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id4 = client.create_escrow(
+    let id4 = client.create_escrow_8(
         &payees_30,
         &None::<Address>,
         &resolver,
@@ -315,7 +315,7 @@ fn test_multiple_cancellations() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id1 = client.create_escrow(
+    let id1 = client.create_escrow_8(
         &payees_29,
         &None::<Address>,
         &resolver,
@@ -330,7 +330,7 @@ fn test_multiple_cancellations() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id2 = client.create_escrow(
+    let id2 = client.create_escrow_8(
         &payees_28,
         &None::<Address>,
         &resolver,
@@ -345,7 +345,7 @@ fn test_multiple_cancellations() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id3 = client.create_escrow(
+    let id3 = client.create_escrow_8(
         &payees_27,
         &None::<Address>,
         &resolver,
@@ -364,7 +364,7 @@ fn test_multiple_cancellations() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let next_id = client.create_escrow(
+    let next_id = client.create_escrow_8(
         &payees_26,
         &None::<Address>,
         &resolver,

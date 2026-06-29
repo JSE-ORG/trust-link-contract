@@ -20,7 +20,7 @@ fn test_cancel_emits_event() {
     let resolver = Address::generate(&env);
 
     // Create escrow in Pending state
-    let id = client.create_escrow(&seller, &resolver, &token, 500_i128, 0_u32, 3600_u64);
+    let id = client.create_escrow_legacy(&seller, &resolver, &token, 500_i128, 0_u32, 3600_u64);
 
     // Cancel escrow as seller
     client.cancel_escrow(&seller, &id);

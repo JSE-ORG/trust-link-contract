@@ -41,7 +41,7 @@ pub fn create_funded_escrow(
         address: seller.clone(),
         bps: 10_000,
     });
-    let id = client.create_escrow(
+    let id = client.create_escrow_7(
         &payees,
         &None::<Address>,
         resolver,
@@ -50,6 +50,7 @@ pub fn create_funded_escrow(
         &fee_bps,
         &0_u32,
         &shipping_window,
+        &None::<String>,
     );
     client.fund_escrow(&id, buyer);
     id

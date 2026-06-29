@@ -33,7 +33,7 @@ fn test_amount_limits_enforced() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    
+
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let min_limit = 500;
@@ -101,7 +101,7 @@ fn test_set_amount_limits_auth() {
     let (env, admin, seller, _buyer, _resolver, _token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    
+
     client.initialize(&admin, &fee_collector, &0_u32);
 
     // Seller tries to set limits

@@ -46,7 +46,7 @@ fn test_get_escrows_by_buyer() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let _id4 = client.create_escrow(
+    let _id4 = client.create_escrow_8(
         &payees_47,
         &None::<Address>,
         &resolver,
@@ -93,7 +93,7 @@ fn test_buyer_index_populated_on_fund() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id = client.create_escrow(
+    let id = client.create_escrow_8(
         &payees_46,
         &None::<Address>,
         &resolver,

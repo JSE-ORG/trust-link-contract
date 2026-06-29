@@ -45,7 +45,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_confirm_delivery() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id = client.create_escrow(
+    let id = client.create_escrow_8(
         &payees_45,
         &None::<Address>,
         &resolver,
@@ -85,7 +85,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_auto_release() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id = client.create_escrow(
+    let id = client.create_escrow_8(
         &payees_44,
         &None::<Address>,
         &resolver,
@@ -130,7 +130,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_release() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id = client.create_escrow(
+    let id = client.create_escrow_8(
         &payees_43,
         &None::<Address>,
         &resolver,
@@ -175,7 +175,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_refund() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let id = client.create_escrow(
+    let id = client.create_escrow_8(
         &payees_42,
         &None::<Address>,
         &resolver,

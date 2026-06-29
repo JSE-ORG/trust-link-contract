@@ -42,7 +42,7 @@ fn setup() -> Fx {
         address: seller.clone(),
         bps: 10_000,
     });
-    let escrow_id = client.create_escrow(
+    let escrow_id = client.create_escrow_8(
         &payees_67,
         &None::<Address>,
         &resolver,
@@ -51,6 +51,7 @@ fn setup() -> Fx {
         &0_u32,
         &0_u32,
         &0_u64,
+        &None::<String>,
     );
 
     Fx {
@@ -171,7 +172,7 @@ fn terminal_state_rejected() {
         address: seller.clone(),
         bps: 10_000,
     });
-    let escrow_id = client.create_escrow(
+    let escrow_id = client.create_escrow_8(
         &payees_66,
         &None::<Address>,
         &resolver,
@@ -180,6 +181,7 @@ fn terminal_state_rejected() {
         &0_u32,
         &0_u32,
         &0_u64,
+        &None::<String>,
     );
 
     // Cancel moves to Canceled (terminal)

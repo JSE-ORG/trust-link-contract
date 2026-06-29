@@ -22,6 +22,15 @@ pub enum DataKey {
     TotalRefunded,
     FeeConfig,
     BuyerEscrowIndex(Address),
+    VendorEscrowIndex(Address),
+    PendingExpiry(u64),
+    // Missing variants required by lib.rs:
+    TokenAllowlistEnabled,
+    TokenAllowlist,
+    PlatformFeeBps,
+    Treasury,
+    MinAmount,
+    MaxAmount,
 }
 
 #[contracttype]
@@ -116,6 +125,7 @@ pub struct Message {
     pub timestamp: u64,
     pub content: String,
 }
+
 /// On-chain counters for escrow lifecycle events.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

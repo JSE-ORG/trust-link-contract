@@ -45,7 +45,7 @@ fn test_get_escrows_by_vendor_multiple() {
         address: vendor_1.clone(),
         bps: 10_000,
     });
-    let id1 = client.create_escrow(
+    let id1 = client.create_escrow_8(
         &payees_51,
         &None::<Address>,
         &resolver,
@@ -60,7 +60,7 @@ fn test_get_escrows_by_vendor_multiple() {
         address: vendor_1.clone(),
         bps: 10_000,
     });
-    let id2 = client.create_escrow(
+    let id2 = client.create_escrow_8(
         &payees_50,
         &None::<Address>,
         &resolver,
@@ -77,15 +77,16 @@ fn test_get_escrows_by_vendor_multiple() {
         address: vendor_2.clone(),
         bps: 10_000,
     });
-    let id3 = client.create_escrow(
+    let id3 = client.create_escrow_8(
         &payees_49,
         &None::<Address>,
         &resolver,
         &token,
         &3000_i128,
         &0_u32,
-        &0_u32,
-        &3600_u64,
+    &0_u32,          // 7. Add resolver fee bps
+    &3600_u64,       // 8. Shipping window
+    &None::<String>,
     );
 
     // Check escrows for vendor 1
@@ -118,20 +119,21 @@ fn test_vendor_escrow_data_integrity_and_state_transitions() {
         address: vendor.clone(),
         bps: 10_000,
     });
-    let id = client.create_escrow(
+    let id = client.create_escrow_8(
         &payees_48,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &0_u32,
-        &0_u32,
-        &3600_u64,
+    &0_u32,          // 7. Add resolver fee bps
+    &3600_u64,       // 8. Shipping window
+    &None::<String>,
     );
 
     // Assert initial state and data integrity
     let escrow = client.get_escrow(&id);
-    assert_eq!(escrow.seller, vendor);
+    assert_eq!(escrow.payees.get(0).unwrap().address, vendor);
     assert_eq!(escrow.state, EscrowState::Pending);
     assert_eq!(escrow.amount, 1000);
 

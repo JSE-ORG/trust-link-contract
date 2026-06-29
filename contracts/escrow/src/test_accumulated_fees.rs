@@ -33,7 +33,7 @@ fn test_accumulated_fees() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    
+
     // Set 1% protocol fee and 2% arbitration fee
     client.initialize(&admin, &fee_collector, &200_u32);
     client.set_protocol_fee(&admin, &100_u32);
