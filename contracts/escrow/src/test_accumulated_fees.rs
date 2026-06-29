@@ -40,12 +40,14 @@ fn test_accumulated_fees() {
 
     let amount = 1000;
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &Some(buyer.clone()),
         &resolver,
         &token,
         &amount,
-        &100_u32, // Escrow fee 1%
+        &100_u32,
+        &0_u32,
+        // Escrow fee 1%
         &3600,
     );
 

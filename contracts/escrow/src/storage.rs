@@ -20,6 +20,14 @@ fn extend_ttl_for_key(env: &Env, key: &DataKey) {
     env.storage().persistent().extend_ttl(key, ext / 2, ext);
 }
 
+/// Typed keys for all contract storage entries.
+///
+/// Storage-tier rationale:
+/// - Instance keys store singleton/global configuration and counters.
+/// - Persistent keys store per-escrow data and user indexes that must survive
+///   contract instance TTL changes.
+// Storage helpers use the unified `DataKey` enum defined in `types.rs`.
+
 pub fn write_admin_address(env: &Env, admin: &Address) {
     env.storage().instance().set(&DataKey::Admin, admin);
 }
@@ -41,10 +49,7 @@ pub fn write_escrow_counter(env: &Env, counter: u64) {
 }
 
 pub fn read_escrow_counter(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get(&DataKey::EscrowCounter)
-        .unwrap_or(0)
+    env.storage().instance().get(&DataKey::EscrowCounter).unwrap_or(0)
 }
 
 pub fn write_escrow_data(env: &Env, escrow_id: u64, escrow: &EscrowData) {
@@ -54,9 +59,7 @@ pub fn write_escrow_data(env: &Env, escrow_id: u64, escrow: &EscrowData) {
 }
 
 pub fn read_escrow_data(env: &Env, escrow_id: u64) -> Option<EscrowData> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Escrow(escrow_id))
+    env.storage().persistent().get(&DataKey::Escrow(escrow_id))
 }
 
 pub fn write_vendor_escrow_index(env: &Env, vendor: &Address, escrow_ids: &Vec<u64>) {
