@@ -643,6 +643,10 @@ fn distribute_to_payees(
     payees: &Vec<Payee>,
     amount: i128,
 ) -> Result<(), ContractError> {
+    if amount < 0 {
+        return Err(ContractError::InvalidAmount);
+    }
+
     let token_client = token::Client::new(env, token_addr);
     let contract_addr = env.current_contract_address();
 
@@ -651,7 +655,11 @@ fn distribute_to_payees(
     // Calculate amounts for all payees except the first
     for i in 1..payees.len() {
         let payee = payees.get(i).unwrap();
-        let payee_amount = (amount * payee.bps as i128) / 10_000;
+        let payee_amount = amount
+            .checked_mul(payee.bps as i128)
+            .ok_or(ContractError::ArithmeticError)?
+            .checked_div(10_000)
+            .ok_or(ContractError::ArithmeticError)?;
 
         if payee_amount > 0 {
             token_client.transfer(&contract_addr, &payee.address, &payee_amount);
