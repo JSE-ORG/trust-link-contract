@@ -6,6 +6,9 @@ target_local
 .soroban
 .stellar
 
+# Node (bindings/)
+node_modules
+
 issues.txt
 upload_issues.sh
 WAVE_ISSUES.md

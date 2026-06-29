@@ -241,6 +241,8 @@ export interface EscrowCompleted {
 export interface EscrowCancelled {
   escrow_id: bigint;
   seller: AddressLike;
+  /** Address that actually initiated the cancellation (buyer or a payee/seller). */
+  cancelled_by: AddressLike;
   cancelled_at: bigint;
 }
 

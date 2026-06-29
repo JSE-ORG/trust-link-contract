@@ -40,11 +40,12 @@ fn fund_escrow_before_expiry_succeeds() {
     let (client, seller, buyer, resolver, _fee_collector, token_addr) = setup(&env);
 
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &1_000_i128,
+        &0_u32,
         &0_u32,
         &0_u64,
     );
@@ -72,11 +73,12 @@ fn fund_escrow_after_expiry_returns_escrow_expired() {
     let (client, seller, buyer, resolver, _fee_collector, token_addr) = setup(&env);
 
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &1_000_i128,
+        &0_u32,
         &0_u32,
         &0_u64,
     );
@@ -101,11 +103,12 @@ fn auto_cancel_pending_before_expiry_is_rejected() {
     let (client, seller, _buyer, resolver, _fee_collector, token_addr) = setup(&env);
 
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &1_000_i128,
+        &0_u32,
         &0_u32,
         &0_u64,
     );
@@ -130,11 +133,12 @@ fn auto_cancel_pending_after_expiry_transitions_to_canceled() {
     let (client, seller, _buyer, resolver, _fee_collector, token_addr) = setup(&env);
 
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &1_000_i128,
+        &0_u32,
         &0_u32,
         &0_u64,
     );
@@ -166,11 +170,12 @@ fn auto_cancel_pending_on_funded_escrow_returns_invalid_state() {
     let (client, seller, buyer, resolver, _fee_collector, token_addr) = setup(&env);
 
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &1_000_i128,
+        &0_u32,
         &0_u32,
         &0_u64,
     );

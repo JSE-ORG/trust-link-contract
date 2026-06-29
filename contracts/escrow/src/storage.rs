@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 use crate::{EscrowData, FeeConfig, DEFAULT_TTL_EXTENSION};
 
@@ -35,7 +35,7 @@ pub fn extend_instance_ttl(env: &Env) {
 }
 
 /// Helper to extend TTL on a persistent storage key.
-fn extend_ttl_for_key(env: &Env, key: &StorageKey) {
+fn extend_ttl_for_key(env: &Env, key: &DataKey) {
     let ext = get_ttl_extension(env);
     env.storage()
         .persistent()
@@ -48,61 +48,34 @@ fn extend_ttl_for_key(env: &Env, key: &StorageKey) {
 /// - Instance keys store singleton/global configuration and counters.
 /// - Persistent keys store per-escrow data and user indexes that must survive
 ///   contract instance TTL changes.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum StorageKey {
-    // Instance storage: global singleton values.
-    /// Stores the current admin address responsible for contract administration.
-    AdminAddress,
-    /// Stores the global fee configuration (protocol_fee_bps, arbitration_fee_bps).
-    FeeConfig,
-    /// Stores the monotonically incrementing counter used to generate unique escrow IDs.
-    EscrowCounter,
-
-    // Persistent storage: large, append-only, or user-scoped records.
-    /// Stores complete escrow data (seller, buyer, token, amount, state, etc.) by escrow ID.
-    EscrowData(u64),
-    /// Stores list of escrow IDs associated with a vendor (seller) address for easy lookup.
-    VendorEscrowIndex(Address),
-    /// Stores list of escrow IDs associated with a buyer address for easy lookup.
-    BuyerEscrowIndex(Address),
-}
+// Storage helpers use the unified `DataKey` enum defined in `types.rs`.
 
 pub fn write_admin_address(env: &Env, admin: &Address) {
-    env.storage()
-        .instance()
-        .set(&StorageKey::AdminAddress, admin);
+    env.storage().instance().set(&DataKey::Admin, admin);
 }
 
 pub fn read_admin_address(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&StorageKey::AdminAddress)
+    env.storage().instance().get(&DataKey::Admin)
 }
 
 pub fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
-    env.storage()
-        .instance()
-        .set(&StorageKey::FeeConfig, fee_config);
+    env.storage().instance().set(&DataKey::FeeConfig, fee_config);
 }
 
 pub fn read_fee_config(env: &Env) -> Option<FeeConfig> {
-    env.storage().instance().get(&StorageKey::FeeConfig)
+    env.storage().instance().get(&DataKey::FeeConfig)
 }
 
 pub fn write_escrow_counter(env: &Env, counter: u64) {
-    env.storage()
-        .instance()
-        .set(&StorageKey::EscrowCounter, &counter);
+    env.storage().instance().set(&DataKey::EscrowCounter, &counter);
 }
 
 pub fn read_escrow_counter(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get(&StorageKey::EscrowCounter)
-        .unwrap_or(0)
+    env.storage().instance().get(&DataKey::EscrowCounter).unwrap_or(0)
 }
 
 pub fn write_escrow_data(env: &Env, escrow_id: u64, escrow: &EscrowData) {
-    let key = StorageKey::EscrowData(escrow_id);
+    let key = DataKey::Escrow(escrow_id);
     env.storage().persistent().set(&key, escrow);
     extend_ttl_for_key(env, &key);
 }
@@ -114,10 +87,11 @@ pub fn read_escrow_data(env: &Env, escrow_id: u64) -> Option<EscrowData> {
         extend_ttl_for_key(env, &key);
     }
     result
+    env.storage().persistent().get(&DataKey::Escrow(escrow_id))
 }
 
 pub fn write_vendor_escrow_index(env: &Env, vendor: &Address, escrow_ids: &Vec<u64>) {
-    let key = StorageKey::VendorEscrowIndex(vendor.clone());
+    let key = DataKey::VendorEscrowIndex(vendor.clone());
     env.storage().persistent().set(&key, escrow_ids);
     extend_ttl_for_key(env, &key);
 }
@@ -133,10 +107,12 @@ pub fn read_vendor_escrow_index(env: &Env, vendor: &Address) -> Vec<u64> {
         extend_ttl_for_key(env, &key);
     }
     result
+        .get(&DataKey::VendorEscrowIndex(vendor.clone()))
+        .unwrap_or(Vec::new(env))
 }
 
 pub fn write_buyer_escrow_index(env: &Env, buyer: &Address, escrow_ids: &Vec<u64>) {
-    let key = StorageKey::BuyerEscrowIndex(buyer.clone());
+    let key = DataKey::BuyerEscrowIndex(buyer.clone());
     env.storage().persistent().set(&key, escrow_ids);
     extend_ttl_for_key(env, &key);
 }
@@ -152,6 +128,8 @@ pub fn read_buyer_escrow_index(env: &Env, buyer: &Address) -> Vec<u64> {
         extend_ttl_for_key(env, &key);
     }
     result
+        .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
+        .unwrap_or(Vec::new(env))
 }
 
 #[cfg(test)]
@@ -205,5 +183,31 @@ mod tests {
 
         assert_eq!(read_vendors, vendor_ids);
         assert_eq!(read_buyers, buyer_ids);
+    }
+
+    #[test]
+    fn unified_key_enum_no_collision_between_buyer_and_vendor() {
+        let env = Env::default();
+        let contract_id = env.register(Escrow, ());
+        let addr = Address::generate(&env);
+
+        let mut vendor_ids = Vec::new(&env);
+        vendor_ids.push_back(10u64);
+
+        let mut buyer_ids = Vec::new(&env);
+        buyer_ids.push_back(20u64);
+
+        env.as_contract(&contract_id, || {
+            write_vendor_escrow_index(&env, &addr, &vendor_ids);
+            write_buyer_escrow_index(&env, &addr, &buyer_ids);
+        });
+
+        let got_vendor =
+            env.as_contract(&contract_id, || read_vendor_escrow_index(&env, &addr));
+        let got_buyer =
+            env.as_contract(&contract_id, || read_buyer_escrow_index(&env, &addr));
+
+        assert_eq!(got_vendor, vendor_ids, "VendorEscrowIndex and BuyerEscrowIndex must not collide for the same address");
+        assert_eq!(got_buyer, buyer_ids, "BuyerEscrowIndex must be independent of VendorEscrowIndex");
     }
 }
