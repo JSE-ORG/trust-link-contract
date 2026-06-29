@@ -3424,3 +3424,5 @@ mod test_resolver_rotation;
 mod test_set_fee_collector;
 mod test_shipping_window;
 mod test_withdraw_fees;
+mod malicious_token;
+mod test_malicious_token;
