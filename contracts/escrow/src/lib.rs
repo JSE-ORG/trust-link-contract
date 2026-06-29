@@ -673,7 +673,24 @@ fn create_escrow_internal(
     if payees.is_empty() {
         return Err(ContractError::InvalidAddress);
     }
+
+    let zero = Address::from_string(&String::from_str(
+        env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    ));
+    if resolver == zero || token == zero {
+        return Err(ContractError::InvalidAddress);
+    }
+    if let Some(ref b) = buyer {
+        if *b == zero {
+            return Err(ContractError::InvalidAddress);
+        }
+    }
+
     let first_payee = payees.get(0).unwrap();
+    if first_payee.address == zero {
+        return Err(ContractError::InvalidAddress);
+    }
     first_payee.address.require_auth();
 
     ensure_action_not_paused(env, Symbol::new(env, "CREATE"))?;
