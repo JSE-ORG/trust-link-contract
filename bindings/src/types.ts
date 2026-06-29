@@ -99,6 +99,53 @@ export interface DisputeData {
   disputed_at: bigint;
 }
 
+/** A single payout recipient and its share, in basis points (#369). */
+export interface Payee {
+  address: AddressLike;
+  bps: number;
+}
+
+/** A message attached to an escrow thread. */
+export interface Message {
+  sender: AddressLike;
+  timestamp: bigint;
+  content: string;
+}
+
+/** One entry in a `batch_create_escrow` call. */
+export interface EscrowInput {
+  buyer: AddressLike | null;
+  resolver: AddressLike;
+  token: AddressLike;
+  amount: bigint;
+  fee_bps: number;
+  shipping_window: bigint;
+  notes: string | null;
+}
+
+/** Aggregate lifecycle counters returned by `get_stats`. */
+export interface ContractStats {
+  total_created: bigint;
+  total_completed: bigint;
+  total_disputed: bigint;
+  total_refunded: bigint;
+}
+
+/** Public, read-only contract configuration from `get_public_config`. */
+export interface PublicContractConfig {
+  fee_bps: number;
+  paused: boolean;
+  escrow_count: bigint;
+}
+
+/** Admin-visible contract configuration from `get_contract_config`. */
+export interface ContractConfig {
+  admin: AddressLike;
+  fee_bps: number;
+  fee_collector: AddressLike;
+  escrow_count: bigint;
+}
+
 export interface ResolverRotated {
   escrow_id: bigint;
   old_resolver: AddressLike;
