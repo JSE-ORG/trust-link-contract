@@ -3486,3 +3486,5 @@ mod test_resolver_rotation;
 mod test_resolver_registry;
 mod test_emergency_drain;
 mod test_set_fee_collector;
+mod test_unauthorized;
+mod test_auth_matrix;
