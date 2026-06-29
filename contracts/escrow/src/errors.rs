@@ -76,4 +76,6 @@ pub enum ContractError {
     AppealWindowActive = 31,
     /// Returned when the platform fee exceeds its allowed maximum.
     PlatformFeeExceedsMax = 32,
+    /// Returned when shipping_window is zero or exceeds the maximum allowed value.
+    InvalidShippingWindow = 33,
 }

@@ -2,7 +2,7 @@
 //! `cancel_escrow` is only legal while the escrow is `Pending` (#21). From
 //! any other state it must reject with `InvalidState`.
 
-use crate::{ContractError, DataKey, Escrow, EscrowClient, EscrowData, EscrowState};
+use crate::{ContractError, DataKey, Escrow, EscrowClient, EscrowData, EscrowState, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _, Vec},
     token, Address, BytesN, Env, String, Symbol,

@@ -2,7 +2,7 @@
 
 use crate::helpers::payout::calculate_protocol_fee;
 use crate::test_helpers::{advance_time, create_funded_escrow, setup_contract};
-use crate::{ContractError, Escrow, EscrowClient, MIN_ESCROW_AMOUNT};
+use crate::{ContractError, Escrow, EscrowClient, MIN_ESCROW_AMOUNT, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _, Vec},
     token, Address, BytesN, Env, String as SorobanString, Symbol,

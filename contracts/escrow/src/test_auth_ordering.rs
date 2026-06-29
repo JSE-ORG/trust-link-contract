@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{Escrow, EscrowClient};
+use crate::{Escrow, EscrowClient, Payee};
 use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 
 #[test]

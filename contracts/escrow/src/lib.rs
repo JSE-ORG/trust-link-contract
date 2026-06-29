@@ -16,40 +16,23 @@ pub mod storage;
 pub mod types;
 pub use crate::errors::ContractError;
 pub use crate::events::{
-    AdminRotated, AutoReleased, ContractInitialized, ContractPausedEvent, ContractUnpausedEvent,
-    DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowCancelled, EscrowCompleted,
-    EscrowCreated, EscrowFunded, EscrowShipped, FeeUpdated, FeesWithdrawn, ArbitrationFeeUpdated,
-    ProtocolFeeUpdated, ResolverRotated, ResolverVoteRecorded,
-    emit_admin_rotated, emit_auto_released, emit_contract_initialized, emit_contract_paused,
-    emit_contract_unpaused, emit_delivery_recorded, emit_dispute_raised, emit_dispute_resolved,
-    emit_escrow_cancelled, emit_escrow_completed, emit_escrow_created, emit_escrow_funded,
-    emit_escrow_shipped, emit_fee_updated, emit_fees_withdrawn, emit_arbitration_fee_updated,
-    emit_protocol_fee_updated, emit_resolver_rotated, emit_resolver_vote_recorded,
-};
-pub use crate::types::{
-    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowState,
-    FeeConfig, PublicContractConfig, ResolutionType, ResolverSet, ResolverVote,
-};
-
-    emit_admin_rotated, emit_arbitration_fee_updated, emit_auto_released,
-    emit_contract_initialized, emit_contract_paused, emit_contract_unpaused,
-    emit_delivery_recorded, emit_dispute_raised, emit_dispute_resolved, emit_escrow_cancelled,
-    emit_escrow_completed, emit_escrow_created, emit_escrow_funded, emit_escrow_shipped,
-    emit_fee_updated, emit_fees_withdrawn, emit_protocol_fee_updated, emit_resolver_rotated,
     AdminRotated, ArbitrationFeeUpdated, AutoReleased, ContractInitialized, ContractPausedEvent,
-    ContractUnpausedEvent, DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowCancelled,
-    EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, FeeUpdated, FeesWithdrawn,
-    ProtocolFeeUpdated, ResolverRotated,
-
-    emit_token_allowlist_updated, emit_allowlist_toggled,
-    emit_dispute_pending_finalization, emit_dispute_appealed,
-    emit_platform_fee_updated, emit_treasury_updated,
-    emit_basket_escrow_created, emit_refund_requested, emit_refund_approved,
-    emit_contract_upgraded, ContractUpgradedEvent,
+    ContractUnpausedEvent, ContractUpgradedEvent, DeliveryRecorded, DisputeRaised, DisputeResolved,
+    EscrowCancelled, EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, FeeUpdated,
+    FeesWithdrawn, ProtocolFeeUpdated, ResolverRotated, ResolverVoteRecorded,
+    emit_admin_rotated, emit_allowlist_toggled, emit_arbitration_fee_updated, emit_auto_released,
+    emit_basket_escrow_created, emit_contract_initialized, emit_contract_paused,
+    emit_contract_unpaused, emit_contract_upgraded, emit_delivery_recorded,
+    emit_dispute_appealed, emit_dispute_pending_finalization, emit_dispute_raised,
+    emit_dispute_resolved, emit_escrow_cancelled, emit_escrow_completed, emit_escrow_created,
+    emit_escrow_funded, emit_escrow_shipped, emit_fee_updated, emit_fees_withdrawn,
+    emit_platform_fee_updated, emit_protocol_fee_updated, emit_refund_approved,
+    emit_refund_requested, emit_resolver_rotated, emit_resolver_vote_recorded,
+    emit_token_allowlist_updated, emit_treasury_updated,
 };
 pub use crate::types::{
-    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowState,
-    FeeConfig, PublicContractConfig, ResolutionType, EscrowInput, Payee,
+    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
+    EscrowState, FeeConfig, Payee, PublicContractConfig, ResolutionType, ResolverSet, ResolverVote,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
@@ -124,6 +107,14 @@ const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 pub const MAX_TRACKING_ID_LEN: u32 = 64;
 pub const MAX_DESCRIPTION_LEN: u32 = 256;
 pub const MAX_NOTES_LEN: u32 = 500;
+
+/// Minimum shipping window in seconds (1 second).
+/// A value of 0 would allow an immediate dispute with no shipping time, which is invalid.
+pub const MIN_SHIPPING_WINDOW: u64 = 1;
+
+/// Maximum shipping window in seconds (approximately 2 years).
+/// Prevents accidental or malicious use of u64::MAX which would lock funds indefinitely.
+pub const MAX_SHIPPING_WINDOW: u64 = 63_072_000;
 
 /// Maximum escrow amount intentionally capped to
 /// preserve arithmetic safety for fee calculations
@@ -318,22 +309,6 @@ fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
     env.storage().instance().set(&DataKey::FeeConfig, fee_config);
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EscrowData {
-    pub seller: Address,
-    pub buyer: Option<Address>,
-    pub resolvers: ResolverSet,
-    pub token: Address,
-    pub amount: i128,
-    pub fee_bps: u32,
-    pub shipping_window: u64,
-    pub funded_at: u64,
-    pub dispute_deadline: u64,
-    pub shipped_at: u64,
-    pub delivered_at: Option<u64>,
-    pub tracking_id: Option<String>,
-    pub state: EscrowState,
 fn is_token_allowlist_enabled(env: &Env) -> bool {
     env.storage()
         .instance()
@@ -717,6 +692,10 @@ fn create_escrow_internal(
     let min_amount = env.storage().instance().get(&DataKey::MinAmount).unwrap_or(MIN_ESCROW_AMOUNT);
     if amount < min_amount {
         return Err(ContractError::AmountBelowMinimum);
+    }
+
+    if shipping_window < MIN_SHIPPING_WINDOW || shipping_window > MAX_SHIPPING_WINDOW {
+        return Err(ContractError::InvalidShippingWindow);
     }
 
     validate_escrow_fee_bps(fee_bps)?;
@@ -2852,43 +2831,19 @@ impl Escrow {
         result
     }
 
-    /// Returns the current fee configuration as a read-only view.
+    /// Returns the current fee configuration.
     pub fn get_fee_config(env: Env) -> FeeConfig {
         read_fee_config(&env)
     }
 
-    /// Returns the current contract configuration as a read-only view.
-    pub fn get_contract_config(env: Env) -> ContractConfig {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .expect("not initialized");
-
-        let fee_bps = read_fee_config(&env).protocol_fee_bps;
-
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
-            .expect("fee collector not set");
-
-        let current_counter: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCounter)
-            .unwrap_or(1);
-        let escrow_count = current_counter.saturating_sub(1);
-
-        ContractConfig {
-            admin,
-            fee_bps,
-            fee_collector,
-            escrow_count,
-        }
-    /// Retrieves all escrow IDs associated with a specific vendor.
+    /// Retrieves all escrow IDs associated with a specific vendor (seller).
     pub fn get_escrows_by_vendor(env: Env, vendor: Address) -> Vec<u64> {
         storage::read_vendor_escrow_index(&env, &vendor)
+    }
+
+    /// Retrieves all escrow IDs associated with a specific seller.
+    pub fn get_escrows_by_seller(env: Env, seller: Address) -> Vec<u64> {
+        storage::read_vendor_escrow_index(&env, &seller)
     }
 
     /// Returns on-chain counters for escrow lifecycle events.
@@ -2964,11 +2919,6 @@ impl Escrow {
             fee_collector,
             escrow_count,
         })
-    }
-
-    /// Returns the current fee configuration.
-    pub fn get_fee_config(env: Env) -> FeeConfig {
-        read_fee_config(&env)
     }
 
     /// Rotates the resolver for an escrow. Callable by any payee or admin.
@@ -3435,44 +3385,31 @@ impl Escrow {
 }
 
 mod test;
-mod test_co_signed_release;
-mod test_get_escrows_by_ids;
-mod test_edge_cases;
-mod test_withdraw_fees;
-mod test_dispute;
-mod test_escrow_id;
-mod test_resolution;
-mod test_pause;
-mod test_overflow;
-mod test_dispute_deadline_overflow;
-mod test_fee_minimum;
-mod test_minimum_amount_guard;
-mod test_fee_calculation_accuracy;
-mod test_arbitration_fee;
-mod test_fee_config;
-mod test_helpers;
 mod test_admin;
 mod test_admin_rotation;
 mod test_arbitration_fee;
 mod test_auth_ordering;
 mod test_auto_release;
 mod test_auto_release_additional;
-mod test_initialize_twice;
-mod test_initialize_zero_admin;
 mod test_cancel_restrictions;
+mod test_co_signed_release;
 mod test_concurrent_vendor_escrows;
 mod test_contract_config;
 mod test_delivery;
 mod test_dispute;
+mod test_dispute_deadline_overflow;
 mod test_dispute_flow;
 mod test_dispute_window;
 mod test_edge_cases;
+mod test_emergency_drain;
 mod test_escrow_id;
 mod test_escrow_states;
 mod test_fee_calculation_accuracy;
 mod test_fee_config;
 mod test_fee_minimum;
 mod test_get_escrows_by_buyer;
+mod test_get_escrows_by_ids;
+mod test_get_escrows_by_seller;
 mod test_get_escrows_by_vendor;
 mod test_helpers;
 mod test_initialize_twice;
@@ -3482,7 +3419,8 @@ mod test_not_found;
 mod test_overflow;
 mod test_pause;
 mod test_resolution;
-mod test_resolver_rotation;
 mod test_resolver_registry;
-mod test_emergency_drain;
+mod test_resolver_rotation;
 mod test_set_fee_collector;
+mod test_shipping_window;
+mod test_withdraw_fees;

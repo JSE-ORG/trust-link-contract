@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{DisputeResolved, Escrow, EscrowClient, ResolutionType};
+use crate::{DisputeResolved, Escrow, EscrowClient, Payee, ResolutionType};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger, Vec},
     token, Address, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val,

@@ -4,7 +4,7 @@
 
 use crate::{
     ContractError, DataKey, DisputeData, DisputeStatus, Escrow, EscrowClient, EscrowData,
-    EscrowState,
+    EscrowState, Payee,
 };
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _, Vec},

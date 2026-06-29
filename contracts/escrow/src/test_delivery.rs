@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::{advance_time, create_funded_escrow, setup_contract};
-use crate::{ContractError, DeliveryRecorded, EscrowState};
+use crate::{ContractError, DeliveryRecorded, EscrowState, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
     vec, Address, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val,

@@ -8,7 +8,7 @@
 
 use crate::{
     DataKey, DisputeData, DisputeStatus, Escrow, EscrowClient, EscrowData, EscrowState,
-    ResolutionType,
+    Payee, ResolutionType,
 };
 use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String, Symbol, Vec};
 

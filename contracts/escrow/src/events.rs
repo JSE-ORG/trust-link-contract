@@ -420,39 +420,6 @@ pub fn emit_resolver_vote_recorded(
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ResolverVoteRecorded {
-    pub escrow_id: u64,
-    pub resolver: Address,
-    pub resolution: ResolutionType,
-    pub vote_count: u32,
-    pub threshold: u32,
-    pub voted_at: u64,
-}
-
-/// Topic: `(\"resolver_vote_recorded\",)`, data: `ResolverVoteRecorded`.
-pub fn emit_resolver_vote_recorded(
-    env: &Env,
-    escrow_id: u64,
-    resolver: Address,
-    resolution: ResolutionType,
-    vote_count: u32,
-    threshold: u32,
-) {
-    env.events().publish(
-        (Symbol::new(env, "resolver_vote_recorded"),),
-        ResolverVoteRecorded {
-            escrow_id,
-            resolver,
-            resolution,
-            vote_count,
-            threshold,
-            voted_at: env.ledger().timestamp(),
-        },
-    );
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AutoReleased {
     pub escrow_id: u64,
     pub seller: Address,
