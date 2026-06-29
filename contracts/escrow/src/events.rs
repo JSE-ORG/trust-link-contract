@@ -549,16 +549,23 @@ pub struct EscrowCancelled {
     pub schema_version: u32,
     pub escrow_id: u64,
     pub seller: Address,
+    /// Address that actually initiated the cancellation (buyer or a payee/seller).
+    /// `seller` always reflects the escrow's seller; `cancelled_by` reflects the caller.
+    pub cancelled_by: Address,
     pub timestamp: u64,
     pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(symbol_short!("Escrow"), symbol_short!("Canceled"), seller.clone(),)`, data: `EscrowCancelled`.
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Canceled"), cancelled_by.clone(),)`, data: `EscrowCancelled`.
+///
+/// `seller` is the escrow's seller (first payee). `cancelled_by` is the caller that
+/// triggered the cancellation, which may be the buyer rather than the seller.
 pub fn emit_escrow_cancelled(
     env: &Env,
     escrow_id: u64,
     seller: Address,
+    cancelled_by: Address,
     prev_state: crate::EscrowState,
     new_state: crate::EscrowState,
 ) {
@@ -566,12 +573,13 @@ pub fn emit_escrow_cancelled(
         (
             symbol_short!("Escrow"),
             symbol_short!("Canceled"),
-            seller.clone(),
+            cancelled_by.clone(),
         ),
         EscrowCancelled {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             seller,
+            cancelled_by,
             timestamp: env.ledger().timestamp(),
             prev_state,
             new_state,
@@ -908,6 +916,42 @@ pub fn emit_refund_approved(
             seller.clone(),
         ),
         RefundApprovedEvent {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            seller,
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundDeniedEvent {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub seller: Address,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
+}
+
+/// Topic: `(symbol_short!("Refund"), symbol_short!("Denied"), seller.clone(),)`, data: `RefundDeniedEvent`.
+pub fn emit_refund_denied(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
+    env.events().publish(
+        (
+            symbol_short!("Refund"),
+            symbol_short!("Denied"),
+            seller.clone(),
+        ),
+        RefundDeniedEvent {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             seller,

@@ -27,7 +27,7 @@ pub use crate::events::{
     emit_dispute_resolved, emit_escrow_cancelled, emit_escrow_completed, emit_escrow_created,
     emit_escrow_funded, emit_escrow_shipped, emit_fee_updated, emit_fees_withdrawn,
     emit_platform_fee_updated, emit_protocol_fee_updated, emit_refund_approved,
-    emit_refund_requested, emit_resolver_rotated, emit_resolver_vote_recorded,
+    emit_refund_denied, emit_refund_requested, emit_resolver_rotated, emit_resolver_vote_recorded,
     emit_token_allowlist_updated, emit_treasury_updated,
 };
 pub use crate::types::{
@@ -1858,9 +1858,11 @@ impl Escrow {
         }
 
         save_escrow(&env, escrow_id, &escrow);
+        let seller_addr = escrow.payees.get(0).unwrap().address.clone();
         emit_escrow_cancelled(
             &env,
             escrow_id,
+            seller_addr,
             caller,
             prev_state,
             crate::EscrowState::Canceled,
@@ -1895,7 +1897,16 @@ impl Escrow {
         escrow.state = EscrowState::Canceled;
         save_escrow(&env, escrow_id, &escrow);
 
-        emit_escrow_cancelled(&env, escrow_id, seller_addr.clone(), prev_state.clone(), crate::EscrowState::Canceled);
+        // Mutual cancel requires both seller and buyer auth; record the seller as
+        // the canonical canceller for indexing purposes.
+        emit_escrow_cancelled(
+            &env,
+            escrow_id,
+            seller_addr.clone(),
+            seller_addr.clone(),
+            prev_state.clone(),
+            crate::EscrowState::Canceled,
+        );
         Ok(())
     }
 
@@ -2943,7 +2954,14 @@ impl Escrow {
     }
 
     pub fn get_contract_config(env: Env) -> Result<ContractConfig, ContractError> {
-        let admin = require_admin(&env)?;
+        // Distinguish "never initialized" from "not authorized": before
+        // `initialize` runs there is no admin (or fee collector) in storage,
+        // so reading config would otherwise panic or return garbage.
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::NotInitialized)?;
         admin.require_auth();
 
         let fee_bps: u32 = read_fee_config(&env).protocol_fee_bps;
@@ -2951,7 +2969,7 @@ impl Escrow {
             .storage()
             .instance()
             .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotAuthorized)?;
+            .ok_or(ContractError::NotInitialized)?;
         let escrow_count: u64 = env
             .storage()
             .instance()
@@ -3108,6 +3126,43 @@ impl Escrow {
             caller,
             prev_state,
             crate::EscrowState::Refunded,
+        );
+        Ok(())
+    }
+
+    /// Seller (any payee) denies a pending refund request, returning the escrow
+    /// to the `Funded` state so the normal shipment flow can continue. Funds stay
+    /// locked in escrow; only the request is rejected.
+    pub fn deny_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
+        caller.require_auth();
+        ensure_not_paused(&env)?;
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        let mut is_payee = false;
+        for i in 0..escrow.payees.len() {
+            if caller == escrow.payees.get(i).unwrap().address {
+                is_payee = true;
+                break;
+            }
+        }
+        if !is_payee {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        if escrow.state != EscrowState::RefundRequested {
+            return Err(ContractError::InvalidStateTransition);
+        }
+
+        let prev_state = escrow.state.clone();
+        escrow.state = EscrowState::Funded;
+        save_escrow(&env, escrow_id, &escrow);
+
+        emit_refund_denied(
+            &env,
+            escrow_id,
+            caller,
+            prev_state,
+            crate::EscrowState::Funded,
         );
         Ok(())
     }
@@ -3706,6 +3761,7 @@ mod test_minimum_amount_guard;
 mod test_not_found;
 mod test_overflow;
 mod test_pause;
+mod test_refund_flow;
 mod test_resolution;
 mod test_resolver_registry;
 mod test_resolver_rotation;
