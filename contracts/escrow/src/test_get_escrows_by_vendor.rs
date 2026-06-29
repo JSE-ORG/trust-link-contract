@@ -1,9 +1,9 @@
 #![cfg(test)]
 
 use crate::test_helpers::setup_contract;
-use crate::{EscrowData, EscrowState};
+use crate::{EscrowState, Payee};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _, Vec},
+    testutils::{Address as _, Ledger as _},
     Address, Env,
 };
 

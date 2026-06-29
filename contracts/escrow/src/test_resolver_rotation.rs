@@ -2,7 +2,7 @@
 //! Tests for `rotate_resolver`: seller and admin can rotate, buyer cannot,
 //! same-address is rejected, and terminal states are rejected.
 
-use crate::{ContractError, Escrow, EscrowClient, EscrowState, ResolutionType, ResolverRotated};
+use crate::{ContractError, Escrow, EscrowClient, EscrowState, Payee, ResolutionType, ResolverRotated};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Vec},
     token, Address, BytesN, Env, String as SorobanString, Symbol, TryFromVal, Val,

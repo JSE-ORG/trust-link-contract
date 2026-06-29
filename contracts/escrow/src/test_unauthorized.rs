@@ -7,7 +7,7 @@
 //! `caller != admin → NotAuthorized` guard, not just the host's `require_auth`
 //! reject path.
 
-use crate::{ContractError, Escrow, EscrowClient};
+use crate::{ContractError, Escrow, EscrowClient, Payee};
 use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
 /// Fresh contract with admin/fee_collector initialised. All auths are mocked
