@@ -21,7 +21,7 @@ fn test_cancel_escrow_by_vendor_in_pending_state() {
     let resolver = Address::generate(&env);
 
     // Create escrow — stays in Pending (no buyer has funded it)
-    let id = client.create_escrow(&seller, &resolver, &token, &500_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow_legacy(&seller, &resolver, &token, &500_i128, &0_u32, &3600_u64);
 
     let escrow_before = client.get_escrow(&id);
     assert_eq!(escrow_before.state, EscrowState::Pending);
@@ -47,7 +47,7 @@ fn test_cancel_escrow_returns_funds_if_buyer_present() {
 
     mint_token(&env, &token, &buyer, 1000);
 
-    let id = client.create_escrow(&seller, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow_legacy(&seller, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
 
     // Fund the escrow so buyer tokens are locked
     client.fund_escrow(&id, &buyer);
@@ -77,7 +77,7 @@ fn test_cancel_escrow_non_pending_fails() {
 
     mint_token(&env, &token, &buyer, 1000);
 
-    let id = client.create_escrow(&seller, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow_legacy(&seller, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
 
     // Escrow is now Funded — cancel must be rejected
@@ -100,7 +100,7 @@ fn test_buyer_can_cancel_if_preassigned_before_funding() {
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
 
-    let id = client.create_escrow(&seller, &resolver, &token, &500_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow_legacy(&seller, &resolver, &token, &500_i128, &0_u32, &3600_u64);
 
     // Simulate a workflow where a buyer has already been assigned off-chain
     // before funding occurs. The escrow is still Pending, so cancellation is legal.
@@ -133,7 +133,7 @@ fn test_cancelled_escrow_cannot_be_funded() {
 
     mint_token(&env, &token, &buyer, 1000);
 
-    let id = client.create_escrow(&seller, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow_legacy(&seller, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
     client.cancel_escrow(&seller, &id);
 
     let fund_result = client.try_fund_escrow(&id, &buyer);

@@ -27,7 +27,7 @@ pub struct FeeUpdated {
 /// Topic: `(symbol_short!("Fee"), symbol_short!("Updated"),)`, data: `FeeUpdated`.
 pub fn emit_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
     env.events().publish(
-        (symbol_short!("Fee"), symbol_short!("Updated"),),
+        (symbol_short!("Fee"), symbol_short!("Updated")),
         FeeUpdated {
             schema_version: EVENT_SCHEMA_VERSION,
             old_fee_bps,
@@ -49,7 +49,7 @@ pub struct ProtocolFeeUpdated {
 /// Topic: `(symbol_short!("ProtoFee"), symbol_short!("Updated"),)`, data: `ProtocolFeeUpdated`.
 pub fn emit_protocol_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
     env.events().publish(
-        (symbol_short!("ProtoFee"), symbol_short!("Updated"),),
+        (symbol_short!("ProtoFee"), symbol_short!("Updated")),
         ProtocolFeeUpdated {
             schema_version: EVENT_SCHEMA_VERSION,
             old_fee_bps,
@@ -71,7 +71,7 @@ pub struct ArbitrationFeeUpdated {
 /// Topic: `(symbol_short!("ArbFee"), symbol_short!("Updated"),)`, data: `ArbitrationFeeUpdated`.
 pub fn emit_arbitration_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
     env.events().publish(
-        (symbol_short!("ArbFee"), symbol_short!("Updated"),),
+        (symbol_short!("ArbFee"), symbol_short!("Updated")),
         ArbitrationFeeUpdated {
             schema_version: EVENT_SCHEMA_VERSION,
             old_fee_bps,
@@ -93,7 +93,7 @@ pub struct AdminRotated {
 /// Topic: `(symbol_short!("Admin"), symbol_short!("Rotated"),)`, data: `AdminRotated`.
 pub fn emit_admin_rotated(env: &Env, old_admin: Address, new_admin: Address) {
     env.events().publish(
-        (symbol_short!("Admin"), symbol_short!("Rotated"),),
+        (symbol_short!("Admin"), symbol_short!("Rotated")),
         AdminRotated {
             schema_version: EVENT_SCHEMA_VERSION,
             old_admin,
@@ -114,7 +114,11 @@ pub struct ContractPausedEvent {
 /// Topic: `(symbol_short!("Contract"), symbol_short!("Paused"), admin.clone(),)`, data: `ContractPausedEvent`.
 pub fn emit_contract_paused(env: &Env, admin: Address) {
     env.events().publish(
-        (symbol_short!("Contract"), symbol_short!("Paused"), admin.clone(),),
+        (
+            symbol_short!("Contract"),
+            symbol_short!("Paused"),
+            admin.clone(),
+        ),
         ContractPausedEvent {
             schema_version: EVENT_SCHEMA_VERSION,
             admin,
@@ -134,7 +138,11 @@ pub struct ContractUnpausedEvent {
 /// Topic: `(symbol_short!("Contract"), symbol_short!("Unpaused"), admin.clone(),)`, data: `ContractUnpausedEvent`.
 pub fn emit_contract_unpaused(env: &Env, admin: Address) {
     env.events().publish(
-        (symbol_short!("Contract"), symbol_short!("Unpaused"), admin.clone(),),
+        (
+            symbol_short!("Contract"),
+            symbol_short!("Unpaused"),
+            admin.clone(),
+        ),
         ContractUnpausedEvent {
             schema_version: EVENT_SCHEMA_VERSION,
             admin,
@@ -156,7 +164,7 @@ pub struct FeesWithdrawn {
 /// Topic: `(symbol_short!("Fee"), symbol_short!("Withdrawn"), to.clone(),)`, data: `FeesWithdrawn`.
 pub fn emit_fees_withdrawn(env: &Env, token: Address, to: Address, amount: i128) {
     env.events().publish(
-        (symbol_short!("Fee"), symbol_short!("Withdrawn"), to.clone(),),
+        (symbol_short!("Fee"), symbol_short!("Withdrawn"), to.clone()),
         FeesWithdrawn {
             schema_version: EVENT_SCHEMA_VERSION,
             token,
@@ -200,7 +208,11 @@ pub fn emit_escrow_created(
     new_state: crate::EscrowState,
 ) {
     env.events().publish(
-        (symbol_short!("Escrow"), symbol_short!("Created"), seller.clone(),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Created"),
+            seller.clone(),
+        ),
         EscrowCreated {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -231,9 +243,20 @@ pub struct EscrowFunded {
 }
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Funded"), buyer.clone(),)`, data: `EscrowFunded`.
-pub fn emit_escrow_funded(env: &Env, escrow_id: u64, buyer: Address, amount: i128, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
+pub fn emit_escrow_funded(
+    env: &Env,
+    escrow_id: u64,
+    buyer: Address,
+    amount: i128,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (symbol_short!("Escrow"), symbol_short!("Funded"), buyer.clone(),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Funded"),
+            buyer.clone(),
+        ),
         EscrowFunded {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -259,9 +282,20 @@ pub struct EscrowShipped {
 }
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Shipped"), seller.clone(),)`, data: `EscrowShipped`.
-pub fn emit_escrow_shipped(env: &Env, escrow_id: u64, seller: Address, tracking_id: String, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
+pub fn emit_escrow_shipped(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    tracking_id: String,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (symbol_short!("Escrow"), symbol_short!("Shipped"), seller.clone(),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Shipped"),
+            seller.clone(),
+        ),
         EscrowShipped {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -285,7 +319,7 @@ pub struct DeliveryRecorded {
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Delivered"),)`, data: `DeliveryRecorded`.
 pub fn emit_delivery_recorded(env: &Env, escrow_id: u64, delivered_at: u64) {
     env.events().publish(
-        (symbol_short!("Escrow"), symbol_short!("Delivered"),),
+        (symbol_short!("Escrow"), symbol_short!("Delivered")),
         DeliveryRecorded {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -318,7 +352,11 @@ pub fn emit_escrow_completed(
     new_state: crate::EscrowState,
 ) {
     env.events().publish(
-        (symbol_short!("Escrow"), symbol_short!("Completed"), recipient.clone(),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Completed"),
+            recipient.clone(),
+        ),
         EscrowCompleted {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -358,7 +396,11 @@ pub fn emit_dispute_raised(
     new_state: crate::EscrowState,
 ) {
     env.events().publish(
-        (symbol_short!("Dispute"), symbol_short!("Raised"), buyer.clone(),),
+        (
+            symbol_short!("Dispute"),
+            symbol_short!("Raised"),
+            buyer.clone(),
+        ),
         DisputeRaised {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -403,7 +445,11 @@ pub fn emit_dispute_resolved(
     new_state: crate::EscrowState,
 ) {
     env.events().publish(
-        (symbol_short!("Dispute"), symbol_short!("Resolved"), resolver.clone(),),
+        (
+            symbol_short!("Dispute"),
+            symbol_short!("Resolved"),
+            resolver.clone(),
+        ),
         DisputeResolved {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -432,7 +478,7 @@ pub struct ResolverVoteRecorded {
     pub voted_at: u64,
 }
 
-/// Topic: `("resolver_vote_recorded",)`, data: `ResolverVoteRecorded`.
+/// Topic: `(\"resolver_vote_recorded\",)`, data: `ResolverVoteRecorded`.
 pub fn emit_resolver_vote_recorded(
     env: &Env,
     escrow_id: u64,
@@ -469,9 +515,21 @@ pub struct AutoReleased {
 }
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Released"), seller.clone(),)`, data: `AutoReleased`.
-pub fn emit_auto_released(env: &Env, escrow_id: u64, seller: Address, amount: i128, fee_bps: u32, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
+pub fn emit_auto_released(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    amount: i128,
+    fee_bps: u32,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (symbol_short!("Escrow"), symbol_short!("Released"), seller.clone(),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Released"),
+            seller.clone(),
+        ),
         AutoReleased {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -497,9 +555,19 @@ pub struct EscrowCancelled {
 }
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Canceled"), seller.clone(),)`, data: `EscrowCancelled`.
-pub fn emit_escrow_cancelled(env: &Env, escrow_id: u64, seller: Address, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
+pub fn emit_escrow_cancelled(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (symbol_short!("Escrow"), symbol_short!("Canceled"), seller.clone(),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Canceled"),
+            seller.clone(),
+        ),
         EscrowCancelled {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -529,7 +597,7 @@ pub fn emit_contract_initialized(
     arbitration_fee_bps: u32,
 ) {
     env.events().publish(
-        (symbol_short!("Contract"), symbol_short!("Init"),),
+        (symbol_short!("Contract"), symbol_short!("Init")),
         ContractInitialized {
             schema_version: EVENT_SCHEMA_VERSION,
             admin,
@@ -558,7 +626,7 @@ pub fn emit_resolver_rotated(
     new_resolver: Address,
 ) {
     env.events().publish(
-        (symbol_short!("Resolver"), symbol_short!("Rotated"),),
+        (symbol_short!("Resolver"), symbol_short!("Rotated")),
         ResolverRotated {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -581,7 +649,11 @@ pub struct TokenAllowlistUpdated {
 /// Topic: `(symbol_short!("Token"), symbol_short!("Allowlist"), token.clone(),)`, data: `TokenAllowlistUpdated`.
 pub fn emit_token_allowlist_updated(env: &Env, token: Address, added: bool) {
     env.events().publish(
-        (symbol_short!("Token"), symbol_short!("Allowlist"), token.clone(),),
+        (
+            symbol_short!("Token"),
+            symbol_short!("Allowlist"),
+            token.clone(),
+        ),
         TokenAllowlistUpdated {
             schema_version: EVENT_SCHEMA_VERSION,
             token,
@@ -602,7 +674,7 @@ pub struct AllowlistToggled {
 /// Topic: `(symbol_short!("Allowlist"), symbol_short!("Toggled"),)`, data: `AllowlistToggled`.
 pub fn emit_allowlist_toggled(env: &Env, enabled: bool) {
     env.events().publish(
-        (symbol_short!("Allowlist"), symbol_short!("Toggled"),),
+        (symbol_short!("Allowlist"), symbol_short!("Toggled")),
         AllowlistToggled {
             schema_version: EVENT_SCHEMA_VERSION,
             enabled,
@@ -633,7 +705,11 @@ pub fn emit_dispute_pending_finalization(
     appeal_deadline: u64,
 ) {
     env.events().publish(
-        (symbol_short!("Dispute"), symbol_short!("Pending"), resolver.clone(),),
+        (
+            symbol_short!("Dispute"),
+            symbol_short!("Pending"),
+            resolver.clone(),
+        ),
         DisputePendingFinalization {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -658,7 +734,11 @@ pub struct DisputeAppealed {
 /// Topic: `(symbol_short!("Dispute"), symbol_short!("Appealed"), appellant.clone(),)`, data: `DisputeAppealed`.
 pub fn emit_dispute_appealed(env: &Env, escrow_id: u64, appellant: Address) {
     env.events().publish(
-        (symbol_short!("Dispute"), symbol_short!("Appealed"), appellant.clone(),),
+        (
+            symbol_short!("Dispute"),
+            symbol_short!("Appealed"),
+            appellant.clone(),
+        ),
         DisputeAppealed {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -680,7 +760,7 @@ pub struct PlatformFeeUpdated {
 /// Topic: `(symbol_short!("PlatFee"), symbol_short!("Updated"),)`, data: `PlatformFeeUpdated`.
 pub fn emit_platform_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
     env.events().publish(
-        (symbol_short!("PlatFee"), symbol_short!("Updated"),),
+        (symbol_short!("PlatFee"), symbol_short!("Updated")),
         PlatformFeeUpdated {
             schema_version: EVENT_SCHEMA_VERSION,
             old_fee_bps,
@@ -702,7 +782,7 @@ pub struct TreasuryUpdated {
 /// Topic: `(symbol_short!("Treasury"), symbol_short!("Updated"),)`, data: `TreasuryUpdated`.
 pub fn emit_treasury_updated(env: &Env, old_treasury: Address, new_treasury: Address) {
     env.events().publish(
-        (symbol_short!("Treasury"), symbol_short!("Updated"),),
+        (symbol_short!("Treasury"), symbol_short!("Updated")),
         TreasuryUpdated {
             schema_version: EVENT_SCHEMA_VERSION,
             old_treasury,
@@ -723,14 +803,13 @@ pub struct BasketEscrowCreated {
 }
 
 /// Topic: `(symbol_short!("Basket"), symbol_short!("Created"), seller.clone(),)`, data: `BasketEscrowCreated`.
-pub fn emit_basket_escrow_created(
-    env: &Env,
-    escrow_id: u64,
-    seller: Address,
-    token_count: u32,
-) {
+pub fn emit_basket_escrow_created(env: &Env, escrow_id: u64, seller: Address, token_count: u32) {
     env.events().publish(
-        (symbol_short!("Basket"), symbol_short!("Created"), seller.clone(),),
+        (
+            symbol_short!("Basket"),
+            symbol_short!("Created"),
+            seller.clone(),
+        ),
         BasketEscrowCreated {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -753,7 +832,11 @@ pub struct MessagePosted {
 /// Topic: `(symbol_short!("Message"), symbol_short!("Posted"), sender.clone(),)`, data: `MessagePosted`.
 pub fn emit_message_posted(env: &Env, escrow_id: u64, sender: Address) {
     env.events().publish(
-        (symbol_short!("Message"), symbol_short!("Posted"), sender.clone(),),
+        (
+            symbol_short!("Message"),
+            symbol_short!("Posted"),
+            sender.clone(),
+        ),
         MessagePosted {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -775,9 +858,19 @@ pub struct RefundRequestedEvent {
 }
 
 /// Topic: `(symbol_short!("Refund"), symbol_short!("Requested"), buyer.clone(),)`, data: `RefundRequestedEvent`.
-pub fn emit_refund_requested(env: &Env, escrow_id: u64, buyer: Address, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
+pub fn emit_refund_requested(
+    env: &Env,
+    escrow_id: u64,
+    buyer: Address,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (symbol_short!("Refund"), symbol_short!("Requested"), buyer.clone(),),
+        (
+            symbol_short!("Refund"),
+            symbol_short!("Requested"),
+            buyer.clone(),
+        ),
         RefundRequestedEvent {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -801,9 +894,19 @@ pub struct RefundApprovedEvent {
 }
 
 /// Topic: `(symbol_short!("Refund"), symbol_short!("Approved"), seller.clone(),)`, data: `RefundApprovedEvent`.
-pub fn emit_refund_approved(env: &Env, escrow_id: u64, seller: Address, prev_state: crate::EscrowState, new_state: crate::EscrowState) {
+pub fn emit_refund_approved(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (symbol_short!("Refund"), symbol_short!("Approved"), seller.clone(),),
+        (
+            symbol_short!("Refund"),
+            symbol_short!("Approved"),
+            seller.clone(),
+        ),
         RefundApprovedEvent {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,

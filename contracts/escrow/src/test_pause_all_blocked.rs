@@ -57,7 +57,7 @@ fn test_pause_blocks_all_mutations() {
     client.unpause_contract(&admin);
     let mut payees_65 = Vec::new(&env);
     payees_65.push_back(Payee { address: seller.clone(), bps: 10_000 });
-    let escrow_id = client.create_escrow(
+    let escrow_id = client.create_escrow_8(
         &payees_65,
         &None::<Address>,
         &resolver,

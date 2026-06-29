@@ -13,22 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry and git
-        uses: actions/cache@v5
+      # This replaces the entire manual installation block with a super-fast prebuilt binary!
+      - name: Run Security Audit
+        uses: rustsec/audit-check@v1
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Run cargo audit
-        run: cargo audit
+          token: ${{ secrets.GITHUB_TOKEN }}

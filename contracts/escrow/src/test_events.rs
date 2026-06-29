@@ -131,7 +131,7 @@ fn test_withdraw_fees_emits_event() {
 fn test_create_escrow_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    client.create_escrow_legacy(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
     let topics = last_event_topics(&env);
     assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Escrow").into_val(&env), symbol_short!("Created").into_val(&env), seller.into_val(&env)]);
 }
@@ -140,7 +140,7 @@ fn test_create_escrow_emits_event() {
 fn test_cancel_escrow_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &admin, &admin, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow_legacy(&seller, &None::<Address>, &admin, &admin, &100_i128, &0_u32, &6000_u64);
     client.cancel_escrow(&seller, &id);
     let topics = last_event_topics(&env);
     assert_eq!(topics, soroban_sdk::vec![&env, symbol_short!("Escrow").into_val(&env), symbol_short!("Canceled").into_val(&env), seller.into_val(&env)]);
@@ -150,7 +150,7 @@ fn test_cancel_escrow_emits_event() {
 fn test_mark_shipped_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow_legacy(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
     minttokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK123"));
@@ -162,7 +162,7 @@ fn test_mark_shipped_emits_event() {
 fn test_record_delivery_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow_legacy(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
     minttokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
@@ -175,7 +175,7 @@ fn test_record_delivery_emits_event() {
 fn test_confirm_delivery_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow_legacy(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
     minttokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
@@ -189,7 +189,7 @@ fn test_confirm_delivery_emits_event() {
 fn test_raise_dispute_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow_legacy(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
     minttokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
@@ -203,7 +203,7 @@ fn test_raise_dispute_emits_event() {
 fn test_resolve_dispute_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow_legacy(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
     minttokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
@@ -219,7 +219,7 @@ fn test_auto_release_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     // escrow with no buyer; auto release after dispute window
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow_legacy(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
     env.ledger().set_timestamp(DISPUTE_WINDOW + 10);
     client.auto_release(&id);
     let topics = last_event_topics(&env);
@@ -230,7 +230,7 @@ fn test_auto_release_emits_event() {
 fn test_rotateresolver_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow_legacy(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
     let newresolver = Address::generate(&env);
     client.rotateresolver(&admin, &id, &newresolver);
     let topics = last_event_topics(&env);

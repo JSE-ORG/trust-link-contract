@@ -474,6 +474,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "notes"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "resolver"
                     },
                     "val": {
