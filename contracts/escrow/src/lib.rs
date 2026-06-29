@@ -48,7 +48,8 @@ pub struct ContractCall {
 /// Maximum escrow fee in basis points (300 = 3%).
 ///
 /// This applies to the per-escrow `fee_bps` value supplied at creation time,
-/// and to the legacy `set_fee` helper that persists `DefaultFeeBps`.
+/// and to the `set_fee` admin helper, which updates the protocol fee stored in
+/// `FeeConfig`.
 const MAX_ESCROW_FEE_BPS: u32 = 300;
 
 /// Maximum protocol fee in basis points (500 = 5%).
