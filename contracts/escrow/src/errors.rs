@@ -75,4 +75,6 @@ pub enum ContractError {
     InvalidShippingWindow = 33,
     /// Returned when `record_delivery` is called on an escrow that already has delivery recorded.
     DeliveryAlreadyRecorded = 34,
+    /// Returned when a read accessor is called before the contract has been initialized.
+    NotInitialized = 35,
 }

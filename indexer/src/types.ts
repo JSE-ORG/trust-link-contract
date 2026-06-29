@@ -143,6 +143,8 @@ export interface EscrowCancelledPayload {
   schema_version: number;
   escrow_id: string | number;
   seller: string;
+  /** Address that actually initiated the cancellation (buyer or a payee/seller). */
+  cancelled_by: string;
   timestamp: string | number;
   prev_state: string;
   new_state: string;

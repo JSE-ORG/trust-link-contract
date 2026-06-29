@@ -1,4 +1,9 @@
+# Pin the exact Rust version so every contributor and CI run uses the same
+# toolchain. rustup reads this file on any cargo invocation and installs the
+# pinned version, the listed components, and the wasm target automatically —
+# no extra setup needed after a fresh clone.
 [toolchain]
-channel = "stable"
+channel = "1.94.0"
 components = ["rustfmt", "clippy"]
 targets = ["wasm32v1-none"]
+profile = "minimal"

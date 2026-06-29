@@ -5,6 +5,8 @@ mod tests {
         Address, BytesN, Env, String,
     };
 
+    use crate::test::single_payee;
+
     use crate::{
         errors::ContractError,
         types::EscrowState,
@@ -49,7 +51,7 @@ mod tests {
         token: &Address,
     ) -> u64 {
         let escrow_id = client.create_escrow(
-            seller,
+            &single_payee(&env, seller)
             buyer,
             resolver,
             token,

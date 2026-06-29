@@ -549,16 +549,23 @@ pub struct EscrowCancelled {
     pub schema_version: u32,
     pub escrow_id: u64,
     pub seller: Address,
+    /// Address that actually initiated the cancellation (buyer or a payee/seller).
+    /// `seller` always reflects the escrow's seller; `cancelled_by` reflects the caller.
+    pub cancelled_by: Address,
     pub timestamp: u64,
     pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(symbol_short!("Escrow"), symbol_short!("Canceled"), seller.clone(),)`, data: `EscrowCancelled`.
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Canceled"), cancelled_by.clone(),)`, data: `EscrowCancelled`.
+///
+/// `seller` is the escrow's seller (first payee). `cancelled_by` is the caller that
+/// triggered the cancellation, which may be the buyer rather than the seller.
 pub fn emit_escrow_cancelled(
     env: &Env,
     escrow_id: u64,
     seller: Address,
+    cancelled_by: Address,
     prev_state: crate::EscrowState,
     new_state: crate::EscrowState,
 ) {
@@ -566,12 +573,13 @@ pub fn emit_escrow_cancelled(
         (
             symbol_short!("Escrow"),
             symbol_short!("Canceled"),
-            seller.clone(),
+            cancelled_by.clone(),
         ),
         EscrowCancelled {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             seller,
+            cancelled_by,
             timestamp: env.ledger().timestamp(),
             prev_state,
             new_state,
@@ -633,6 +641,107 @@ pub fn emit_resolver_rotated(
             old_resolver,
             new_resolver,
             rotated_at: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneEscrowCreated {
+    pub escrow_id: u64,
+    pub milestone_count: u32,
+    pub total_amount: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `("milestone_escrow_created",)`, data: `MilestoneEscrowCreated`.
+pub fn emit_milestone_escrow_created(
+    env: &Env,
+    escrow_id: u64,
+    milestone_count: u32,
+    total_amount: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "milestone_escrow_created"),),
+        MilestoneEscrowCreated {
+            escrow_id,
+            milestone_count,
+            total_amount,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneReleased {
+    pub escrow_id: u64,
+    pub milestone_index: u32,
+    pub seller: Address,
+    pub amount: i128,
+    pub remaining_milestones: u32,
+    pub released_at: u64,
+}
+
+/// Topic: `("milestone_released", escrow_id)`, data: `MilestoneReleased`.
+///
+/// `escrow_id` is kept in the topic (unlike most single-topic events here) so
+/// off-chain indexers can filter the release history of one specific escrow
+/// without scanning every milestone release on the contract.
+pub fn emit_milestone_released(
+    env: &Env,
+    escrow_id: u64,
+    milestone_index: u32,
+    seller: Address,
+    amount: i128,
+    remaining_milestones: u32,
+) {
+    env.events().publish(
+        (Symbol::new(env, "milestone_released"), escrow_id),
+        MilestoneReleased {
+            escrow_id,
+            milestone_index,
+            seller,
+            amount,
+            remaining_milestones,
+            released_at: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowTrancheFunded {
+    pub escrow_id: u64,
+    pub buyer: Address,
+    pub tranche_amount: i128,
+    pub funded_amount: i128,
+    pub total_amount: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `("escrow_tranche_funded", escrow_id)`, data: `EscrowTrancheFunded`.
+///
+/// Emitted for a partial-funding call that does *not* yet complete funding.
+/// Once `funded_amount` reaches `total_amount`, `emit_escrow_funded` fires
+/// instead (on that same call) - exactly as for a single lump-sum payment.
+pub fn emit_escrow_tranche_funded(
+    env: &Env,
+    escrow_id: u64,
+    buyer: Address,
+    tranche_amount: i128,
+    funded_amount: i128,
+    total_amount: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "escrow_tranche_funded"), escrow_id),
+        EscrowTrancheFunded {
+            escrow_id,
+            buyer,
+            tranche_amount,
+            funded_amount,
+            total_amount,
+            timestamp: env.ledger().timestamp(),
         },
     );
 }
@@ -908,6 +1017,42 @@ pub fn emit_refund_approved(
             seller.clone(),
         ),
         RefundApprovedEvent {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            seller,
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundDeniedEvent {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub seller: Address,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
+}
+
+/// Topic: `(symbol_short!("Refund"), symbol_short!("Denied"), seller.clone(),)`, data: `RefundDeniedEvent`.
+pub fn emit_refund_denied(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
+    env.events().publish(
+        (
+            symbol_short!("Refund"),
+            symbol_short!("Denied"),
+            seller.clone(),
+        ),
+        RefundDeniedEvent {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             seller,

@@ -1,37 +1,44 @@
 use soroban_sdk::{contracttype, Address, BytesN, Env, String, Symbol, Vec};
 
-/// Storage keys for persisting escrow data and the global escrow counter.
+/// Single unified storage key enum for all contract storage entries.
+///
+/// Storage-tier rationale:
+/// - Instance keys store singleton/global configuration and counters.
+/// - Persistent keys store per-escrow data and user indexes that must survive
+///   contract instance TTL changes.
 #[contracttype]
 pub enum DataKey {
+    // Instance storage: global singleton values.
     Admin,
-    Escrow(u64),
     EscrowCounter,
     FeeCollector,
-    Dispute(u64),
+    FeeConfig,
     Paused,
     ActionPaused(Symbol),
-    DefaultFeeBps,
     TtlExtensionLedgers,
-    TotalArbitrationFees(Address),
-    AccumulatedFees(Address),
-    TotalCreated,
-    TotalDisputed,
-    TotalCompleted,
-    Messages(u64),
-    TotalRefunded,
-    FeeConfig,
-    BuyerEscrowIndex(Address),
-    // Multi-resolver votes storage
-    ResolverVotes(u64), // escrow_id -> Vec<ResolverVote>
     TokenAllowlistEnabled,
     TokenAllowlist,
     PlatformFeeBps,
     Treasury,
     MaxAmount,
     MinAmount,
-    PendingExpiry(u64),
     ApprovedResolvers,
     ResolverStrict,
+
+    // Persistent storage: per-escrow data and user indexes.
+    Escrow(u64),
+    Dispute(u64),
+    Messages(u64),
+    PendingExpiry(u64),
+    ResolverVotes(u64),
+    BuyerEscrowIndex(Address),
+    VendorEscrowIndex(Address),
+    TotalArbitrationFees(Address),
+    AccumulatedFees(Address),
+    TotalCreated,
+    TotalDisputed,
+    TotalCompleted,
+    TotalRefunded,
 }
 
 #[contracttype]
