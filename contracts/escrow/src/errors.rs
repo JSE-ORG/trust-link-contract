@@ -73,4 +73,6 @@ pub enum ContractError {
     PlatformFeeExceedsMax = 32,
     /// Returned when shipping_window is zero or exceeds the maximum allowed value.
     InvalidShippingWindow = 33,
+    /// Returned when `record_delivery` is called on an escrow that already has delivery recorded.
+    DeliveryAlreadyRecorded = 34,
 }

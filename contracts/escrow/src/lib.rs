@@ -1980,6 +1980,11 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
+        // Idempotency guard: prevent re-recording delivery
+        if escrow.delivered_at.is_some() {
+            return Err(ContractError::DeliveryAlreadyRecorded);
+        }
+
         let delivered_at = env.ledger().timestamp();
         escrow.delivered_at = Some(delivered_at);
         save_escrow(&env, escrow_id, &escrow);

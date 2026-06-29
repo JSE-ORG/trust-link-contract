@@ -369,7 +369,7 @@ fn test_record_delivery_accepts_maximum_valid_timestamp() {
 
 /// Tests that record_delivery replaces any prior delivered_at value when called multiple times.
 #[test]
-fn test_record_delivery_overwrites_prior_timestamp() {
+fn test_record_delivery_rejects_duplicate_call() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -386,20 +386,21 @@ fn test_record_delivery_overwrites_prior_timestamp() {
 
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
 
-    // First delivery recording
+    // First delivery recording succeeds
     env.ledger().set_timestamp(1_700_000_100);
     client.record_delivery(&admin, &id);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.delivered_at, Some(1_700_000_100));
 
-    // Second delivery recording (overwrites)
+    // Second delivery recording rejected (idempotency guard)
     env.ledger().set_timestamp(1_700_000_200);
-    client.record_delivery(&admin, &id);
+    let result = client.try_record_delivery(&admin, &id);
+    assert_eq!(result, Err(Ok(ContractError::DeliveryAlreadyRecorded)));
 
+    // Original timestamp preserved
     let escrow = client.get_escrow(&id);
-    assert_eq!(escrow.delivered_at, Some(1_700_000_200));
-    // State should still be Shipped (record_delivery doesn't complete the escrow)
+    assert_eq!(escrow.delivered_at, Some(1_700_000_100));
     assert_eq!(escrow.state, EscrowState::Shipped);
 
     let _ = contract_id;
