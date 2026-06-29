@@ -1,0 +1,49 @@
+[package]
+name = "trustlink-escrow-fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "create_escrow"
+path = "fuzz_targets/create_escrow.rs"
+
+[[bin]]
+name = "fund_escrow"
+path = "fuzz_targets/fund_escrow.rs"
+
+[[bin]]
+name = "mark_shipped"
+path = "fuzz_targets/mark_shipped.rs"
+
+[[bin]]
+name = "confirm_delivery"
+path = "fuzz_targets/confirm_delivery.rs"
+
+[[bin]]
+name = "raise_dispute"
+path = "fuzz_targets/raise_dispute.rs"
+
+[[bin]]
+name = "resolve_dispute"
+path = "fuzz_targets/resolve_dispute.rs"
+
+[[bin]]
+name = "cancel_escrow"
+path = "fuzz_targets/cancel_escrow.rs"
+
+[[bin]]
+name = "auto_release"
+path = "fuzz_targets/auto_release.rs"
+
+[dependencies]
+trustlink-escrow = { path = ".." }
+soroban-sdk = { version = "26", features = ["testutils"] }
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = "0.4"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true

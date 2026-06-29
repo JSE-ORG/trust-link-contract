@@ -71,3 +71,18 @@ jobs:
         with:
           files: lcov.info
           fail_ci_if_error: true
+
+  fuzz:
+    name: Fuzz (Nightly)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Build fuzz targets
+        run: |
+          cd contracts/escrow/fuzz
+          cargo build --release --bins
