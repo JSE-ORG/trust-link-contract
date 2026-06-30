@@ -4,7 +4,7 @@ mod tests {
         testutils::{Address as _, Ledger},
         Address, Env,
     };
-    use crate::{Escrow, EscrowClient};
+    use crate::{Payee, Escrow, EscrowClient};
 
     const DISPUTE_WINDOW: u64 = 172_800;
 
@@ -52,14 +52,15 @@ mod tests {
 
         // Create escrow at 1% fee — this snapshots fee_bps = 100 into EscrowData.
         let escrow_id = client.create_escrow(
-            &seller,
-            &buyer,
-            &resolver,
-            &token_id,
-            &amount,
-            &100_u32,
-            &604_800_u64,
-        );
+        &single_payee(&env, &seller),
+        &buyer,
+        &resolver,
+        &token_id,
+        &amount,
+        &100_u32,
+        &0_u32,
+        &604_800_u64
+    );
 
         client.fund_escrow(&escrow_id, &buyer);
 
@@ -115,14 +116,15 @@ mod tests {
         let shipping_window: u64 = 604_800;
 
         let escrow_id = client.create_escrow(
-            &seller,
-            &buyer,
-            &resolver,
-            &token_id,
-            &amount,
-            &100_u32,
-            &shipping_window,
-        );
+        &single_payee(&env, &seller),
+        &buyer,
+        &resolver,
+        &token_id,
+        &amount,
+        &100_u32,
+        &0_u32,
+        &shipping_window
+    );
 
         client.fund_escrow(&escrow_id, &buyer);
         client.mark_shipped(&seller, &escrow_id, &soroban_sdk::String::from_str(&env, "TRACK-001"));
@@ -151,4 +153,13 @@ mod tests {
             "fee collector should receive snapshotted 1% fee on auto_release"
         );
     }
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

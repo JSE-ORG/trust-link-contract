@@ -6,7 +6,7 @@
 //! receive `amount - arbitration_fee`, the buyer must not be refunded, and
 //! the on-chain dispute record must be marked `Resolved`.
 
-use crate::{
+use crate::{Payee,
     DataKey, DisputeData, DisputeStatus, Escrow, EscrowClient, EscrowData, EscrowState,
     ResolutionType,
 };
@@ -40,13 +40,14 @@ fn full_dispute_release_to_vendor() {
     // fee_bps = 0 isolates the arbitration-fee accounting the issue specifies
     // (a non-zero protocol fee would further reduce the seller's payout).
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_address,
         &amount,
         &0_u32,
-        &0_u64,
+        &0_u32,
+        &0_u64
     );
 
     // Fund the buyer and the escrow.
@@ -107,4 +108,13 @@ fn full_dispute_release_to_vendor() {
         })
         .expect("dispute exists");
     assert_eq!(dispute.status, DisputeStatus::Resolved);
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

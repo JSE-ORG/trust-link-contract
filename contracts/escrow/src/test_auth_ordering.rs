@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{Escrow, EscrowClient};
+use crate::{Payee, Escrow, EscrowClient};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 #[test]
@@ -47,13 +47,14 @@ fn test_unauthorized_create_escrow_fails_early() {
 
     // Will panic on `seller.require_auth()` instead of `ensure_not_paused`
     client.create_escrow(
-        &fake_seller,
+        &single_payee(&env, &fake_seller),
         &None::<Address>,
         &resolver,
         &token,
         &1000,
         &100,
-        &86400,
+        &0_u32,
+        &86400
     );
 }
 
@@ -68,4 +69,13 @@ fn test_unauthorized_cancel_escrow_fails_early() {
 
     // Will panic on `caller.require_auth()` instead of `load_escrow`
     client.cancel_escrow(&fake_caller, &1);
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

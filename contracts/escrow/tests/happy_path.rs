@@ -6,6 +6,7 @@ use soroban_sdk::{
 };
 use trustlink_escrow::{
     Escrow, EscrowClient, EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, EscrowState,
+    Payee,
 };
 
 struct Fx {
@@ -47,6 +48,15 @@ fn setup() -> Fx {
         token_addr,
         fee_collector,
     }
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }
 
 fn has_event<T, F>(env: &Env, contract_id: &Address, topic: &str, predicate: F) -> bool
@@ -99,12 +109,13 @@ fn test_happy_path_escrow_lifecycle() {
 
     // 1. Create Escrow
     let escrow_id = fx.client.create_escrow(
-        &fx.seller,
+        &single_payee(&fx.env, &fx.seller),
         &None::<soroban_sdk::Address>,
         &fx.resolver,
         &fx.token_addr,
         &amount,
         &100_u32,  // 1% escrow fee
+        &0_u32,
         &3600_u64, // shipping window
     );
 

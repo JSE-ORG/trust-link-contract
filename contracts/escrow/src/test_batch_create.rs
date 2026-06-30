@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::setup_contract;
-use crate::types::{EscrowState, EscrowInput};
+use crate::types::{Payee, EscrowState, EscrowInput};
 use crate::{ContractError, EscrowClient};
 use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
 use soroban_sdk::{token, Address, Env};

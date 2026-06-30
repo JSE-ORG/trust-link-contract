@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::{create_funded_escrow, setup_contract};
-use crate::{ContractError, MAX_DESCRIPTION_LEN, MAX_TRACKING_ID_LEN};
+use crate::{Payee, ContractError, MAX_DESCRIPTION_LEN, MAX_TRACKING_ID_LEN};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     Address, Bytes, BytesN, Env, String as SorobanString, Symbol,

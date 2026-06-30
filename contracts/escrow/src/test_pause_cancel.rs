@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{ContractError, EscrowClient};
+use crate::{Payee, ContractError, EscrowClient};
 use soroban_sdk::{testutils::{Address as _, Ledger as _}, token, Address, Env, String as SorobanString, Symbol};
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
@@ -28,10 +28,19 @@ fn test_cancel_escrow_blocked_when_paused() {
     let (env, admin, seller, _buyer, _resolver, _token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     // create escrow in pending state
-    let id = client.create_escrow(&seller, &None::<Address>, &admin, &env.register_stellar_asset_contract(admin.clone()), &100_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow(&single_payee(&env, &seller), &None::<Address>, &admin, &env.register_stellar_asset_contract(admin.clone()), &100_i128, &0_u32, &0_u32, &3600_u64);
     // pause contract
     client.pause_contract(&admin);
     // attempt to cancel escrow should fail with ContractPaused
     let result = client.try_cancel_escrow(&seller, &id);
     assert!(matches!(result, Err(Ok(ContractError::ContractPaused))));
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

@@ -6,7 +6,7 @@
 //! succeeds afterward, and that funds end up at the seller with the escrow
 //! advanced to Completed.
 
-use crate::{ContractError, Escrow, EscrowClient, EscrowState};
+use crate::{Payee, ContractError, Escrow, EscrowClient, EscrowState};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     token, Address, BytesN, Env, String as SorobanString, Symbol,
@@ -43,13 +43,14 @@ fn setup_funded_and_shipped() -> Fx {
     let amount: i128 = 1_000;
     // shipping_window=0 isolates the dispute-window assertion the issue cares about.
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &amount,
         &0_u32,
-        &0_u64,
+        &0_u32,
+        &0_u64
     );
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
     client.fund_escrow(&escrow_id, &buyer);
@@ -61,7 +62,7 @@ fn setup_funded_and_shipped() -> Fx {
     env.ledger().set_timestamp(1_700_000_000);
     client.record_delivery(&admin, &escrow_id);
 
-    use crate::{DataKey, EscrowData};
+    use crate::{Payee, DataKey, EscrowData};
     let data: EscrowData = env
         .as_contract(&client.address, || {
             env.storage().persistent().get(&DataKey::Escrow(escrow_id))
@@ -107,7 +108,7 @@ fn auto_release_after_48_hours_succeeds_and_pays_the_seller() {
     assert_eq!(token_client.balance(&fx.seller), 1_000);
 
     // State advanced to Completed.
-    use crate::{DataKey, EscrowData};
+    use crate::{Payee, DataKey, EscrowData};
     let after: EscrowData = fx
         .env
         .as_contract(&fx.client.address, || {
@@ -141,13 +142,14 @@ fn auto_release_fails_when_dispute_is_active() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &500_i128,
         &0_u32,
-        &100_u64,
+        &0_u32,
+        &100_u64
     );
 
     client.fund_escrow(&escrow_id, &buyer);
@@ -177,4 +179,13 @@ fn auto_release_fails_when_dispute_is_active() {
     let balance_after = token::Client::new(&env, &token_addr).balance(&contract_id);
     assert_eq!(balance_before, balance_after);
     assert_eq!(balance_after, 500);
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

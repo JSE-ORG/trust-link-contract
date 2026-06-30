@@ -2,7 +2,7 @@
 //! Tests for `rotate_resolver`: seller and admin can rotate, buyer cannot,
 //! same-address is rejected, and terminal states are rejected.
 
-use crate::{ContractError, Escrow, EscrowClient, EscrowState, ResolutionType, ResolverRotated};
+use crate::{Payee, ContractError, Escrow, EscrowClient, EscrowState, ResolutionType, ResolverRotated};
 use soroban_sdk::{
     testutils::{Address as _, Events as _},
     token, Address, BytesN, Env, String as SorobanString, Symbol, TryFromVal, Val,
@@ -38,13 +38,14 @@ fn setup() -> Fx {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &500_i128,
         &0_u32,
-        &0_u64,
+        &0_u32,
+        &0_u64
     );
 
     Fx {
@@ -66,7 +67,7 @@ fn seller_can_rotate_resolver() {
     fx.client
         .rotate_resolver(&fx.seller, &fx.escrow_id, &new_resolver);
 
-    use crate::{DataKey, EscrowData};
+    use crate::{Payee, DataKey, EscrowData};
     let escrow: EscrowData = fx
         .env
         .as_contract(&fx.client.address, || {
@@ -87,7 +88,7 @@ fn admin_can_rotate_resolver() {
     fx.client
         .rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
 
-    use crate::{DataKey, EscrowData};
+    use crate::{Payee, DataKey, EscrowData};
     let escrow: EscrowData = fx
         .env
         .as_contract(&fx.client.address, || {
@@ -161,13 +162,14 @@ fn terminal_state_rejected() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &100_i128,
         &0_u32,
-        &0_u64,
+        &0_u32,
+        &0_u64
     );
 
     // Cancel moves to Canceled (terminal)
@@ -271,4 +273,13 @@ fn rotation_emits_resolver_rotated_event() {
         resolver_rotated_emitted(&fx, &fx.resolver, &new_resolver),
         "expected a resolver_rotated event with the old and new resolver",
     );
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

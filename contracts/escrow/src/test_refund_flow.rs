@@ -2,7 +2,7 @@
 
 use crate::test_helpers::{setup_contract, mint_token};
 use crate::types::EscrowState;
-use crate::{ContractError, EscrowClient};
+use crate::{Payee, ContractError, EscrowClient};
 use soroban_sdk::testutils::{Address as _, Events};
 use soroban_sdk::{token, Address, Env};
 

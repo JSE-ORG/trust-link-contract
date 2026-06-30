@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{ContractError, DisputeStatus, Escrow, EscrowClient, ResolutionType};
+use crate::{Payee, ContractError, DisputeStatus, Escrow, EscrowClient, ResolutionType};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     token, Address, BytesN, Env, String, Symbol,
@@ -40,13 +40,14 @@ fn test_get_dispute_returns_accurate_data_after_raise() {
 
     let amount = 1000_i128;
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     let sac = token::StellarAssetClient::new(&env, &token);
@@ -96,13 +97,14 @@ fn test_dispute_allowed_after_shipping() {
 
     let amount = 1000_i128;
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
@@ -136,13 +138,14 @@ fn test_dispute_allowed_on_late_shipped_escrow() {
 
     let amount = 1000_i128;
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
@@ -174,13 +177,14 @@ fn test_dispute_requires_shipped_state() {
 
     let amount = 1000_i128;
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
@@ -218,13 +222,14 @@ fn test_dispute_rejected_after_48h_deadline() {
 
     let amount = 1000_i128;
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
@@ -265,13 +270,14 @@ fn test_dispute_from_funded_state() {
 
     let amount = 1000_i128;
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
@@ -311,7 +317,7 @@ fn test_dispute_from_pending_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
+    let id = client.create_escrow(&single_payee(&env, &seller), &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &0_u32, &3600_u64);
 
     let reason = soroban_sdk::Symbol::new(&env, "reason");
     let description = soroban_sdk::String::from_str(&env, "desc");
@@ -330,7 +336,7 @@ fn test_dispute_from_canceled_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
+    let id = client.create_escrow(&single_payee(&env, &seller), &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &0_u32, &3600_u64);
     
     client.cancel_escrow(&seller, &id);
 
@@ -351,7 +357,7 @@ fn test_dispute_from_completed_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
+    let id = client.create_escrow(&single_payee(&env, &seller), &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &0_u32, &3600_u64);
     
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     sac.mint(&buyer, &amount);
@@ -379,7 +385,7 @@ fn test_dispute_from_refunded_state() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount = 1000_i128;
-    let id = client.create_escrow(&seller, &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &3600_u64);
+    let id = client.create_escrow(&single_payee(&env, &seller), &Some(buyer.clone()), &resolver, &token, &amount, &100_u32, &0_u32, &3600_u64);
     
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     sac.mint(&buyer, &amount);
@@ -396,4 +402,13 @@ fn test_dispute_from_refunded_state() {
     // Attempt dispute from Refunded
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
     assert_eq!(result, Err(Ok(crate::ContractError::InvalidStateTransition)));
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

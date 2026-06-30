@@ -2,7 +2,7 @@
 //! `set_admin` rotates the admin key (#13). The new admin is allowed to call
 //! admin-gated functions; the old admin is not.
 
-use crate::{Escrow, EscrowClient};
+use crate::{Payee, Escrow, EscrowClient};
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 fn setup() -> (Env, EscrowClient<'static>, Address) {

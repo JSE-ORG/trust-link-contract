@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{test_helpers::setup_contract, ContractError, DataKey, FeeConfig, ProtocolFeeUpdated};
+use crate::{Payee, test_helpers::setup_contract, ContractError, DataKey, FeeConfig, ProtocolFeeUpdated};
 use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env, IntoVal, Symbol, TryFromVal, Val};
 
 /// Test: set_protocol_fee with 0 bps (minimum)

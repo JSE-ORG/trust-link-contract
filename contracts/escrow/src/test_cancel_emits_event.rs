@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
-use crate::{test_helpers::setup_contract, DataKey, EscrowState};
+use crate::{Payee, test_helpers::setup_contract, DataKey, EscrowState};
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);

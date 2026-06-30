@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{test_helpers::setup_contract, ContractError, EscrowClient, FeeConfig};
+use crate::{Payee, test_helpers::setup_contract, ContractError, EscrowClient, FeeConfig};
 use soroban_sdk::Env;
 
 #[test]

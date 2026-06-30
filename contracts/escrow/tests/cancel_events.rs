@@ -4,7 +4,16 @@ use soroban_sdk::{
     testutils::{Address as _, Events as _},
     token, Address, Env, Symbol, TryFromVal,
 };
-use trustlink_escrow::{DataKey, Escrow, EscrowClient, EscrowData, EscrowState};
+use trustlink_escrow::{DataKey, Escrow, EscrowClient, EscrowData, EscrowState, Payee};
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
+}
 
 fn has_cancel_event(env: &Env, contract_id: &Address) -> bool {
     let expected_topic = Symbol::new(env, "escrow_cancelled");
@@ -46,11 +55,12 @@ fn seller_pending_cancel_emits_event() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &1_000_i128,
+        &0_u32,
         &0_u32,
         &3_600_u64,
     );
@@ -84,11 +94,12 @@ fn buyer_funded_cancel_emits_event() {
     sac.mint(&buyer, &1_000_i128);
 
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &1_000_i128,
+        &0_u32,
         &0_u32,
         &3_600_u64,
     );

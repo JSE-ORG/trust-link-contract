@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{ContractError, Escrow, EscrowClient};
+use crate::{Payee, ContractError, Escrow, EscrowClient};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token, Address, Env,
@@ -48,14 +48,15 @@ fn test_withdraw_fees_after_multiple_escrows() {
     // Complete 3 escrows that each accrue 1% fees via dispute release.
     for _ in 0..3 {
         let id = client.create_escrow(
-            &seller,
-            &None::<Address>,
-            &resolver,
-            &token,
-            &1000_i128,
-            &100_u32,
-            &3600_u64,
-        );
+        &single_payee(&env, &seller),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &100_u32,
+        &0_u32,
+        &3600_u64
+    );
         client.fund_escrow(&id, &buyer);
         client.mark_shipped(
             &seller,
@@ -104,13 +105,14 @@ fn test_withdraw_fees_multiple_tokens() {
     // Accrue fees for Token A (1000 amount, 1% fee = 10)
     mint_tokens(&env, &token_a, &buyer, 1000);
     let id_a = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_a,
         &1000_i128,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
     client.fund_escrow(&id_a, &buyer);
     client.mark_shipped(
@@ -130,13 +132,14 @@ fn test_withdraw_fees_multiple_tokens() {
     // Accrue fees for Token B (2000 amount, 2% fee = 40)
     mint_tokens(&env, &token_b, &buyer, 2000);
     let id_b = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_b,
         &2000_i128,
         &200_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
     client.fund_escrow(&id_b, &buyer);
     client.mark_shipped(
@@ -170,4 +173,13 @@ fn test_withdraw_fees_multiple_tokens() {
     client.withdraw_fees(&admin, &token_b, &to, &40);
     assert_eq!(token::Client::new(&env, &token_b).balance(&to), 40);
     assert_eq!(token::Client::new(&env, &token_b).balance(&contract_id), 0);
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

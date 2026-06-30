@@ -6,7 +6,7 @@
 //!  * Setup requests throw immediate, clear errors on empty address parameters.
 //!  * Contract state configuration remains uninitialized on failed setup calls.
 
-use crate::{ContractError, DataKey, Escrow, EscrowClient};
+use crate::{Payee, ContractError, DataKey, Escrow, EscrowClient};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 /// Strkey for the all-zero ed25519 public key — the canonical "empty" Stellar

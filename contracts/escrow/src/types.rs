@@ -85,12 +85,14 @@ pub struct ContractConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowData {
+    pub payees: Vec<Payee>,
     pub seller: Address,
     pub buyer: Option<Address>,
     pub resolver: Address,
     pub token: Address,
     pub amount: i128,
     pub fee_bps: u32,
+    pub resolver_fee_bps: u32,
     pub shipping_window: u64,
     pub funded_at: u64,
     pub dispute_deadline: u64,

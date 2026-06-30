@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::setup_contract;
-use crate::{EscrowData, EscrowState};
+use crate::{Payee, EscrowData, EscrowState};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     Address, Env,
@@ -41,33 +41,36 @@ fn test_get_escrows_by_vendor_multiple() {
 
     // Create escrows for vendor 1
     let id1 = client.create_escrow(
-        &vendor_1,
+        &single_payee(&env, &vendor_1),
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &0_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
     let id2 = client.create_escrow(
-        &vendor_1,
+        &single_payee(&env, &vendor_1),
         &None::<Address>,
         &resolver,
         &token,
         &2000_i128,
         &0_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     // Create escrow for vendor 2
     let id3 = client.create_escrow(
-        &vendor_2,
+        &single_payee(&env, &vendor_2),
         &None::<Address>,
         &resolver,
         &token,
         &3000_i128,
         &0_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     // Check escrows for vendor 1
@@ -96,13 +99,14 @@ fn test_vendor_escrow_data_integrity_and_state_transitions() {
 
     // Create
     let id = client.create_escrow(
-        &vendor,
+        &single_payee(&env, &vendor),
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &0_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     // Assert initial state and data integrity
@@ -143,4 +147,13 @@ fn test_vendor_escrow_data_integrity_and_state_transitions() {
     let escrows = client.get_escrows_by_vendor(&vendor);
     assert_eq!(escrows.len(), 1);
     assert_eq!(escrows.get(0).unwrap(), id);
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

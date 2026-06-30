@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{ContractError, EscrowClient, ResolutionType};
+use crate::{Payee, ContractError, EscrowClient, ResolutionType};
 use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
 use soroban_sdk::{token, Address, Env};
 
@@ -40,13 +40,15 @@ fn test_accumulated_fees() {
 
     let amount = 1000;
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &Some(buyer.clone()),
         &resolver,
         &token,
         &amount,
-        &100_u32, // Escrow fee 1%
-        &3600,
+        &100_u32,
+        &0_u32,
+        // Escrow fee 1%
+        &3600
     );
 
     let sac = token::StellarAssetClient::new(&env, &token);
@@ -74,4 +76,13 @@ fn test_accumulated_fees() {
     // Total retained = 20 + 10 = 30
     let fees = client.get_accumulated_fees(&token);
     assert_eq!(fees, 30);
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

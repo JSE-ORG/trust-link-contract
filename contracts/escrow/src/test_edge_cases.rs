@@ -2,7 +2,7 @@
 
 use crate::helpers::payout::calculate_protocol_fee;
 use crate::test_helpers::{advance_time, create_funded_escrow, setup_contract};
-use crate::{ContractError, Escrow, EscrowClient, MIN_ESCROW_AMOUNT};
+use crate::{Payee, ContractError, Escrow, EscrowClient, MIN_ESCROW_AMOUNT};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     token, Address, BytesN, Env, String as SorobanString, Symbol,
@@ -87,13 +87,14 @@ fn test_buyer_index_populated_on_cancel_by_buyer() {
 
     // Create a Pending escrow that names the buyer up front.
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &Some(buyer.clone()),
         &resolver,
         &token,
         &1000_i128,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     // The buyer cancels the still-Pending escrow.
@@ -173,25 +174,27 @@ fn test_min_escrow_amount_rejects_dust_prone_amount() {
     // 99 stroops, 1% fee — the exact case from the bug report.
     // MIN_ESCROW_AMOUNT = 1, so 99 is above the minimum and should succeed for creation.
     let result = client.try_create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &99_i128,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
     assert!(result.is_ok());
 
     // One stroop below the minimum is still rejected.
     let result = client.try_create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &0_i128,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
@@ -371,4 +374,13 @@ fn test_counter_survives_near_ttl_expiry() {
     // Verify old escrows are still accessible.
     assert_eq!(client.get_escrow(&id1).amount, 1000);
     assert_eq!(client.get_escrow(&id2).amount, 1000);
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

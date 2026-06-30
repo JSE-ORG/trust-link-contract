@@ -7,7 +7,7 @@
 //! `DataKey::Escrow(id)` produces independent persistent storage slots: a
 //! write to slot N must never bleed into slot M where N ≠ M.
 
-use crate::{Escrow, EscrowClient, EscrowState};
+use crate::{Payee, Escrow, EscrowClient, EscrowState};
 use soroban_sdk::{
     testutils::Address as _,
     token, Address, Env, String,
@@ -49,10 +49,24 @@ fn cancel_escrow1_does_not_affect_escrow2() {
     let (env, client, _admin, _fee_collector, seller, resolver, token) = setup();
 
     let id1 = client.create_escrow(
-        &seller, &None::<Address>, &resolver, &token, &500_i128, &0_u32, &3600_u64,
+        &single_payee(&env, &seller),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &500_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64
     );
     let id2 = client.create_escrow(
-        &seller, &None::<Address>, &resolver, &token, &750_i128, &0_u32, &3600_u64,
+        &single_payee(&env, &seller),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &750_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64
     );
 
     // Snapshot escrow 2 before the mutation.
@@ -83,10 +97,24 @@ fn fund_escrow2_does_not_affect_escrow1() {
     let buyer = Address::generate(&env);
 
     let id1 = client.create_escrow(
-        &seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64,
+        &single_payee(&env, &seller),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64
     );
     let id2 = client.create_escrow(
-        &seller, &Some(buyer.clone()), &resolver, &token, &200_i128, &0_u32, &3600_u64,
+        &single_payee(&env, &seller),
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &200_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64
     );
 
     let before = client.get_escrow(&id1);
@@ -110,10 +138,24 @@ fn mark_shipped_escrow1_does_not_affect_escrow2() {
     let buyer2 = Address::generate(&env);
 
     let id1 = client.create_escrow(
-        &seller, &Some(buyer1.clone()), &resolver, &token, &300_i128, &0_u32, &0_u64,
+        &single_payee(&env, &seller),
+        &Some(buyer1.clone()),
+        &resolver,
+        &token,
+        &300_i128,
+        &0_u32,
+        &0_u32,
+        &0_u64
     );
     let id2 = client.create_escrow(
-        &seller, &Some(buyer2.clone()), &resolver, &token, &400_i128, &0_u32, &0_u64,
+        &single_payee(&env, &seller),
+        &Some(buyer2.clone()),
+        &resolver,
+        &token,
+        &400_i128,
+        &0_u32,
+        &0_u32,
+        &0_u64
     );
 
     fund(&env, &client, &token, &buyer1, &id1);
@@ -138,13 +180,34 @@ fn modifying_middle_escrow_leaves_neighbors_unchanged() {
     let (_env, client, _admin, _fee_collector, seller, resolver, token) = setup();
 
     let id1 = client.create_escrow(
-        &seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64,
+        &single_payee(&env, &seller),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64
     );
     let id2 = client.create_escrow(
-        &seller, &None::<Address>, &resolver, &token, &200_i128, &0_u32, &3600_u64,
+        &single_payee(&env, &seller),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &200_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64
     );
     let id3 = client.create_escrow(
-        &seller, &None::<Address>, &resolver, &token, &300_i128, &0_u32, &3600_u64,
+        &single_payee(&env, &seller),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &300_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64
     );
 
     let before1 = client.get_escrow(&id1);
@@ -176,18 +239,26 @@ fn independent_escrows_store_correct_fields() {
 
     // Escrow 1: open buyer, amount=111, fee=50, window=1800
     let id1 = client.create_escrow(
-        &seller, &None::<Address>, &resolver, &token, &111_i128, &50_u32, &1800_u64,
+        &single_payee(&env, &seller),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &111_i128,
+        &50_u32,
+        &0_u32,
+        &1800_u64
     );
 
     // Escrow 2: locked buyer, amount=999, fee=100, window=7200
     let id2 = client.create_escrow(
-        &seller2,
+        &single_payee(&env, &seller2),
         &Some(buyer2.clone()),
         &resolver2,
         &token,
         &999_i128,
         &100_u32,
-        &7200_u64,
+        &0_u32,
+        &7200_u64
     );
 
     let e1 = client.get_escrow(&id1);
@@ -221,10 +292,24 @@ fn funded_at_of_escrow2_unchanged_after_cancelling_escrow1() {
     let buyer = Address::generate(&env);
 
     let id1 = client.create_escrow(
-        &seller, &None::<Address>, &resolver, &token, &50_i128, &0_u32, &3600_u64,
+        &single_payee(&env, &seller),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &50_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64
     );
     let id2 = client.create_escrow(
-        &seller, &Some(buyer.clone()), &resolver, &token, &50_i128, &0_u32, &3600_u64,
+        &single_payee(&env, &seller),
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &50_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64
     );
 
     fund(&env, &client, &token, &buyer, &id2);
@@ -239,4 +324,13 @@ fn funded_at_of_escrow2_unchanged_after_cancelling_escrow1() {
     let funded_at_after = client.get_escrow(&id2).funded_at;
     assert_eq!(funded_at_after, funded_at_before);
     assert_eq!(client.get_escrow(&id2).state, EscrowState::Funded);
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::setup_contract;
-use crate::{DataKey, DisputeData, DisputeStatus, EscrowData, EscrowState, ResolutionType, ContractError};
+use crate::{Payee, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowState, ResolutionType, ContractError};
 use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, String as SorobanString, BytesN};
 
 #[test]

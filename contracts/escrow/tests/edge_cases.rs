@@ -1,7 +1,16 @@
 #![cfg(test)]
 
 use soroban_sdk::{testutils::Address as _, token, Address, Env, String as SorobanString};
-use trustlink_escrow::{ContractError, Escrow, EscrowClient, EscrowState};
+use trustlink_escrow::{ContractError, Escrow, EscrowClient, EscrowState, Payee};
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
+}
 
 #[test]
 fn test_auto_release_before_record_delivery_reverts() {
@@ -27,12 +36,13 @@ fn test_auto_release_before_record_delivery_reverts() {
 
     // 1. Create Escrow
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &amount,
         &100_u32,
+        &0_u32,
         &3600_u64,
     );
 

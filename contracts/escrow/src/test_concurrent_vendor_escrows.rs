@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{Escrow, EscrowClient, EscrowState};
+use crate::{Payee, Escrow, EscrowClient, EscrowState};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     Address, Env,
@@ -37,14 +37,15 @@ fn same_vendor_can_create_multiple_escrows_without_collision() {
         // Vary the amount slightly for each escrow to ensure isolated data
         let amount = 100_i128 + ((i + 1) as i128);
         let id = client.create_escrow(
-            &seller,
-            &None::<Address>,
-            &resolver,
-            &token,
-            &amount,
-            &0_u32,
-            &3600_u64,
-        );
+        &single_payee(&env, &seller),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &0_u32,
+        &0_u32,
+        &3600_u64
+    );
 
         // IDs should be strictly monotonic
         assert_eq!(id, (i + 1) as u64);
@@ -83,31 +84,34 @@ fn escrow_storage_entries_remain_isolated() {
 
     // Create multiple escrows
     let id1 = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
     let id2 = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &200_i128,
         &0_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
     let id3 = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &300_i128,
         &0_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     // Mutate one escrow
@@ -135,14 +139,24 @@ fn escrow_counter_remains_monotonic_under_rapid_creation() {
 
     for i in 1..=50 {
         let id = client.create_escrow(
-            &seller,
-            &None::<Address>,
-            &resolver,
-            &token,
-            &100_i128,
-            &0_u32,
-            &3600_u64,
-        );
+        &single_payee(&env, &seller),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64
+    );
         assert_eq!(id, i as u64);
     }
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

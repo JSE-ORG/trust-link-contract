@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::{
+use crate::{Payee,
     EscrowClient, Escrow, ContractError, ResolutionType, ContractInitialized, FeeUpdated,
     ProtocolFeeUpdated, ArbitrationFeeUpdated, FeesWithdrawn, EscrowCreated, EscrowCancelled,
     EscrowShipped, DeliveryRecorded, EscrowCompleted, DisputeRaised, DisputeResolved,
@@ -114,7 +114,16 @@ fn test_withdraw_fees_emits_event() {
     let (env, admin, _seller, _buyer, _resolver, token, contract_id) = setup_env();
     // Populate some accumulated fees first via a dispute resolution
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&admin, &None::<Address>, &admin, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow(
+            &single_payee(&env, &admin),
+            &None::<Address>,
+            &admin,
+            &token,
+            &100_i128,
+            &0_u32,
+            &0_u32,
+            &6000_u64
+        );
     client.fund_escrow(&id, &admin);
     client.mark_shipped(&admin, &id, &SorobanString::from_str(&env, "TRACK"));
     client.pause_contract(&admin);
@@ -133,7 +142,16 @@ fn test_withdraw_fees_emits_event() {
 fn test_create_escrow_emits_event() {
     let (env, _admin, seller, _buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    client.create_escrow(
+            &single_payee(&env, &seller),
+            &None::<Address>,
+            &resolver,
+            &token,
+            &100_i128,
+            &0_u32,
+            &0_u32,
+            &6000_u64
+        );
     let symbol = last_event_symbol(&env);
     assert_eq!(symbol, Symbol::new(&env, "escrow_created"));
 }
@@ -142,7 +160,16 @@ fn test_create_escrow_emits_event() {
 fn test_cancel_escrow_emits_event() {
     let (env, admin, seller, _buyer, _resolver, _token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &admin, &admin, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow(
+            &single_payee(&env, &seller),
+            &None::<Address>,
+            &admin,
+            &admin,
+            &100_i128,
+            &0_u32,
+            &0_u32,
+            &6000_u64
+        );
     client.cancel_escrow(&seller, &id);
     let symbol = last_event_symbol(&env);
     assert_eq!(symbol, Symbol::new(&env, "escrow_cancelled"));
@@ -152,7 +179,16 @@ fn test_cancel_escrow_emits_event() {
 fn test_mark_shipped_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow(
+            &single_payee(&env, &seller),
+            &None::<Address>,
+            &resolver,
+            &token,
+            &100_i128,
+            &0_u32,
+            &0_u32,
+            &6000_u64
+        );
     mint_tokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK123"));
@@ -164,7 +200,16 @@ fn test_mark_shipped_emits_event() {
 fn test_record_delivery_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow(
+            &single_payee(&env, &seller),
+            &None::<Address>,
+            &resolver,
+            &token,
+            &100_i128,
+            &0_u32,
+            &0_u32,
+            &6000_u64
+        );
     mint_tokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
@@ -177,7 +222,16 @@ fn test_record_delivery_emits_event() {
 fn test_confirm_delivery_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow(
+            &single_payee(&env, &seller),
+            &None::<Address>,
+            &resolver,
+            &token,
+            &100_i128,
+            &0_u32,
+            &0_u32,
+            &6000_u64
+        );
     mint_tokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
@@ -191,7 +245,16 @@ fn test_confirm_delivery_emits_event() {
 fn test_raise_dispute_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow(
+            &single_payee(&env, &seller),
+            &None::<Address>,
+            &resolver,
+            &token,
+            &100_i128,
+            &0_u32,
+            &0_u32,
+            &6000_u64
+        );
     mint_tokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
@@ -205,7 +268,16 @@ fn test_raise_dispute_emits_event() {
 fn test_resolve_dispute_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow(
+            &single_payee(&env, &seller),
+            &None::<Address>,
+            &resolver,
+            &token,
+            &100_i128,
+            &0_u32,
+            &0_u32,
+            &6000_u64
+        );
     mint_tokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
@@ -221,7 +293,16 @@ fn test_auto_release_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     // escrow with no buyer; auto release after dispute window
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow(
+            &single_payee(&env, &seller),
+            &None::<Address>,
+            &resolver,
+            &token,
+            &100_i128,
+            &0_u32,
+            &0_u32,
+            &6000_u64
+        );
     env.ledger().set_timestamp(DISPUTE_WINDOW + 10);
     client.auto_release(&id);
     let symbol = last_event_symbol(&env);
@@ -232,9 +313,27 @@ fn test_auto_release_emits_event() {
 fn test_rotate_resolver_emits_event() {
     let (env, admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &6000_u64);
+    let id = client.create_escrow(
+            &single_payee(&env, &seller),
+            &None::<Address>,
+            &resolver,
+            &token,
+            &100_i128,
+            &0_u32,
+            &0_u32,
+            &6000_u64
+        );
     let new_resolver = Address::generate(&env);
     client.rotate_resolver(&admin, &id, &new_resolver);
     let symbol = last_event_symbol(&env);
     assert_eq!(symbol, Symbol::new(&env, "resolver_rotated"));
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

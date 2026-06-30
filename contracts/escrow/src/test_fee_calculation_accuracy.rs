@@ -422,7 +422,7 @@ fn test_fee_calculation_invalid_amount() {
 #[test]
 fn test_dispute_allocations_include_protocol_fee() {
     use crate::helpers::payout::calculate_dispute_allocations;
-    use crate::{EscrowData, EscrowState, ResolutionType};
+    use crate::{Payee, EscrowData, EscrowState, ResolutionType};
     use soroban_sdk::{testutils::Address as _, Address, Env};
 
     let env = Env::default();
@@ -434,12 +434,14 @@ fn test_dispute_allocations_include_protocol_fee() {
 
     // Create mock escrow with 1,000,000 stroops and 100 bps (1%) fee
     let escrow = EscrowData {
+        payees: soroban_sdk::Vec::new(&env), // Not used in this specific helper call
         seller: seller.clone(),
         buyer: Some(buyer.clone()),
         resolver: resolver.clone(),
         token: token.clone(),
         amount: 1_000_000_i128,
         fee_bps: 100_u32, // 1%
+        resolver_fee_bps: 0,
         state: EscrowState::Disputed,
         shipping_window: 3600,
         funded_at: 0,
@@ -447,7 +449,6 @@ fn test_dispute_allocations_include_protocol_fee() {
         shipped_at: 0,
         delivered_at: None,
         tracking_id: None,
-
     };
 
     let arbitration_fee = 50_000_i128; // 5% arbitration fee
@@ -487,7 +488,7 @@ fn test_dispute_allocations_include_protocol_fee() {
 #[test]
 fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     use crate::helpers::payout::calculate_dispute_allocations;
-    use crate::{EscrowData, EscrowState, ResolutionType};
+    use crate::{Payee, EscrowData, EscrowState, ResolutionType};
     use soroban_sdk::{testutils::Address as _, Address, Env};
 
     let env = Env::default();
@@ -498,12 +499,14 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     let fee_collector = Address::generate(&env);
 
     let escrow = EscrowData {
+        payees: soroban_sdk::Vec::new(&env),
         seller: seller.clone(),
         buyer: Some(buyer.clone()),
         resolver: resolver.clone(),
         token: token.clone(),
         amount: 1_000_000_i128,
         fee_bps: 0_u32, // 0% fee
+        resolver_fee_bps: 0,
         state: EscrowState::Disputed,
         shipping_window: 3600,
         funded_at: 0,
@@ -511,7 +514,6 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
         shipped_at: 0,
         delivered_at: None,
         tracking_id: None,
-
     };
 
     let arbitration_fee = 50_000_i128;

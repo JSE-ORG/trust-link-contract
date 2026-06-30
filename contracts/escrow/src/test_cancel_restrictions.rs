@@ -2,7 +2,7 @@
 //! `cancel_escrow` is only legal while the escrow is `Pending` (#21). From
 //! any other state it must reject with `InvalidState`.
 
-use crate::{ContractError, DataKey, Escrow, EscrowClient, EscrowData, EscrowState};
+use crate::{Payee, ContractError, DataKey, Escrow, EscrowClient, EscrowData, EscrowState};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     token, Address, BytesN, Env, String, Symbol,
@@ -35,13 +35,14 @@ fn setup() -> Fx {
     client.initialize(&admin, &fee_collector, &0_u32);
     let amount: i128 = 1_000;
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &amount,
         &0_u32,
-        &0_u64,
+        &0_u32,
+        &0_u64
     );
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
     Fx {
@@ -142,4 +143,13 @@ fn cancel_fails_in_disputed_state() {
 
     let _ = fx.resolver;
     let _ = fx.token_addr;
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

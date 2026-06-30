@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{ContractError, EscrowClient};
+use crate::{Payee, ContractError, EscrowClient};
 use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
 use soroban_sdk::{token, Address, Env};
 
@@ -43,49 +43,53 @@ fn test_amount_limits_enforced() {
 
     // Test below minimum
     let res = client.try_create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &Some(buyer.clone()),
         &resolver,
         &token,
         &499,
         &100,
-        &3600,
+        &0_u32,
+        &3600
     );
     assert_eq!(res, Err(Ok(ContractError::AmountBelowMinimum)));
 
     // Test exactly minimum
     let id1 = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &Some(buyer.clone()),
         &resolver,
         &token,
         &500,
         &100,
-        &3600,
+        &0_u32,
+        &3600
     );
     assert_eq!(id1, 1);
 
     // Test exactly maximum
     let id2 = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &Some(buyer.clone()),
         &resolver,
         &token,
         &5000,
         &100,
-        &3600,
+        &0_u32,
+        &3600
     );
     assert_eq!(id2, 2);
 
     // Test above maximum
     let res = client.try_create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &Some(buyer.clone()),
         &resolver,
         &token,
         &5001,
         &100,
-        &3600,
+        &0_u32,
+        &3600
     );
     assert_eq!(res, Err(Ok(ContractError::AmountExceedsMaximum)));
 }
@@ -101,4 +105,13 @@ fn test_set_amount_limits_auth() {
     // Seller tries to set limits
     let res = client.try_set_amount_limits(&seller, &500, &5000);
     assert_eq!(res, Err(Ok(ContractError::NotAuthorized)));
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

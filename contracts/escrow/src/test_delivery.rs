@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::{advance_time, create_funded_escrow, setup_contract};
-use crate::{ContractError, DeliveryRecorded, EscrowState};
+use crate::{Payee, ContractError, DeliveryRecorded, EscrowState};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
     vec, Address, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val,
@@ -417,13 +417,14 @@ fn test_confirm_delivery_from_pending_state_fails() {
 
     // Create escrow with an explicit buyer so authorization passes.
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &Some(buyer.clone()),
         &resolver,
         &token,
         &1000_i128,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     let res = client.try_confirm_delivery(&buyer, &id);
@@ -492,13 +493,14 @@ fn test_confirm_delivery_from_canceled_state_fails() {
 
     // Create escrow with an explicit buyer.
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &Some(buyer.clone()),
         &resolver,
         &token,
         &1000_i128,
         &100_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     client.cancel_escrow(&seller, &id);
@@ -534,3 +536,11 @@ fn test_confirm_delivery_from_completed_state_fails() {
     assert_eq!(res, Err(Ok(ContractError::InvalidState)));
 }
 
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
+}

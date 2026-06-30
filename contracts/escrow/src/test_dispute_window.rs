@@ -2,7 +2,7 @@
 //! Regression tests for dispute handling after shipping and for the
 //! admin-triggered auto-release path (#4).
 
-use crate::{
+use crate::{Payee,
     ContractError, DataKey, DisputeData, DisputeStatus, Escrow, EscrowClient, EscrowData,
     EscrowState,
 };
@@ -41,13 +41,14 @@ fn setup_funded_and_shipped() -> Fx {
 
     let amount: i128 = 1_000;
     let escrow_id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token_addr,
         &amount,
         &0_u32,
-        &0_u64,
+        &0_u32,
+        &0_u64
     );
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
     env.ledger().set_timestamp(1_700_000_000);
@@ -127,4 +128,13 @@ fn auto_release_rejects_when_dispute_exists() {
 
     let _ = fx.admin;
     let _ = fx.seller;
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }

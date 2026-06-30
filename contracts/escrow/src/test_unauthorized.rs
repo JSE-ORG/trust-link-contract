@@ -7,7 +7,7 @@
 //! `caller != admin → NotAuthorized` guard, not just the host's `require_auth`
 //! reject path.
 
-use crate::{ContractError, Escrow, EscrowClient};
+use crate::{Payee, ContractError, Escrow, EscrowClient};
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 /// Fresh contract with admin/fee_collector initialised. All auths are mocked
@@ -128,11 +128,12 @@ fn create_escrow_rejects_resolver_equal_to_seller() {
 
     assert_eq!(
         client.try_create_escrow(
-            &seller,
+            &single_payee(&env, &seller),
             &None::<Address>,
             &seller, // resolver == seller
             &token,
             &100_i128,
+            &0_u32,
             &0_u32,
             &3600_u64,
         ),
@@ -153,13 +154,14 @@ fn fund_escrow_rejects_buyer_equal_to_seller() {
     soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&seller, &1000_i128);
 
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     assert_eq!(
@@ -181,17 +183,27 @@ fn fund_escrow_rejects_buyer_equal_to_resolver() {
     soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&resolver, &1000_i128);
 
     let id = client.create_escrow(
-        &seller,
+        &single_payee(&env, &seller),
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
-        &3600_u64,
+        &0_u32,
+        &3600_u64
     );
 
     assert_eq!(
         client.try_fund_escrow(&id, &resolver), // buyer == resolver
         Err(Ok(ContractError::ConflictingRoles)),
     );
+}
+
+fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
+    let mut payees = soroban_sdk::Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
 }
