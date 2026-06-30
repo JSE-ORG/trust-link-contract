@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use crate::{ContractError, Escrow, EscrowClient, Payee};
+use soroban_sdk::IntoVal;
 use soroban_sdk::{
     testutils::{Address as _, Ledger, Vec},
     token, Address, Env,
@@ -50,7 +51,7 @@ fn test_withdraw_fees_after_multiple_escrows() {
         let mut payees_72 = Vec::new(&env);
         payees_72.push_back(Payee { address: seller.clone(), bps: 10_000 });
         let id = client.create_escrow(
-            &payees_72,
+            &payees_72.into_val(&env),
             &None::<Address>,
             &resolver,
             &token,
@@ -58,6 +59,7 @@ fn test_withdraw_fees_after_multiple_escrows() {
             &100_u32,
             &0_u32,
             &3600_u64,
+            &None::<soroban_sdk::String>,
         );
         client.fund_escrow(&id, &buyer);
         client.mark_shipped(
@@ -109,7 +111,7 @@ fn test_withdraw_fees_multiple_tokens() {
     let mut payees_71 = Vec::new(&env);
     payees_71.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id_a = client.create_escrow(
-        &payees_71,
+        &payees_71.into_val(&env),
         &None::<Address>,
         &resolver,
         &token_a,
@@ -117,6 +119,7 @@ fn test_withdraw_fees_multiple_tokens() {
         &100_u32,
         &0_u32,
         &3600_u64,
+        &None::<soroban_sdk::String>,
     );
     client.fund_escrow(&id_a, &buyer);
     client.mark_shipped(
@@ -138,7 +141,7 @@ fn test_withdraw_fees_multiple_tokens() {
     let mut payees_70 = Vec::new(&env);
     payees_70.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id_b = client.create_escrow(
-        &payees_70,
+        &payees_70.into_val(&env),
         &None::<Address>,
         &resolver,
         &token_b,
@@ -146,6 +149,7 @@ fn test_withdraw_fees_multiple_tokens() {
         &200_u32,
         &0_u32,
         &3600_u64,
+        &None::<soroban_sdk::String>,
     );
     client.fund_escrow(&id_b, &buyer);
     client.mark_shipped(
@@ -179,4 +183,21 @@ fn test_withdraw_fees_multiple_tokens() {
     client.withdraw_fees(&admin, &token_b, &to, &40);
     assert_eq!(token::Client::new(&env, &token_b).balance(&to), 40);
     assert_eq!(token::Client::new(&env, &token_b).balance(&contract_id), 0);
+}
+
+#[test]
+fn test_withdraw_fees_zero_amount() {
+    let (env, admin, _seller, _buyer, _resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let to = Address::generate(&env);
+    
+    let result = client.try_withdraw_fees(&admin, &token, &to, &0);
+    assert!(matches!(
+        result,
+        Err(Ok(ContractError::InvalidAmount))
+    ));
 }

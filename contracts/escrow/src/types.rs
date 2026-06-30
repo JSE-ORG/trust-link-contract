@@ -173,6 +173,8 @@ pub struct EscrowData {
     pub payees: Vec<Payee>,
     pub buyer: Option<Address>,
     pub resolver_set: ResolverSet,
+    // Change this from Address to ResolverSet
+    pub resolvers: ResolverSet,
     pub token: Address,
     pub amount: i128,
     pub fee_bps: u32,

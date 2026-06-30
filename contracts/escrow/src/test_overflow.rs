@@ -338,6 +338,45 @@ fn test_multiplication_overflow() {
 }
 
 #[test]
+fn test_deduct_and_transfer_max_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(token_admin.clone());
+    let recipient = Address::generate(&env);
+
+    let amount = i128::MAX;
+    let fee_bps = 300;
+    let expected_fee = (amount / 10_000) * fee_bps + (amount % 10_000) * fee_bps / 10_000;
+    let expected_net = amount - expected_fee;
+
+    let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    sac.mint(&env.current_contract_address(), &amount);
+
+    let res = super::deduct_and_transfer(&env, &token, &recipient, amount, fee_bps);
+    assert!(res.is_ok(), "deduct_and_transfer failed for max amount");
+
+    let tc = soroban_sdk::token::Client::new(&env, &token);
+    assert_eq!(tc.balance(&recipient), expected_net);
+    assert_eq!(tc.balance(&env.current_contract_address()), expected_fee);
+}
+
+#[test]
+fn test_calculate_protocol_fee_i128_max_does_not_overflow() {
+    let amount = i128::MAX;
+    let fee_bps = 300_u32;
+
+    let result = crate::helpers::payout::calculate_protocol_fee(amount, fee_bps);
+    assert!(result.is_ok());
+
+    let (fee, net) = result.unwrap();
+    let expected_fee = (amount / 10_000) * fee_bps as i128
+        + (amount % 10_000) * fee_bps as i128 / 10_000;
+    assert_eq!(fee, expected_fee);
+    assert_eq!(net + fee, amount);
+}
+
+#[test]
 fn test_division_by_zero_safety() {
     let amount: i128 = 100;
     let res = amount.checked_div(0);
