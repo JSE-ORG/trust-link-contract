@@ -344,8 +344,18 @@ fn get_ttl_extension(env: &Env) -> u32 {
 fn save_escrow(env: &Env, id: u64, escrow: &EscrowData) {
     let key = DataKey::Escrow(id);
     let ext = get_ttl_extension(env);
+    let previous: Option<EscrowData> = env.storage().persistent().get(&key);
+    let state_changed = previous
+        .as_ref()
+        .map(|existing| existing.state != escrow.state)
+        .unwrap_or(true);
+
     env.storage().persistent().set(&key, escrow);
     env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+
+    if state_changed {
+        append_state_history(env, id, &escrow.state);
+    }
 }
 
 fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractError> {
@@ -358,6 +368,35 @@ fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractError> {
     let ext = get_ttl_extension(env);
     env.storage().persistent().extend_ttl(&key, ext / 2, ext);
     Ok(escrow)
+}
+
+fn append_state_history(env: &Env, id: u64, state: &EscrowState) {
+    let key = DataKey::EscrowStateHistory(id);
+    let ext = get_ttl_extension(env);
+    let mut history: Vec<(EscrowState, u64)> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+
+    history.push_back((state.clone(), env.ledger().timestamp()));
+    env.storage().persistent().set(&key, &history);
+    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+}
+
+fn load_state_history(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
+    let key = DataKey::EscrowStateHistory(id);
+    let ext = get_ttl_extension(env);
+    let history = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+
+    if !history.is_empty() {
+        env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    }
+    history
 }
 
 fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
@@ -1927,6 +1966,14 @@ impl Escrow {
         load_escrow(&env, escrow_id)
     }
 
+    pub fn get_state_history(
+        env: Env,
+        escrow_id: u64,
+    ) -> Result<Vec<(EscrowState, u64)>, ContractError> {
+        load_escrow(&env, escrow_id)?;
+        Ok(load_state_history(&env, escrow_id))
+    }
+
     /// Retrieves the dispute data for a specific escrow, if any.
     pub fn get_dispute(env: Env, escrow_id: u64) -> Option<DisputeData> {
         load_dispute(&env, escrow_id).ok()
@@ -2242,6 +2289,7 @@ mod test_resolution;
 mod test_resolver_rotation;
 mod test_mutual_cancel;
 mod test_set_fee_boundary;
+mod test_state_history;
 mod test_string_length;
 mod test_ttl;
 mod test_unauthorized;

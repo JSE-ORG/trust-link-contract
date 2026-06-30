@@ -5,6 +5,7 @@ use soroban_sdk::{contracttype, Address, BytesN, Env, String, Symbol, Vec};
 pub enum DataKey {
     Admin,
     Escrow(u64),
+    EscrowStateHistory(u64),
     EscrowCounter,
     FeeCollector,
     Dispute(u64),
