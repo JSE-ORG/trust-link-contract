@@ -39,6 +39,7 @@ pub enum DataKey {
     TotalDisputed,
     TotalCompleted,
     TotalRefunded,
+    EvidenceLog(u64),
 }
 
 #[contracttype]

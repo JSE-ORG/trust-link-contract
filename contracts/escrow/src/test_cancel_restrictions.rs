@@ -1,7 +1,7 @@
-use soroban_sdk::IntoVal;
 #![cfg(test)]
-//! `cancel_escrow` is only legal while the escrow is `Pending` (#21). From
-//! any other state it must reject with `InvalidState`.
+use soroban_sdk::IntoVal;
+// `cancel_escrow` is only legal while the escrow is `Pending` (#21). From
+// any other state it must reject with `InvalidState`.
 
 use crate::{ContractError, DataKey, Escrow, EscrowClient, EscrowData, EscrowState, Payee};
 use soroban_sdk::{

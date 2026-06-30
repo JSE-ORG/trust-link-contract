@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::{EscrowData, FeeConfig, DEFAULT_TTL_EXTENSION};
+use crate::{DataKey, EscrowData, FeeConfig, DEFAULT_TTL_EXTENSION};
 
 // ============================================================================
 // TTL CONSTANTS — documented here as the canonical reference.
@@ -81,13 +81,12 @@ pub fn write_escrow_data(env: &Env, escrow_id: u64, escrow: &EscrowData) {
 }
 
 pub fn read_escrow_data(env: &Env, escrow_id: u64) -> Option<EscrowData> {
-    let key = StorageKey::EscrowData(escrow_id);
+    let key = DataKey::Escrow(escrow_id);
     let result = env.storage().persistent().get(&key);
     if result.is_some() {
         extend_ttl_for_key(env, &key);
     }
     result
-    env.storage().persistent().get(&DataKey::Escrow(escrow_id))
 }
 
 pub fn write_vendor_escrow_index(env: &Env, vendor: &Address, escrow_ids: &Vec<u64>) {
@@ -97,7 +96,7 @@ pub fn write_vendor_escrow_index(env: &Env, vendor: &Address, escrow_ids: &Vec<u
 }
 
 pub fn read_vendor_escrow_index(env: &Env, vendor: &Address) -> Vec<u64> {
-    let key = StorageKey::VendorEscrowIndex(vendor.clone());
+    let key = DataKey::VendorEscrowIndex(vendor.clone());
     let result: Vec<u64> = env
         .storage()
         .persistent()
@@ -107,8 +106,6 @@ pub fn read_vendor_escrow_index(env: &Env, vendor: &Address) -> Vec<u64> {
         extend_ttl_for_key(env, &key);
     }
     result
-        .get(&DataKey::VendorEscrowIndex(vendor.clone()))
-        .unwrap_or(Vec::new(env))
 }
 
 pub fn write_buyer_escrow_index(env: &Env, buyer: &Address, escrow_ids: &Vec<u64>) {
@@ -118,7 +115,7 @@ pub fn write_buyer_escrow_index(env: &Env, buyer: &Address, escrow_ids: &Vec<u64
 }
 
 pub fn read_buyer_escrow_index(env: &Env, buyer: &Address) -> Vec<u64> {
-    let key = StorageKey::BuyerEscrowIndex(buyer.clone());
+    let key = DataKey::BuyerEscrowIndex(buyer.clone());
     let result: Vec<u64> = env
         .storage()
         .persistent()
@@ -128,8 +125,6 @@ pub fn read_buyer_escrow_index(env: &Env, buyer: &Address) -> Vec<u64> {
         extend_ttl_for_key(env, &key);
     }
     result
-        .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
-        .unwrap_or(Vec::new(env))
 }
 
 #[cfg(test)]
