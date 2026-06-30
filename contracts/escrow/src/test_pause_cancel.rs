@@ -14,7 +14,7 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
     let contract_id = env.register(crate::Escrow, ());
     {
         let client = EscrowClient::new(&env, &contract_id);
@@ -28,7 +28,7 @@ fn test_cancel_escrow_blocked_when_paused() {
     let (env, admin, seller, _buyer, _resolver, _token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
     // create escrow in pending state
-    let id = client.create_escrow_legacy(&seller, &None::<Address>, &admin, &env.register_stellar_asset_contract(admin.clone()), &100_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow_legacy(&seller, &None::<Address>, &admin, &env.register_stellar_asset_contract_v2(admin.clone()).address(), &100_i128, &0_u32, &3600_u64);
     // pause contract
     client.pause_contract(&admin);
     // attempt to cancel escrow should fail with ContractPaused

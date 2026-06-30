@@ -53,8 +53,8 @@ pub enum ContractError {
     DeliveryNotRecorded = 22,
     /// Returned when two roles that must be distinct are assigned the same address.
     ConflictingRoles = 23,
-    /// Returned when a buyer attempts to raise a dispute after the dispute window has closed.
-    DisputeWindowClosed = 24,
+    /// Returned when a buyer attempts to confirm delivery while the dispute window is still open.
+    DisputeWindowStillOpen = 24,
     /// Returned when a resolver is not in the approved registry and strict mode is enabled.
     UnauthorizedResolver = 25,
     /// Returned when emergency_drain is called but the contract is not paused.

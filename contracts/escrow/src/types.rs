@@ -173,6 +173,7 @@ pub struct ContractConfig {
 pub struct EscrowData {
     pub payees: Vec<Payee>,
     pub buyer: Option<Address>,
+    pub resolver_set: ResolverSet,
     // Change this from Address to ResolverSet
     pub resolvers: ResolverSet,
     pub token: Address,

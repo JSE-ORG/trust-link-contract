@@ -5,7 +5,7 @@ use crate::{test_helpers::setup_contract, DataKey, EscrowState};
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
-    env.register_stellar_asset_contract(token_admin)
+    env.register_stellar_asset_contract_v2(token_admin).address()
 }
 
 #[test]

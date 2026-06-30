@@ -10,7 +10,7 @@ fn test_double_fund_reverts_with_invalid_state() {
     env.mock_all_auths();
 
     let token_admin = Address::generate(&env);
-    let token = env.register_stellar_asset_contract(token_admin);
+    let token = env.register_stellar_asset_contract_v2(token_admin).address();
     let (contract_id, client, _admin, _fee_collector) = setup_contract(&env);
 
     let seller = Address::generate(&env);

@@ -13,7 +13,7 @@ fn setup(env: &Env) -> (Address, Address, Address, Address, Address, Address) {
     let buyer = Address::generate(env);
     let resolver = Address::generate(env);
     let fee_collector = Address::generate(env);
-    let token = env.register_stellar_asset_contract(Address::generate(env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(env)).address();
     (admin, seller, buyer, resolver, fee_collector, token)
 }
 

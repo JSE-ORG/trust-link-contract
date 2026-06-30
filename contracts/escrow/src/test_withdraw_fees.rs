@@ -18,7 +18,7 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
 
     (
         env,
@@ -104,7 +104,7 @@ fn test_withdraw_fees_multiple_tokens() {
 
     // Register a second token
     let token_admin_b = Address::generate(&env);
-    let token_b = env.register_stellar_asset_contract(token_admin_b);
+    let token_b = env.register_stellar_asset_contract_v2(token_admin_b).address();
 
     // Accrue fees for Token A (1000 amount, 1% fee = 10)
     mint_tokens(&env, &token_a, &buyer, 1000);

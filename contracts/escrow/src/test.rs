@@ -20,7 +20,7 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
 
     (
         env,
@@ -45,7 +45,7 @@ fn get_balance(env: &Env, token: &Address, user: &Address) -> i128 {
 
 fn register_alt_token(env: &Env) -> (Address, Address) {
     let admin = Address::generate(env);
-    let token_address = env.register_stellar_asset_contract(admin.clone());
+    let token_address = env.register_stellar_asset_contract_v2(admin.clone()).address();
     (token_address, admin)
 }
 

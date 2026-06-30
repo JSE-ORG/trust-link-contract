@@ -14,7 +14,7 @@ fn setup(env: &Env) -> (EscrowClient, Address, Address, Address, Address, Addres
     let buyer = Address::generate(env);
     let resolver = Address::generate(env);
     let token_admin = Address::generate(env);
-    let token = env.register_stellar_asset_contract(token_admin.clone());
+    let token = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
 
     let token_client = token::StellarAssetClient::new(env, &token);
     token_client.mint(&buyer, &10_000_i128);
@@ -75,7 +75,7 @@ fn emergency_drain_fails_on_pending_escrow() {
     let fee_collector = Address::generate(&env);
     let seller = Address::generate(&env);
     let resolver = Address::generate(&env);
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
 
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
@@ -103,7 +103,7 @@ fn emergency_drain_fails_on_completed_escrow() {
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
     let token_admin = Address::generate(&env);
-    let token = env.register_stellar_asset_contract(token_admin.clone());
+    let token = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
 
     let token_client = token::StellarAssetClient::new(&env, &token);
     token_client.mint(&buyer, &10_000_i128);

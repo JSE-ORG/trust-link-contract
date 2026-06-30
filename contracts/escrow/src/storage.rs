@@ -80,8 +80,18 @@ pub fn write_escrow_data(env: &Env, escrow_id: u64, escrow: &EscrowData) {
     extend_ttl_for_key(env, &key);
 }
 
+// pub fn read_escrow_data(env: &Env, escrow_id: u64) -> Option<EscrowData> {
+//     let key = StorageKey::EscrowData(escrow_id);
+//     let result = env.storage().persistent().get(&key);
+//     if result.is_some() {
+//         extend_ttl_for_key(env, &key);
+//     }
+//     result
+//     env.storage().persistent().get(&DataKey::Escrow(escrow_id))
+// }
+
 pub fn read_escrow_data(env: &Env, escrow_id: u64) -> Option<EscrowData> {
-    let key = DataKey::Escrow(escrow_id);
+    let key = DataKey::Escrow(escrow_id); // Ensure this matches DataKey enum
     let result = env.storage().persistent().get(&key);
     if result.is_some() {
         extend_ttl_for_key(env, &key);

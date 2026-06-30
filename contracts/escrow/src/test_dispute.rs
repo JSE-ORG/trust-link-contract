@@ -17,7 +17,7 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
 
     (
         env,
@@ -222,7 +222,7 @@ fn test_dispute_requires_shipped_state() {
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
 
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    assert_eq!(result, Err(Ok(crate::ContractError::DisputeWindowClosed)));
+    assert_eq!(result, Err(Ok(crate::ContractError::DisputeWindowStillOpen)));
 
     // Verify no state mutation on expired action
     let escrow_after = client.get_escrow(&id);
@@ -272,7 +272,7 @@ fn test_dispute_rejected_after_48h_deadline() {
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
 
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    assert_eq!(result, Err(Ok(crate::ContractError::DisputeWindowClosed)));
+    assert_eq!(result, Err(Ok(crate::ContractError::DisputeWindowStillOpen)));
 
     // Verify no state mutation on expired action
     let escrow_after = client.get_escrow(&id);
