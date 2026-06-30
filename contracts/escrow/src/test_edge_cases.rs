@@ -174,7 +174,7 @@ fn test_min_escrow_amount_rejects_dust_prone_amount() {
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
     let seller = Address::generate(&env);
     let resolver = Address::generate(&env);
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
 
     // 99 stroops, 1% fee — the exact case from the bug report.
     // MIN_ESCROW_AMOUNT = 1, so 99 is above the minimum and should succeed for creation.
@@ -218,7 +218,7 @@ fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
         let seller = Address::generate(&env);
         let buyer = Address::generate(&env);
         let resolver = Address::generate(&env);
-        let token = env.register_stellar_asset_contract(Address::generate(&env));
+        let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
 
         let id = create_funded_escrow(
             &env, &client, &seller, &buyer, &resolver, &token, amount, fee_bps, 3600,
@@ -264,7 +264,7 @@ fn test_mark_shipped_twice_reverts() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
 
     let seller = Address::generate(&env);
@@ -301,7 +301,7 @@ fn test_record_delivery_on_disputed_escrow_reverts() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
     let seller = Address::generate(&env);
@@ -341,7 +341,7 @@ fn test_counter_survives_near_ttl_expiry() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
 
     let seller = Address::generate(&env);

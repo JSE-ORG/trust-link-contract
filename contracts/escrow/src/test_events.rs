@@ -20,7 +20,7 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let resolver = Address::generate(&env);
     let tokenadmin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
-    let token_address = env.register_stellar_asset_contract(tokenadmin.clone());
+    let token_address = env.register_stellar_asset_contract_v2(tokenadmin.clone()).address();
     let contract_id = env.register(Escrow, ());
     {
         let client = EscrowClient::new(&env, &contract_id);

@@ -9,7 +9,7 @@ use soroban_sdk::{
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
-    env.register_stellar_asset_contract(token_admin)
+    env.register_stellar_asset_contract_v2(token_admin).address()
 }
 
 fn has_event<T, F>(env: &Env, contract_id: &Address, topic: &str, predicate: F) -> bool

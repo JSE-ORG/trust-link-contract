@@ -1,5 +1,4 @@
 #![no_std]
-#![allow(deprecated, unused_imports)]
 use soroban_sdk::{
     contract, contractimpl, contracttype, token, Address, BytesN, Env, IntoVal, String, Symbol,
     TryIntoVal, Val, Vec,
@@ -2434,7 +2433,7 @@ impl Escrow {
             .checked_add(APPEAL_WINDOW)
             .ok_or(ContractError::ArithmeticError)?;
         if now >= appeal_deadline {
-            return Err(ContractError::DisputeWindowClosed);
+            return Err(ContractError::DisputeWindowStillOpen);
         }
 
         // Only buyer or seller can appeal

@@ -241,7 +241,7 @@ fn test_set_fee_not_retroactive() {
     let resolver = Address::generate(&env);
     let fee_collector = Address::generate(&env);
     let token_admin = Address::generate(&env);
-    let token = env.register_stellar_asset_contract(token_admin);
+    let token = env.register_stellar_asset_contract_v2(token_admin).address();
     let contract_id = env.register(crate::Escrow, ());
     let client = crate::EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);

@@ -8,7 +8,7 @@ use soroban_sdk::{
 };
 
 fn register_token(env: &Env) -> Address {
-    env.register_stellar_asset_contract(Address::generate(env))
+    env.register_stellar_asset_contract_v2(Address::generate(env)).address()
 }
 
 /// Build a SorobanString of exactly `len` ASCII 'a' characters (max 512).

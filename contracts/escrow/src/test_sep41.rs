@@ -17,7 +17,7 @@ use soroban_sdk::{
 
 /// Register a fresh Stellar asset contract (generic SEP-41 token).
 fn register_sep41_token(env: &Env) -> Address {
-    env.register_stellar_asset_contract(Address::generate(env))
+    env.register_stellar_asset_contract_v2(Address::generate(env)).address()
 }
 
 fn mint(env: &Env, token: &Address, to: &Address, amount: i128) {
