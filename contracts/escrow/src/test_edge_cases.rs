@@ -2,9 +2,9 @@
 
 use crate::helpers::payout::calculate_protocol_fee;
 use crate::test_helpers::{advance_time, create_funded_escrow, setup_contract};
-use crate::{Payee, ContractError, Escrow, EscrowClient, MIN_ESCROW_AMOUNT};
+use crate::{ContractError, Escrow, EscrowClient, MIN_ESCROW_AMOUNT, Payee};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    testutils::{Address as _, Ledger as _, Vec},
     token, Address, BytesN, Env, String as SorobanString, Symbol,
 };
 
@@ -86,15 +86,20 @@ fn test_buyer_index_populated_on_cancel_by_buyer() {
     let resolver = Address::generate(&env);
 
     // Create a Pending escrow that names the buyer up front.
+    let mut payees_25 = Vec::new(&env);
+    payees_25.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_25,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &1000_i128,
         &100_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
 
     // The buyer cancels the still-Pending escrow.
@@ -169,32 +174,30 @@ fn test_min_escrow_amount_rejects_dust_prone_amount() {
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
     let seller = Address::generate(&env);
     let resolver = Address::generate(&env);
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
 
     // 99 stroops, 1% fee — the exact case from the bug report.
     // MIN_ESCROW_AMOUNT = 1, so 99 is above the minimum and should succeed for creation.
     let result = client.try_create_escrow(
-        &single_payee(&env, &seller),
+        &seller,
         &None::<Address>,
         &resolver,
         &token,
         &99_i128,
         &100_u32,
-        &0_u32,
-        &3600_u64
+        &3600_u64,
     );
     assert!(result.is_ok());
 
     // One stroop below the minimum is still rejected.
     let result = client.try_create_escrow(
-        &single_payee(&env, &seller),
+        &seller,
         &None::<Address>,
         &resolver,
         &token,
         &0_i128,
         &100_u32,
-        &0_u32,
-        &3600_u64
+        &3600_u64,
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
@@ -215,7 +218,7 @@ fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
         let seller = Address::generate(&env);
         let buyer = Address::generate(&env);
         let resolver = Address::generate(&env);
-        let token = env.register_stellar_asset_contract(Address::generate(&env));
+        let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
 
         let id = create_funded_escrow(
             &env, &client, &seller, &buyer, &resolver, &token, amount, fee_bps, 3600,
@@ -261,7 +264,7 @@ fn test_mark_shipped_twice_reverts() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
 
     let seller = Address::generate(&env);
@@ -298,7 +301,7 @@ fn test_record_delivery_on_disputed_escrow_reverts() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
     let seller = Address::generate(&env);
@@ -338,7 +341,7 @@ fn test_counter_survives_near_ttl_expiry() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
 
     let seller = Address::generate(&env);
@@ -374,13 +377,4 @@ fn test_counter_survives_near_ttl_expiry() {
     // Verify old escrows are still accessible.
     assert_eq!(client.get_escrow(&id1).amount, 1000);
     assert_eq!(client.get_escrow(&id2).amount, 1000);
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

@@ -1,8 +1,8 @@
 #![cfg(test)]
 
-use crate::{Payee, DisputeResolved, Escrow, EscrowClient, ResolutionType};
+use crate::{DisputeResolved, Escrow, EscrowClient, Payee, ResolutionType};
 use soroban_sdk::{
-    testutils::{Address as _, Events as _, Ledger},
+    testutils::{Address as _, Events as _, Ledger, Vec},
     token, Address, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val,
 };
 
@@ -13,7 +13,7 @@ fn setup(env: &Env) -> (Address, Address, Address, Address, Address, Address) {
     let buyer = Address::generate(env);
     let resolver = Address::generate(env);
     let fee_collector = Address::generate(env);
-    let token = env.register_stellar_asset_contract(Address::generate(env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(env)).address();
     (admin, seller, buyer, resolver, fee_collector, token)
 }
 
@@ -39,15 +39,20 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
     let amount = 1000_i128;
     let fee_bps = 200; // 2%
 
+    let mut payees_4 = Vec::new(&env);
+    payees_4.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_4,
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &fee_bps,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
 
     mint(&env, &token, &buyer, amount);
@@ -97,21 +102,26 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
-    let arb_fee_bps = 1000_u32; // 10% of 1000 = 100
+    let arb_fee_bps = 500_u32; // 5% of 1000 = 50
     client.initialize(&admin, &fee_collector, &arb_fee_bps);
 
     let amount = 1000_i128;
     let fee_bps = 300; // 3%
 
+    let mut payees_3 = Vec::new(&env);
+    payees_3.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_3,
         &None::<Address>,
         &resolver,
         &token,
         &amount,
         &fee_bps,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
 
     mint(&env, &token, &buyer, amount);
@@ -167,14 +177,14 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
 
     // Calculation:
     // 1. amount = 1000
-    // 2. arbitration_fee = 100 (10% of 1000)
-    // 3. remaining = 1000 - 100 = 900
-    // 4. protocol_fee (3% of 900) = 900 * 300 / 10000 = 27
-    // 5. final_net = 900 - 27 = 873
+    // 2. arbitration_fee = 50 (5% of 1000)
+    // 3. remaining = 1000 - 50 = 950
+    // 4. protocol_fee (3% of 950) = 950 * 300 / 10000 = 28 (floor)
+    // 5. final_net = 950 - 28 = 922
 
-    assert_eq!(balance(&env, &token, &buyer), 873);
-    assert_eq!(balance(&env, &token, &contract_id), 127); // 100 + 27
-    assert_eq!(client.get_total_arbitration_fees(&token), 100);
+    assert_eq!(balance(&env, &token, &buyer), 922);
+    assert_eq!(balance(&env, &token, &contract_id), 78); // 50 arb + 28 protocol
+    assert_eq!(client.get_total_arbitration_fees(&token), 50);
 }
 
 #[test]
@@ -190,13 +200,4 @@ fn test_set_and_get_arbitration_fee() {
 
     client.set_arbitration_fee(&admin, &150_u32);
     assert_eq!(client.get_arbitration_fee(), 150);
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

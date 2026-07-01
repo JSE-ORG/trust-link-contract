@@ -1,3 +1,38 @@
 {
-    "kiroAgent.configureMCP": "Disabled"
+  // General Workbench Settings
+  "editor.renderWhitespace": "selection",
+  "editor.rulers": [100],
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+
+  // Global Auto-format behavior
+  "editor.formatOnSave": true,
+
+  // --- Rust Language Settings ---
+  "[rust]": {
+    "editor.defaultFormatter": "rust-analyzer",
+    "editor.semanticHighlighting.enabled": true
+  },
+  "rust-analyzer.cargo.target": "wasm32v1-none",
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.allTargets": false, // Soroban needs this false for the wasm target in workspace setups
+
+  // --- TypeScript / JavaScript Settings ---
+  "[typescript]": {
+    "editor.defaultFormatter": "vscode.typescript-language-features"
+  },
+  "typescript.tsdk": "node_modules/typescript/lib",
+
+  // --- JSON & Markdown Settings ---
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "vscode.markdown-language-features",
+    "editor.wordWrap": "on"
+  }
 }

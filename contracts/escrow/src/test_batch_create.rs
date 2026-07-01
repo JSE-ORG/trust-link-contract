@@ -17,7 +17,7 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
 
     (
         env,
@@ -35,7 +35,7 @@ fn test_batch_create_success() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    
+
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let mut escrows = soroban_sdk::Vec::new(&env);
@@ -64,7 +64,7 @@ fn test_batch_create_success() {
 
     let ids = client.batch_create_escrow(&seller, &escrows);
     assert_eq!(ids.len(), 2);
-    
+
     // Check first escrow
     let escrow1 = client.get_escrow(&ids.get(0).unwrap());
     assert_eq!(escrow1.amount, amount1);
@@ -81,7 +81,7 @@ fn test_batch_create_partial_failure() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    
+
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let mut escrows = soroban_sdk::Vec::new(&env);

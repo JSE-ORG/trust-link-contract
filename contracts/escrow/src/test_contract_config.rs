@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use crate::{Payee, Escrow, EscrowClient};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use crate::{Escrow, EscrowClient, Payee};
+use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
 #[test]
 fn test_get_public_config() {
@@ -36,15 +36,20 @@ fn test_get_public_config() {
     let resolver = Address::generate(&env);
     let token = Address::generate(&env);
 
+    let mut payees_14 = Vec::new(&env);
+    payees_14.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_14,
         &None::<Address>,
         &resolver,
         &token,
         &1000_0000000,
         &100,
         &0_u32,
-        &86400
+        &86400,
     );
 
     public = client.get_public_config();
@@ -83,13 +88,4 @@ fn test_get_contract_config_requires_admin() {
     client.set_admin(&new_admin);
     config = client.get_contract_config();
     assert_eq!(config.admin, new_admin);
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

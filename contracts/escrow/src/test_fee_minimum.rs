@@ -1,8 +1,8 @@
 #![cfg(test)]
 
-use crate::{Payee, Escrow, EscrowClient, ResolutionType};
+use crate::{Escrow, EscrowClient, Payee, ResolutionType};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::{Address as _, Ledger, Vec},
     token, Address, Env, String as SorobanString, Symbol,
 };
 
@@ -13,7 +13,7 @@ fn setup(env: &Env) -> (Address, Address, Address, Address, Address, Address) {
     let buyer = Address::generate(env);
     let resolver = Address::generate(env);
     let fee_collector = Address::generate(env);
-    let token = env.register_stellar_asset_contract(Address::generate(env));
+    let token = env.register_stellar_asset_contract_v2(Address::generate(env)).address();
     (admin, seller, buyer, resolver, fee_collector, token)
 }
 
@@ -40,15 +40,20 @@ fn test_fee_rounds_to_zero_on_one_stroop_confirm_delivery() {
     mint(&env, &token, &buyer, 1);
 
     // MAX_FEE_BPS = 300 (3%) — still rounds to 0 on 1 stroop
-    let id = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_45 = Vec::new(&env);
+    payees_45.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id = client.create_escrow_8(
+        &payees_45,
         &None::<Address>,
         &resolver,
         &token,
         &1_i128,
         &300_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-ONE"));
@@ -75,15 +80,20 @@ fn test_fee_rounds_to_zero_on_one_stroop_auto_release() {
 
     mint(&env, &token, &buyer, 1);
 
-    let id = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_44 = Vec::new(&env);
+    payees_44.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id = client.create_escrow_8(
+        &payees_44,
         &None::<Address>,
         &resolver,
         &token,
         &1_i128,
         &300_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(
@@ -115,15 +125,20 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_release() {
 
     mint(&env, &token, &buyer, 1);
 
-    let id = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_43 = Vec::new(&env);
+    payees_43.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id = client.create_escrow_8(
+        &payees_43,
         &None::<Address>,
         &resolver,
         &token,
         &1_i128,
         &300_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(
@@ -155,15 +170,20 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_refund() {
 
     mint(&env, &token, &buyer, 1);
 
-    let id = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_42 = Vec::new(&env);
+    payees_42.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id = client.create_escrow_8(
+        &payees_42,
         &None::<Address>,
         &resolver,
         &token,
         &1_i128,
         &300_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(
@@ -183,13 +203,4 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_refund() {
     // Buyer gets back the full 1 stroop; no fee retained
     assert_eq!(balance(&env, &token, &buyer), 1);
     assert_eq!(balance(&env, &token, &contract_id), 0);
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

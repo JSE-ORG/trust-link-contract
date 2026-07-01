@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{Payee, Escrow, EscrowCancelled, EscrowClient};
+use crate::{Escrow, EscrowCancelled, EscrowClient, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Events as _},
     Address, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
@@ -60,24 +60,34 @@ fn test_escrow_ids_monotonic_and_unique() {
 
     let mut ids = Vec::new(&env);
     for i in 1..=10 {
-        let id = client.create_escrow(
-        &single_payee(&env, &seller),
-        &None::<Address>,
-        &resolver,
-        &token,
-        &100_i128,
-        &0_u32,
-        &0_u32,
-        &3600_u64
-    );
+        let mut payees_41 = Vec::new(&env);
+        payees_41.push_back(Payee {
+            address: seller.clone(),
+            bps: 10_000,
+        });
+        let id = client.create_escrow_8(
+            &payees_41,
+            &None::<Address>,
+            &resolver,
+            &token,
+            &100_i128,
+            &0_u32,
+            &0_u32,
+            &3600_u64,
+        );
         assert_eq!(id, i as u64);
         ids.push_back(id);
     }
 
     // Verify persistence: new client instance sees counter at 11
     let client2 = EscrowClient::new(&env, &contract_id);
+    let mut payees_40 = Vec::new(&env);
+    payees_40.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let next_id = client2.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_40,
         &None::<Address>,
         &resolver,
         &token,
@@ -97,35 +107,50 @@ fn test_escrow_ids_increment_sequentially() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    let id1 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_39 = Vec::new(&env);
+    payees_39.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id1 = client.create_escrow_8(
+        &payees_39,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
-    let id2 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_38 = Vec::new(&env);
+    payees_38.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id2 = client.create_escrow_8(
+        &payees_38,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
-    let id3 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_37 = Vec::new(&env);
+    payees_37.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id3 = client.create_escrow_8(
+        &payees_37,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
 
     assert_eq!(id1, 1);
@@ -141,25 +166,35 @@ fn test_cancelled_escrow_does_not_reset_counter() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    let id1 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_36 = Vec::new(&env);
+    payees_36.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id1 = client.create_escrow_8(
+        &payees_36,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
-    let id2 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_35 = Vec::new(&env);
+    payees_35.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id2 = client.create_escrow_8(
+        &payees_35,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
 
     // Ensure cancellation of #1 doesn't reset counter to 1 or 2
@@ -167,15 +202,20 @@ fn test_cancelled_escrow_does_not_reset_counter() {
     assert!(has_cancel_event(&env, &contract_id, id1, &seller));
 
     // Create a new escrow after cancellation
-    let next_id = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_34 = Vec::new(&env);
+    payees_34.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let next_id = client.create_escrow_8(
+        &payees_34,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
     assert_eq!(next_id, 3);
 }
@@ -188,48 +228,68 @@ fn test_escrow_counter_does_not_skip_after_cancellation() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    let id1 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_33 = Vec::new(&env);
+    payees_33.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id1 = client.create_escrow_8(
+        &payees_33,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
-    let id2 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_32 = Vec::new(&env);
+    payees_32.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id2 = client.create_escrow_8(
+        &payees_32,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
 
     client.cancel_escrow(&seller, &id1);
 
-    let id3 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_31 = Vec::new(&env);
+    payees_31.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id3 = client.create_escrow_8(
+        &payees_31,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
-    let id4 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_30 = Vec::new(&env);
+    payees_30.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id4 = client.create_escrow_8(
+        &payees_30,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
 
     assert_eq!(id1, 1);
@@ -250,58 +310,69 @@ fn test_multiple_cancellations() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    let id1 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_29 = Vec::new(&env);
+    payees_29.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id1 = client.create_escrow_8(
+        &payees_29,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
-    let id2 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_28 = Vec::new(&env);
+    payees_28.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id2 = client.create_escrow_8(
+        &payees_28,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
-    let id3 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_27 = Vec::new(&env);
+    payees_27.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id3 = client.create_escrow_8(
+        &payees_27,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
 
     client.cancel_escrow(&seller, &id1);
     client.cancel_escrow(&seller, &id2);
 
-    let next_id = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_26 = Vec::new(&env);
+    payees_26.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let next_id = client.create_escrow_8(
+        &payees_26,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
     assert_eq!(next_id, 4);
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

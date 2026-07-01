@@ -4,7 +4,7 @@ mod tests {
         testutils::{Address as _, Ledger},
         Address, Env,
     };
-    use crate::{Payee, Escrow, EscrowClient};
+    use crate::{Escrow, EscrowClient};
 
     const DISPUTE_WINDOW: u64 = 172_800;
 
@@ -59,7 +59,7 @@ mod tests {
         &amount,
         &100_u32,
         &0_u32,
-        &604_800_u64
+        &604_800_u64,
     );
 
         client.fund_escrow(&escrow_id, &buyer);
@@ -123,7 +123,7 @@ mod tests {
         &amount,
         &100_u32,
         &0_u32,
-        &shipping_window
+        &shipping_window,
     );
 
         client.fund_escrow(&escrow_id, &buyer);
@@ -153,13 +153,4 @@ mod tests {
             "fee collector should receive snapshotted 1% fee on auto_release"
         );
     }
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

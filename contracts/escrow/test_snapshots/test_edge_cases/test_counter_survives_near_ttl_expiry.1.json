@@ -546,6 +546,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "notes"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "resolver"
                     },
                     "val": {
@@ -678,6 +684,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "notes"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "resolver"
                     },
                     "val": {
@@ -807,6 +819,12 @@
                     "val": {
                       "u64": "0"
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "notes"
+                    },
+                    "val": "void"
                   },
                   {
                     "key": {

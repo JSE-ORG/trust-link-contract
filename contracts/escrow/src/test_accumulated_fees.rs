@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{Payee, ContractError, EscrowClient, ResolutionType};
+use crate::{ContractError, EscrowClient, ResolutionType};
 use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
 use soroban_sdk::{token, Address, Env};
 
@@ -15,7 +15,7 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
 
     (
         env,
@@ -33,7 +33,7 @@ fn test_accumulated_fees() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    
+
     // Set 1% protocol fee and 2% arbitration fee
     client.initialize(&admin, &fee_collector, &200_u32);
     client.set_protocol_fee(&admin, &100_u32);
@@ -48,7 +48,7 @@ fn test_accumulated_fees() {
         &100_u32,
         &0_u32,
         // Escrow fee 1%
-        &3600
+        &3600,
     );
 
     let sac = token::StellarAssetClient::new(&env, &token);
@@ -76,13 +76,4 @@ fn test_accumulated_fees() {
     // Total retained = 20 + 10 = 30
     let fees = client.get_accumulated_fees(&token);
     assert_eq!(fees, 30);
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

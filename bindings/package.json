@@ -1,7 +1,6 @@
 {
-  "name": "trustlink-escrow-bindings",
+  "name": "@trustlink/contract-bindings",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "TypeScript bindings, React hooks, and Soroban adapter for the TrustLink escrow contract.",
   "exports": {
@@ -10,22 +9,51 @@
     "./soroban-react": "./src/soroban-react.ts",
     "./errors": "./src/errors.ts"
   },
+  "files": [
+    "src"
+  ],
   "scripts": {
-    "build": "node scripts/optimize-wasm.js && stellar contract bindings typescript --wasm ../target/wasm32-unknown-unknown/release/trustlink_escrow.wasm --output-dir src --overwrite",
-    "generate": "stellar contract bindings typescript --wasm ../target/wasm32-unknown-unknown/release/trustlink_escrow.wasm --output-dir src --overwrite",
+    "build": "node scripts/optimize-wasm.js && stellar contract bindings typescript --wasm ../target/wasm32v1-none/release/trustlink_escrow.wasm --output-dir src --overwrite",
+    "generate": "stellar contract bindings typescript --wasm ../target/wasm32v1-none/release/trustlink_escrow.wasm --output-dir src --overwrite",
     "optimize": "node scripts/optimize-wasm.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": ">=20.0.0",
+    "typescript": ">=5.4.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JSE-ORG/trust-link-contract.git"
   },
   "peerDependencies": {
+    "@soroban-react/core": ">=2.0.0",
     "@stellar/freighter-api": ">=2.0.0",
     "@stellar/stellar-sdk": ">=12.0.0",
-    "@soroban-react/core": ">=2.0.0",
     "react": ">=18.0.0"
   },
   "peerDependenciesMeta": {
-    "@stellar/freighter-api": { "optional": true },
-    "@stellar/stellar-sdk": { "optional": true },
-    "@soroban-react/core": { "optional": true },
-    "react": { "optional": true }
+    "@stellar/freighter-api": {
+      "optional": true
+    },
+    "@stellar/stellar-sdk": {
+      "optional": true
+    },
+    "@soroban-react/core": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@soroban-react/core": "^9.3.0",
+    "@stellar/freighter-api": "^6.0.1",
+    "@stellar/stellar-sdk": "^16.0.1",
+    "@types/node": "^26.0.1",
+    "@types/react": "^19.2.17",
+    "react": "^19.2.7",
+    "typescript": "^6.0.3"
   }
 }

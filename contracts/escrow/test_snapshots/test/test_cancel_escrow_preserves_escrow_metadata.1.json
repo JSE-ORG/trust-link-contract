@@ -129,7 +129,7 @@
     ],
     [
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
         {
           "function": {
             "contract_fn": {
@@ -137,7 +137,7 @@
               "function_name": "cancel_escrow",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
                   "u64": "1"
@@ -228,7 +228,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "2032731177588607455"
@@ -378,6 +378,12 @@
                     "val": {
                       "u64": "0"
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "notes"
+                    },
+                    "val": "void"
                   },
                   {
                     "key": {
@@ -614,7 +620,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "500"
+                      "i128": "2000"
                     }
                   },
                   {
@@ -666,7 +672,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "1500"
+                      "i128": "0"
                     }
                   },
                   {

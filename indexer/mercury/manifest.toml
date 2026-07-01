@@ -1,0 +1,163 @@
+# Mercury Event Subscription Manifest — TrustLink Escrow
+#
+# Deploy with the Mercury CLI:
+#   mercury-cli subscribe --manifest indexer/mercury/manifest.toml
+#
+# Or register subscriptions one-by-one via the Mercury dashboard at
+#   https://mercurydata.app
+#
+# Each [[subscription]] block tells Mercury which contract events to
+# capture.  Topic values are XDR-encoded ScVal base64 strings.  Generate
+# them with the stellar CLI:
+#   stellar xdr encode --type ScVal --input json '{"type":"symbol","value":"Escrow"}'
+#
+# Reference:
+#   https://docs.mercurydata.app/subscriptions/event-subscriptions
+
+[network]
+# "mainnet" | "testnet"
+name = "testnet"
+
+[contract]
+# Replace with the deployed contract address.
+id = "${CONTRACT_ID}"
+
+# ---------------------------------------------------------------------------
+# Escrow lifecycle events
+# topic_1 = first topic symbol ("Escrow", "Dispute", etc.)
+# topic_2 = second topic symbol ("Created", "Funded", etc.)
+# topic_3 = optional participant address (seller / buyer / resolver)
+#
+# max_single_size caps the byte budget per event stored by Mercury.
+# 300 bytes comfortably covers the largest payload (EscrowCreated).
+# ---------------------------------------------------------------------------
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAZFc2Nyb3c="   # Symbol("Escrow")
+topic_2_xdr = "AAAADwAAAAdDcmVhdGVk"   # Symbol("Created")
+max_single_size = 300
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAZFc2Nyb3c="   # Symbol("Escrow")
+topic_2_xdr = "AAAADwAAAAZGdW5kZWQ="   # Symbol("Funded")
+max_single_size = 200
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAZFc2Nyb3c="   # Symbol("Escrow")
+topic_2_xdr = "AAAADwAAAAdTaGlwcGVk"   # Symbol("Shipped")
+max_single_size = 250
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAZFc2Nyb3c="   # Symbol("Escrow")
+topic_2_xdr = "AAAADwAAAAlEZWxpdmVyZWQ=" # Symbol("Delivered")
+max_single_size = 150
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAZFc2Nyb3c="   # Symbol("Escrow")
+topic_2_xdr = "AAAADwAAAAlDb21wbGV0ZWQ=" # Symbol("Completed")
+max_single_size = 250
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAZFc2Nyb3c="   # Symbol("Escrow")
+topic_2_xdr = "AAAADwAAAAdDYW5jZWxlZA=" # Symbol("Canceled")
+max_single_size = 200
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAZFc2Nyb3c="   # Symbol("Escrow")
+topic_2_xdr = "AAAADwAAAAhSZWxlYXNlZA=" # Symbol("Released")
+max_single_size = 250
+
+# ---------------------------------------------------------------------------
+# Dispute events
+# ---------------------------------------------------------------------------
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAdEaXNwdXRl"   # Symbol("Dispute")
+topic_2_xdr = "AAAADwAAAAZSYWlzZWQ="   # Symbol("Raised")
+max_single_size = 400
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAdEaXNwdXRl"   # Symbol("Dispute")
+topic_2_xdr = "AAAADwAAAAhSZXNvbHZlZA=" # Symbol("Resolved")
+max_single_size = 350
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAdEaXNwdXRl"   # Symbol("Dispute")
+topic_2_xdr = "AAAADwAAAAdQZW5kaW5n"   # Symbol("Pending")
+max_single_size = 250
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAdEaXNwdXRl"   # Symbol("Dispute")
+topic_2_xdr = "AAAADwAAAAhBcHBlYWxlZA=" # Symbol("Appealed")
+max_single_size = 150
+
+# ---------------------------------------------------------------------------
+# Resolver events
+# ---------------------------------------------------------------------------
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAhSZXNvbHZlcg=="  # Symbol("Resolver")
+topic_2_xdr = "AAAADwAAAAdSb3RhdGVk"      # Symbol("Rotated")
+max_single_size = 200
+
+[[subscription]]
+# resolver_vote_recorded uses a long symbol (> 9 chars), encoded as SCV_SYMBOL
+type        = "event"
+topic_1_xdr = "AAAADwAAABZyZXNvbHZlcl92b3RlX3JlY29yZGVk" # Symbol("resolver_vote_recorded")
+max_single_size = 200
+
+# ---------------------------------------------------------------------------
+# Refund events
+# ---------------------------------------------------------------------------
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAZSZWZ1bmQ="    # Symbol("Refund")
+topic_2_xdr = "AAAADwAAAAlSZXF1ZXN0ZWQ=" # Symbol("Requested")
+max_single_size = 200
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAZSZWZ1bmQ="    # Symbol("Refund")
+topic_2_xdr = "AAAADwAAAAhBcHByb3ZlZA=" # Symbol("Approved")
+max_single_size = 200
+
+# ---------------------------------------------------------------------------
+# Admin / config events (lower priority; subscribe if auditing is needed)
+# ---------------------------------------------------------------------------
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAhDb250cmFjdA=="  # Symbol("Contract")
+topic_2_xdr = "AAAADwAAAARJbml0"           # Symbol("Init")
+max_single_size = 200
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAhDb250cmFjdA=="  # Symbol("Contract")
+topic_2_xdr = "AAAADwAAAAZQYXVzZWQ="      # Symbol("Paused")
+max_single_size = 150
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAhDb250cmFjdA=="  # Symbol("Contract")
+topic_2_xdr = "AAAADwAAAAhVbnBhdXNlZA=="  # Symbol("Unpaused")
+max_single_size = 150
+
+[[subscription]]
+type        = "event"
+topic_1_xdr = "AAAADwAAAAVBZG1pbg=="      # Symbol("Admin")
+topic_2_xdr = "AAAADwAAAAdSb3RhdGVk"      # Symbol("Rotated")
+max_single_size = 200

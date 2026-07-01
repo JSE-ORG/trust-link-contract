@@ -79,10 +79,6 @@ fn failed_initialize_with_zero_admin_leaves_storage_uninitialized() {
             "FeeCollector must not be set",
         );
         assert!(
-            !storage.has(&DataKey::ArbitrationFee),
-            "ArbitrationFee must not be set",
-        );
-        assert!(
             !storage.has(&DataKey::EscrowCounter),
             "EscrowCounter must not be set",
         );

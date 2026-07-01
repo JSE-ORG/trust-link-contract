@@ -1,8 +1,8 @@
 #![cfg(test)]
 
-use crate::{Payee, ContractError, EscrowClient};
+use crate::{ContractError, EscrowClient, Payee};
 use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
-use soroban_sdk::{token, Address, Env};
+use soroban_sdk::{token, Address, Env, Vec};
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let env = Env::default();
@@ -15,7 +15,7 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
 
     (
         env,
@@ -33,7 +33,7 @@ fn test_amount_limits_enforced() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    
+
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let min_limit = 500;
@@ -43,53 +43,55 @@ fn test_amount_limits_enforced() {
 
     // Test below minimum
     let res = client.try_create_escrow(
-        &single_payee(&env, &seller),
+        &seller,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &499,
         &100,
-        &0_u32,
-        &3600
+        &3600,
     );
     assert_eq!(res, Err(Ok(ContractError::AmountBelowMinimum)));
 
     // Test exactly minimum
+    let mut payees_2 = Vec::new(&env);
+    payees_2.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id1 = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_2,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &500,
         &100,
         &0_u32,
-        &3600
+        &3600,
     );
     assert_eq!(id1, 1);
 
     // Test exactly maximum
+    let mut payees_1 = Vec::new(&env);
+    payees_1.push_back(Payee { address: seller.clone(), bps: 10_000 });
     let id2 = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_1,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &5000,
         &100,
         &0_u32,
-        &3600
+        &3600,
     );
     assert_eq!(id2, 2);
 
     // Test above maximum
     let res = client.try_create_escrow(
-        &single_payee(&env, &seller),
+        &seller,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &5001,
         &100,
-        &0_u32,
-        &3600
+        &3600,
     );
     assert_eq!(res, Err(Ok(ContractError::AmountExceedsMaximum)));
 }
@@ -99,19 +101,10 @@ fn test_set_amount_limits_auth() {
     let (env, admin, seller, _buyer, _resolver, _token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    
+
     client.initialize(&admin, &fee_collector, &0_u32);
 
     // Seller tries to set limits
     let res = client.try_set_amount_limits(&seller, &500, &5000);
     assert_eq!(res, Err(Ok(ContractError::NotAuthorized)));
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

@@ -1,9 +1,9 @@
 #![cfg(test)]
 
-use crate::{Payee, Escrow, EscrowClient};
+use crate::{Escrow, EscrowClient, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    token, Address, Env,
+    token, Address, Env, Vec,
 };
 
 pub fn setup_contract(env: &Env) -> (Address, EscrowClient, Address, Address) {
@@ -36,25 +36,22 @@ pub fn create_funded_escrow(
     shipping_window: u64,
 ) -> u64 {
     mint_token(env, token, buyer, amount);
-    let id = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees = Vec::new(env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id = client.create_escrow_7(
+        &payees,
         &None::<Address>,
         resolver,
         token,
         &amount,
         &fee_bps,
         &0_u32,
-        &shipping_window
+        &shipping_window,
+        &None::<String>,
     );
     client.fund_escrow(&id, buyer);
     id
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

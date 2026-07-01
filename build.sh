@@ -1,12 +1,14 @@
 #!/bin/bash
 set -e
-
+  
 CONTRACT_NAME="trustlink-escrow"
-WASM_DIR="target/wasm32-unknown-unknown/release"
-WASM_FILE="${WASM_DIR}/${CONTRACT_NAME}.wasm"
+WASM_DIR="target/wasm32v1-none/release"
+# Cargo converts hyphens in the crate name to underscores in the artifact
+# filename, so this is trustlink_escrow.wasm, not trustlink-escrow.wasm.
+WASM_FILE="${WASM_DIR}/${CONTRACT_NAME//-/_}.wasm"
 
 echo "Building WASM for ${CONTRACT_NAME}..."
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 if command -v wasm-opt &> /dev/null; then
     echo "Running wasm-opt optimization..."
