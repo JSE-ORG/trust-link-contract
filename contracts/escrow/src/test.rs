@@ -292,59 +292,6 @@ fn test_auto_release_before_window_fails() {
     ));
 }
 
-/*
-#[test]
-fn test_raise_dispute_invalid_evidence_hash_rejected() {
-    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
-    let contract_id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_u32);
-
-    mint_tokens(&env, &token, &buyer, 1000);
-
-    let payees = single_payee(&env, &seller);
-    let id = client.create_escrow(&payees, &None::<Address>, &resolver, &token, &100_i128, &200_u32, &0_u32, &3600_u64);
-    client.fund_escrow(&id, &buyer);
-    client.mark_shipped(
-        &seller,
-        &id,
-        &SorobanString::from_str(&env, "TRACK-BAD-HASH"),
-    );
-
-    let short_hash = BytesN::from_array(&env, &[0u8; 32]);
-    let res = client.try_raise_dispute(
-        &buyer,
-        &id,
-        &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "desc"),
-        &short_hash,
-=======
->>>>>>> 6329d33 (fixed ci failure)
-    );
-    client.fund_escrow(&id, &buyer);
-    client.mark_shipped(
-        &seller,
-        &id,
-        &SorobanString::from_str(&env, "TRACK-BAD-HASH"),
-    );
-
-    let short_hash = soroban_sdk::Bytes::from_slice(&env, &[0u8; 16]);
-    let res = env.try_invoke_contract::<(), ContractError>(
-        &contract_id,
-        &Symbol::new(&env, "raise_dispute"),
-        soroban_sdk::vec![
-            &env,
-            buyer.into_val(&env),
-            id.into_val(&env),
-            Symbol::new(&env, "reason").into_val(&env),
-            SorobanString::from_str(&env, "desc").into_val(&env),
-            short_hash.into_val(&env),
-        ],
-    );
-    assert!(res.is_err());
-}
-*/
-
 #[test]
 fn test_raise_dispute_only_once() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
