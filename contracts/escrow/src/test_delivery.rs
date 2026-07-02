@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::{advance_time, create_funded_escrow, setup_contract};
-use crate::{Payee, ContractError, DeliveryRecorded, EscrowState};
+use crate::{ContractError, DeliveryRecorded, EscrowState, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
     vec, Address, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val,
@@ -9,7 +9,7 @@ use soroban_sdk::{
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
-    env.register_stellar_asset_contract(token_admin)
+    env.register_stellar_asset_contract_v2(token_admin).address()
 }
 
 fn has_event<T, F>(env: &Env, contract_id: &Address, topic: &str, predicate: F) -> bool
@@ -280,23 +280,25 @@ fn test_record_delivery_timestamp_matches_ledger_timestamp() {
 
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
 
-    // Set a deterministic timestamp before recording delivery
-    let expected_ts: u64 = 1_700_000_500;
-    env.ledger().set_timestamp(expected_ts);
+    // Advance time and capture the timestamp AFTER advancing so it matches
+    // exactly what the ledger will report during record_delivery.
+    advance_time(&env, 60);
+    let expected_ts = env.ledger().timestamp();
 
     client.record_delivery(&admin, &id);
 
-    // Verify the stored timestamp matches exactly what was set in the ledger
-    let escrow = client.get_escrow(&id);
-    assert_eq!(escrow.delivered_at, Some(expected_ts));
-
-    // Verify the event also contains the exact timestamp
+    // Verify the event is emitted — check immediately after the emitting call,
+    // before any subsequent contract invocations reset the event buffer.
     assert!(has_event::<DeliveryRecorded, _>(
         &env,
         &contract_id,
         "delivery_recorded",
         |event| { event.escrow_id == id && event.delivered_at == expected_ts }
     ));
+
+    // Verify the stored timestamp matches exactly what was set in the ledger
+    let escrow = client.get_escrow(&id);
+    assert_eq!(escrow.delivered_at, Some(expected_ts));
 
     let _ = contract_id;
 }
@@ -367,7 +369,7 @@ fn test_record_delivery_accepts_maximum_valid_timestamp() {
 
 /// Tests that record_delivery replaces any prior delivered_at value when called multiple times.
 #[test]
-fn test_record_delivery_overwrites_prior_timestamp() {
+fn test_record_delivery_rejects_duplicate_call() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -384,20 +386,21 @@ fn test_record_delivery_overwrites_prior_timestamp() {
 
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
 
-    // First delivery recording
+    // First delivery recording succeeds
     env.ledger().set_timestamp(1_700_000_100);
     client.record_delivery(&admin, &id);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.delivered_at, Some(1_700_000_100));
 
-    // Second delivery recording (overwrites)
+    // Second delivery recording rejected (idempotency guard)
     env.ledger().set_timestamp(1_700_000_200);
-    client.record_delivery(&admin, &id);
+    let result = client.try_record_delivery(&admin, &id);
+    assert_eq!(result, Err(Ok(ContractError::DeliveryAlreadyRecorded)));
 
+    // Original timestamp preserved
     let escrow = client.get_escrow(&id);
-    assert_eq!(escrow.delivered_at, Some(1_700_000_200));
-    // State should still be Shipped (record_delivery doesn't complete the escrow)
+    assert_eq!(escrow.delivered_at, Some(1_700_000_100));
     assert_eq!(escrow.state, EscrowState::Shipped);
 
     let _ = contract_id;
@@ -416,15 +419,20 @@ fn test_confirm_delivery_from_pending_state_fails() {
     let resolver = Address::generate(&env);
 
     // Create escrow with an explicit buyer so authorization passes.
+    let mut payees_16 = Vec::new(&env);
+    payees_16.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_16,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &1000_i128,
         &100_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
 
     let res = client.try_confirm_delivery(&buyer, &id);
@@ -492,15 +500,20 @@ fn test_confirm_delivery_from_canceled_state_fails() {
     let resolver = Address::generate(&env);
 
     // Create escrow with an explicit buyer.
+    let mut payees_15 = Vec::new(&env);
+    payees_15.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_15,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &1000_i128,
         &100_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
 
     client.cancel_escrow(&seller, &id);
@@ -534,13 +547,4 @@ fn test_confirm_delivery_from_completed_state_fails() {
 
     let res = client.try_confirm_delivery(&buyer, &id);
     assert_eq!(res, Err(Ok(ContractError::InvalidState)));
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

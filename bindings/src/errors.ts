@@ -27,34 +27,64 @@ export const enum ErrorCode {
   DeliveryNotRecorded = 22,
   ConflictingRoles = 23,
   DisputeWindowClosed = 24,
+  EmptyMilestones = 25,
+  TooManyMilestones = 26,
+  MilestoneNotFound = 27,
+  MilestoneAlreadyReleased = 28,
+  NotMilestoneEscrow = 29,
+  TrancheExceedsRemaining = 30,
 }
 
 /** Human-readable message for every contract error code. */
 export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.InvalidAmount]: "Amount must be greater than zero.",
-  [ErrorCode.InsufficientBalance]: "Contract does not hold enough tokens for the transfer.",
+  [ErrorCode.InsufficientBalance]:
+    "Contract does not hold enough tokens for the transfer.",
   [ErrorCode.EscrowNotFound]: "Escrow ID does not exist.",
-  [ErrorCode.InvalidState]: "The escrow is not in a valid state for this action.",
+  [ErrorCode.InvalidState]:
+    "The escrow is not in a valid state for this action.",
   [ErrorCode.NotAuthorized]: "Caller is not authorised to perform this action.",
   [ErrorCode.AlreadyInitialized]: "Contract has already been initialised.",
   [ErrorCode.FeeExceedsMax]: "Fee basis points exceed the configured maximum.",
   [ErrorCode.EscrowHasNoBuyer]: "This action requires an assigned buyer.",
-  [ErrorCode.ShippingWindowNotElapsed]: "The shipping window has not elapsed yet.",
+  [ErrorCode.ShippingWindowNotElapsed]:
+    "The shipping window has not elapsed yet.",
   [ErrorCode.InvalidEvidenceHash]: "Evidence hash failed validation.",
   [ErrorCode.DisputeNotFound]: "No dispute record found for this escrow.",
-  [ErrorCode.ArithmeticError]: "Arithmetic check failed during payout calculation.",
-  [ErrorCode.DeliveryBeforeDisputeWindow]: "Delivery cannot be confirmed before the dispute window opens.",
+  [ErrorCode.ArithmeticError]:
+    "Arithmetic check failed during payout calculation.",
+  [ErrorCode.DeliveryBeforeDisputeWindow]:
+    "Delivery cannot be confirmed before the dispute window opens.",
   [ErrorCode.ContractPaused]: "The contract is currently paused.",
   [ErrorCode.ArithmeticOverflow]: "Arithmetic overflow in payout helper.",
-  [ErrorCode.InvalidStateTransition]: "Requested state transition is not part of the approved lifecycle.",
-  [ErrorCode.InputTooLong]: "A supplied string or payload exceeds the maximum allowed length.",
+  [ErrorCode.InvalidStateTransition]:
+    "Requested state transition is not part of the approved lifecycle.",
+  [ErrorCode.InputTooLong]:
+    "A supplied string or payload exceeds the maximum allowed length.",
   [ErrorCode.InvalidAddress]: "An address argument is invalid for its role.",
-  [ErrorCode.SameAddress]: "New value is identical to the current value — no-op update rejected.",
-  [ErrorCode.AmountExceedsMaximum]: "Escrow amount exceeds the contract maximum.",
+  [ErrorCode.SameAddress]:
+    "New value is identical to the current value — no-op update rejected.",
+  [ErrorCode.AmountExceedsMaximum]:
+    "Escrow amount exceeds the contract maximum.",
   [ErrorCode.InvalidTrackingId]: "Tracking ID is empty or invalid.",
-  [ErrorCode.DeliveryNotRecorded]: "Auto-release attempted before delivery has been recorded.",
-  [ErrorCode.ConflictingRoles]: "Two roles that must be distinct have been assigned the same address.",
-  [ErrorCode.DisputeWindowClosed]: "The dispute window has closed — disputes are no longer accepted.",
+  [ErrorCode.DeliveryNotRecorded]:
+    "Auto-release attempted before delivery has been recorded.",
+  [ErrorCode.ConflictingRoles]:
+    "Two roles that must be distinct have been assigned the same address.",
+  [ErrorCode.DisputeWindowClosed]:
+    "The dispute window has closed — disputes are no longer accepted.",
+  [ErrorCode.EmptyMilestones]:
+    "create_milestone_escrow requires at least one milestone amount.",
+  [ErrorCode.TooManyMilestones]:
+    "create_milestone_escrow was called with more milestones than the contract allows.",
+  [ErrorCode.MilestoneNotFound]:
+    "The requested milestone index does not exist on this escrow.",
+  [ErrorCode.MilestoneAlreadyReleased]:
+    "This milestone has already been released and cannot be released again.",
+  [ErrorCode.NotMilestoneEscrow]:
+    "This operation requires a milestone escrow, but the escrow has no milestones.",
+  [ErrorCode.TrancheExceedsRemaining]:
+    "This funding tranche would exceed the escrow's remaining unfunded balance.",
 };
 
 /**
@@ -104,7 +134,9 @@ export function parseContractError(raw: unknown): ContractInvokeError | null {
 
     // Some adapters wrap the message in `message` string
     if (typeof obj["message"] === "string") {
-      const match = (obj["message"] as string).match(/Error\(Contract,\s*#(\d+)\)/);
+      const match = (obj["message"] as string).match(
+        /Error\(Contract,\s*#(\d+)\)/
+      );
       if (match) {
         const code = Number(match[1]) as ErrorCode;
         if (code in ERROR_MESSAGES) return new ContractInvokeError(code);

@@ -1,0 +1,23 @@
+{
+  "name": "@trustlink/indexer",
+  "version": "0.1.0",
+  "description": "PostgreSQL indexer that materializes TrustLink escrow state from on-chain events.",
+  "type": "module",
+  "scripts": {
+    "replay": "tsx src/replay.ts",
+    "ingest": "tsx src/ingest.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

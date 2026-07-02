@@ -5,7 +5,9 @@ mod tests {
         Address, BytesN, Env, String,
     };
 
-    use crate::{Payee,
+    use crate::test::single_payee;
+
+    use crate::{
         errors::ContractError,
         types::EscrowState,
         Escrow, EscrowClient,
@@ -49,15 +51,14 @@ mod tests {
         token: &Address,
     ) -> u64 {
         let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
-        buyer,
-        resolver,
-        token,
-        &100_000_000_i128,
-        &0_u32,
-        &0_u32,
-        &SHIPPING_WINDOW
-    );
+            &single_payee(&env, seller)
+            buyer,
+            resolver,
+            token,
+            &100_000_000_i128,
+            &0_u32,
+            &SHIPPING_WINDOW,
+        );
         client.fund_escrow(&escrow_id, buyer);
         client.mark_shipped(
             seller,
@@ -174,13 +175,4 @@ mod tests {
             "[REGRESSION] Infinite dispute window bug must be fixed"
         );
     }
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::{Address as _, Ledger as _}, token, Address, Env, Symbol, String as SorobanString};
+use soroban_sdk::{testutils::{Address as _, Ledger as _, Vec}, token, Address, Env, Symbol, String as SorobanString};
 
 const DISPUTE_WINDOW: u64 = 172_800;
 
@@ -17,7 +17,7 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address, Ad
     let resolver = Address::generate(&env);
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
 
     let contract_id = env.register(Escrow, ());
     {
@@ -43,28 +43,29 @@ fn test_pause_blocks_all_mutations() {
 
     // 1. try_create_escrow should fail
     let create_res = client.try_create_escrow(
-        &single_payee(&env, &seller),
+        &seller,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
-        &0_u32,
-        &36_00_u64
+        &36_00_u64,
     );
     assert!(matches!(create_res, Err(Ok(ContractError::ContractPaused))));
 
     // Need a valid escrow for subsequent tests; create without pause
     client.unpause_contract(&admin);
-    let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_65 = Vec::new(&env);
+    payees_65.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    let escrow_id = client.create_escrow_8(
+        &payees_65,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &36_00_u64
+        &36_00_u64,
     );
     client.pause_contract(&admin);
 
@@ -119,13 +120,4 @@ fn test_pause_blocks_all_mutations() {
     let _ = client.get_escrow(&escrow_id);
     let _ = client.get_fee_config();
     assert!(client.is_paused());
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

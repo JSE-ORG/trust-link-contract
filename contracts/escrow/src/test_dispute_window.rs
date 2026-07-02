@@ -2,12 +2,12 @@
 //! Regression tests for dispute handling after shipping and for the
 //! admin-triggered auto-release path (#4).
 
-use crate::{Payee,
+use crate::{
     ContractError, DataKey, DisputeData, DisputeStatus, Escrow, EscrowClient, EscrowData,
-    EscrowState,
+    EscrowState, Payee,
 };
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    testutils::{Address as _, Ledger as _, Vec},
     token, Address, BytesN, Env, String, Symbol,
 };
 
@@ -40,15 +40,20 @@ fn setup_funded_and_shipped() -> Fx {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let amount: i128 = 1_000;
+    let mut payees_24 = Vec::new(&env);
+    payees_24.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_24,
         &None::<Address>,
         &resolver,
         &token_addr,
         &amount,
         &0_u32,
         &0_u32,
-        &0_u64
+        &0_u64,
     );
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
     env.ledger().set_timestamp(1_700_000_000);
@@ -128,13 +133,4 @@ fn auto_release_rejects_when_dispute_exists() {
 
     let _ = fx.admin;
     let _ = fx.seller;
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

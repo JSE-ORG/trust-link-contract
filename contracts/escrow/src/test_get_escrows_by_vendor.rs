@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::setup_contract;
-use crate::{Payee, EscrowData, EscrowState};
+use crate::{EscrowState, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     Address, Env,
@@ -40,37 +40,53 @@ fn test_get_escrows_by_vendor_multiple() {
     let resolver = Address::generate(&env);
 
     // Create escrows for vendor 1
-    let id1 = client.create_escrow(
-        &single_payee(&env, &vendor_1),
+    let mut payees_51 = Vec::new(&env);
+    payees_51.push_back(Payee {
+        address: vendor_1.clone(),
+        bps: 10_000,
+    });
+    let id1 = client.create_escrow_8(
+        &payees_51,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
-    let id2 = client.create_escrow(
-        &single_payee(&env, &vendor_1),
+    let mut payees_50 = Vec::new(&env);
+    payees_50.push_back(Payee {
+        address: vendor_1.clone(),
+        bps: 10_000,
+    });
+    let id2 = client.create_escrow_8(
+        &payees_50,
         &None::<Address>,
         &resolver,
         &token,
         &2000_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
     );
 
     // Create escrow for vendor 2
-    let id3 = client.create_escrow(
-        &single_payee(&env, &vendor_2),
+    let mut payees_49 = Vec::new(&env);
+    payees_49.push_back(Payee {
+        address: vendor_2.clone(),
+        bps: 10_000,
+    });
+    let id3 = client.create_escrow_8(
+        &payees_49,
         &None::<Address>,
         &resolver,
         &token,
         &3000_i128,
         &0_u32,
-        &0_u32,
-        &3600_u64
+    &0_u32,          // 7. Add resolver fee bps
+    &3600_u64,       // 8. Shipping window
+    &None::<String>,
     );
 
     // Check escrows for vendor 1
@@ -98,20 +114,26 @@ fn test_vendor_escrow_data_integrity_and_state_transitions() {
     let resolver = Address::generate(&env);
 
     // Create
-    let id = client.create_escrow(
-        &single_payee(&env, &vendor),
+    let mut payees_48 = Vec::new(&env);
+    payees_48.push_back(Payee {
+        address: vendor.clone(),
+        bps: 10_000,
+    });
+    let id = client.create_escrow_8(
+        &payees_48,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &0_u32,
-        &0_u32,
-        &3600_u64
+    &0_u32,          // 7. Add resolver fee bps
+    &3600_u64,       // 8. Shipping window
+    &None::<String>,
     );
 
     // Assert initial state and data integrity
     let escrow = client.get_escrow(&id);
-    assert_eq!(escrow.seller, vendor);
+    assert_eq!(escrow.payees.get(0).unwrap().address, vendor);
     assert_eq!(escrow.state, EscrowState::Pending);
     assert_eq!(escrow.amount, 1000);
 
@@ -147,13 +169,4 @@ fn test_vendor_escrow_data_integrity_and_state_transitions() {
     let escrows = client.get_escrows_by_vendor(&vendor);
     assert_eq!(escrows.len(), 1);
     assert_eq!(escrows.get(0).unwrap(), id);
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

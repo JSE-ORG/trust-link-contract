@@ -32,8 +32,6 @@ pub enum ContractError {
     /// Returned when internal checked arithmetic fails while computing a payout or fee.
     ArithmeticError = 12,
     /// Returned when delivery is attempted before the dispute window opens.
-    /// The name clarifies the condition: you cannot confirm delivery until
-    /// the dispute window has closed.
     DeliveryBeforeDisputeWindow = 13,
     /// Returned when a contract action is blocked because the contract is paused.
     ContractPaused = 14,
@@ -43,11 +41,9 @@ pub enum ContractError {
     InvalidStateTransition = 16,
     /// Returned when a supplied string or payload exceeds the supported length.
     InputTooLong = 17,
-    /// Returned when an address argument is invalid for its role (e.g. admin and
-    /// fee_collector must be distinct keys).
+    /// Returned when an address argument is invalid for its role.
     InvalidAddress = 18,
-    /// Returned when an update is a no-op because the new value equals the
-    /// current one (e.g. rotating admin to the same address).
+    /// Returned when an update is a no-op because the new value equals the current one.
     SameAddress = 19,
     /// Returned when an escrow amount exceeds the maximum allowed limit.
     AmountExceedsMaximum = 20,
@@ -55,19 +51,30 @@ pub enum ContractError {
     InvalidTrackingId = 21,
     /// Returned when auto-release is attempted before delivery has been recorded.
     DeliveryNotRecorded = 22,
-    /// Returned when two roles that must be distinct are assigned the same address
-    /// (e.g. resolver == seller, buyer == seller, or buyer == resolver).
+    /// Returned when two roles that must be distinct are assigned the same address.
     ConflictingRoles = 23,
-    /// Returned when a buyer attempts to raise a dispute after the dispute window has closed.
-    DisputeWindowClosed = 24,
-    /// Returned when a token is not in the allowlist.
-    TokenNotAllowed = 25,
-    /// Returned when attempting to finalize a dispute that is not in PendingFinalization state.
-    NotPendingFinalization = 26,
-    /// Returned when the appeal window is still active.
-    AppealWindowActive = 27,
-    /// Returned when the platform fee exceeds the maximum allowed.
-    PlatformFeeExceedsMax = 28,
-    /// Returned when an escrow amount is below the minimum allowed limit.
+    /// Returned when a buyer attempts to confirm delivery while the dispute window is still open.
+    DisputeWindowStillOpen = 24,
+    /// Returned when a resolver is not in the approved registry and strict mode is enabled.
+    UnauthorizedResolver = 25,
+    /// Returned when emergency_drain is called but the contract is not paused.
+    ContractNotPaused = 26,
+    /// Returned when a token is not in the allowlist and the allowlist is enabled.
+    TokenNotAllowed = 27,
+    /// Returned when an escrow's pending expiration window has passed.
+    EscrowExpired = 28,
+    /// Returned when an escrow amount is below the configured minimum.
     AmountBelowMinimum = 29,
+    /// Returned when an action requires the escrow to be in PendingFinalization state.
+    NotPendingFinalization = 30,
+    /// Returned when finalization is attempted while the appeal window is still active.
+    AppealWindowActive = 31,
+    /// Returned when the platform fee exceeds its allowed maximum.
+    PlatformFeeExceedsMax = 32,
+    /// Returned when shipping_window is zero or exceeds the maximum allowed value.
+    InvalidShippingWindow = 33,
+    /// Returned when `record_delivery` is called on an escrow that already has delivery recorded.
+    DeliveryAlreadyRecorded = 34,
+    /// Returned when a read accessor is called before the contract has been initialized.
+    NotInitialized = 35,
 }

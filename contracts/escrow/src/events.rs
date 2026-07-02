@@ -1,6 +1,13 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env, String, Symbol};
+use soroban_sdk::{contracttype, symbol_short, Address, BytesN, Env, String, Symbol};
 
-use crate::ResolutionType;
+use crate::{ResolutionType, ResolverVote};
+
+/// Schema version stamped into every event payload.
+///
+/// Increment this constant whenever a field is added, removed, or renamed in
+/// any event struct.  Consumers can use it to guard against decoding stale
+/// snapshots with the wrong XDR shape.
+pub const EVENT_SCHEMA_VERSION: u32 = 1;
 
 /// Event topic/data schemas used by the escrow contract.
 ///
@@ -11,16 +18,18 @@ use crate::ResolutionType;
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FeeUpdated {
+    pub schema_version: u32,
     pub old_fee_bps: u32,
     pub new_fee_bps: u32,
     pub timestamp: u64,
 }
 
-/// Topic: `(\"fee_updated\",)`, data: `FeeUpdated`.
+/// Topic: `(symbol_short!("Fee"), symbol_short!("Updated"),)`, data: `FeeUpdated`.
 pub fn emit_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
     env.events().publish(
-        (Symbol::new(env, "fee_updated"),),
+        (symbol_short!("Fee"), symbol_short!("Updated")),
         FeeUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
             old_fee_bps,
             new_fee_bps,
             timestamp: env.ledger().timestamp(),
@@ -31,16 +40,18 @@ pub fn emit_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProtocolFeeUpdated {
+    pub schema_version: u32,
     pub old_fee_bps: u32,
     pub new_fee_bps: u32,
     pub timestamp: u64,
 }
 
-/// Topic: `(\"protocol_fee_updated\",)`, data: `ProtocolFeeUpdated`.
+/// Topic: `(symbol_short!("ProtoFee"), symbol_short!("Updated"),)`, data: `ProtocolFeeUpdated`.
 pub fn emit_protocol_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
     env.events().publish(
-        (Symbol::new(env, "protocol_fee_updated"),),
+        (symbol_short!("ProtoFee"), symbol_short!("Updated")),
         ProtocolFeeUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
             old_fee_bps,
             new_fee_bps,
             timestamp: env.ledger().timestamp(),
@@ -51,16 +62,18 @@ pub fn emit_protocol_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArbitrationFeeUpdated {
+    pub schema_version: u32,
     pub old_fee_bps: u32,
     pub new_fee_bps: u32,
     pub timestamp: u64,
 }
 
-/// Topic: `(\"arbitration_fee_updated\",)`, data: `ArbitrationFeeUpdated`.
+/// Topic: `(symbol_short!("ArbFee"), symbol_short!("Updated"),)`, data: `ArbitrationFeeUpdated`.
 pub fn emit_arbitration_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
     env.events().publish(
-        (Symbol::new(env, "arbitration_fee_updated"),),
+        (symbol_short!("ArbFee"), symbol_short!("Updated")),
         ArbitrationFeeUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
             old_fee_bps,
             new_fee_bps,
             timestamp: env.ledger().timestamp(),
@@ -71,16 +84,18 @@ pub fn emit_arbitration_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u3
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdminRotated {
+    pub schema_version: u32,
     pub old_admin: Address,
     pub new_admin: Address,
     pub timestamp: u64,
 }
 
-/// Topic: `(\"admin_rotated\",)`, data: `AdminRotated`.
+/// Topic: `(symbol_short!("Admin"), symbol_short!("Rotated"),)`, data: `AdminRotated`.
 pub fn emit_admin_rotated(env: &Env, old_admin: Address, new_admin: Address) {
     env.events().publish(
-        (Symbol::new(env, "admin_rotated"),),
+        (symbol_short!("Admin"), symbol_short!("Rotated")),
         AdminRotated {
+            schema_version: EVENT_SCHEMA_VERSION,
             old_admin,
             new_admin,
             timestamp: env.ledger().timestamp(),
@@ -91,15 +106,21 @@ pub fn emit_admin_rotated(env: &Env, old_admin: Address, new_admin: Address) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractPausedEvent {
+    pub schema_version: u32,
     pub admin: Address,
     pub timestamp: u64,
 }
 
-/// Topic: `(\"contract_paused\",)`, data: `ContractPausedEvent`.
+/// Topic: `(symbol_short!("Contract"), symbol_short!("Paused"), admin.clone(),)`, data: `ContractPausedEvent`.
 pub fn emit_contract_paused(env: &Env, admin: Address) {
     env.events().publish(
-        (Symbol::new(env, "contract_paused"),),
+        (
+            symbol_short!("Contract"),
+            symbol_short!("Paused"),
+            admin.clone(),
+        ),
         ContractPausedEvent {
+            schema_version: EVENT_SCHEMA_VERSION,
             admin,
             timestamp: env.ledger().timestamp(),
         },
@@ -109,15 +130,21 @@ pub fn emit_contract_paused(env: &Env, admin: Address) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractUnpausedEvent {
+    pub schema_version: u32,
     pub admin: Address,
     pub timestamp: u64,
 }
 
-/// Topic: `(\"contract_unpaused\",)`, data: `ContractUnpausedEvent`.
+/// Topic: `(symbol_short!("Contract"), symbol_short!("Unpaused"), admin.clone(),)`, data: `ContractUnpausedEvent`.
 pub fn emit_contract_unpaused(env: &Env, admin: Address) {
     env.events().publish(
-        (Symbol::new(env, "contract_unpaused"),),
+        (
+            symbol_short!("Contract"),
+            symbol_short!("Unpaused"),
+            admin.clone(),
+        ),
         ContractUnpausedEvent {
+            schema_version: EVENT_SCHEMA_VERSION,
             admin,
             timestamp: env.ledger().timestamp(),
         },
@@ -127,17 +154,19 @@ pub fn emit_contract_unpaused(env: &Env, admin: Address) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FeesWithdrawn {
+    pub schema_version: u32,
     pub token: Address,
     pub to: Address,
     pub amount: i128,
     pub timestamp: u64,
 }
 
-/// Topic: `(\"fees_withdrawn\",)`, data: `FeesWithdrawn`.
+/// Topic: `(symbol_short!("Fee"), symbol_short!("Withdrawn"), to.clone(),)`, data: `FeesWithdrawn`.
 pub fn emit_fees_withdrawn(env: &Env, token: Address, to: Address, amount: i128) {
     env.events().publish(
-        (Symbol::new(env, "fees_withdrawn"),),
+        (symbol_short!("Fee"), symbol_short!("Withdrawn"), to.clone()),
         FeesWithdrawn {
+            schema_version: EVENT_SCHEMA_VERSION,
             token,
             to,
             amount,
@@ -149,6 +178,7 @@ pub fn emit_fees_withdrawn(env: &Env, token: Address, to: Address, amount: i128)
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowCreated {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub seller: Address,
     pub resolver: Address,
@@ -158,9 +188,11 @@ pub struct EscrowCreated {
     pub resolver_fee_bps: u32,
     pub shipping_window: u64,
     pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(\"escrow_created\",)`, data: `EscrowCreated`.
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Created"), seller.clone(),)`, data: `EscrowCreated`.
 #[allow(clippy::too_many_arguments)]
 pub fn emit_escrow_created(
     env: &Env,
@@ -172,10 +204,17 @@ pub fn emit_escrow_created(
     fee_bps: u32,
     resolver_fee_bps: u32,
     shipping_window: u64,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
 ) {
     env.events().publish(
-        (Symbol::new(env, "escrow_created"),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Created"),
+            seller.clone(),
+        ),
         EscrowCreated {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             seller,
             resolver,
@@ -185,6 +224,8 @@ pub fn emit_escrow_created(
             resolver_fee_bps,
             shipping_window,
             timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -192,21 +233,38 @@ pub fn emit_escrow_created(
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowFunded {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub buyer: Address,
     pub amount: i128,
-    pub funded_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(\"escrow_funded\",)`, data: `EscrowFunded`.
-pub fn emit_escrow_funded(env: &Env, escrow_id: u64, buyer: Address, amount: i128) {
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Funded"), buyer.clone(),)`, data: `EscrowFunded`.
+pub fn emit_escrow_funded(
+    env: &Env,
+    escrow_id: u64,
+    buyer: Address,
+    amount: i128,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (Symbol::new(env, "escrow_funded"),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Funded"),
+            buyer.clone(),
+        ),
         EscrowFunded {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             buyer,
             amount,
-            funded_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -214,21 +272,38 @@ pub fn emit_escrow_funded(env: &Env, escrow_id: u64, buyer: Address, amount: i12
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowShipped {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub seller: Address,
     pub tracking_id: String,
-    pub shipped_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(\"escrow_shipped\",)`, data: `EscrowShipped`.
-pub fn emit_escrow_shipped(env: &Env, escrow_id: u64, seller: Address, tracking_id: String) {
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Shipped"), seller.clone(),)`, data: `EscrowShipped`.
+pub fn emit_escrow_shipped(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    tracking_id: String,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (Symbol::new(env, "escrow_shipped"),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Shipped"),
+            seller.clone(),
+        ),
         EscrowShipped {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             seller,
             tracking_id,
-            shipped_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -236,15 +311,17 @@ pub fn emit_escrow_shipped(env: &Env, escrow_id: u64, seller: Address, tracking_
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeliveryRecorded {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub delivered_at: u64,
 }
 
-/// Topic: `(\"delivery_recorded\",)`, data: `DeliveryRecorded`.
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Delivered"),)`, data: `DeliveryRecorded`.
 pub fn emit_delivery_recorded(env: &Env, escrow_id: u64, delivered_at: u64) {
     env.events().publish(
-        (Symbol::new(env, "delivery_recorded"),),
+        (symbol_short!("Escrow"), symbol_short!("Delivered")),
         DeliveryRecorded {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             delivered_at,
         },
@@ -254,29 +331,41 @@ pub fn emit_delivery_recorded(env: &Env, escrow_id: u64, delivered_at: u64) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowCompleted {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub recipient: Address,
     pub amount: i128,
     pub fee_bps: u32,
-    pub completed_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(\"escrow_completed\",)`, data: `EscrowCompleted`.
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Completed"), recipient.clone(),)`, data: `EscrowCompleted`.
 pub fn emit_escrow_completed(
     env: &Env,
     escrow_id: u64,
     recipient: Address,
     amount: i128,
     fee_bps: u32,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
 ) {
     env.events().publish(
-        (Symbol::new(env, "escrow_completed"),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Completed"),
+            recipient.clone(),
+        ),
         EscrowCompleted {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             recipient,
             amount,
             fee_bps,
-            completed_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -284,15 +373,18 @@ pub fn emit_escrow_completed(
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisputeRaised {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub buyer: Address,
     pub reason: Symbol,
     pub description: String,
     pub evidence_hash: BytesN<32>,
-    pub disputed_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(\"dispute_raised\",)`, data: `DisputeRaised`.
+/// Topic: `(symbol_short!("Dispute"), symbol_short!("Raised"), buyer.clone(),)`, data: `DisputeRaised`.
 pub fn emit_dispute_raised(
     env: &Env,
     escrow_id: u64,
@@ -300,16 +392,25 @@ pub fn emit_dispute_raised(
     reason: Symbol,
     description: String,
     evidence_hash: BytesN<32>,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
 ) {
     env.events().publish(
-        (Symbol::new(env, "dispute_raised"),),
+        (
+            symbol_short!("Dispute"),
+            symbol_short!("Raised"),
+            buyer.clone(),
+        ),
         DisputeRaised {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             buyer,
             reason,
             description,
             evidence_hash,
-            disputed_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -317,6 +418,7 @@ pub fn emit_dispute_raised(
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisputeResolved {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub resolver: Address,
     pub resolution: ResolutionType,
@@ -324,10 +426,12 @@ pub struct DisputeResolved {
     pub amount: i128,
     pub arbitration_fee: i128,
     pub resolver_fee: i128,
-    pub resolved_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(\"dispute_resolved\",)`, data: `DisputeResolved`.
+/// Topic: `(symbol_short!("Dispute"), symbol_short!("Resolved"), resolver.clone(),)`, data: `DisputeResolved`.
 pub fn emit_dispute_resolved(
     env: &Env,
     escrow_id: u64,
@@ -337,10 +441,17 @@ pub fn emit_dispute_resolved(
     amount: i128,
     arbitration_fee: i128,
     resolver_fee: i128,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
 ) {
     env.events().publish(
-        (Symbol::new(env, "dispute_resolved"),),
+        (
+            symbol_short!("Dispute"),
+            symbol_short!("Resolved"),
+            resolver.clone(),
+        ),
         DisputeResolved {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             resolver,
             resolution,
@@ -348,7 +459,44 @@ pub fn emit_dispute_resolved(
             amount,
             arbitration_fee,
             resolver_fee,
-            resolved_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolverVoteRecorded {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub resolver: Address,
+    pub resolution: ResolutionType,
+    pub vote_count: u32,
+    pub threshold: u32,
+    pub voted_at: u64,
+}
+
+/// Topic: `(\"resolver_vote_recorded\",)`, data: `ResolverVoteRecorded`.
+pub fn emit_resolver_vote_recorded(
+    env: &Env,
+    escrow_id: u64,
+    resolver: Address,
+    resolution: ResolutionType,
+    vote_count: u32,
+    threshold: u32,
+) {
+    env.events().publish(
+        (Symbol::new(env, "resolver_vote_recorded"),),
+        ResolverVoteRecorded {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            resolver,
+            resolution,
+            vote_count,
+            threshold,
+            voted_at: env.ledger().timestamp(),
         },
     );
 }
@@ -356,23 +504,41 @@ pub fn emit_dispute_resolved(
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AutoReleased {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub seller: Address,
     pub amount: i128,
     pub fee_bps: u32,
-    pub released_at: u64,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(\"auto_released\",)`, data: `AutoReleased`.
-pub fn emit_auto_released(env: &Env, escrow_id: u64, seller: Address, amount: i128, fee_bps: u32) {
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Released"), seller.clone(),)`, data: `AutoReleased`.
+pub fn emit_auto_released(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    amount: i128,
+    fee_bps: u32,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (Symbol::new(env, "auto_released"),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Released"),
+            seller.clone(),
+        ),
         AutoReleased {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             seller,
             amount,
             fee_bps,
-            released_at: env.ledger().timestamp(),
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -380,19 +546,43 @@ pub fn emit_auto_released(env: &Env, escrow_id: u64, seller: Address, amount: i1
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowCancelled {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub seller: Address,
-    pub cancelled_at: u64,
+    /// Address that actually initiated the cancellation (buyer or a payee/seller).
+    /// `seller` always reflects the escrow's seller; `cancelled_by` reflects the caller.
+    pub cancelled_by: Address,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(\"escrow_cancelled\",)`, data: `EscrowCancelled`.
-pub fn emit_escrow_cancelled(env: &Env, escrow_id: u64, seller: Address) {
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Canceled"), cancelled_by.clone(),)`, data: `EscrowCancelled`.
+///
+/// `seller` is the escrow's seller (first payee). `cancelled_by` is the caller that
+/// triggered the cancellation, which may be the buyer rather than the seller.
+pub fn emit_escrow_cancelled(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    cancelled_by: Address,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (Symbol::new(env, "escrow_cancelled"),),
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Canceled"),
+            cancelled_by.clone(),
+        ),
         EscrowCancelled {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             seller,
-            cancelled_at: env.ledger().timestamp(),
+            cancelled_by,
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -400,13 +590,14 @@ pub fn emit_escrow_cancelled(env: &Env, escrow_id: u64, seller: Address) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractInitialized {
+    pub schema_version: u32,
     pub admin: Address,
     pub fee_collector: Address,
     pub arbitration_fee_bps: u32,
     pub timestamp: u64,
 }
 
-/// Topic: `("contract_initialized",)`, data: `ContractInitialized`.
+/// Topic: `(symbol_short!("Contract"), symbol_short!("Init"),)`, data: `ContractInitialized`.
 pub fn emit_contract_initialized(
     env: &Env,
     admin: Address,
@@ -414,8 +605,9 @@ pub fn emit_contract_initialized(
     arbitration_fee_bps: u32,
 ) {
     env.events().publish(
-        (Symbol::new(env, "contract_initialized"),),
+        (symbol_short!("Contract"), symbol_short!("Init")),
         ContractInitialized {
+            schema_version: EVENT_SCHEMA_VERSION,
             admin,
             fee_collector,
             arbitration_fee_bps,
@@ -427,13 +619,14 @@ pub fn emit_contract_initialized(
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolverRotated {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub old_resolver: Address,
     pub new_resolver: Address,
     pub rotated_at: u64,
 }
 
-/// Topic: `("resolver_rotated",)`, data: `ResolverRotated`.
+/// Topic: `(symbol_short!("Resolver"), symbol_short!("Rotated"),)`, data: `ResolverRotated`.
 pub fn emit_resolver_rotated(
     env: &Env,
     escrow_id: u64,
@@ -441,8 +634,9 @@ pub fn emit_resolver_rotated(
     new_resolver: Address,
 ) {
     env.events().publish(
-        (Symbol::new(env, "resolver_rotated"),),
+        (symbol_short!("Resolver"), symbol_short!("Rotated")),
         ResolverRotated {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             old_resolver,
             new_resolver,
@@ -453,17 +647,124 @@ pub fn emit_resolver_rotated(
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneEscrowCreated {
+    pub escrow_id: u64,
+    pub milestone_count: u32,
+    pub total_amount: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `("milestone_escrow_created",)`, data: `MilestoneEscrowCreated`.
+pub fn emit_milestone_escrow_created(
+    env: &Env,
+    escrow_id: u64,
+    milestone_count: u32,
+    total_amount: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "milestone_escrow_created"),),
+        MilestoneEscrowCreated {
+            escrow_id,
+            milestone_count,
+            total_amount,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneReleased {
+    pub escrow_id: u64,
+    pub milestone_index: u32,
+    pub seller: Address,
+    pub amount: i128,
+    pub remaining_milestones: u32,
+    pub released_at: u64,
+}
+
+/// Topic: `("milestone_released", escrow_id)`, data: `MilestoneReleased`.
+///
+/// `escrow_id` is kept in the topic (unlike most single-topic events here) so
+/// off-chain indexers can filter the release history of one specific escrow
+/// without scanning every milestone release on the contract.
+pub fn emit_milestone_released(
+    env: &Env,
+    escrow_id: u64,
+    milestone_index: u32,
+    seller: Address,
+    amount: i128,
+    remaining_milestones: u32,
+) {
+    env.events().publish(
+        (Symbol::new(env, "milestone_released"), escrow_id),
+        MilestoneReleased {
+            escrow_id,
+            milestone_index,
+            seller,
+            amount,
+            remaining_milestones,
+            released_at: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowTrancheFunded {
+    pub escrow_id: u64,
+    pub buyer: Address,
+    pub tranche_amount: i128,
+    pub funded_amount: i128,
+    pub total_amount: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `("escrow_tranche_funded", escrow_id)`, data: `EscrowTrancheFunded`.
+///
+/// Emitted for a partial-funding call that does *not* yet complete funding.
+/// Once `funded_amount` reaches `total_amount`, `emit_escrow_funded` fires
+/// instead (on that same call) - exactly as for a single lump-sum payment.
+pub fn emit_escrow_tranche_funded(
+    env: &Env,
+    escrow_id: u64,
+    buyer: Address,
+    tranche_amount: i128,
+    funded_amount: i128,
+    total_amount: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "escrow_tranche_funded"), escrow_id),
+        EscrowTrancheFunded {
+            escrow_id,
+            buyer,
+            tranche_amount,
+            funded_amount,
+            total_amount,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TokenAllowlistUpdated {
+    pub schema_version: u32,
     pub token: Address,
     pub added: bool,
     pub timestamp: u64,
 }
 
-/// Topic: `("token_allowlist_updated",)`, data: `TokenAllowlistUpdated`.
+/// Topic: `(symbol_short!("Token"), symbol_short!("Allowlist"), token.clone(),)`, data: `TokenAllowlistUpdated`.
 pub fn emit_token_allowlist_updated(env: &Env, token: Address, added: bool) {
     env.events().publish(
-        (Symbol::new(env, "token_allowlist_updated"),),
+        (
+            symbol_short!("Token"),
+            symbol_short!("Allowlist"),
+            token.clone(),
+        ),
         TokenAllowlistUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
             token,
             added,
             timestamp: env.ledger().timestamp(),
@@ -474,15 +775,17 @@ pub fn emit_token_allowlist_updated(env: &Env, token: Address, added: bool) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AllowlistToggled {
+    pub schema_version: u32,
     pub enabled: bool,
     pub timestamp: u64,
 }
 
-/// Topic: `("allowlist_toggled",)`, data: `AllowlistToggled`.
+/// Topic: `(symbol_short!("Allowlist"), symbol_short!("Toggled"),)`, data: `AllowlistToggled`.
 pub fn emit_allowlist_toggled(env: &Env, enabled: bool) {
     env.events().publish(
-        (Symbol::new(env, "allowlist_toggled"),),
+        (symbol_short!("Allowlist"), symbol_short!("Toggled")),
         AllowlistToggled {
+            schema_version: EVENT_SCHEMA_VERSION,
             enabled,
             timestamp: env.ledger().timestamp(),
         },
@@ -492,6 +795,7 @@ pub fn emit_allowlist_toggled(env: &Env, enabled: bool) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisputePendingFinalization {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub resolver: Address,
     pub resolution: crate::ResolutionType,
@@ -500,7 +804,7 @@ pub struct DisputePendingFinalization {
     pub pending_at: u64,
 }
 
-/// Topic: `("dispute_pending_finalization",)`, data: `DisputePendingFinalization`.
+/// Topic: `(symbol_short!("Dispute"), symbol_short!("Pending"), resolver.clone(),)`, data: `DisputePendingFinalization`.
 pub fn emit_dispute_pending_finalization(
     env: &Env,
     escrow_id: u64,
@@ -510,8 +814,13 @@ pub fn emit_dispute_pending_finalization(
     appeal_deadline: u64,
 ) {
     env.events().publish(
-        (Symbol::new(env, "dispute_pending_finalization"),),
+        (
+            symbol_short!("Dispute"),
+            symbol_short!("Pending"),
+            resolver.clone(),
+        ),
         DisputePendingFinalization {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             resolver,
             resolution,
@@ -525,16 +834,22 @@ pub fn emit_dispute_pending_finalization(
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisputeAppealed {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub appellant: Address,
     pub timestamp: u64,
 }
 
-/// Topic: `("dispute_appealed",)`, data: `DisputeAppealed`.
+/// Topic: `(symbol_short!("Dispute"), symbol_short!("Appealed"), appellant.clone(),)`, data: `DisputeAppealed`.
 pub fn emit_dispute_appealed(env: &Env, escrow_id: u64, appellant: Address) {
     env.events().publish(
-        (Symbol::new(env, "dispute_appealed"),),
+        (
+            symbol_short!("Dispute"),
+            symbol_short!("Appealed"),
+            appellant.clone(),
+        ),
         DisputeAppealed {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             appellant,
             timestamp: env.ledger().timestamp(),
@@ -545,16 +860,18 @@ pub fn emit_dispute_appealed(env: &Env, escrow_id: u64, appellant: Address) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlatformFeeUpdated {
+    pub schema_version: u32,
     pub old_fee_bps: u32,
     pub new_fee_bps: u32,
     pub timestamp: u64,
 }
 
-/// Topic: `("platform_fee_updated",)`, data: `PlatformFeeUpdated`.
+/// Topic: `(symbol_short!("PlatFee"), symbol_short!("Updated"),)`, data: `PlatformFeeUpdated`.
 pub fn emit_platform_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
     env.events().publish(
-        (Symbol::new(env, "platform_fee_updated"),),
+        (symbol_short!("PlatFee"), symbol_short!("Updated")),
         PlatformFeeUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
             old_fee_bps,
             new_fee_bps,
             timestamp: env.ledger().timestamp(),
@@ -565,16 +882,18 @@ pub fn emit_platform_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TreasuryUpdated {
+    pub schema_version: u32,
     pub old_treasury: Address,
     pub new_treasury: Address,
     pub timestamp: u64,
 }
 
-/// Topic: `("treasury_updated",)`, data: `TreasuryUpdated`.
+/// Topic: `(symbol_short!("Treasury"), symbol_short!("Updated"),)`, data: `TreasuryUpdated`.
 pub fn emit_treasury_updated(env: &Env, old_treasury: Address, new_treasury: Address) {
     env.events().publish(
-        (Symbol::new(env, "treasury_updated"),),
+        (symbol_short!("Treasury"), symbol_short!("Updated")),
         TreasuryUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
             old_treasury,
             new_treasury,
             timestamp: env.ledger().timestamp(),
@@ -585,22 +904,23 @@ pub fn emit_treasury_updated(env: &Env, old_treasury: Address, new_treasury: Add
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BasketEscrowCreated {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub seller: Address,
     pub token_count: u32,
     pub timestamp: u64,
 }
 
-/// Topic: `("basket_escrow_created",)`, data: `BasketEscrowCreated`.
-pub fn emit_basket_escrow_created(
-    env: &Env,
-    escrow_id: u64,
-    seller: Address,
-    token_count: u32,
-) {
+/// Topic: `(symbol_short!("Basket"), symbol_short!("Created"), seller.clone(),)`, data: `BasketEscrowCreated`.
+pub fn emit_basket_escrow_created(env: &Env, escrow_id: u64, seller: Address, token_count: u32) {
     env.events().publish(
-        (Symbol::new(env, "basket_escrow_created"),),
+        (
+            symbol_short!("Basket"),
+            symbol_short!("Created"),
+            seller.clone(),
+        ),
         BasketEscrowCreated {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             seller,
             token_count,
@@ -612,16 +932,22 @@ pub fn emit_basket_escrow_created(
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MessagePosted {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub sender: Address,
     pub timestamp: u64,
 }
 
-/// Topic: `(\"message_posted\",)`, data: `MessagePosted`.
+/// Topic: `(symbol_short!("Message"), symbol_short!("Posted"), sender.clone(),)`, data: `MessagePosted`.
 pub fn emit_message_posted(env: &Env, escrow_id: u64, sender: Address) {
     env.events().publish(
-        (Symbol::new(env, "message_posted"),),
+        (
+            symbol_short!("Message"),
+            symbol_short!("Posted"),
+            sender.clone(),
+        ),
         MessagePosted {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             sender,
             timestamp: env.ledger().timestamp(),
@@ -632,19 +958,35 @@ pub fn emit_message_posted(env: &Env, escrow_id: u64, sender: Address) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RefundRequestedEvent {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub buyer: Address,
     pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(\"refund_requested\",)`, data: `RefundRequestedEvent`.
-pub fn emit_refund_requested(env: &Env, escrow_id: u64, buyer: Address) {
+/// Topic: `(symbol_short!("Refund"), symbol_short!("Requested"), buyer.clone(),)`, data: `RefundRequestedEvent`.
+pub fn emit_refund_requested(
+    env: &Env,
+    escrow_id: u64,
+    buyer: Address,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (Symbol::new(env, "refund_requested"),),
+        (
+            symbol_short!("Refund"),
+            symbol_short!("Requested"),
+            buyer.clone(),
+        ),
         RefundRequestedEvent {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             buyer,
             timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
@@ -652,20 +994,93 @@ pub fn emit_refund_requested(env: &Env, escrow_id: u64, buyer: Address) {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RefundApprovedEvent {
+    pub schema_version: u32,
     pub escrow_id: u64,
     pub seller: Address,
     pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(\"refund_approved\",)`, data: `RefundApprovedEvent`.
-pub fn emit_refund_approved(env: &Env, escrow_id: u64, seller: Address) {
+/// Topic: `(symbol_short!("Refund"), symbol_short!("Approved"), seller.clone(),)`, data: `RefundApprovedEvent`.
+pub fn emit_refund_approved(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
     env.events().publish(
-        (Symbol::new(env, "refund_approved"),),
+        (
+            symbol_short!("Refund"),
+            symbol_short!("Approved"),
+            seller.clone(),
+        ),
         RefundApprovedEvent {
+            schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             seller,
             timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
         },
     );
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundDeniedEvent {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub seller: Address,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
+}
+
+/// Topic: `(symbol_short!("Refund"), symbol_short!("Denied"), seller.clone(),)`, data: `RefundDeniedEvent`.
+pub fn emit_refund_denied(
+    env: &Env,
+    escrow_id: u64,
+    seller: Address,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
+    env.events().publish(
+        (
+            symbol_short!("Refund"),
+            symbol_short!("Denied"),
+            seller.clone(),
+        ),
+        RefundDeniedEvent {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            seller,
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractUpgradedEvent {
+    pub schema_version: u32,
+    pub admin: Address,
+    pub new_wasm_hash: soroban_sdk::BytesN<32>,
+    pub timestamp: u64,
+}
+
+/// Topic: `("contract_upgraded",)`, data: `ContractUpgradedEvent`.
+pub fn emit_contract_upgraded(env: &Env, admin: Address, new_wasm_hash: soroban_sdk::BytesN<32>) {
+    env.events().publish(
+        (Symbol::new(env, "contract_upgraded"),),
+        ContractUpgradedEvent {
+            schema_version: EVENT_SCHEMA_VERSION,
+            admin,
+            new_wasm_hash,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}

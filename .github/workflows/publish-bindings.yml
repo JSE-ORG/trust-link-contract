@@ -1,0 +1,50 @@
+name: Publish Contract Bindings
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on version tags like v1.0.0
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org/'
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          override: true
+
+      - name: Install Stellar CLI
+        run: |
+          cargo install --locked stellar-cli --features opt
+
+      - name: Build Smart Contract
+        run: |
+          stellar contract build
+          stellar contract optimize --wasm target/wasm32-unknown-unknown/release/trustlink_escrow.wasm
+
+      - name: Install bindings dependencies
+        working-directory: ./bindings
+        run: npm ci
+
+      - name: Build bindings
+        working-directory: ./bindings
+        run: npm run build
+
+      - name: Publish package
+        working-directory: ./bindings
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

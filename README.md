@@ -258,6 +258,15 @@ cargo build --target wasm32v1-none -p trustlink-escrow
 # Run all 16 tests
 cargo test -p trustlink-escrow
 ```
+
+Unit tests run against the mock `Env`. For end-to-end coverage against a real
+Soroban network (Testnet by default) — deploy, fund, and drive each lifecycle
+path while asserting on-chain state — use the idempotent scripts in
+[`e2e/`](e2e/README.md):
+
+```bash
+cd e2e && ./run_all.sh
+```
 - `Pending`
 - `Funded`
 - `Shipped`

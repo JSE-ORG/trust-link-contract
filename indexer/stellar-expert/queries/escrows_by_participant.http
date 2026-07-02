@@ -1,0 +1,150 @@
+### Stellar Expert REST API — Escrows by Participant
+###
+### Compatible with VS Code REST Client extension and HTTPie.
+### Replace the variables below with real values before running.
+###
+### curl equivalents are shown in comments above each request.
+###
+### Reference: https://stellar.expert/openapi.html#tag/Contract-Events
+
+# ---------------------------------------------------------------------------
+# Variables — update these before running
+# ---------------------------------------------------------------------------
+@network     = testnet
+@base        = https://api.stellar.expert/explorer/{{network}}
+@contract_id = CESCROW1111111111111111111111111111111111111111111111111111
+@participant  = GSELLER111111111111111111111111111111111111111111111111111
+@page_size   = 100
+
+### ─────────────────────────────────────────────────────────────────────────
+### 1. Escrows where participant is SELLER
+###    topic[0] = Symbol("Escrow"),  topic[1] = Symbol("Created"),
+###    topic[2] = seller address
+###
+### curl:
+###   curl -s "https://api.stellar.expert/explorer/testnet/contract-events
+###     ?contract=$CONTRACT_ID
+###     &topic0=0000000f00000006457363726f77
+###     &topic1=0000000f000000074372656174656400
+###     &topic2=$(stellar xdr encode --type ScVal --input json \
+###               '{"type":"address","value":{"type":"account","account_id":"'$PARTICIPANT'"}}')
+###     &order=asc&limit=100" | jq '.
+### ─────────────────────────────────────────────────────────────────────────
+GET {{base}}/contract-events
+  ?contract={{contract_id}}
+  &topic0=0000000f00000006457363726f77
+  &topic1=0000000f000000074372656174656400
+  &topic2={{participant_xdr}}
+  &order=asc
+  &limit={{page_size}}
+Accept: application/json
+
+###
+
+### ─────────────────────────────────────────────────────────────────────────
+### 2. Escrows where participant is BUYER
+###    topic[0] = Symbol("Escrow"),  topic[1] = Symbol("Funded"),
+###    topic[2] = buyer address
+### ─────────────────────────────────────────────────────────────────────────
+GET {{base}}/contract-events
+  ?contract={{contract_id}}
+  &topic0=0000000f00000006457363726f77
+  &topic1=0000000f00000006 46756e646564
+  &topic2={{participant_xdr}}
+  &order=asc
+  &limit={{page_size}}
+Accept: application/json
+
+###
+
+### ─────────────────────────────────────────────────────────────────────────
+### 3. Escrows where participant is RESOLVER (Dispute:Resolved)
+###    topic[0] = Symbol("Dispute"),  topic[1] = Symbol("Resolved"),
+###    topic[2] = resolver address
+### ─────────────────────────────────────────────────────────────────────────
+GET {{base}}/contract-events
+  ?contract={{contract_id}}
+  &topic0=0000000f000000074469737075746500
+  &topic1=0000000f000000085265736f6c766564
+  &topic2={{participant_xdr}}
+  &order=asc
+  &limit={{page_size}}
+Accept: application/json
+
+###
+
+### ─────────────────────────────────────────────────────────────────────────
+### 4. All disputes raised BY participant (buyer in Dispute:Raised)
+### ─────────────────────────────────────────────────────────────────────────
+GET {{base}}/contract-events
+  ?contract={{contract_id}}
+  &topic0=0000000f000000074469737075746500
+  &topic1=0000000f000000065261697365640000
+  &topic2={{participant_xdr}}
+  &order=asc
+  &limit={{page_size}}
+Accept: application/json
+
+###
+
+### ─────────────────────────────────────────────────────────────────────────
+### 5. All escrow lifecycle events for the contract (no participant filter)
+###    Returns every event across all escrows.  Paginate using the cursor
+###    from _links.next.href until _links.next is absent.
+### ─────────────────────────────────────────────────────────────────────────
+GET {{base}}/contract-events
+  ?contract={{contract_id}}
+  &topic0=0000000f00000006457363726f77
+  &order=asc
+  &limit={{page_size}}
+Accept: application/json
+
+###
+
+### ─────────────────────────────────────────────────────────────────────────
+### 6. Next page — replace {{cursor}} with paging_token from previous response
+### ─────────────────────────────────────────────────────────────────────────
+GET {{base}}/contract-events
+  ?contract={{contract_id}}
+  &topic0=0000000f00000006457363726f77
+  &order=asc
+  &limit={{page_size}}
+  &cursor={{cursor}}
+Accept: application/json
+
+###
+
+### ─────────────────────────────────────────────────────────────────────────
+### 7. Decode response — Node.js snippet (run after fetching):
+###
+###   import { xdr, scValToNative } from '@stellar/stellar-sdk'
+###
+###   for (const record of response._embedded.records) {
+###     const topics = record.topic.map(t =>
+###       scValToNative(xdr.ScVal.fromXDR(t, 'hex'))
+###     )
+###     const payload = scValToNative(xdr.ScVal.fromXDR(record.value, 'hex'))
+###
+###     // Guard against schema changes (see docs/events.md)
+###     if (payload.schema_version > SUPPORTED_SCHEMA_VERSION) {
+###       throw new Error(`Unsupported schema_version ${payload.schema_version}`)
+###     }
+###
+###     console.log({
+###       event_type:  `${topics[0]}:${topics[1]}`,
+###       participant: topics[2],   // seller / buyer / resolver
+###       escrow_id:   payload.escrow_id,
+###       state:       payload.new_state,
+###     })
+###   }
+### ─────────────────────────────────────────────────────────────────────────
+
+### ─────────────────────────────────────────────────────────────────────────
+### HELPER: generate participant XDR hex with the Stellar CLI
+###
+###   stellar xdr encode --type ScVal --input json \
+###     '{"type":"address","value":{"type":"account","account_id":"G..."}}'
+###
+### Pipe through xxd or hexdump to get the hex string for topic2= above:
+###   stellar xdr encode --type ScVal --input json '...' | base64 -d | xxd -p -c 1000
+### ─────────────────────────────────────────────────────────────────────────

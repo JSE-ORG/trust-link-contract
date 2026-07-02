@@ -5,7 +5,7 @@ use crate::{Payee, test_helpers::setup_contract, DataKey, EscrowState};
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
-    env.register_stellar_asset_contract(token_admin)
+    env.register_stellar_asset_contract_v2(token_admin).address()
 }
 
 #[test]
@@ -20,7 +20,7 @@ fn test_cancel_emits_event() {
     let resolver = Address::generate(&env);
 
     // Create escrow in Pending state
-    let id = client.create_escrow(&seller, &resolver, &token, 500_i128, 0_u32, 3600_u64);
+    let id = client.create_escrow_legacy(&seller, &resolver, &token, 500_i128, 0_u32, 3600_u64);
 
     // Cancel escrow as seller
     client.cancel_escrow(&seller, &id);
