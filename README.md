@@ -23,36 +23,51 @@ Buyers and sellers never meet. The contract handles the trust gap.
 
 ## State Machine
 
-```
+```text
   create_escrow()
        |
        v
   ┌─────────┐   fund_escrow()   ┌────────┐   mark_shipped()   ┌─────────┐
   │ PENDING │─────────────────▶ │ FUNDED │──────────────────▶ │ SHIPPED │
   └────┬────┘                   └────┬───┘                    └────┬────┘
-       │                             │                      ┌──────┴──────┐
-       │ cancel_escrow()        raise_dispute()      confirm_delivery() │
+       │                             │                      ┌──────┴─────────┐
+cancel_escrow()                 raise_dispute()        confirm_delivery()    │
+or reclaim_expired()                 │                      │           auto_release()
        │                             │                      │    raise_dispute()
-       v                             v                      v          │
-  ┌──────────┐                 ┌──────────┐           ┌──────────┐     │
-  │CANCELLED │                 │ DISPUTED │           │COMPLETED │     │
-  └──────────┘                 └────┬─────┘           └──────────┘     │
-                                    │                                  │
-                            resolve_dispute()                    auto_release()
-                           ┌───────┴────────┐                         │
-                           v                v                         v
-                     ┌──────────┐    ┌──────────┐              ┌──────────┐
-                     │COMPLETED │    │ REFUNDED │              │COMPLETED │
-                     └──────────┘    └──────────┘              └──────────┘
+       v                             v                      v                │
+  ┌──────────┐                 ┌──────────┐           ┌──────────┐           │
+  │CANCELLED │                 │ DISPUTED │◀──────────┼──────────┼───────────┘
+  │    or    │                 └────┬─────┘           │          │           
+  │ EXPIRED  │                      │                 │          v           
+  └──────────┘              resolve_dispute()         │    ┌──────────┐      
+                                    │                 │    │COMPLETED │      
+                                    v                 │    └──────────┘      
+                          ┌─────────────────────┐     │                      
+                          │ PENDINGFINALIZATION │     │                      
+                          └─────────┬───────────┘     │                      
+                                    │                 │                      
+                           finalize_dispute()         │                      
+                                    │                 │                      
+                                    v                 │                      
+                            ┌───────────────┐         │                      
+                            │   COMPLETED   │◀────────┘                      
+                            │  or REFUNDED  │                                
+                            └───────────────┘                                
+
+  (Appeal Flow: PendingFinalization ──appeal_dispute()──▶ Disputed)
+  (Refund Flow: Funded/Shipped ──request_refund()──▶ RefundRequested ──approve_refund()──▶ Refunded)
 ```
 
 Key rules:
-- **Pending**: seller cancels freely (no money moved)
-- **Funded → Shipped**: only seller can mark shipped
-- **Shipped → Completed**: buyer confirms delivery, funds release to seller
-- **Funded or Shipped → Disputed**: buyer raises dispute
-- **Shipped → Completed (auto)**: anyone triggers after `shipped_at + shipping_window` elapses
-- **Disputed → Completed/Refunded**: only the `resolver` address decides
+- **Pending**: seller cancels freely (no money moved); `reclaim_expired` sets state to `Expired` if not funded in time.
+- **Funded → Shipped**: only seller can mark shipped.
+- **Shipped → Completed**: buyer confirms delivery, funds release to seller.
+- **Funded or Shipped → Disputed**: buyer raises dispute.
+- **Funded or Shipped → RefundRequested**: buyer requests refund, which must be approved by seller.
+- **Shipped → Completed (auto)**: anyone triggers after `shipped_at + shipping_window` elapses.
+- **Disputed → PendingFinalization**: resolver (or M-of-N multi-resolvers) decide outcome.
+- **PendingFinalization → Completed/Refunded**: anyone finalizes the dispute after resolution is reached.
+- **PendingFinalization → Disputed**: either party can appeal before finalization, resetting the resolution.
 
 ---
 
