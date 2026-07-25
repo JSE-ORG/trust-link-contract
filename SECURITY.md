@@ -315,6 +315,40 @@ Before mainnet deployment:
 
 ---
 
+## Responsible Disclosure Policy
+
+We take the security of TrustLink seriously. If you believe you have found a security vulnerability, please report it to us as described below.
+
+### Reporting a Vulnerability
+
+Please do not report security vulnerabilities through public GitHub issues.
+
+Instead, please report them by emailing **security@trustlink.dev**.
+
+You can encrypt your communication using our PGP public key:
+
+```text
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: OpenPGP.js v5.9.0
+Comment: https://openpgpjs.org
+
+xsBNBGMz... [PLACEHOLDER PGP KEY] ...
+-----END PGP PUBLIC KEY BLOCK-----
+```
+*(Note: A real PGP key will be rotated in prior to mainnet launch)*
+
+### Response SLA
+
+- **Acknowledgment**: Within 24 hours of receiving your report.
+- **Initial Assessment**: Within 48 hours of acknowledgment.
+- **Resolution**: Depending on severity, typically within 7-14 days.
+
+### Bug Bounty
+
+At this time, we do not have an automated bug bounty program. However, we evaluate verified, critical reports on a case-by-case basis for potential rewards.
+
+---
+
 ## Changelog
 
 | Version | Date | Changes |

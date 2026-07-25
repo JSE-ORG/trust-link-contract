@@ -442,6 +442,8 @@ contracts/escrow/
 
 > This contract has not been formally audited. Use on mainnet at your own risk.
 
+Please see our [Responsible Disclosure Policy](SECURITY.md#responsible-disclosure-policy) if you wish to report a vulnerability.
+
 ---
 
 ## Roadmap
