@@ -32,10 +32,10 @@ pub fn execute_payout_transfers(
 /// so any sub-stroop remainder is dropped from the fee. Crucially, callers
 /// derive the payout as `net = amount - fee` (see [`calculate_protocol_fee`]),
 /// which means the truncated remainder is **not** lost — it stays in `net` and
-/// is paid to the recipient (seller on release, buyer on refund). The contract
-/// only ever retains exactly `fee`, which is later swept by the admin via
-/// `withdraw_fees`. The invariant `net + fee == amount` therefore always holds
-/// and no stroop is ever stranded in the vault.
+/// is paid to the recipient (seller on release, buyer on refund). The `fee` is
+/// forwarded directly to the configured fee collector rather than retained by
+/// the contract. The invariant `net + fee == amount` therefore always holds
+/// and no stroop is ever stranded.
 ///
 /// Consequence of flooring: for amounts where `amount * fee_bps < 10_000` the
 /// fee rounds down to `0` and is effectively waived. The `MIN_ESCROW_AMOUNT`

@@ -155,30 +155,6 @@ pub fn emit_contract_unpaused(env: &Env, admin: Address) {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FeesWithdrawn {
-    pub schema_version: u32,
-    pub token: Address,
-    pub to: Address,
-    pub amount: i128,
-    pub timestamp: u64,
-}
-
-/// Topic: `(symbol_short!("Fee"), symbol_short!("Withdrawn"), to.clone(),)`, data: `FeesWithdrawn`.
-pub fn emit_fees_withdrawn(env: &Env, token: Address, to: Address, amount: i128) {
-    env.events().publish(
-        (symbol_short!("Fee"), symbol_short!("Withdrawn"), to.clone()),
-        FeesWithdrawn {
-            schema_version: EVENT_SCHEMA_VERSION,
-            token,
-            to,
-            amount,
-            timestamp: env.ledger().timestamp(),
-        },
-    );
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowCreated {
     pub schema_version: u32,
     pub escrow_id: u64,

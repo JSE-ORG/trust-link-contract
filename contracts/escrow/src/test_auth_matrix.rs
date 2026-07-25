@@ -301,19 +301,6 @@ fn buyer_cannot_set_fee() {
 }
 
 #[test]
-fn resolver_cannot_withdraw_fees() {
-    let env = Env::default();
-    let ctx = setup(&env);
-    let (_, _, _, resolver) = pending(&ctx);
-    let recipient = Address::generate(&env);
-    assert_eq!(
-        ctx.client
-            .try_withdraw_fees(&resolver, &ctx.token, &recipient, &1_i128),
-        Err(Ok(ContractError::NotAuthorized))
-    );
-}
-
-#[test]
 fn buyer_cannot_set_ttl_extension() {
     let env = Env::default();
     let ctx = setup(&env);

@@ -92,23 +92,6 @@ fn set_arbitration_fee_rejects_unauthorized_caller() {
     );
 }
 
-#[test]
-fn withdraw_fees_rejects_unauthorized_caller() {
-    let env = Env::default();
-    let (client, _admin) = fresh_contract(&env);
-    let intruder = Address::generate(&env);
-
-    let token_admin = Address::generate(&env);
-    let sac = env.register_stellar_asset_contract_v2(token_admin);
-    let token_addr = sac.address();
-    let recipient = Address::generate(&env);
-
-    assert_eq!(
-        client.try_withdraw_fees(&intruder, &token_addr, &recipient, &1_i128),
-        Err(Ok(ContractError::NotAuthorized)),
-    );
-}
-
 // ── Role-conflict guards ─────────────────────────────────────────────────────
 
 /// Helper: register a SAC token and return its address.

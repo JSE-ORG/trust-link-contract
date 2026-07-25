@@ -64,7 +64,6 @@ throughout the contract.
 | `EscrowCounter` | `u64` | Monotonic counter producing the next escrow ID. |
 | `TtlExtensionLedgers` | `u32` | Configurable TTL extension (ledgers). Falls back to `120_960` when unset. |
 | `TotalArbitrationFees(Address)` | `i128` | Per-token running total of arbitration fees collected. Keyed by token address. |
-| `AccumulatedFees(Address)` | `i128` | Per-token fees sitting in the vault that are withdrawable via `withdraw_fees`. Keyed by token address. |
 | `TotalCreated` | `u64` | Lifetime count of escrows created (stats). |
 | `TotalCompleted` | `u64` | Lifetime count of escrows completed (stats). |
 | `TotalDisputed` | `u64` | Lifetime count of escrows disputed (stats). |
@@ -123,7 +122,6 @@ use.
 | EscrowCounter | `DataKey` | Instance | `u64` | — |
 | TtlExtensionLedgers | `DataKey` | Instance | `u32` | — |
 | TotalArbitrationFees | `DataKey` | Instance | `i128` | token `Address` |
-| AccumulatedFees | `DataKey` | Instance | `i128` | token `Address` |
 | TotalCreated / Completed / Disputed / Refunded | `DataKey` | Instance | `u64` | — |
 | Escrow | `DataKey` | Persistent | `EscrowData` | escrow ID `u64` |
 | Dispute | `DataKey` | Persistent | `DisputeData` | escrow ID `u64` |
@@ -147,6 +145,7 @@ out of scope for this reference.
    following `extend_ttl` (lib.rs `fund_escrow`). A buyer index can therefore
    reach its archival TTL earlier than the escrow records it points to.
 
-3. **Fee bookkeeping is per token.** `AccumulatedFees` and
-   `TotalArbitrationFees` are keyed by the token `Address`, so multi-token
-   deployments track withdrawable balances independently per asset.
+3. **Fee bookkeeping is per token.** `TotalArbitrationFees` is keyed by the
+   token `Address`, so multi-token deployments track arbitration fee totals
+   independently per asset. The protocol fee itself is not tracked in
+   storage — it is forwarded to the fee collector directly at payout time.

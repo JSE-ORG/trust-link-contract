@@ -563,15 +563,16 @@ The escrow contract is token-agnostic, using SEP-41 token interface clients. All
 Token transfers occur in:
 
 - `fund_escrow`: buyer → contract
-- `confirm_delivery`: contract → seller
-- `auto_release`: contract → seller
-- `resolve_dispute`: contract → seller or buyer
-- `withdraw_fees`: contract → fee collector recipient
+- `confirm_delivery`: contract → seller + contract → fee collector
+- `auto_release`: contract → seller + contract → fee collector
+- `resolve_dispute`: contract → seller or buyer + contract → fee collector
 
-The payout logic is governed by `deduct_and_transfer`, which calculates:
+The payout logic is governed by `transfer_with_protocol_fee`, which calculates:
 
 - fee = amount * fee_bps / 10_000 (basis points)
 - net = amount - fee
+
+and transfers `net` to the recipient and `fee` directly to the configured fee collector in the same call — the protocol fee never accumulates in the contract.
 
 The arbitration fee is handled as a separate deduction in `resolve_dispute`.
 
@@ -587,7 +588,7 @@ Escrow creation accepts a `fee_bps` parameter, and `create_escrow` rejects any v
 
 Additionally, the contract can update a default fee via admin (`set_fee`) stored in `DataKey::DefaultFeeBps`. (Per-escrow fee is passed at creation time.)
 
-The `deduct_and_transfer` helper rejects negative amounts and uses checked arithmetic to avoid silent overflows.
+The `transfer_with_protocol_fee` helper uses checked arithmetic to avoid silent overflows.
 
 ### 6.2 Arbitration fee
 
@@ -597,16 +598,9 @@ Dispute resolution uses an arbitration fee configured on-chain as `ArbitrationFe
 
 This creates the effect that arbitration resolution payouts are reduced by arbitration fee before applying the protocol fee model.
 
-### 6.3 Withdrawing protocol fees
+### 6.3 Protocol fee delivery
 
-`withdraw_fees(token, to, amount)` enables the admin to move accumulated protocol token balances from the contract to the target address.
-
-Guards include:
-
-- paused check,
-- admin authorization,
-- amount positive,
-- sufficient balance in the contract token vault.
+The protocol fee is forwarded to the configured fee collector (`DataKey::FeeCollector`) directly at payout time via `transfer_with_protocol_fee` — it never accumulates in the contract's own token balance, so there is no separate admin sweep step.
 
 ---
 

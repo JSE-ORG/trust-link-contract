@@ -21,13 +21,13 @@ pub use crate::events::{
     emit_contract_unpaused, emit_contract_upgraded, emit_delivery_recorded, emit_dispute_appealed,
     emit_dispute_pending_finalization, emit_dispute_raised, emit_dispute_resolved,
     emit_escrow_cancelled, emit_escrow_completed, emit_escrow_created, emit_escrow_funded,
-    emit_escrow_shipped, emit_fee_updated, emit_fees_withdrawn, emit_platform_fee_updated,
-    emit_protocol_fee_updated, emit_refund_approved, emit_refund_requested, emit_resolver_rotated,
+    emit_escrow_shipped, emit_fee_updated, emit_platform_fee_updated, emit_protocol_fee_updated,
+    emit_refund_approved, emit_refund_requested, emit_resolver_rotated,
     emit_resolver_vote_recorded, emit_token_allowlist_updated, emit_treasury_updated, AdminRotated,
     ArbitrationFeeUpdated, AutoReleased, ContractInitialized, ContractPausedEvent,
     ContractUnpausedEvent, ContractUpgradedEvent, DeliveryRecorded, DisputeRaised, DisputeResolved,
     EscrowCancelled, EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, FeeUpdated,
-    FeesWithdrawn, ProtocolFeeUpdated, ResolverRotated, ResolverVoteRecorded,
+    ProtocolFeeUpdated, ResolverRotated, ResolverVoteRecorded,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
@@ -617,41 +617,6 @@ fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<TokenEntry>
     let ext = get_ttl_extension(env);
     env.storage().persistent().extend_ttl(&key, ext / 2, ext);
     env.storage().persistent().get(&key).unwrap()
-}
-
-/// Deducts the protocol fee from `amount` and transfers the net to `recipient`,
-/// leaving the fee in the contract vault for the admin to sweep via
-/// `withdraw_fees`.
-#[allow(dead_code)]
-fn deduct_and_transfer(
-    env: &Env,
-    token_addr: &Address,
-    recipient: &Address,
-    amount: i128,
-    fee_bps: u32,
-) -> Result<(), ContractError> {
-    if amount < 0 {
-        return Err(ContractError::InvalidAmount);
-    }
-
-    // Split calculation to avoid overflow for large amounts
-    let part1 = (amount / 10_000)
-        .checked_mul(fee_bps as i128)
-        .ok_or(ContractError::ArithmeticError)?;
-    let part2 = (amount % 10_000)
-        .checked_mul(fee_bps as i128)
-        .ok_or(ContractError::ArithmeticError)?
-        / 10_000;
-
-    let fee = part1
-        .checked_add(part2)
-        .ok_or(ContractError::ArithmeticError)?;
-    let net = amount
-        .checked_sub(fee)
-        .ok_or(ContractError::ArithmeticError)?;
-
-    token::Client::new(env, token_addr).transfer(&env.current_contract_address(), recipient, &net);
-    Ok(())
 }
 
 fn transfer_with_protocol_fee(
@@ -1265,40 +1230,6 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::TtlExtensionLedgers, &ledgers);
-        Ok(())
-    }
-
-    /// Withdraws accumulated fees to a specified address. Only callable by admin.
-    pub fn withdraw_fees(
-        env: Env,
-        caller: Address,
-        token: Address,
-        to: Address,
-        amount: i128,
-    ) -> Result<(), ContractError> {
-        caller.require_auth();
-        ensure_not_paused(&env)?;
-        let _admin = require_admin_caller(&env, &caller)?;
-
-        if amount <= 0 {
-            return Err(ContractError::InvalidAmount);
-        }
-
-        let fee_key = DataKey::AccumulatedFees(token.clone());
-        let accumulated: i128 = env.storage().instance().get(&fee_key).unwrap_or(0);
-        if amount > accumulated {
-            return Err(ContractError::InsufficientBalance);
-        }
-
-        let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&env.current_contract_address(), &to, &amount);
-
-        let new_accumulated = accumulated
-            .checked_sub(amount)
-            .ok_or(ContractError::ArithmeticError)?;
-        env.storage().instance().set(&fee_key, &new_accumulated);
-
-        emit_fees_withdrawn(&env, token, to, amount);
         Ok(())
     }
 
@@ -3123,13 +3054,6 @@ impl Escrow {
         Ok(())
     }
 
-    pub fn get_accumulated_fees(env: Env, token: Address) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::AccumulatedFees(token))
-            .unwrap_or(0)
-    }
-
     pub fn multicall(env: Env, calls: Vec<ContractCall>) -> Result<Vec<Val>, ContractError> {
         ensure_not_paused(&env)?;
         let mut results = Vec::new(&env);
@@ -3137,7 +3061,6 @@ impl Escrow {
         let s_initialize = Symbol::new(&env, "initialize");
         let s_pause_contract = Symbol::new(&env, "pause_contract");
         let s_unpause_contract = Symbol::new(&env, "unpause_contract");
-        let s_withdraw_fees = Symbol::new(&env, "withdraw_fees");
         let s_create_escrow = Symbol::new(&env, "create_escrow");
         let s_fund_escrow = Symbol::new(&env, "fund_escrow");
         let s_mark_shipped = Symbol::new(&env, "mark_shipped");
@@ -3358,33 +3281,6 @@ impl Escrow {
                     .try_into_val(&env)
                     .map_err(|_| ContractError::InvalidAmount)?;
                 Self::unpause_contract(env.clone(), caller)?;
-                ().into_val(&env)
-            } else if call.function == s_withdraw_fees {
-                let caller: Address = call
-                    .args
-                    .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
-                    .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
-                let token: Address = call
-                    .args
-                    .get(1)
-                    .ok_or(ContractError::InvalidAmount)?
-                    .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
-                let to: Address = call
-                    .args
-                    .get(2)
-                    .ok_or(ContractError::InvalidAmount)?
-                    .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
-                let amount: i128 = call
-                    .args
-                    .get(3)
-                    .ok_or(ContractError::InvalidAmount)?
-                    .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
-                Self::withdraw_fees(env.clone(), caller, token, to, amount)?;
                 ().into_val(&env)
             } else if call.function == s_get_dispute {
                 let escrow_id: u64 = call
@@ -3682,4 +3578,3 @@ mod test_set_fee_collector;
 mod test_shipping_window;
 mod test_state_history;
 mod test_unauthorized;
-mod test_withdraw_fees;

@@ -81,9 +81,6 @@ By placing relevant addresses in the topics, indexers can filter directly for ev
 - **platform_fee_updated**:
   - Topics: `["PlatFee", "Updated"]`
   - Payload: `PlatformFeeUpdated` `{ schema_version, old_fee_bps, new_fee_bps, timestamp }`
-- **fees_withdrawn**: 
-  - Topics: `["Fee", "Withdrawn", to]`
-  - Payload: `FeesWithdrawn` `{ schema_version, token, to, amount, timestamp }`
 
 ### Escrow Lifecycle
 - **escrow_created**: 
