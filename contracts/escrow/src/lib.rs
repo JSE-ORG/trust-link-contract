@@ -1276,6 +1276,11 @@ impl Escrow {
     }
 
     /// Creates an escrow with an optional expiration time.
+    ///
+    /// If `expires_at` is provided, the escrow must be funded via `fund_escrow`
+    /// before `expires_at + grace_period` (ledger time) or `fund_escrow` will
+    /// reject it with `EscrowExpired`. `grace_period` is ignored when
+    /// `expires_at` is `None`.
     #[allow(clippy::too_many_arguments)]
     pub fn create_escrow_with_expiration(
         env: Env,
@@ -1286,16 +1291,15 @@ impl Escrow {
         amount: i128,
         fee_bps: u32,
         shipping_window: u64,
-        _expires_at: Option<u64>,
-        _grace_period: u64,
+        expires_at: Option<u64>,
+        grace_period: u64,
     ) -> Result<u64, ContractError> {
-        seller.require_auth();
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
             address: seller,
             bps: 10_000,
         });
-        create_escrow_internal(
+        let escrow_id = create_escrow_internal(
             &env,
             payees,
             buyer,
@@ -1306,7 +1310,23 @@ impl Escrow {
             0,
             shipping_window,
             None,
-        )
+        )?;
+
+        if let Some(expires_at) = expires_at {
+            if expires_at <= env.ledger().timestamp() {
+                return Err(ContractError::InvalidExpiration);
+            }
+            let effective_expiry = expires_at
+                .checked_add(grace_period)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+
+            let key = DataKey::PendingExpiry(escrow_id);
+            let ext = get_ttl_extension(&env);
+            env.storage().persistent().set(&key, &effective_expiry);
+            env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+        }
+
+        Ok(escrow_id)
     }
 
     /// Buyer funds a pending escrow. Transitions Pending → Funded.
@@ -3636,6 +3656,7 @@ mod test_co_signed_release;
 mod test_concurrent_vendor_escrows;
 mod test_contract_config;
 mod test_create_escrow_boundary;
+mod test_create_escrow_with_expiration;
 mod test_delivery;
 mod test_dispute;
 mod test_dispute_deadline_overflow;

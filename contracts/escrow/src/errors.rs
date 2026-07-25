@@ -80,4 +80,6 @@ pub enum ContractError {
     /// Returned when an internal collection index is out of bounds, indicating a
     /// storage or argument invariant was violated.
     IndexOutOfBounds = 36,
+    /// Returned when a supplied expiration timestamp is not strictly in the future.
+    InvalidExpiration = 37,
 }
