@@ -1778,10 +1778,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
@@ -2029,10 +2029,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn co_signed_release(
@@ -2098,10 +2098,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn resolve_dispute(
@@ -2203,10 +2203,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn set_arbitration_fee(
@@ -2220,10 +2220,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn get_arbitration_fee(env: Env) -> u32 {
@@ -2244,10 +2244,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn auto_release(env: Env, escrow_id: u64) -> Result<(), ContractError> {
@@ -2330,10 +2330,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn finalize_dispute(
@@ -2455,10 +2455,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn appeal_dispute(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
@@ -2514,10 +2514,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn set_token_allowlist_enabled(
@@ -2539,10 +2539,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn add_allowed_token(
@@ -2578,10 +2578,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn remove_allowed_token(
@@ -2625,10 +2625,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn is_token_allowlist_enabled(env: Env) -> bool {
@@ -2636,10 +2636,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn get_allowed_tokens(env: Env) -> soroban_sdk::Vec<Address> {
@@ -2650,10 +2650,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn set_platform_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
@@ -2675,10 +2675,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn set_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), ContractError> {
@@ -2704,10 +2704,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn get_platform_fee_bps(env: Env) -> u32 {
@@ -2715,10 +2715,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn get_treasury(env: Env) -> Result<Address, ContractError> {
@@ -2726,10 +2726,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn create_basket_escrow(
@@ -2903,10 +2903,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn get_escrow(env: Env, escrow_id: u64) -> Result<EscrowData, ContractError> {
@@ -2914,10 +2914,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn get_state_history(
@@ -2929,10 +2929,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn get_dispute(env: Env, escrow_id: u64) -> Option<DisputeData> {
@@ -2940,10 +2940,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
@@ -3029,10 +3029,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn get_public_config(env: Env) -> PublicContractConfig {
@@ -3058,10 +3058,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn get_contract_config(env: Env) -> Result<ContractConfig, ContractError> {
@@ -3160,10 +3160,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn request_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
@@ -3198,10 +3198,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn approve_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
@@ -3248,10 +3248,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn batch_create_escrow(
@@ -3288,10 +3288,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn set_amount_limits(
@@ -3320,10 +3320,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn get_accumulated_fees(env: Env, token: Address) -> i128 {
@@ -3334,10 +3334,10 @@ impl Escrow {
     }
 
     /// Public contract function.
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The environment.
-    /// 
+    ///
     /// # Returns
     /// The result of the operation.
     pub fn multicall(env: Env, calls: Vec<ContractCall>) -> Result<Vec<Val>, ContractError> {
