@@ -77,4 +77,7 @@ pub enum ContractError {
     DeliveryAlreadyRecorded = 34,
     /// Returned when a read accessor is called before the contract has been initialized.
     NotInitialized = 35,
+    /// Returned when an internal collection index is out of bounds, indicating a
+    /// storage or argument invariant was violated.
+    IndexOutOfBounds = 36,
 }

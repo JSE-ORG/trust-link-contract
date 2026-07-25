@@ -401,7 +401,9 @@ fn validate_resolvers(
         // Ensure all resolvers are unique
         for i in 0..m.resolvers.len() {
             for j in (i + 1)..m.resolvers.len() {
-                if m.resolvers.get(i).unwrap() == m.resolvers.get(j).unwrap() {
+                if m.resolvers.get(i).ok_or(ContractError::IndexOutOfBounds)?
+                    == m.resolvers.get(j).ok_or(ContractError::IndexOutOfBounds)?
+                {
                     return Err(ContractError::ConflictingRoles);
                 }
             }
@@ -425,7 +427,7 @@ fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), ContractError> 
 
     let mut total_bps: u32 = 0;
     for i in 0..payees.len() {
-        let payee = payees.get(i).unwrap();
+        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
         let bps = payee.bps;
 
         // Check for overflow
@@ -616,7 +618,10 @@ fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<TokenEntry>
     }
     let ext = get_ttl_extension(env);
     env.storage().persistent().extend_ttl(&key, ext / 2, ext);
-    env.storage().persistent().get(&key).unwrap()
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| soroban_sdk::Vec::new(env))
 }
 
 fn transfer_with_protocol_fee(
@@ -659,7 +664,7 @@ fn distribute_to_payees(
 
     // Calculate amounts for all payees except the first
     for i in 1..payees.len() {
-        let payee = payees.get(i).unwrap();
+        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
         let payee_amount = amount
             .checked_mul(payee.bps as i128)
             .ok_or(ContractError::ArithmeticError)?
@@ -676,7 +681,7 @@ fn distribute_to_payees(
     }
 
     // First payee gets the remainder (rounding goes to first payee)
-    let first_payee = payees.get(0).unwrap();
+    let first_payee = payees.get(0).ok_or(ContractError::IndexOutOfBounds)?;
     if remaining > 0 {
         token_client.transfer(&contract_addr, &first_payee.address, &remaining);
     }
@@ -695,7 +700,9 @@ fn payout_basket_tokens(
     let contract_addr = env.current_contract_address();
     // Skip index 0 (primary token, already handled by caller)
     for i in 1..basket_tokens.len() {
-        let entry = basket_tokens.get(i).unwrap();
+        let entry = basket_tokens
+            .get(i)
+            .ok_or(ContractError::IndexOutOfBounds)?;
         if entry.amount > 0 {
             token::Client::new(env, &entry.token).transfer(
                 &contract_addr,
@@ -738,7 +745,7 @@ fn create_escrow_internal(
     if payees.is_empty() {
         return Err(ContractError::InvalidAddress);
     }
-    let first_payee = payees.get(0).unwrap();
+    let first_payee = payees.get(0).ok_or(ContractError::IndexOutOfBounds)?;
     first_payee.address.require_auth();
 
     ensure_action_not_paused(env, Symbol::new(env, "CREATE"))?;
@@ -782,7 +789,7 @@ fn create_escrow_internal(
 
     // Security: resolver must be distinct from all payees and buyer
     for i in 0..payees.len() {
-        let payee = payees.get(i).unwrap();
+        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
         if resolver == payee.address {
             return Err(ContractError::ConflictingRoles);
         }
@@ -861,7 +868,11 @@ fn create_escrow_internal(
 
     save_escrow(env, escrow_id, &escrow);
 
-    let first_payee_addr = payees.get(0).unwrap().address.clone();
+    let first_payee_addr = payees
+        .get(0)
+        .ok_or(ContractError::IndexOutOfBounds)?
+        .address
+        .clone();
     let mut vendor_escrows = storage::read_vendor_escrow_index(env, &first_payee_addr);
     vendor_escrows.push_back(escrow_id);
     storage::write_vendor_escrow_index(env, &first_payee_addr, &vendor_escrows);
@@ -1320,7 +1331,10 @@ impl Escrow {
 
         // Security: buyer must differ from seller and resolver.
         for i in 0..escrow.payees.len() {
-            let payee = escrow.payees.get(i).unwrap();
+            let payee = escrow
+                .payees
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
             if buyer == payee.address {
                 return Err(ContractError::ConflictingRoles);
             }
@@ -1340,7 +1354,9 @@ impl Escrow {
         // Transfer additional basket tokens if this is a basket escrow
         let basket_tokens = load_basket_tokens(&env, escrow_id);
         for i in 0..basket_tokens.len() {
-            let entry = basket_tokens.get(i).unwrap();
+            let entry = basket_tokens
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
             if entry.token != escrow.token && entry.amount > 0 {
                 token::Client::new(&env, &entry.token).transfer(
                     &buyer,
@@ -1493,7 +1509,7 @@ impl Escrow {
             .storage()
             .instance()
             .get(&DataKey::EscrowCounter)
-            .expect("counter initialized");
+            .ok_or(ContractError::NotInitialized)?;
         let next_id = escrow_id
             .checked_add(1)
             .ok_or(ContractError::ArithmeticError)?;
@@ -1537,7 +1553,11 @@ impl Escrow {
 
         // Emit with first resolver for backward compat
         if let ResolverSet::Multi(ref m) = &resolver_set {
-            let resolver_addr = m.resolvers.get(0).unwrap().clone();
+            let resolver_addr = m
+                .resolvers
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?
+                .clone();
             emit_escrow_created(
                 &env,
                 escrow_id,
@@ -1649,7 +1669,7 @@ impl Escrow {
             .storage()
             .instance()
             .get(&DataKey::EscrowCounter)
-            .expect("counter initialized");
+            .ok_or(ContractError::NotInitialized)?;
         let next_id = escrow_id
             .checked_add(1)
             .ok_or(ContractError::ArithmeticError)?;
@@ -1717,7 +1737,13 @@ impl Escrow {
         let is_payee = {
             let mut found = false;
             for i in 0..escrow.payees.len() {
-                if caller == escrow.payees.get(i).unwrap().address {
+                if caller
+                    == escrow
+                        .payees
+                        .get(i)
+                        .ok_or(ContractError::IndexOutOfBounds)?
+                        .address
+                {
                     found = true;
                     break;
                 }
@@ -1743,7 +1769,12 @@ impl Escrow {
         }
 
         save_escrow(&env, escrow_id, &escrow);
-        let first_payee_addr = escrow.payees.get(0).unwrap().address.clone();
+        let first_payee_addr = escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .clone();
         emit_escrow_cancelled(
             &env,
             escrow_id,
@@ -1764,7 +1795,12 @@ impl Escrow {
             .clone()
             .ok_or(ContractError::EscrowHasNoBuyer)?;
 
-        let seller_addr = escrow.payees.get(0).unwrap().address.clone();
+        let seller_addr = escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .clone();
         seller_addr.require_auth();
         buyer.require_auth();
 
@@ -1806,11 +1842,18 @@ impl Escrow {
         ensure_not_paused(&env)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
-        let first_payee = escrow.payees.get(0).unwrap().clone();
+        let first_payee = escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .clone();
         let is_authorized = {
             let mut found = false;
             for i in 0..escrow.payees.len() {
-                let payee = escrow.payees.get(i).unwrap();
+                let payee = escrow
+                    .payees
+                    .get(i)
+                    .ok_or(ContractError::IndexOutOfBounds)?;
                 if caller == payee.address {
                     found = true;
                     break;
@@ -1922,7 +1965,12 @@ impl Escrow {
             .get(&DataKey::FeeCollector)
             .ok_or(ContractError::NotAuthorized)?;
 
-        let first_payee_addr = escrow.payees.get(0).unwrap().address.clone();
+        let first_payee_addr = escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .clone();
         let (protocol_fee, net_amount) =
             crate::helpers::payout::calculate_protocol_fee(escrow.amount, escrow.fee_bps)?;
         if protocol_fee > 0 {
@@ -1962,7 +2010,12 @@ impl Escrow {
         ensure_not_paused(&env)?;
         let escrow = load_escrow(&env, escrow_id)?;
 
-        let first_payee = escrow.payees.get(0).unwrap().address.clone();
+        let first_payee = escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .clone();
         first_payee.require_auth();
         let buyer = escrow
             .buyer
@@ -1984,7 +2037,7 @@ impl Escrow {
             .storage()
             .instance()
             .get(&DataKey::FeeCollector)
-            .expect("fee collector not set");
+            .ok_or(ContractError::NotInitialized)?;
 
         transfer_with_protocol_fee(
             &env,
@@ -2186,7 +2239,12 @@ impl Escrow {
             .get(&DataKey::FeeCollector)
             .ok_or(ContractError::NotAuthorized)?;
 
-        let first_payee_addr = escrow.payees.get(0).unwrap().address.clone();
+        let first_payee_addr = escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .clone();
         let (protocol_fee, net_amount) = crate::helpers::payout::calculate_protocol_fee(
             escrow.amount,
             fee_config.protocol_fee_bps,
@@ -2252,7 +2310,12 @@ impl Escrow {
 
         let _prev_state = escrow.state.clone();
         let recipient = match resolution {
-            ResolutionType::Release => escrow.payees.get(0).unwrap().address.clone(),
+            ResolutionType::Release => escrow
+                .payees
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?
+                .address
+                .clone(),
             ResolutionType::Refund => escrow
                 .buyer
                 .clone()
@@ -2362,7 +2425,12 @@ impl Escrow {
             .buyer
             .clone()
             .ok_or(ContractError::EscrowHasNoBuyer)?;
-        let seller_addr = escrow.payees.get(0).unwrap().address.clone();
+        let seller_addr = escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .clone();
         if caller != buyer && caller != seller_addr {
             return Err(ContractError::NotAuthorized);
         }
@@ -2615,8 +2683,8 @@ impl Escrow {
         // Persist all basket tokens/amounts alongside the primary EscrowData
         let mut basket_entries: Vec<TokenEntry> = Vec::new(&env);
         for i in 0..tokens.len() {
-            let token = tokens.get(i).unwrap();
-            let amount = amounts.get(i).unwrap();
+            let token = tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+            let amount = amounts.get(i).ok_or(ContractError::IndexOutOfBounds)?;
             basket_entries.push_back(TokenEntry { token, amount });
         }
         save_basket_tokens(&env, escrow_id, &basket_entries);
@@ -2658,7 +2726,9 @@ impl Escrow {
         }
 
         for i in 0..basket_tokens.len() {
-            let entry = basket_tokens.get(i).unwrap();
+            let entry = basket_tokens
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
             if entry.amount > 0 {
                 token::Client::new(&env, &entry.token).transfer(
                     &buyer,
@@ -2755,7 +2825,10 @@ impl Escrow {
     ) -> soroban_sdk::Vec<Option<EscrowData>> {
         let mut result: soroban_sdk::Vec<Option<EscrowData>> = soroban_sdk::Vec::new(&env);
         for i in 0..ids.len() {
-            let id = ids.get(i).expect("index in range");
+            let Some(id) = ids.get(i) else {
+                result.push_back(None);
+                continue;
+            };
             match load_escrow(&env, id) {
                 Ok(escrow) => result.push_back(Some(escrow)),
                 Err(_) => result.push_back(None),
@@ -2868,7 +2941,10 @@ impl Escrow {
         let is_payee = {
             let mut found = false;
             for i in 0..escrow.payees.len() {
-                let payee = escrow.payees.get(i).unwrap();
+                let payee = escrow
+                    .payees
+                    .get(i)
+                    .ok_or(ContractError::IndexOutOfBounds)?;
                 if caller == payee.address {
                     found = true;
                     break;
@@ -2899,7 +2975,10 @@ impl Escrow {
             }
             // New resolver must differ from all payees
             for i in 0..escrow.payees.len() {
-                let payee = escrow.payees.get(i).unwrap();
+                let payee = escrow
+                    .payees
+                    .get(i)
+                    .ok_or(ContractError::IndexOutOfBounds)?;
                 if new_resolver == payee.address {
                     return Err(ContractError::InvalidAddress);
                 }
@@ -2960,7 +3039,13 @@ impl Escrow {
 
         let mut is_payee = false;
         for i in 0..escrow.payees.len() {
-            if caller == escrow.payees.get(i).unwrap().address {
+            if caller
+                == escrow
+                    .payees
+                    .get(i)
+                    .ok_or(ContractError::IndexOutOfBounds)?
+                    .address
+            {
                 is_payee = true;
                 break;
             }
@@ -3509,7 +3594,12 @@ impl Escrow {
             .buyer
             .clone()
             .ok_or(ContractError::EscrowHasNoBuyer)?;
-        let seller = escrow.payees.get(0).unwrap().address.clone();
+        let seller = escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .clone();
 
         // Both parties must explicitly authorise the emergency drain.
         buyer.require_auth();
