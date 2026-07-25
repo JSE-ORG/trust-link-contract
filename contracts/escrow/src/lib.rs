@@ -16,18 +16,22 @@ pub mod storage;
 pub mod types;
 pub use crate::errors::ContractError;
 pub use crate::events::{
-    emit_admin_rotated, emit_allowlist_toggled, emit_arbitration_fee_updated, emit_auto_released,
+    emit_action_paused, emit_action_unpaused, emit_admin_rotated, emit_allowlist_toggled,
+    emit_amount_limits_updated, emit_arbitration_fee_updated, emit_auto_released,
     emit_basket_escrow_created, emit_contract_initialized, emit_contract_paused,
     emit_contract_unpaused, emit_contract_upgraded, emit_delivery_recorded, emit_dispute_appealed,
     emit_dispute_pending_finalization, emit_dispute_raised, emit_dispute_resolved,
     emit_escrow_cancelled, emit_escrow_completed, emit_escrow_created, emit_escrow_funded,
     emit_escrow_shipped, emit_fee_updated, emit_platform_fee_updated, emit_protocol_fee_updated,
-    emit_refund_approved, emit_refund_requested, emit_resolver_rotated,
-    emit_resolver_vote_recorded, emit_token_allowlist_updated, emit_treasury_updated, AdminRotated,
+    emit_refund_approved, emit_refund_requested, emit_resolver_approved, emit_resolver_removed,
+    emit_resolver_rotated, emit_resolver_strict_updated, emit_resolver_vote_recorded,
+    emit_token_allowlist_updated, emit_treasury_updated, emit_ttl_extension_updated,
+    ActionPausedEvent, ActionUnpausedEvent, AdminRotated, AmountLimitsUpdated,
     ArbitrationFeeUpdated, AutoReleased, ContractInitialized, ContractPausedEvent,
     ContractUnpausedEvent, ContractUpgradedEvent, DeliveryRecorded, DisputeRaised, DisputeResolved,
     EscrowCancelled, EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, FeeUpdated,
-    ProtocolFeeUpdated, ResolverRotated, ResolverVoteRecorded,
+    ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated, ResolverStrictUpdated,
+    ResolverVoteRecorded, TtlExtensionUpdated,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
@@ -1151,7 +1155,8 @@ impl Escrow {
         }
         env.storage()
             .instance()
-            .set(&DataKey::ActionPaused(action), &true);
+            .set(&DataKey::ActionPaused(action.clone()), &true);
+        emit_action_paused(&env, action, caller);
         Ok(())
     }
 
@@ -1164,7 +1169,8 @@ impl Escrow {
         }
         env.storage()
             .instance()
-            .set(&DataKey::ActionPaused(action), &false);
+            .set(&DataKey::ActionPaused(action.clone()), &false);
+        emit_action_unpaused(&env, action, caller);
         Ok(())
     }
 
@@ -1238,9 +1244,11 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
+        let old_ledgers = get_ttl_extension(&env);
         env.storage()
             .instance()
             .set(&DataKey::TtlExtensionLedgers, &ledgers);
+        emit_ttl_extension_updated(&env, old_ledgers, ledgers, caller);
         Ok(())
     }
 
@@ -3150,12 +3158,31 @@ impl Escrow {
             return Err(ContractError::InvalidAmount);
         }
 
+        let old_min_amount = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinAmount)
+            .unwrap_or(MIN_ESCROW_AMOUNT);
+        let old_max_amount = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxAmount)
+            .unwrap_or(MAX_ESCROW_AMOUNT);
+
         env.storage()
             .instance()
             .set(&DataKey::MinAmount, &min_amount);
         env.storage()
             .instance()
             .set(&DataKey::MaxAmount, &max_amount);
+        emit_amount_limits_updated(
+            &env,
+            old_min_amount,
+            min_amount,
+            old_max_amount,
+            max_amount,
+            caller,
+        );
         Ok(())
     }
 
@@ -3509,10 +3536,11 @@ impl Escrow {
                 return Ok(());
             }
         }
-        approved.push_back(resolver);
+        approved.push_back(resolver.clone());
         env.storage()
             .instance()
             .set(&DataKey::ApprovedResolvers, &approved);
+        emit_resolver_approved(&env, resolver, caller);
         Ok(())
     }
 
@@ -3547,6 +3575,7 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::ApprovedResolvers, &new_approved);
+        emit_resolver_removed(&env, resolver, caller);
         Ok(())
     }
 
@@ -3559,9 +3588,15 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         caller.require_auth();
         require_admin_caller(&env, &caller)?;
+        let old_strict = env
+            .storage()
+            .instance()
+            .get(&DataKey::ResolverStrict)
+            .unwrap_or(false);
         env.storage()
             .instance()
             .set(&DataKey::ResolverStrict, &strict);
+        emit_resolver_strict_updated(&env, old_strict, strict, caller);
         Ok(())
     }
 
@@ -3645,6 +3680,7 @@ impl Escrow {
 mod malicious_token;
 mod test;
 mod test_admin;
+mod test_admin_event_emissions;
 mod test_admin_rotation;
 mod test_arbitration_fee;
 mod test_auth_matrix;
