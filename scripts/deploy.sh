@@ -118,8 +118,11 @@ if [[ $WASM_SIZE_KB -gt 1024 ]]; then
     log_warn "WASM exceeds 1MB. Deployment may fail."
 fi
 
-# Calculate WASM hash
-WASM_HASH=$(sha256sum "$WASM_FILE" | cut -d' ' -f1)
+if command -v shasum &> /dev/null; then
+    WASM_HASH=$(shasum -a 256 "$WASM_FILE" | cut -d' ' -f1)
+else
+    WASM_HASH=$(sha256sum "$WASM_FILE" | cut -d' ' -f1)
+fi
 log_success "WASM SHA256: $WASM_HASH"
 
 # Check account
@@ -163,7 +166,7 @@ if ! stellar contract deploy \
 fi
 
 # Extract contract ID
-CONTRACT_ID=$(grep -oP 'Contract ID: \K[a-zA-Z0-9]+' "$DEPLOY_OUTPUT" | head -1)
+CONTRACT_ID=$(grep "Contract ID:" "$DEPLOY_OUTPUT" | grep -o '[a-zA-Z0-9]*$' | head -1)
 if [[ -z "$CONTRACT_ID" ]]; then
     log_error "Could not extract contract ID from deployment output"
     exit 1

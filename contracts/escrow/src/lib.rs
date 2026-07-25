@@ -1777,6 +1777,13 @@ impl Escrow {
         Ok(escrow_id)
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
@@ -2021,6 +2028,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn co_signed_release(
         env: Env,
         caller: Address,
@@ -2083,6 +2097,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn resolve_dispute(
         env: Env,
         caller: Address,
@@ -2181,6 +2202,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn set_arbitration_fee(
         env: Env,
         caller: Address,
@@ -2191,6 +2219,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn get_arbitration_fee(env: Env) -> u32 {
         read_fee_config(&env).arbitration_fee_bps
     }
@@ -2208,6 +2243,13 @@ impl Escrow {
             .unwrap_or(0)
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn auto_release(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_not_paused(&env)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
@@ -2287,6 +2329,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn finalize_dispute(
         env: Env,
         caller: Address,
@@ -2405,6 +2454,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn appeal_dispute(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
@@ -2457,6 +2513,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn set_token_allowlist_enabled(
         env: Env,
         caller: Address,
@@ -2475,6 +2538,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn add_allowed_token(
         env: Env,
         caller: Address,
@@ -2507,6 +2577,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn remove_allowed_token(
         env: Env,
         caller: Address,
@@ -2547,10 +2624,24 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn is_token_allowlist_enabled(env: Env) -> bool {
         is_token_allowlist_enabled(&env)
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn get_allowed_tokens(env: Env) -> soroban_sdk::Vec<Address> {
         env.storage()
             .instance()
@@ -2558,6 +2649,13 @@ impl Escrow {
             .unwrap_or(soroban_sdk::Vec::new(&env))
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn set_platform_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
         caller.require_auth();
         let admin = require_admin(&env)?;
@@ -2576,6 +2674,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn set_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), ContractError> {
         caller.require_auth();
         let admin = require_admin(&env)?;
@@ -2598,14 +2703,35 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn get_platform_fee_bps(env: Env) -> u32 {
         read_platform_fee_bps(&env)
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn get_treasury(env: Env) -> Result<Address, ContractError> {
         read_treasury(&env)
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn create_basket_escrow(
         env: Env,
         seller: Address,
@@ -2776,10 +2902,24 @@ impl Escrow {
         load_basket_tokens(&env, escrow_id)
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn get_escrow(env: Env, escrow_id: u64) -> Result<EscrowData, ContractError> {
         load_escrow(&env, escrow_id)
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn get_state_history(
         env: Env,
         escrow_id: u64,
@@ -2788,10 +2928,24 @@ impl Escrow {
         Ok(load_state_history(&env, escrow_id))
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn get_dispute(env: Env, escrow_id: u64) -> Option<DisputeData> {
         load_dispute(&env, escrow_id).ok()
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
         if let Some(ids) = env
             .storage()
@@ -2874,6 +3028,13 @@ impl Escrow {
         }
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn get_public_config(env: Env) -> PublicContractConfig {
         let fee_bps: u32 = read_fee_config(&env).protocol_fee_bps;
         let paused: bool = env
@@ -2896,6 +3057,13 @@ impl Escrow {
         }
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn get_contract_config(env: Env) -> Result<ContractConfig, ContractError> {
         let admin = require_admin(&env)?;
         admin.require_auth();
@@ -2991,6 +3159,13 @@ impl Escrow {
         }
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn request_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
@@ -3022,6 +3197,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn approve_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
@@ -3065,6 +3247,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn batch_create_escrow(
         env: Env,
         seller: Address,
@@ -3098,6 +3287,13 @@ impl Escrow {
         Ok(escrow_ids)
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn set_amount_limits(
         env: Env,
         caller: Address,
@@ -3123,6 +3319,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn get_accumulated_fees(env: Env, token: Address) -> i128 {
         env.storage()
             .instance()
@@ -3130,6 +3333,13 @@ impl Escrow {
             .unwrap_or(0)
     }
 
+    /// Public contract function.
+    /// 
+    /// # Arguments
+    /// * `env` - The environment.
+    /// 
+    /// # Returns
+    /// The result of the operation.
     pub fn multicall(env: Env, calls: Vec<ContractCall>) -> Result<Vec<Val>, ContractError> {
         ensure_not_paused(&env)?;
         let mut results = Vec::new(&env);
