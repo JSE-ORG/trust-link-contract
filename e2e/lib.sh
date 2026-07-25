@@ -17,7 +17,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/.." && pwd)"
 STATE_DIR="${HERE}/.state"
 CONTRACT_ID_FILE="${STATE_DIR}/${NETWORK}.contract_id"
-WASM_PATH="${REPO_ROOT}/target/wasm32-unknown-unknown/release/trustlink-escrow.wasm"
+WASM_PATH="${REPO_ROOT}/target/wasm32v1-none/release/trustlink-escrow.wasm"
 
 # Identity aliases used across the suite.
 ADMIN="${ADMIN_IDENTITY:-tl_admin}"

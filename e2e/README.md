@@ -9,7 +9,7 @@ asserting the resulting on-chain ledger state.
 
 - [`stellar` CLI](https://developers.stellar.org/docs/tools/cli) (tested with 25.x)
 - `jq`
-- A Rust toolchain with the `wasm32-unknown-unknown` target (for the build step)
+- A Rust toolchain with the `wasm32v1-none` target (for the build step)
 
 No funded account is required up front — the scripts create and fund test
 identities via Friendbot.

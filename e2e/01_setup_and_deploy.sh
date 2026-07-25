@@ -26,7 +26,7 @@ if [ -f "${WASM_PATH}" ]; then
   log "wasm already built at ${WASM_PATH}"
 else
   log "building contract wasm"
-  ( cd "${REPO_ROOT}" && cargo build --target wasm32-unknown-unknown --release -p trustlink-escrow )
+  ( cd "${REPO_ROOT}" && cargo build --target wasm32v1-none --release -p trustlink-escrow )
 fi
 [ -f "${WASM_PATH}" ] || die "wasm not found after build: ${WASM_PATH}"
 
