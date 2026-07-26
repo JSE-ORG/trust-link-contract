@@ -3687,6 +3687,7 @@ mod test_auth_matrix;
 mod test_auth_ordering;
 mod test_auto_release;
 mod test_auto_release_additional;
+mod test_basket_escrow;
 mod test_cancel_restrictions;
 mod test_co_signed_release;
 mod test_concurrent_vendor_escrows;
