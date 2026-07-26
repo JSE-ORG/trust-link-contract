@@ -1,4 +1,4 @@
-.PHONY: help build build-wasm test fmt clippy bench clean check doc audit
+.PHONY: help build build-wasm test fmt clippy bench clean check check-error-codes doc audit indexer-test
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -33,7 +33,10 @@ bench: ## Run benchmarks (if available)
 clean: ## Clean build artifacts
 	cargo clean
 
-check: fmt-check clippy test ## Run all checks (fmt + clippy + test)
+check-error-codes: ## Verify errors.rs and bindings/src/errors.ts agree
+	node scripts/check-error-codes.mjs
+
+check: fmt-check clippy test check-error-codes ## Run all checks (fmt + clippy + test + error-code drift)
 
 doc: ## Generate and open documentation
 	cargo doc --open
@@ -60,6 +63,10 @@ bindings-test: ## Test TypeScript bindings
 
 bindings-install: ## Install bindings dependencies
 	cd bindings && npm install
+
+# Indexer
+indexer-test: ## Typecheck and test the event indexer
+	cd indexer && npm run typecheck && npm test
 
 # Docker
 docker-up: ## Start local Stellar network
