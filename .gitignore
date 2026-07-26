@@ -6,8 +6,10 @@ target_local
 .soroban
 .stellar
 
-# Node (bindings/)
+# Node (bindings/, indexer/, e2e/)
 node_modules
+dist
+dist-test
 
 issues.txt
 upload_issues.sh

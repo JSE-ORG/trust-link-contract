@@ -6,7 +6,8 @@
   "scripts": {
     "replay": "tsx src/replay.ts",
     "ingest": "tsx src/ingest.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/**/*.test.js\""
   },
   "dependencies": {
     "pg": "^8.13.0"

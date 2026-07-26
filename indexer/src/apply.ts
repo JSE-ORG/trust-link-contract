@@ -17,6 +17,7 @@ import {
   topicKey,
   str,
   num,
+  KNOWN_TOPIC_KEYS,
   type EscrowCreatedPayload,
   type EscrowFundedPayload,
   type EscrowShippedPayload,
@@ -29,6 +30,22 @@ import {
   type DisputePendingPayload,
   type DisputeAppealedPayload,
   type ResolverRotatedPayload,
+  type ResolverVoteRecordedPayload,
+  type BasketEscrowCreatedPayload,
+  type MessagePostedPayload,
+  type ContractInitializedPayload,
+  type PauseTogglePayload,
+  type ActionPauseTogglePayload,
+  type AdminRotatedPayload,
+  type FeeUpdatedPayload,
+  type TreasuryUpdatedPayload,
+  type TtlExtensionUpdatedPayload,
+  type AmountLimitsUpdatedPayload,
+  type TokenAllowlistUpdatedPayload,
+  type AllowlistToggledPayload,
+  type ResolverRegistryPayload,
+  type ResolverStrictUpdatedPayload,
+  type ContractUpgradedPayload,
 } from "./types.js";
 
 const SUPPORTED_SCHEMA_VERSION = 1;
@@ -85,9 +102,66 @@ export async function processEvent(client: pg.PoolClient, event: RawEvent): Prom
       return applyRefundRequested(client, event);
     case "Refund:Approved":
       return applyRefundApproved(client, event);
+    case "Basket:Created":
+      return applyBasketCreated(client, event);
+    case "resolver_vote_recorded":
+      return applyResolverVoteRecorded(client, event);
+    case "Message:Posted":
+      return applyMessagePosted(client, event);
+
+    // --- contract-level governance / configuration -------------------------
+    case "Contract:Init":
+      return applyContractInit(client, event);
+    case "Contract:Paused":
+      return applyContractPauseToggle(client, event, true);
+    case "Contract:Unpaused":
+      return applyContractPauseToggle(client, event, false);
+    case "Action:Paused":
+      return applyActionPauseToggle(client, event, true);
+    case "Action:Unpaused":
+      return applyActionPauseToggle(client, event, false);
+    case "Admin:Rotated":
+      return applyAdminRotated(client, event);
+    case "Fee:Updated":
+      return applyFeeUpdated(client, event, "default_fee_bps");
+    case "ProtoFee:Updated":
+      return applyFeeUpdated(client, event, "protocol_fee_bps");
+    case "ArbFee:Updated":
+      return applyFeeUpdated(client, event, "arbitration_fee_bps");
+    case "PlatFee:Updated":
+      return applyFeeUpdated(client, event, "platform_fee_bps");
+    case "Treasury:Updated":
+      return applyTreasuryUpdated(client, event);
+    case "TtlExt:Updated":
+      return applyTtlExtensionUpdated(client, event);
+    case "AmtLimit:Updated":
+      return applyAmountLimitsUpdated(client, event);
+    case "Allowlist:Toggled":
+      return applyAllowlistToggled(client, event);
+    case "Token:Allowlist":
+      return applyTokenAllowlistUpdated(client, event);
+    case "Resolver:Approved":
+      return applyResolverRegistryChange(client, event, true);
+    case "Resolver:Removed":
+      return applyResolverRegistryChange(client, event, false);
+    case "ResStrct:Updated":
+      return applyResolverStrictUpdated(client, event);
+    case "contract_upgraded":
+      return applyContractUpgraded(client, event);
+
     default:
-      // Non-escrow events (fee updates, admin rotation, etc.) are recorded in
-      // the events table by the caller but require no materialized state change.
+      // Anything reaching here is emitted by a contract version this indexer
+      // does not know about.  The raw event is still persisted by the caller,
+      // but no materialized state is derived from it — surface it loudly so
+      // the gap is visible instead of silently dropped.
+      console.warn(
+        `[apply] unhandled event topic "${key}" ` +
+          `(topics=${JSON.stringify(event.topics)}) at ` +
+          `${event.ledger_sequence}/${event.tx_index}/${event.event_index}` +
+          (KNOWN_TOPIC_KEYS.has(key)
+            ? " — topic is known but has no handler; this is an indexer bug."
+            : " — unknown topic; upgrade the indexer."),
+      );
       break;
   }
 }
@@ -98,6 +172,38 @@ export async function processEvent(client: pg.PoolClient, event: RawEvent): Prom
 
 function p<T>(event: RawEvent): T {
   return event.payload as T;
+}
+
+/**
+ * Upsert one row into the `contract_config` key/value table.
+ *
+ * Idempotent by construction: replaying the same event writes the same value.
+ * The `updated_ledger` guard keeps out-of-order retries from rolling state
+ * backwards.
+ */
+async function setConfig(
+  client: pg.PoolClient,
+  key: string,
+  value: string | null,
+  updatedAt: string | null,
+  ledgerSequence: number,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO contract_config (key, value, updated_at, updated_ledger)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (key) DO UPDATE
+       SET value          = EXCLUDED.value,
+           updated_at     = EXCLUDED.updated_at,
+           updated_ledger = EXCLUDED.updated_ledger
+     WHERE contract_config.updated_ledger <= EXCLUDED.updated_ledger`,
+    [key, value, updatedAt, ledgerSequence],
+  );
+}
+
+/** Payload timestamp as a string, or null when the event carries none. */
+function ts(payload: Record<string, unknown>, field = "timestamp"): string | null {
+  const v = payload[field];
+  return v === null || v === undefined ? null : String(v);
 }
 
 // ---------------------------------------------------------------------------
@@ -280,4 +386,209 @@ async function applyRefundApproved(client: pg.PoolClient, event: RawEvent): Prom
     `UPDATE escrows SET state = $2, completed_at = $3, updated_ledger = $4 WHERE escrow_id = $1`,
     [escrowId, newState, timestamp, event.ledger_sequence],
   );
+}
+
+async function applyBasketCreated(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<BasketEscrowCreatedPayload>(event);
+  await client.query(
+    `INSERT INTO basket_escrows (escrow_id, seller, token_count, created_at, updated_ledger)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (escrow_id) DO UPDATE
+       SET seller         = EXCLUDED.seller,
+           token_count    = EXCLUDED.token_count,
+           created_at     = EXCLUDED.created_at,
+           updated_ledger = EXCLUDED.updated_ledger`,
+    [str(d.escrow_id), d.seller, num(d.token_count), str(d.timestamp), event.ledger_sequence],
+  );
+}
+
+async function applyResolverVoteRecorded(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<ResolverVoteRecordedPayload>(event);
+  await client.query(
+    `INSERT INTO resolver_votes
+       (escrow_id, resolver, resolution, vote_count, threshold, voted_at, updated_ledger)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (escrow_id, resolver) DO UPDATE
+       SET resolution     = EXCLUDED.resolution,
+           vote_count     = EXCLUDED.vote_count,
+           threshold      = EXCLUDED.threshold,
+           voted_at       = EXCLUDED.voted_at,
+           updated_ledger = EXCLUDED.updated_ledger`,
+    [
+      str(d.escrow_id),
+      d.resolver,
+      d.resolution,
+      num(d.vote_count),
+      num(d.threshold),
+      str(d.voted_at),
+      event.ledger_sequence,
+    ],
+  );
+}
+
+async function applyMessagePosted(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<MessagePostedPayload>(event);
+  await client.query(
+    `INSERT INTO messages
+       (ledger_sequence, tx_index, event_index, escrow_id, sender, posted_at)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (ledger_sequence, tx_index, event_index) DO NOTHING`,
+    [
+      event.ledger_sequence,
+      event.tx_index,
+      event.event_index,
+      str(d.escrow_id),
+      d.sender,
+      str(d.timestamp),
+    ],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Governance / configuration handlers
+// ---------------------------------------------------------------------------
+
+async function applyContractInit(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<ContractInitializedPayload>(event);
+  const at = ts(event.payload);
+  await setConfig(client, "admin", d.admin, at, event.ledger_sequence);
+  await setConfig(client, "fee_collector", d.fee_collector, at, event.ledger_sequence);
+  await setConfig(
+    client,
+    "arbitration_fee_bps",
+    String(num(d.arbitration_fee_bps)),
+    at,
+    event.ledger_sequence,
+  );
+  await setConfig(client, "paused", "false", at, event.ledger_sequence);
+}
+
+async function applyContractPauseToggle(
+  client: pg.PoolClient,
+  event: RawEvent,
+  paused: boolean,
+): Promise<void> {
+  const d = p<PauseTogglePayload>(event);
+  const at = ts(event.payload);
+  await setConfig(client, "paused", String(paused), at, event.ledger_sequence);
+  await setConfig(client, "paused_by", d.admin, at, event.ledger_sequence);
+}
+
+async function applyActionPauseToggle(
+  client: pg.PoolClient,
+  event: RawEvent,
+  paused: boolean,
+): Promise<void> {
+  const d = p<ActionPauseTogglePayload>(event);
+  await setConfig(
+    client,
+    `action_paused:${d.action}`,
+    String(paused),
+    ts(event.payload),
+    event.ledger_sequence,
+  );
+}
+
+async function applyAdminRotated(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<AdminRotatedPayload>(event);
+  await setConfig(client, "admin", d.new_admin, ts(event.payload), event.ledger_sequence);
+}
+
+async function applyFeeUpdated(
+  client: pg.PoolClient,
+  event: RawEvent,
+  key: string,
+): Promise<void> {
+  const d = p<FeeUpdatedPayload>(event);
+  await setConfig(
+    client,
+    key,
+    String(num(d.new_fee_bps)),
+    ts(event.payload),
+    event.ledger_sequence,
+  );
+}
+
+async function applyTreasuryUpdated(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<TreasuryUpdatedPayload>(event);
+  await setConfig(client, "treasury", d.new_treasury, ts(event.payload), event.ledger_sequence);
+}
+
+async function applyTtlExtensionUpdated(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<TtlExtensionUpdatedPayload>(event);
+  await setConfig(
+    client,
+    "ttl_extension_ledgers",
+    String(num(d.new_ledgers)),
+    ts(event.payload),
+    event.ledger_sequence,
+  );
+}
+
+async function applyAmountLimitsUpdated(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<AmountLimitsUpdatedPayload>(event);
+  const at = ts(event.payload);
+  await setConfig(client, "min_escrow_amount", str(d.new_min_amount), at, event.ledger_sequence);
+  await setConfig(client, "max_escrow_amount", str(d.new_max_amount), at, event.ledger_sequence);
+}
+
+async function applyAllowlistToggled(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<AllowlistToggledPayload>(event);
+  await setConfig(
+    client,
+    "token_allowlist_enabled",
+    String(Boolean(d.enabled)),
+    ts(event.payload),
+    event.ledger_sequence,
+  );
+}
+
+async function applyTokenAllowlistUpdated(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<TokenAllowlistUpdatedPayload>(event);
+  await client.query(
+    `INSERT INTO token_allowlist (token, allowed, updated_at, updated_ledger)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (token) DO UPDATE
+       SET allowed        = EXCLUDED.allowed,
+           updated_at     = EXCLUDED.updated_at,
+           updated_ledger = EXCLUDED.updated_ledger
+     WHERE token_allowlist.updated_ledger <= EXCLUDED.updated_ledger`,
+    [d.token, Boolean(d.added), ts(event.payload), event.ledger_sequence],
+  );
+}
+
+async function applyResolverRegistryChange(
+  client: pg.PoolClient,
+  event: RawEvent,
+  approved: boolean,
+): Promise<void> {
+  const d = p<ResolverRegistryPayload>(event);
+  await client.query(
+    `INSERT INTO approved_resolvers (resolver, approved, updated_at, updated_ledger)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (resolver) DO UPDATE
+       SET approved       = EXCLUDED.approved,
+           updated_at     = EXCLUDED.updated_at,
+           updated_ledger = EXCLUDED.updated_ledger
+     WHERE approved_resolvers.updated_ledger <= EXCLUDED.updated_ledger`,
+    [d.resolver, approved, ts(event.payload), event.ledger_sequence],
+  );
+}
+
+async function applyResolverStrictUpdated(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<ResolverStrictUpdatedPayload>(event);
+  await setConfig(
+    client,
+    "resolver_strict",
+    String(Boolean(d.new_strict)),
+    ts(event.payload),
+    event.ledger_sequence,
+  );
+}
+
+async function applyContractUpgraded(client: pg.PoolClient, event: RawEvent): Promise<void> {
+  const d = p<ContractUpgradedPayload>(event);
+  const at = ts(event.payload);
+  await setConfig(client, "wasm_hash", d.new_wasm_hash, at, event.ledger_sequence);
+  await setConfig(client, "upgraded_by", d.admin, at, event.ledger_sequence);
 }
