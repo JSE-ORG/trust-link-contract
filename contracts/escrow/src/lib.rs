@@ -3705,6 +3705,7 @@ mod test_escrow_states;
 mod test_fee_calculation_accuracy;
 mod test_fee_config;
 mod test_fee_minimum;
+mod test_finalize_dispute_appeal_boundary;
 mod test_get_escrows_by_buyer;
 mod test_get_escrows_by_ids;
 mod test_get_escrows_by_seller;
