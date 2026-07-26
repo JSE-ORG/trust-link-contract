@@ -97,7 +97,48 @@ This repository participates in the **[Stellar Wave Program](https://www.drips.n
 
 ## Development Setup
 
-### Prerequisites
+### Option A — Dev Container (recommended, zero manual setup)
+
+The repo ships a [`.devcontainer/`](.devcontainer/) definition, so you can get a fully provisioned environment without installing Rust, Node, PostgreSQL or the Stellar CLI on your machine.
+
+**Requirements:** [Docker](https://docs.docker.com/get-docker/) plus either VS Code with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) or the [`devcontainer` CLI](https://github.com/devcontainers/cli).
+
+```bash
+git clone https://github.com/YOUR_USERNAME/trust-link-contract.git
+cd trust-link-contract
+code .          # then: "Reopen in Container" when VS Code prompts
+```
+
+Or from the terminal:
+
+```bash
+devcontainer up --workspace-folder .
+```
+
+What you get:
+
+| Component | Provided by | Notes |
+|---|---|---|
+| Rust stable + `rustfmt` + `clippy` | `.devcontainer/Dockerfile` | Channel and components pinned by `rust-toolchain.toml` |
+| `wasm32v1-none` target | `.devcontainer/Dockerfile` | Pre-installed so the first build is fast |
+| `binaryen` (`wasm-opt`) | `.devcontainer/Dockerfile` | Needed by `build.sh` for optimized release builds |
+| Stellar CLI | `.devcontainer/Dockerfile` | Pinned via the `STELLAR_CLI_VERSION` build arg |
+| Node.js 20 + npm | `node` devcontainer feature | For `bindings/`, `indexer/` and `e2e/` |
+| PostgreSQL 15 | `.devcontainer/Dockerfile` | Started by the post-create script; `DATABASE_URL` is pre-set |
+
+[`.devcontainer/post-create.sh`](.devcontainer/post-create.sh) runs automatically on first creation and:
+
+1. starts PostgreSQL, creates the `trustlink` role/database and applies `indexer/schema.sql`;
+2. runs `cargo build --lib` to warm the build cache;
+3. runs `npm install` in `bindings/`, `indexer/` and `e2e/`.
+
+It is idempotent — re-run it any time with `bash .devcontainer/post-create.sh`. When it finishes, `make check` should pass.
+
+> The dev container runs a single local PostgreSQL for the indexer. If you also need a local Stellar network (Horizon + Core), use the separate `docker-compose.yml` at the repo root.
+
+### Option B — Local toolchain
+
+#### Prerequisites
 
 | Tool | Version | Install | Required? |
 |---|---|---|---|
@@ -108,7 +149,7 @@ This repository participates in the **[Stellar Wave Program](https://www.drips.n
 
 > **Note on the wasm target:** This project targets `wasm32v1-none` (the modern Soroban target), pinned in [`rust-toolchain.toml`](rust-toolchain.toml). When you use `rustup`, the correct toolchain and target are installed automatically the first time you run a `cargo` command in this repo — you do **not** need to add the target manually.
 
-### First-Time Setup
+#### First-Time Setup
 
 ```bash
 # 1. Fork this repo on GitHub, then clone your fork
