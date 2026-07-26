@@ -282,6 +282,31 @@ path while asserting on-chain state — use the idempotent scripts in
 ```bash
 cd e2e && ./run_all.sh
 ```
+
+### Local devnet
+
+`scripts/start-testnet.sh` brings up a self-contained Stellar QuickStart
+devnet, deploys and initializes the contract, and seeds escrows covering the
+Pending / Funded / Shipped / Disputed states. It is idempotent — re-running it
+reuses the container, identities and deployment:
+
+```bash
+make testnet                      # start + deploy + seed
+source .stellar/local-testnet/local-testnet.env
+make testnet-stop                 # tear down
+```
+
+### Fuzzing
+
+Eight `cargo-fuzz` harnesses cover the public entry points. They are compiled
+and smoke-run on every push by [`.github/workflows/fuzz.yml`](.github/workflows/fuzz.yml),
+with longer runs on a nightly schedule. See
+[`contracts/escrow/fuzz/README.md`](contracts/escrow/fuzz/README.md):
+
+```bash
+make fuzz-build                   # compile all targets
+FUZZ_TIME=60 make fuzz            # run each target for 60s
+```
 - `Pending`
 - `Funded`
 - `Shipped`

@@ -13,6 +13,8 @@ Track all contract deployments to testnet and mainnet.
 - **Runbook**: [docs/runbook-release.md](./docs/runbook-release.md)
 - **Network Config**: [docs/NETWORKS.md](./docs/NETWORKS.md)
 - **Deployment Script**: [scripts/deploy.sh](./scripts/deploy.sh)
+- **Upgrades & Storage Migration**: [docs/UPGRADES.md](./docs/UPGRADES.md) · [scripts/migrate.sh](./scripts/migrate.sh)
+- **Local Devnet**: [scripts/start-testnet.sh](./scripts/start-testnet.sh) (`make testnet`)
 - **Stellar Expert**: https://stellar.expert/explorer/public
 
 ## Mainnet Checklist

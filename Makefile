@@ -1,4 +1,5 @@
-.PHONY: help build build-wasm test fmt clippy bench clean check check-error-codes doc audit indexer-test
+.PHONY: help build build-wasm test fmt clippy bench clean check check-error-codes doc audit indexer-test \
+	testnet testnet-reset testnet-stop fuzz-build fuzz
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -29,6 +30,15 @@ clippy: ## Run clippy lints
 
 bench: ## Run benchmarks (if available)
 	cargo test --release -- --ignored
+
+fuzz-build: ## Compile every fuzz target (requires nightly + cargo-fuzz)
+	cd contracts/escrow && cargo fuzz build --release
+
+fuzz: ## Run every fuzz target for FUZZ_TIME seconds each (default 60)
+	cd contracts/escrow && for t in $$(cargo fuzz list); do \
+		echo "fuzzing $$t"; \
+		cargo fuzz run --release $$t -- -max_total_time=$${FUZZ_TIME:-60} || exit 1; \
+	done
 
 clean: ## Clean build artifacts
 	cargo clean
@@ -74,6 +84,16 @@ docker-up: ## Start local Stellar network
 
 docker-down: ## Stop local Stellar network
 	docker-compose down
+
+# Local devnet
+testnet: ## Start local devnet, deploy the contract and seed test escrows
+	./scripts/start-testnet.sh
+
+testnet-reset: ## Recreate the local devnet from scratch
+	./scripts/start-testnet.sh --reset
+
+testnet-stop: ## Stop and remove the local devnet container
+	./scripts/start-testnet.sh --stop
 
 # Full setup
 setup: bindings-install build test ## Full project setup (install + build + test)
