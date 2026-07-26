@@ -264,15 +264,6 @@ fn test_auto_release_blocked_when_paused() {
 }
 
 #[test]
-fn test_withdraw_fees_blocked_when_paused() {
-    let (env, admin, _seller, _buyer, _resolver, token, contract_id) = setup_env();
-    let client = EscrowClient::new(&env, &contract_id);
-    client.pause_contract(&admin);
-    let result = client.try_withdraw_fees(&admin, &token, &admin, &1_i128);
-    assert!(matches!(result, Err(Ok(ContractError::ContractPaused))));
-}
-
-#[test]
 fn test_read_only_views_work_while_paused() {
     let (env, admin, seller, _buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
@@ -363,10 +354,6 @@ fn test_unpause_resumes_operations() {
     let config = client.get_fee_config();
     assert_eq!(config.protocol_fee_bps, 0);
     assert_eq!(config.arbitration_fee_bps, 0);
-
-    assert!(client
-        .try_withdraw_fees(&admin, &token, &admin, &1_i128)
-        .is_err());
 
     // Fixed seller parameter mapping to single-payee wrapper setup
     let mut single_payee = Vec::new(&env);

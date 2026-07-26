@@ -67,6 +67,27 @@ By placing relevant addresses in the topics, indexers can filter directly for ev
 - **treasury_updated**:
   - Topics: `["Treasury", "Updated"]`
   - Payload: `TreasuryUpdated` `{ schema_version, old_treasury, new_treasury, timestamp }`
+- **ttl_extension_updated**:
+  - Topics: `["TtlExt", "Updated"]`
+  - Payload: `TtlExtensionUpdated` `{ schema_version, old_ledgers, new_ledgers, caller, timestamp }`
+- **amount_limits_updated**:
+  - Topics: `["AmtLimit", "Updated"]`
+  - Payload: `AmountLimitsUpdated` `{ schema_version, old_min_amount, new_min_amount, old_max_amount, new_max_amount, caller, timestamp }`
+- **action_paused**:
+  - Topics: `["Action", "Paused", action]`
+  - Payload: `ActionPausedEvent` `{ schema_version, action, caller, timestamp }`
+- **action_unpaused**:
+  - Topics: `["Action", "Unpaused", action]`
+  - Payload: `ActionUnpausedEvent` `{ schema_version, action, caller, timestamp }`
+- **resolver_approved**:
+  - Topics: `["Resolver", "Approved", resolver]`
+  - Payload: `ResolverApproved` `{ schema_version, resolver, caller, timestamp }`
+- **resolver_removed**:
+  - Topics: `["Resolver", "Removed", resolver]`
+  - Payload: `ResolverRemoved` `{ schema_version, resolver, caller, timestamp }`
+- **resolver_strict_updated**:
+  - Topics: `["ResStrct", "Updated"]`
+  - Payload: `ResolverStrictUpdated` `{ schema_version, old_strict, new_strict, caller, timestamp }`
 
 ### Fees
 - **fee_updated**: 
@@ -81,9 +102,6 @@ By placing relevant addresses in the topics, indexers can filter directly for ev
 - **platform_fee_updated**:
   - Topics: `["PlatFee", "Updated"]`
   - Payload: `PlatformFeeUpdated` `{ schema_version, old_fee_bps, new_fee_bps, timestamp }`
-- **fees_withdrawn**: 
-  - Topics: `["Fee", "Withdrawn", to]`
-  - Payload: `FeesWithdrawn` `{ schema_version, token, to, amount, timestamp }`
 
 ### Escrow Lifecycle
 - **escrow_created**: 

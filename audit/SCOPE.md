@@ -96,7 +96,6 @@ contracts/escrow/target/wasm32v1-none/release/trustlink_escrow.wasm
 | `set_fee_collector` | Admin | None | Low | Update fee recipient |
 | `set_protocol_fee` | Admin | None | Low | Update fee basis points |
 | `set_arbitration_fee` | Admin | None | Low | Update dispute fee |
-| `withdraw_fees` | Admin | None | High | Extract accumulated fees |
 
 *`auto_release` is permissionless but only succeeds after `shipping_window` has elapsed.
 

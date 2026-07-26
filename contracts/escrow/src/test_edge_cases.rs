@@ -120,8 +120,8 @@ fn test_buyer_index_populated_on_cancel_by_buyer() {
 // (`fee = floor(amount * fee_bps / 10_000)`) and the payout is derived as
 // `net = amount - fee`. The truncated sub-stroop remainder therefore accrues to
 // the payout recipient rather than being stranded, so `net + fee == amount`
-// holds for every amount — divisible or not. The contract vault only ever
-// retains exactly `fee`, which the admin later sweeps via `withdraw_fees`.
+// holds for every amount — divisible or not. The fee is forwarded directly to
+// the configured fee collector at payout time; the contract never retains it.
 // ---------------------------------------------------------------------------
 
 /// Amounts where `amount * fee_bps` is NOT divisible by 10_000, so naive
@@ -208,9 +208,9 @@ fn test_min_escrow_amount_rejects_dust_prone_amount() {
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
 
-/// End-to-end: for non-divisible amounts, the seller's payout plus the fee left
-/// in the vault sum to exactly the original amount — no stroop is stranded. The
-/// vault retains precisely the floored fee (recoverable via `withdraw_fees`).
+/// End-to-end: for non-divisible amounts, the seller's payout plus the fee sent
+/// to the fee collector sum to exactly the original amount — no stroop is
+/// stranded. The fee collector receives precisely the floored fee.
 #[test]
 fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
     for (amount, fee_bps) in non_divisible_fee_cases() {

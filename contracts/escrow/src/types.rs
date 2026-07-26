@@ -35,7 +35,6 @@ pub enum DataKey {
     BuyerEscrowIndex(Address),
     VendorEscrowIndex(Address),
     TotalArbitrationFees(Address),
-    AccumulatedFees(Address),
     TotalCreated,
     TotalDisputed,
     TotalCompleted,
