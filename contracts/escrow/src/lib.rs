@@ -109,6 +109,12 @@ const TTL_THRESHOLD_DIVISOR: u32 = 2;
 #[allow(dead_code)]
 const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 
+/// Maximum number of entries kept in an escrow's state history.
+/// Once reached, the oldest entry is dropped for each new one appended,
+/// bounding storage size for high-churn escrows (e.g. disputed <->
+/// pending_finalization cycles).
+const MAX_STATE_HISTORY_ENTRIES: u32 = 50;
+
 /// Maximum length for user-supplied string fields.
 /// - `tracking_id`: 64 characters
 /// - `description` in `raise_dispute`: 256 characters
@@ -531,14 +537,25 @@ fn get_ttl_extension(env: &Env) -> u32 {
         .unwrap_or(DEFAULT_TTL_EXTENSION)
 }
 
-fn save_escrow(env: &Env, id: u64, escrow: &EscrowData) {
+/// Saves the escrow and records a state-history entry if the state changed.
+/// Callers that already know the pre-mutation state (most do — they hold it
+/// from `load_escrow` before overwriting `escrow.state`) should pass it via
+/// `prev_state` to avoid a redundant persistent read of the same key that
+/// `load_escrow` already paid for. Pass `None` only when there is no prior
+/// escrow to compare against (e.g. first save on creation).
+fn save_escrow(env: &Env, id: u64, escrow: &EscrowData, prev_state: Option<&EscrowState>) {
     let key = DataKey::Escrow(id);
     let ext = get_ttl_extension(env);
-    let previous: Option<EscrowData> = env.storage().persistent().get(&key);
-    let state_changed = previous
-        .as_ref()
-        .map(|existing| existing.state != escrow.state)
-        .unwrap_or(true);
+    let state_changed = match prev_state {
+        Some(prev) => *prev != escrow.state,
+        None => {
+            let previous: Option<EscrowData> = env.storage().persistent().get(&key);
+            previous
+                .as_ref()
+                .map(|existing| existing.state != escrow.state)
+                .unwrap_or(true)
+        }
+    };
 
     env.storage().persistent().set(&key, escrow);
     env.storage().persistent().extend_ttl(&key, ext / 2, ext);
@@ -570,6 +587,9 @@ fn append_state_history(env: &Env, id: u64, state: &EscrowState) {
         .unwrap_or_else(|| Vec::new(env));
 
     history.push_back((state.clone(), env.ledger().timestamp()));
+    while history.len() > MAX_STATE_HISTORY_ENTRIES {
+        history.pop_front();
+    }
     env.storage().persistent().set(&key, &history);
     env.storage().persistent().extend_ttl(&key, ext / 2, ext);
 }
@@ -870,7 +890,7 @@ fn create_escrow_internal(
         notes,
     };
 
-    save_escrow(env, escrow_id, &escrow);
+    save_escrow(env, escrow_id, &escrow, None);
 
     let first_payee_addr = payees
         .get(0)
@@ -915,6 +935,7 @@ fn execute_resolution_transition(
     let resolver_fee =
         crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?;
 
+    let prev_state = escrow.state.clone();
     let mut updated_escrow = escrow;
     updated_escrow.amount = updated_escrow
         .amount
@@ -957,7 +978,7 @@ fn execute_resolution_transition(
 
     updated_escrow.state = EscrowState::PendingFinalization;
 
-    save_escrow(env, escrow_id, &updated_escrow);
+    save_escrow(env, escrow_id, &updated_escrow, Some(&prev_state));
     save_dispute(env, escrow_id, &dispute_data);
     save_resolver_votes(env, escrow_id, &votes);
 
@@ -1395,6 +1416,7 @@ impl Escrow {
         }
 
         let now = env.ledger().timestamp();
+        let prev_state = escrow.state.clone();
         escrow.buyer = Some(buyer.clone());
         escrow.state = EscrowState::Funded;
         escrow.funded_at = now;
@@ -1411,13 +1433,12 @@ impl Escrow {
         buyer_escrows.push_back(escrow_id);
         let buyer_key = DataKey::BuyerEscrowIndex(buyer.clone());
         let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
         env.storage().persistent().set(&buyer_key, &buyer_escrows);
         env.storage()
             .persistent()
             .extend_ttl(&buyer_key, ext / 2, ext);
 
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         emit_escrow_funded(
             &env,
             escrow_id,
@@ -1479,7 +1500,7 @@ impl Escrow {
             resolved_at: 0,
         };
 
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         save_dispute(&env, escrow_id, &dispute_data);
         increment_counter(&env, &DataKey::TotalDisputed)?;
         emit_dispute_raised(
@@ -1571,7 +1592,7 @@ impl Escrow {
             notes: None,
         };
 
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, None);
 
         let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &seller);
         vendor_escrows.push_back(escrow_id);
@@ -1731,7 +1752,7 @@ impl Escrow {
             notes: None,
         };
 
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, None);
 
         let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &seller);
         vendor_escrows.push_back(escrow_id);
@@ -1796,7 +1817,7 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         let first_payee_addr = escrow
             .payees
             .get(0)
@@ -1846,7 +1867,7 @@ impl Escrow {
 
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Canceled;
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
         emit_escrow_cancelled(
             &env,
@@ -1918,7 +1939,7 @@ impl Escrow {
             .clone()
             .unwrap_or(String::from_str(&env, ""));
 
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         emit_escrow_shipped(
             &env,
             escrow_id,
@@ -1955,7 +1976,9 @@ impl Escrow {
 
         let delivered_at = env.ledger().timestamp();
         escrow.delivered_at = Some(delivered_at);
-        save_escrow(&env, escrow_id, &escrow);
+        // escrow.state is untouched by this call, so the pre-mutation state
+        // is simply the current one.
+        save_escrow(&env, escrow_id, &escrow, Some(&escrow.state));
 
         emit_delivery_recorded(&env, escrow_id, delivered_at);
         Ok(())
@@ -2013,7 +2036,7 @@ impl Escrow {
 
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Completed;
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         increment_counter(&env, &DataKey::TotalCompleted)?;
 
         emit_escrow_completed(
@@ -2081,7 +2104,7 @@ impl Escrow {
         let mut updated = escrow;
         updated.state = EscrowState::Completed;
 
-        save_escrow(&env, escrow_id, &updated);
+        save_escrow(&env, escrow_id, &updated, Some(&prev_state));
         increment_counter(&env, &DataKey::TotalCompleted)?;
         emit_escrow_completed(
             &env,
@@ -2289,7 +2312,7 @@ impl Escrow {
 
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Completed;
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         increment_counter(&env, &DataKey::TotalCompleted)?;
 
         emit_auto_released(
@@ -2402,7 +2425,7 @@ impl Escrow {
         };
         escrow.state = new_state.clone();
 
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
         dispute_data.status = DisputeStatus::Resolved;
         save_dispute(&env, escrow_id, &dispute_data);
@@ -2463,6 +2486,7 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
+        let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Disputed;
 
         let mut updated_dispute = dispute_data;
@@ -2477,7 +2501,7 @@ impl Escrow {
                 .remove(&DataKey::ResolverVotes(escrow_id));
         }
 
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         save_dispute(&env, escrow_id, &updated_dispute);
 
         emit_dispute_appealed(&env, escrow_id, caller);
@@ -2706,7 +2730,7 @@ impl Escrow {
             notes: None,
         };
 
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, None);
 
         // Persist all basket tokens/amounts alongside the primary EscrowData
         let mut basket_entries: Vec<TokenEntry> = Vec::new(&env);
@@ -2767,6 +2791,7 @@ impl Escrow {
         }
 
         let now = env.ledger().timestamp();
+        let prev_state = escrow.state.clone();
         escrow.buyer = Some(buyer.clone());
         escrow.state = EscrowState::Funded;
         escrow.funded_at = now;
@@ -2782,13 +2807,12 @@ impl Escrow {
         buyer_escrows.push_back(escrow_id);
         let buyer_key = DataKey::BuyerEscrowIndex(buyer.clone());
         let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
         env.storage().persistent().set(&buyer_key, &buyer_escrows);
         env.storage()
             .persistent()
             .extend_ttl(&buyer_key, ext / 2, ext);
 
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         emit_escrow_funded(
             &env,
             escrow_id,
@@ -3018,7 +3042,9 @@ impl Escrow {
 
             let old_resolver = current_resolver.clone();
             escrow.resolvers = ResolverSet::Single(new_resolver.clone());
-            save_escrow(&env, escrow_id, &escrow);
+            // escrow.state is untouched by rotation, so the pre-mutation
+            // state is simply the current one.
+            save_escrow(&env, escrow_id, &escrow, Some(&escrow.state));
 
             emit_resolver_rotated(&env, escrow_id, old_resolver, new_resolver);
             Ok(())
@@ -3048,7 +3074,7 @@ impl Escrow {
 
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::RefundRequested;
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
         emit_refund_requested(
             &env,
@@ -3096,7 +3122,7 @@ impl Escrow {
 
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         increment_counter(&env, &DataKey::TotalRefunded)?;
 
         emit_refund_approved(
@@ -3667,8 +3693,9 @@ impl Escrow {
         );
         payout_basket_tokens(&env, escrow_id, &buyer)?;
 
+        let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
-        save_escrow(&env, escrow_id, &escrow);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         increment_counter(&env, &DataKey::TotalRefunded)?;
 
         env.events()
