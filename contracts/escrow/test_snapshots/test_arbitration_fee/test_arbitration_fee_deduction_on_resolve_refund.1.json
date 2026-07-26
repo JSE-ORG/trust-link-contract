@@ -1077,6 +1077,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "StorageVersion"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "TotalArbitrationFees"
                           },
                           {
@@ -1210,7 +1222,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "28"
+                      "i128": "78"
                     }
                   },
                   {
@@ -1262,7 +1274,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "50"
+                      "i128": "0"
                     }
                   },
                   {

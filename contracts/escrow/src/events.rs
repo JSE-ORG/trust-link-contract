@@ -930,6 +930,30 @@ pub fn emit_contract_upgraded(env: &Env, admin: Address, new_wasm_hash: soroban_
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StorageMigratedEvent {
+    pub schema_version: u32,
+    pub admin: Address,
+    pub from_version: u32,
+    pub to_version: u32,
+    pub timestamp: u64,
+}
+
+/// Topic: `("storage_migrated",)`, data: `StorageMigratedEvent`.
+pub fn emit_storage_migrated(env: &Env, admin: Address, from_version: u32, to_version: u32) {
+    env.events().publish(
+        (Symbol::new(env, "storage_migrated"),),
+        StorageMigratedEvent {
+            schema_version: EVENT_SCHEMA_VERSION,
+            admin,
+            from_version,
+            to_version,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TtlExtensionUpdated {
     pub schema_version: u32,
     pub old_ledgers: u32,

@@ -63,6 +63,7 @@ throughout the contract.
 | `Paused` | `bool` | Global pause flag; defaults to `false` when unset. |
 | `EscrowCounter` | `u64` | Monotonic counter producing the next escrow ID. |
 | `TtlExtensionLedgers` | `u32` | Configurable TTL extension (ledgers). Falls back to `120_960` when unset. |
+| `StorageVersion` | `u32` | Schema version of the stored data. Set by `initialize` and advanced by `migrate`; reads as `0` on deployments predating versioning. See [UPGRADES.md](UPGRADES.md). |
 | `TotalArbitrationFees(Address)` | `i128` | Per-token running total of arbitration fees collected. Keyed by token address. |
 | `TotalCreated` | `u64` | Lifetime count of escrows created (stats). |
 | `TotalCompleted` | `u64` | Lifetime count of escrows completed (stats). |
@@ -121,6 +122,7 @@ use.
 | Paused | `DataKey` | Instance | `bool` | — |
 | EscrowCounter | `DataKey` | Instance | `u64` | — |
 | TtlExtensionLedgers | `DataKey` | Instance | `u32` | — |
+| StorageVersion | `DataKey` | Instance | `u32` | — |
 | TotalArbitrationFees | `DataKey` | Instance | `i128` | token `Address` |
 | TotalCreated / Completed / Disputed / Refunded | `DataKey` | Instance | `u64` | — |
 | Escrow | `DataKey` | Persistent | `EscrowData` | escrow ID `u64` |

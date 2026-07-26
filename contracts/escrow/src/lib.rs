@@ -25,13 +25,13 @@ pub use crate::events::{
     emit_escrow_shipped, emit_fee_updated, emit_platform_fee_updated, emit_protocol_fee_updated,
     emit_refund_approved, emit_refund_requested, emit_resolver_approved, emit_resolver_removed,
     emit_resolver_rotated, emit_resolver_strict_updated, emit_resolver_vote_recorded,
-    emit_token_allowlist_updated, emit_treasury_updated, emit_ttl_extension_updated,
-    ActionPausedEvent, ActionUnpausedEvent, AdminRotated, AmountLimitsUpdated,
-    ArbitrationFeeUpdated, AutoReleased, ContractInitialized, ContractPausedEvent,
-    ContractUnpausedEvent, ContractUpgradedEvent, DeliveryRecorded, DisputeRaised, DisputeResolved,
-    EscrowCancelled, EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, FeeUpdated,
-    ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated, ResolverStrictUpdated,
-    ResolverVoteRecorded, TtlExtensionUpdated,
+    emit_storage_migrated, emit_token_allowlist_updated, emit_treasury_updated,
+    emit_ttl_extension_updated, ActionPausedEvent, ActionUnpausedEvent, AdminRotated,
+    AmountLimitsUpdated, ArbitrationFeeUpdated, AutoReleased, ContractInitialized,
+    ContractPausedEvent, ContractUnpausedEvent, ContractUpgradedEvent, DeliveryRecorded,
+    DisputeRaised, DisputeResolved, EscrowCancelled, EscrowCompleted, EscrowCreated, EscrowFunded,
+    EscrowShipped, FeeUpdated, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved,
+    ResolverRotated, ResolverStrictUpdated, ResolverVoteRecorded, TtlExtensionUpdated,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
@@ -75,6 +75,13 @@ const MAX_COMBINED_FEE_BPS: u32 = 1_000;
 
 /// The semantic version of the contract.
 pub const CONTRACT_VERSION: u32 = 1;
+
+/// The on-chain storage schema version this build expects.
+///
+/// Bump this whenever the layout of a stored type changes, and extend
+/// [`Escrow::migrate`] with the corresponding step. Contracts deployed before
+/// versioning existed report `0`; see `docs/UPGRADES.md`.
+pub const STORAGE_VERSION: u32 = 1;
 
 /// Maximum platform fee in basis points (200 = 2%).
 ///
@@ -1142,6 +1149,11 @@ impl Escrow {
         );
         env.storage().instance().set(&DataKey::EscrowCounter, &1u64);
         env.storage().instance().set(&DataKey::Paused, &false);
+        // Fresh deployments already match the current schema, so `migrate` is a
+        // no-op for them.
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &STORAGE_VERSION);
 
         emit_contract_initialized(&env, admin, fee_collector, arbitration_fee_bps);
         Ok(())
@@ -1244,6 +1256,49 @@ impl Escrow {
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
         emit_contract_upgraded(&env, admin, new_wasm_hash);
+        Ok(())
+    }
+
+    /// Returns the schema version of the data currently in storage.
+    ///
+    /// Deployments that predate storage versioning report `0`. Compare against
+    /// [`STORAGE_VERSION`] to decide whether [`Escrow::migrate`] must run.
+    pub fn get_storage_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::StorageVersion)
+            .unwrap_or(0)
+    }
+
+    /// Migrates storage to [`STORAGE_VERSION`] after a WASM upgrade.
+    ///
+    /// `upgrade` only swaps the code; any schema change must be applied here in
+    /// a separate transaction immediately afterwards. The function is
+    /// admin-only and idempotent: once storage is already at the current
+    /// version it returns `AlreadyInitialized` instead of re-running steps, so
+    /// a retried deployment cannot corrupt data.
+    ///
+    /// Each version bump appends one step below and never rewrites a previous
+    /// one — see `docs/UPGRADES.md` for the full strategy.
+    pub fn migrate(env: Env, caller: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin = require_admin_caller(&env, &caller)?;
+
+        let from = Self::get_storage_version(env.clone());
+        if from >= STORAGE_VERSION {
+            return Err(ContractError::AlreadyInitialized);
+        }
+
+        // v0 -> v1: versioning was introduced without changing any stored
+        // layout, so existing `EscrowData` entries are read back unchanged and
+        // only the version marker is written.
+
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &STORAGE_VERSION);
+        storage::extend_instance_ttl(&env);
+
+        emit_storage_migrated(&env, admin, from, STORAGE_VERSION);
         Ok(())
     }
 
@@ -3768,4 +3823,5 @@ mod test_set_fee_collector;
 mod test_shipping_window;
 mod test_state_history;
 mod test_unauthorized;
+mod test_upgrade_migration;
 mod test_vote;
