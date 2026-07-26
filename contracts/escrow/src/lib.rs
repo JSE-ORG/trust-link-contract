@@ -3725,3 +3725,4 @@ mod test_set_fee_collector;
 mod test_shipping_window;
 mod test_state_history;
 mod test_unauthorized;
+mod test_vote;
