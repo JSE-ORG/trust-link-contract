@@ -1,5 +1,10 @@
 /**
  * Numeric error codes that the TrustLink escrow contract may return.
+ *
+ * This enum is the TypeScript mirror of `ContractError` in
+ * contracts/escrow/src/errors.rs.  Names and values must match that file
+ * exactly — `scripts/check-error-codes.mjs` enforces this in CI.
+ *
  * Values are stable ABI — do NOT renumber.
  */
 export const enum ErrorCode {
@@ -26,13 +31,20 @@ export const enum ErrorCode {
   InvalidTrackingId = 21,
   DeliveryNotRecorded = 22,
   ConflictingRoles = 23,
-  DisputeWindowClosed = 24,
-  EmptyMilestones = 25,
-  TooManyMilestones = 26,
-  MilestoneNotFound = 27,
-  MilestoneAlreadyReleased = 28,
-  NotMilestoneEscrow = 29,
-  TrancheExceedsRemaining = 30,
+  DisputeWindowStillOpen = 24,
+  UnauthorizedResolver = 25,
+  ContractNotPaused = 26,
+  TokenNotAllowed = 27,
+  EscrowExpired = 28,
+  AmountBelowMinimum = 29,
+  NotPendingFinalization = 30,
+  AppealWindowActive = 31,
+  PlatformFeeExceedsMax = 32,
+  InvalidShippingWindow = 33,
+  DeliveryAlreadyRecorded = 34,
+  NotInitialized = 35,
+  IndexOutOfBounds = 36,
+  InvalidExpiration = 37,
 }
 
 /** Human-readable message for every contract error code. */
@@ -71,20 +83,34 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "Auto-release attempted before delivery has been recorded.",
   [ErrorCode.ConflictingRoles]:
     "Two roles that must be distinct have been assigned the same address.",
-  [ErrorCode.DisputeWindowClosed]:
-    "The dispute window has closed — disputes are no longer accepted.",
-  [ErrorCode.EmptyMilestones]:
-    "create_milestone_escrow requires at least one milestone amount.",
-  [ErrorCode.TooManyMilestones]:
-    "create_milestone_escrow was called with more milestones than the contract allows.",
-  [ErrorCode.MilestoneNotFound]:
-    "The requested milestone index does not exist on this escrow.",
-  [ErrorCode.MilestoneAlreadyReleased]:
-    "This milestone has already been released and cannot be released again.",
-  [ErrorCode.NotMilestoneEscrow]:
-    "This operation requires a milestone escrow, but the escrow has no milestones.",
-  [ErrorCode.TrancheExceedsRemaining]:
-    "This funding tranche would exceed the escrow's remaining unfunded balance.",
+  [ErrorCode.DisputeWindowStillOpen]:
+    "Delivery cannot be confirmed while the dispute window is still open.",
+  [ErrorCode.UnauthorizedResolver]:
+    "The resolver is not in the approved registry and strict mode is enabled.",
+  [ErrorCode.ContractNotPaused]:
+    "emergency_drain requires the contract to be paused first.",
+  [ErrorCode.TokenNotAllowed]:
+    "The token is not on the allowlist and the allowlist is enabled.",
+  [ErrorCode.EscrowExpired]:
+    "The escrow's pending expiration window has passed.",
+  [ErrorCode.AmountBelowMinimum]:
+    "Escrow amount is below the configured minimum.",
+  [ErrorCode.NotPendingFinalization]:
+    "This action requires the escrow to be in the PendingFinalization state.",
+  [ErrorCode.AppealWindowActive]:
+    "Finalization is blocked while the appeal window is still active.",
+  [ErrorCode.PlatformFeeExceedsMax]:
+    "The platform fee exceeds its allowed maximum.",
+  [ErrorCode.InvalidShippingWindow]:
+    "shipping_window is zero or exceeds the maximum allowed value.",
+  [ErrorCode.DeliveryAlreadyRecorded]:
+    "Delivery has already been recorded for this escrow.",
+  [ErrorCode.NotInitialized]:
+    "The contract has not been initialised yet.",
+  [ErrorCode.IndexOutOfBounds]:
+    "An internal collection index was out of bounds.",
+  [ErrorCode.InvalidExpiration]:
+    "The supplied expiration timestamp is not strictly in the future.",
 };
 
 /**
