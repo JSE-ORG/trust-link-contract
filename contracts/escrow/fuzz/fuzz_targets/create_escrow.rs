@@ -1,51 +1,45 @@
 #![no_main]
+//! Fuzzes `create_escrow` with arbitrary amounts, fee splits and shipping
+//! windows to check that every rejected combination returns a `ContractError`
+//! rather than panicking.
+
+mod common;
+
+use common::{Harness, Reader};
 use libfuzzer_sys::fuzz_target;
-use soroban_sdk::{testutils::Ledger, Env, Address, Vec};
-use trustlink_escrow::{Escrow, Payee};
+use soroban_sdk::String as SorobanString;
 
 fuzz_target!(|data: &[u8]| {
-    if data.len() < 32 {
-        return;
-    }
-    
-    let mut env = Env::default();
-    env.mock_all_auths();
-    
-    let admin = Address::generate(&env);
-    let fee_collector = Address::generate(&env);
-    let token = Address::generate(&env);
-    
-    // Initialize contract
-    let _ = Escrow::initialize(env.clone(), admin.clone(), fee_collector, 0);
-    
-    // Extract parameters from fuzz data
-    let amount = i128::from_be_bytes(
-        data[0..16].try_into().unwrap_or([0u8; 16])
-    );
-    let fee_bps = u32::from_be_bytes(
-        data[16..20].try_into().unwrap_or([0u8; 4])
-    ) % 301; // Cap at 300 (MAX_ESCROW_FEE_BPS)
-    let shipping_window = u64::from_be_bytes(
-        data[20..28].try_into().unwrap_or([0u8; 8])
-    );
-    
-    let seller = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let resolver = Address::generate(&env);
-    
-    // Test create_escrow with fuzzed inputs
-    let mut payees = Vec::new(&env);
-    payees.push_back(Payee { address: seller.clone(), bps: 10_000 });
-    
-    let _ = Escrow::create_escrow(
-        env.clone(),
-        payees,
-        Some(buyer.clone()),
-        resolver,
-        token,
-        amount,
-        fee_bps,
-        0,
-        shipping_window,
+    let mut r = Reader::new(data);
+    let h = Harness::new();
+
+    let amount = r.i128();
+    let fee_bps = r.u32();
+    let resolver_fee_bps = r.u32();
+    let shipping_window = r.u64();
+    let with_buyer = r.bool();
+    // 600 exceeds MAX_NOTES_LEN (500), so the length guard is exercised too.
+    let notes = if r.bool() {
+        Some(r.ascii_string(&h.env, 600))
+    } else {
+        None::<SorobanString>
+    };
+
+    let buyer = if with_buyer {
+        Some(h.buyer.clone())
+    } else {
+        None
+    };
+
+    let _ = h.client.try_create_escrow(
+        &h.payees(),
+        &buyer,
+        &h.resolver,
+        &h.token,
+        &amount,
+        &fee_bps,
+        &resolver_fee_bps,
+        &shipping_window,
+        &notes,
     );
 });

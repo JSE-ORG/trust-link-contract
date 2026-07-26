@@ -19,3 +19,8 @@ recreate_issues.sh
 # Test generated snapshots
 test_snapshots/
 **/test_snapshots/
+
+# cargo-fuzz working data
+contracts/escrow/fuzz/corpus/
+contracts/escrow/fuzz/artifacts/
+contracts/escrow/fuzz/coverage/

@@ -1,50 +1,32 @@
 #![no_main]
+//! Fuzzes `confirm_delivery` across arbitrary ledger timestamps, exercising the
+//! dispute-window boundary from "far too early" to "long past".
+
+mod common;
+
+use common::{Harness, Reader};
 use libfuzzer_sys::fuzz_target;
-use soroban_sdk::{testutils::Ledger, Env, Address, Vec};
-use trustlink_escrow::{Escrow, Payee};
+use soroban_sdk::testutils::Ledger as _;
 
 fuzz_target!(|data: &[u8]| {
-    if data.len() < 8 {
+    let mut r = Reader::new(data);
+    let h = Harness::new();
+
+    let Some(escrow_id) = h.create_funded_escrow() else {
         return;
+    };
+
+    if r.bool() {
+        let tracking_id = r.ascii_string(&h.env, 32);
+        let _ = h
+            .client
+            .try_mark_shipped(&h.seller, &escrow_id, &tracking_id);
     }
-    
-    let mut env = Env::default();
-    env.mock_all_auths();
-    
-    let admin = Address::generate(&env);
-    let fee_collector = Address::generate(&env);
-    let token = Address::generate(&env);
-    
-    // Initialize contract
-    let _ = Escrow::initialize(env.clone(), admin.clone(), fee_collector, 0);
-    
-    // Create, fund, and ship an escrow
-    let seller = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let resolver = Address::generate(&env);
-    
-    let mut payees = Vec::new(&env);
-    payees.push_back(Payee { address: seller.clone(), bps: 10_000 });
-    
-    let escrow_id = Escrow::create_escrow(
-        env.clone(),
-        payees,
-        Some(buyer.clone()),
-        resolver,
-        token.clone(),
-        1000,
-        100,
-        0,
-        604800,
-    ).unwrap_or(1);
-    
-    let _ = Escrow::fund_escrow(env.clone(), escrow_id, buyer.clone());
-    
-    // Set ledger time past dispute deadline
-    env.ledger().set(u64::from_be_bytes(data[0..8].try_into().unwrap_or([0u8; 8])), 1);
-    
-    let _ = Escrow::mark_shipped(env.clone(), seller.clone(), escrow_id, soroban_sdk::String::from_str(&env, "TRACK123"));
-    
-    // Test confirm_delivery with fuzzed inputs
-    let _ = Escrow::confirm_delivery(env.clone(), buyer, escrow_id);
+
+    h.env.ledger().set_timestamp(r.timestamp());
+
+    let caller = h.actor(r.u8());
+    let target_id = if r.bool() { escrow_id } else { r.u64() };
+
+    let _ = h.client.try_confirm_delivery(&caller, &target_id);
 });

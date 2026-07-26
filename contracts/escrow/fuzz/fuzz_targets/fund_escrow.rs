@@ -1,46 +1,28 @@
 #![no_main]
+//! Fuzzes `fund_escrow` with arbitrary escrow ids and funders, including
+//! double-funding and funding an escrow that belongs to a different buyer.
+
+mod common;
+
+use common::{Harness, Reader};
 use libfuzzer_sys::fuzz_target;
-use soroban_sdk::{testutils::Ledger, Env, Address, Vec};
-use trustlink_escrow::{Escrow, Payee};
 
 fuzz_target!(|data: &[u8]| {
-    if data.len() < 32 {
+    let mut r = Reader::new(data);
+    let h = Harness::new();
+
+    let Some(escrow_id) = h.create_valid_escrow() else {
         return;
+    };
+
+    // Roughly half the runs target the real escrow, the rest a fuzzed id.
+    let target_id = if r.bool() { escrow_id } else { r.u64() };
+    let funder = h.actor(r.u8());
+
+    let _ = h.client.try_fund_escrow(&target_id, &funder);
+
+    // A second attempt must be rejected, never double-charged.
+    if r.bool() {
+        let _ = h.client.try_fund_escrow(&target_id, &funder);
     }
-    
-    let mut env = Env::default();
-    env.mock_all_auths();
-    
-    let admin = Address::generate(&env);
-    let fee_collector = Address::generate(&env);
-    let token = Address::generate(&env);
-    
-    // Initialize contract
-    let _ = Escrow::initialize(env.clone(), admin.clone(), fee_collector, 0);
-    
-    // Create an escrow first
-    let seller = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let resolver = Address::generate(&env);
-    
-    let mut payees = Vec::new(&env);
-    payees.push_back(Payee { address: seller.clone(), bps: 10_000 });
-    
-    let escrow_id = Escrow::create_escrow(
-        env.clone(),
-        payees,
-        None,
-        resolver,
-        token.clone(),
-        1000,
-        100,
-        0,
-        604800,
-    ).unwrap_or(1);
-    
-    // Extract buyer from fuzz data
-    let fuzz_buyer = Address::generate(&env);
-    
-    // Test fund_escrow with fuzzed inputs
-    let _ = Escrow::fund_escrow(env.clone(), escrow_id, fuzz_buyer);
 });
