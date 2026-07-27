@@ -2,14 +2,22 @@
 target
 target_local
 
+# Build artifacts
+*.wasm
+
 # Local settings
 .soroban
+.soroban/example_config.toml
 .stellar
+
+# Environment / secrets
+.env
 
 # Node (bindings/, indexer/, e2e/)
 node_modules
 dist
 dist-test
+bindings/dist/
 
 issues.txt
 upload_issues.sh
