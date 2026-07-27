@@ -37,18 +37,20 @@ pub use crate::events::{
     emit_refund_approved, emit_refund_requested, emit_resolver_approved, emit_resolver_removed,
     emit_resolver_rotated, emit_resolver_strict_updated, emit_resolver_vote_recorded,
     emit_storage_migrated, emit_token_allowlist_updated, emit_treasury_updated,
-    emit_ttl_extension_updated, ActionPausedEvent, ActionUnpausedEvent, AdminRotated,
+    emit_ttl_extension_updated, emit_escrow_expired, emit_escrow_auto_canceled,
+    ActionPausedEvent, ActionUnpausedEvent, AdminRotated,
     AmountLimitsUpdated, ArbitrationFeeUpdated, AutoReleased, ContractInitialized,
     ContractPausedEvent, ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled,
     DeliveryProposed, DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowCancelled,
-    EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, FeeUpdated, ProtocolFeeUpdated,
+    EscrowCompleted, EscrowCreated, EscrowExpired, EscrowAutoCanceled, EscrowFunded, EscrowShipped,
+    FeeUpdated, ProtocolFeeUpdated,
     ResolverApproved, ResolverRemoved, ResolverRotated, ResolverStrictUpdated,
     ResolverVoteRecorded, TtlExtensionUpdated,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
-    EscrowState, FeeConfig, Payee, PublicContractConfig, ResolutionType, ResolverSet, ResolverVote,
-    TokenEntry,
+    EscrowState, ExpirySchedule, FeeConfig, Payee, PublicContractConfig, ResolutionType,
+    ResolverSet, ResolverVote, TokenEntry,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
@@ -126,7 +128,6 @@ const DEFAULT_TTL_EXTENSION: u32 = 120_960;
 const TTL_THRESHOLD_DIVISOR: u32 = 2;
 /// How long (in seconds) a Pending escrow waits for funding before it can be
 /// auto-cancelled.  Default: 7 days.
-#[allow(dead_code)]
 const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 
 /// Maximum number of entries kept in an escrow's state history.
@@ -505,6 +506,20 @@ fn load_state_history(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
     history
 }
 
+/// Returns the ledger timestamp at which `escrow_id` was created.
+///
+/// `save_escrow` appends `(state, timestamp)` to `EscrowStateHistory` on
+/// every state change, including the very first save (Pending). That first
+/// entry's timestamp is the escrow's creation time; there is no dedicated
+/// `created_at` field on `EscrowData` itself. Falls back to `0` only if the
+/// history was somehow never written (should not happen in practice).
+fn escrow_created_at(env: &Env, escrow_id: u64) -> u64 {
+    load_state_history(env, escrow_id)
+        .get(0)
+        .map(|(_, ts)| ts)
+        .unwrap_or(0)
+}
+
 fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
     let key = DataKey::Dispute(id);
     let ext = get_ttl_extension(env);
@@ -635,9 +650,22 @@ fn payout_basket_tokens(
     Ok(())
 }
 
-fn ensure_not_expired(_env: &Env, _escrow: &EscrowData) -> Result<(), ContractError> {
-    // Expiry is checked at fund_escrow time via PendingExpiry(escrow_id).
-    // Once funded (Funded state), the escrow is not subject to pending expiry.
+/// Rejects the action if `escrow_id` has an optional custom expiration
+/// (`ExpirySchedule`, set via `create_escrow_with_expiration`) and that
+/// deadline has passed. Used by `mark_shipped` — a Funded escrow can still
+/// carry a live custom expiration, and shipping late must not be allowed to
+/// silently extend it. Escrows created without a custom expiration have no
+/// stored schedule and are unaffected.
+fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    if let Some(schedule) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, ExpirySchedule>(&DataKey::PendingExpiry(escrow_id))
+    {
+        if env.ledger().timestamp() >= schedule.expires_at {
+            return Err(ContractError::EscrowExpired);
+        }
+    }
     Ok(())
 }
 
@@ -647,6 +675,48 @@ fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
         .checked_add(1)
         .ok_or(ContractError::ArithmeticError)?;
     env.storage().instance().set(key, &next);
+    Ok(())
+}
+
+/// Rejects `shipping_window` values outside `MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW`.
+///
+/// Shared by every escrow-creation entry point so a valid range only has to
+/// be maintained in one place (see #662 — three of the four creation paths
+/// had drifted from `create_escrow_internal` and skipped this check
+/// entirely).
+fn validate_shipping_window(shipping_window: u64) -> Result<(), ContractError> {
+    if !(MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW).contains(&shipping_window) {
+        return Err(ContractError::InvalidShippingWindow);
+    }
+    Ok(())
+}
+
+/// Rejects `amount` values outside the configured min/max escrow limits.
+///
+/// Reads `DataKey::MaxAmount`/`DataKey::MinAmount`, falling back to the
+/// hardcoded `MAX_ESCROW_AMOUNT`/`MIN_ESCROW_AMOUNT` constants if the admin
+/// hasn't configured custom limits — same defaults every creation path
+/// already assumed, just centralized (see #662).
+fn validate_amount_limits(env: &Env, amount: i128) -> Result<(), ContractError> {
+    if amount <= 0 {
+        return Err(ContractError::InvalidAmount);
+    }
+    let max_amount = env
+        .storage()
+        .instance()
+        .get(&DataKey::MaxAmount)
+        .unwrap_or(MAX_ESCROW_AMOUNT);
+    if amount > max_amount {
+        return Err(ContractError::AmountExceedsMaximum);
+    }
+    let min_amount = env
+        .storage()
+        .instance()
+        .get(&DataKey::MinAmount)
+        .unwrap_or(MIN_ESCROW_AMOUNT);
+    if amount < min_amount {
+        return Err(ContractError::AmountBelowMinimum);
+    }
     Ok(())
 }
 
@@ -671,31 +741,8 @@ fn create_escrow_internal(
 
     ensure_action_not_paused(env, Symbol::new(env, "CREATE"))?;
 
-    if amount <= 0 {
-        return Err(ContractError::InvalidAmount);
-    }
-
-    let max_amount = env
-        .storage()
-        .instance()
-        .get(&DataKey::MaxAmount)
-        .unwrap_or(MAX_ESCROW_AMOUNT);
-    if amount > max_amount {
-        return Err(ContractError::AmountExceedsMaximum);
-    }
-
-    let min_amount = env
-        .storage()
-        .instance()
-        .get(&DataKey::MinAmount)
-        .unwrap_or(MIN_ESCROW_AMOUNT);
-    if amount < min_amount {
-        return Err(ContractError::AmountBelowMinimum);
-    }
-
-    if !(MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW).contains(&shipping_window) {
-        return Err(ContractError::InvalidShippingWindow);
-    }
+    validate_amount_limits(env, amount)?;
+    validate_shipping_window(shipping_window)?;
 
     validate_escrow_fee_bps(fee_bps)?;
     validate_resolver_fee_bps(resolver_fee_bps)?;
@@ -926,7 +973,6 @@ impl Escrow {
             p_vec.push_back(Payee {
                 address: seller_address,
                 bps: BASIS_POINTS,
-                bps: 10_000,
             });
             p_vec
         } else {
@@ -1287,7 +1333,6 @@ impl Escrow {
         payees.push_back(Payee {
             address: seller,
             bps: BASIS_POINTS,
-            bps: 10_000,
         });
         let escrow_id = create_escrow_internal(
             &env,
@@ -1306,13 +1351,20 @@ impl Escrow {
             if expires_at <= env.ledger().timestamp() {
                 return Err(ContractError::InvalidExpiration);
             }
-            let effective_expiry = expires_at
+            // Validated up front so a misconfigured schedule fails at creation
+            // time rather than silently wrapping when reclaim_expired later
+            // computes expires_at + grace_period.
+            expires_at
                 .checked_add(grace_period)
                 .ok_or(ContractError::ArithmeticOverflow)?;
 
+            let schedule = ExpirySchedule {
+                expires_at,
+                grace_period,
+            };
             let key = DataKey::PendingExpiry(escrow_id);
             let ext = get_ttl_extension(&env);
-            env.storage().persistent().set(&key, &effective_expiry);
+            env.storage().persistent().set(&key, &schedule);
             env.storage().persistent().extend_ttl(&key, ext / 2, ext);
         }
 
@@ -1329,14 +1381,29 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        if let Some(expires_at) = env
+        let now = env.ledger().timestamp();
+
+        // Optional custom per-escrow expiration set via create_escrow_with_expiration.
+        if let Some(schedule) = env
             .storage()
             .persistent()
-            .get::<DataKey, u64>(&DataKey::PendingExpiry(escrow_id))
+            .get::<DataKey, ExpirySchedule>(&DataKey::PendingExpiry(escrow_id))
         {
-            if env.ledger().timestamp() > expires_at {
+            if now >= schedule.expires_at {
                 return Err(ContractError::EscrowExpired);
             }
+        }
+
+        // Blanket window: every Pending escrow must be funded within
+        // PENDING_EXPIRY_WINDOW of creation, regardless of whether a custom
+        // expiration was set. Mirrors auto_cancel_pending's own deadline so
+        // funding and cancellation agree on when a Pending escrow is stale.
+        let created_at = escrow_created_at(&env, escrow_id);
+        let blanket_deadline = created_at
+            .checked_add(PENDING_EXPIRY_WINDOW)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if now > blanket_deadline {
+            return Err(ContractError::EscrowExpired);
         }
 
         // Security: buyer must differ from seller and resolver.
@@ -1409,6 +1476,98 @@ impl Escrow {
             crate::EscrowState::Pending,
             crate::EscrowState::Funded,
         );
+        Ok(())
+    }
+
+    /// Buyer reclaims their funds from an escrow whose custom expiration
+    /// (set via `create_escrow_with_expiration`) has passed and whose grace
+    /// period has also elapsed.
+    ///
+    /// Only callable by the escrow's stored buyer, only while the escrow is
+    /// `Funded` or `Shipped` (an active dispute moves the escrow to
+    /// `Disputed`, which is excluded — the dispute flow handles those funds
+    /// instead). Transfers the primary token and any basket tokens back to
+    /// the buyer and transitions the escrow to `Expired`.
+    pub fn reclaim_expired(env: Env, escrow_id: u64) -> Result<(), ContractError> {
+        ensure_action_not_paused(&env, Symbol::new(&env, "RECLAIM"))?;
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+            return Err(ContractError::InvalidState);
+        }
+
+        let schedule: ExpirySchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingExpiry(escrow_id))
+            .ok_or(ContractError::InvalidState)?;
+
+        let now = env.ledger().timestamp();
+        if now < schedule.expires_at {
+            return Err(ContractError::InvalidState);
+        }
+        let reclaimable_at = schedule
+            .expires_at
+            .checked_add(schedule.grace_period)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if now < reclaimable_at {
+            return Err(ContractError::GracePeriodNotElapsed);
+        }
+
+        let buyer = escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?;
+        buyer.require_auth();
+
+        token::Client::new(&env, &escrow.token).transfer(
+            &env.current_contract_address(),
+            &buyer,
+            &escrow.amount,
+        );
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
+
+        let prev_state = escrow.state.clone();
+        escrow.state = EscrowState::Expired;
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingExpiry(escrow_id));
+
+        emit_escrow_expired(
+            &env,
+            escrow_id,
+            buyer,
+            escrow.amount,
+            prev_state,
+            EscrowState::Expired,
+        );
+        Ok(())
+    }
+
+    /// Cancels a `Pending` escrow that was never funded within
+    /// `PENDING_EXPIRY_WINDOW` of its creation. Callable by anyone — this is
+    /// a permissionless keeper/cleanup action, not restricted to a
+    /// counterparty, since an orphaned Pending escrow otherwise sits in
+    /// storage indefinitely with no funds at risk for anyone to protect.
+    pub fn auto_cancel_pending(env: Env, escrow_id: u64) -> Result<(), ContractError> {
+        ensure_not_paused(&env)?;
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        if escrow.state != EscrowState::Pending {
+            return Err(ContractError::InvalidState);
+        }
+
+        let created_at = escrow_created_at(&env, escrow_id);
+        let deadline = created_at
+            .checked_add(PENDING_EXPIRY_WINDOW)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if env.ledger().timestamp() <= deadline {
+            return Err(ContractError::ShippingWindowNotElapsed);
+        }
+
+        let prev_state = escrow.state.clone();
+        escrow.state = EscrowState::Canceled;
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        emit_escrow_auto_canceled(&env, escrow_id);
         Ok(())
     }
 
@@ -1496,16 +1655,13 @@ impl Escrow {
 
         ensure_not_paused(&env)?;
 
-        if amount <= 0 {
-            return Err(ContractError::InvalidAmount);
-        }
-        if amount > MAX_ESCROW_AMOUNT {
-            return Err(ContractError::AmountExceedsMaximum);
-        }
-
-        if amount < MIN_ESCROW_AMOUNT {
-            return Err(ContractError::InvalidAmount);
-        }
+        // #662 — this path previously skipped shipping-window validation
+        // entirely, and enforced amount limits via hardcoded constants
+        // instead of the admin-configurable DataKey::MaxAmount/MinAmount
+        // values create_escrow_internal respects. Both are now delegated to
+        // the shared helpers so this can't drift from the canonical path again.
+        validate_amount_limits(&env, amount)?;
+        validate_shipping_window(shipping_window)?;
 
         validate_escrow_fee_bps(fee_bps)?;
 
@@ -1535,7 +1691,6 @@ impl Escrow {
         payees.push_back(Payee {
             address: seller.clone(),
             bps: BASIS_POINTS,
-            bps: 10_000,
         });
         let escrow = EscrowData {
             payees,
@@ -1658,15 +1813,11 @@ impl Escrow {
 
         ensure_not_paused(&env)?;
 
-        if amount <= 0 {
-            return Err(ContractError::InvalidAmount);
-        }
-        if amount > MAX_ESCROW_AMOUNT {
-            return Err(ContractError::AmountExceedsMaximum);
-        }
-        if amount < MIN_ESCROW_AMOUNT {
-            return Err(ContractError::InvalidAmount);
-        }
+        // #662 — this path previously skipped shipping-window validation
+        // entirely, delegated here to the shared helper so it can't drift
+        // from create_escrow_internal's canonical checks again.
+        validate_amount_limits(&env, amount)?;
+        validate_shipping_window(shipping_window)?;
 
         validate_escrow_fee_bps(fee_bps)?;
 
@@ -1696,7 +1847,6 @@ impl Escrow {
         payees.push_back(Payee {
             address: seller.clone(),
             bps: BASIS_POINTS,
-            bps: 10_000,
         });
         let escrow = EscrowData {
             payees,
@@ -1890,7 +2040,7 @@ impl Escrow {
         }
 
         // Block shipping of expired escrows.
-        ensure_not_expired(&env, &escrow)?;
+        ensure_not_expired(&env, escrow_id)?;
 
         if tracking_id.is_empty() {
             return Err(ContractError::InvalidTrackingId);
@@ -2116,8 +2266,10 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        // Multi-Resolver Authorization
-        if !escrow.resolvers.contains(&caller) {
+        // Multi-Resolver Authorization. For a Fallback resolver set, the
+        // backup is only authorized once dispute_deadline has passed —
+        // otherwise it could preempt the primary's window to resolve.
+        if !escrow.resolvers.can_resolve_now(&caller, env.ledger().timestamp()) {
             return Err(ContractError::NotAuthorized);
         }
 
@@ -2168,7 +2320,9 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        if !escrow.resolvers.contains(&caller) {
+        // Fallback resolver sets restrict the backup to acting only once
+        // dispute_deadline has passed; primary is never time-restricted.
+        if !escrow.resolvers.can_resolve_now(&caller, env.ledger().timestamp()) {
             return Err(ContractError::NotAuthorized);
         }
 
@@ -2763,6 +2917,13 @@ impl Escrow {
             return Err(ContractError::InvalidAmount);
         }
 
+        // #662 — this path previously had no amount-limit or shipping-window
+        // validation at all. Validated here, before the escrow counter is
+        // incremented, so invalid input fails fast without consuming an id.
+        let primary_amount = amounts.get(0).ok_or(ContractError::InvalidAmount)?;
+        validate_amount_limits(&env, primary_amount)?;
+        validate_shipping_window(shipping_window)?;
+
         validate_escrow_fee_bps(fee_bps)?;
 
         if resolver == seller {
@@ -2793,14 +2954,12 @@ impl Escrow {
         let ext = get_ttl_extension(&env);
         env.storage().instance().extend_ttl(ext / 2, ext);
 
-        let primary_amount = amounts.get(0).ok_or(ContractError::InvalidAmount)?;
         let primary_token = tokens.get(0).ok_or(ContractError::InvalidAmount)?;
 
         let mut basket_payees = Vec::new(&env);
         basket_payees.push_back(Payee {
             address: seller.clone(),
             bps: BASIS_POINTS,
-            bps: 10_000,
         });
         let escrow = EscrowData {
             payees: basket_payees,
@@ -3303,7 +3462,6 @@ impl Escrow {
             payees.push_back(Payee {
                 address: seller.clone(),
                 bps: BASIS_POINTS,
-                bps: 10_000,
             });
             let id = create_escrow_internal(
                 &env,
@@ -3912,7 +4070,9 @@ mod test_edge_cases;
 mod test_emergency_drain;
 mod test_escrow_id;
 mod test_escrow_states;
+mod test_expiration;
 mod test_fallback_resolver;
+mod test_pending_expiry;
 mod test_fee_calculation_accuracy;
 mod test_fee_config;
 mod test_fee_minimum;
