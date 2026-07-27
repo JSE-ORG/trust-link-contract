@@ -5,6 +5,8 @@ use crate::internal::*;
 use crate::*;
 use soroban_sdk::{contractimpl, token, Address, BytesN, Env, String, Symbol, Vec};
 
+pub const MAX_APPEALS: u32 = 3;
+
 #[contractimpl]
 impl Escrow {
     /// Buyer raises a dispute on a funded or shipped escrow.
@@ -309,6 +311,9 @@ impl Escrow {
         }
 
         let dispute_data = load_dispute(&env, escrow_id)?;
+        if dispute_data.appeal_count >= MAX_APPEALS {
+            return Err(ContractError::MaxAppealsReached);
+        }
         let now = env.ledger().timestamp();
 
         // Appeal window must still be active (based on resolved_at)

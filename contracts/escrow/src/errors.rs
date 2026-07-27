@@ -89,4 +89,7 @@ pub enum ContractError {
     /// Returned when `reclaim_expired` is called after `expires_at` but before
     /// `expires_at + grace_period` has elapsed.
     GracePeriodNotElapsed = 40,
+    /// Returned when the maximum number of dispute appeals has been reached.
+    MaxAppealsReached = 41,
 }
+

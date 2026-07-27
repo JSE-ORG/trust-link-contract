@@ -108,6 +108,9 @@ const MAX_PLATFORM_FEE_BPS: u32 = 200;
 /// After a dispute is resolved, the losing party has this window to appeal.
 const APPEAL_WINDOW: u64 = 86_400;
 
+pub const MAX_APPEALS: u32 = 3;
+
+
 /// Minimum escrow amount in stroops.
 /// Keeps the contract from accepting zero or negative escrows.
 pub const MIN_ESCROW_AMOUNT: i128 = 1;
@@ -2633,6 +2636,9 @@ impl Escrow {
         }
 
         let dispute_data = load_dispute(&env, escrow_id)?;
+        if dispute_data.appeal_count >= MAX_APPEALS {
+            return Err(ContractError::MaxAppealsReached);
+        }
         let now = env.ledger().timestamp();
 
         // Appeal window must still be active (based on resolved_at)

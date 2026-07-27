@@ -483,3 +483,138 @@ fn test_dispute_from_refunded_state() {
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
     assert_eq!(result, Err(Ok(crate::ContractError::InvalidState)));
 }
+
+#[test]
+fn test_appeal_up_to_limit_happy_path() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = crate::EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let amount = 1000_i128;
+    let seller_val = seller.clone().into_val(&env);
+    let id = client.create_escrow_8(
+        &seller_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+
+    let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    sac.mint(&buyer, &amount);
+    client.fund_escrow(&id, &buyer);
+
+    // Raise dispute
+    let reason = soroban_sdk::Symbol::new(&env, "reason");
+    let description = soroban_sdk::String::from_str(&env, "desc");
+    let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
+    client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
+
+    // Appeal 1
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Refund);
+    client.appeal_dispute(&buyer, &id);
+
+    // Appeal 2
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Refund);
+    client.appeal_dispute(&seller, &id);
+
+    // Appeal 3
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Refund);
+    client.appeal_dispute(&buyer, &id);
+
+    // Verify it is back in Disputed state and appeal_count is 3
+    let dispute = client.get_dispute(&id).unwrap();
+    assert_eq!(dispute.appeal_count, 3);
+    let escrow = client.get_escrow(&id);
+    assert_eq!(escrow.state, crate::EscrowState::Disputed);
+}
+
+#[test]
+fn test_appeal_exceeding_limit_fails() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = crate::EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let amount = 1000_i128;
+    let seller_val = seller.clone().into_val(&env);
+    let id = client.create_escrow_8(
+        &seller_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+
+    let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    sac.mint(&buyer, &amount);
+    client.fund_escrow(&id, &buyer);
+
+    // Raise dispute
+    let reason = soroban_sdk::Symbol::new(&env, "reason");
+    let description = soroban_sdk::String::from_str(&env, "desc");
+    let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
+    client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
+
+    // Appeal 1
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Refund);
+    client.appeal_dispute(&buyer, &id);
+
+    // Appeal 2
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Refund);
+    client.appeal_dispute(&seller, &id);
+
+    // Appeal 3
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Refund);
+    client.appeal_dispute(&buyer, &id);
+
+    // Resolve again (PendingFinalization)
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Refund);
+
+    // Appeal 4 (fails)
+    let result = client.try_appeal_dispute(&buyer, &id);
+    assert_eq!(result, Err(Ok(crate::ContractError::MaxAppealsReached)));
+}
+
+#[test]
+fn test_appeal_non_participant_fails() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = crate::EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let amount = 1000_i128;
+    let seller_val = seller.clone().into_val(&env);
+    let id = client.create_escrow_8(
+        &seller_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+
+    let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    sac.mint(&buyer, &amount);
+    client.fund_escrow(&id, &buyer);
+
+    // Raise dispute
+    let reason = soroban_sdk::Symbol::new(&env, "reason");
+    let description = soroban_sdk::String::from_str(&env, "desc");
+    let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
+    client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
+
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Refund);
+
+    // A random non-participant tries to appeal
+    let intruder = Address::generate(&env);
+    let result = client.try_appeal_dispute(&intruder, &id);
+    assert_eq!(result, Err(Ok(crate::ContractError::NotAuthorized)));
+}
+
