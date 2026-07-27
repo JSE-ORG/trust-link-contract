@@ -104,7 +104,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_auto_release() {
         &SorobanString::from_str(&env, "TRACK-FEE-AUTO"),
     );
     env.ledger().set_timestamp(1_700_000_000);
-    client.record_delivery(&admin, &id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
 
     // Advance 48 hours past delivery.
     let escrow = client.get_escrow(&id);

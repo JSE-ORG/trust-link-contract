@@ -658,7 +658,75 @@ impl Escrow {
         Ok(())
     }
 
-    /// Records the delivery of an escrow. Callable by admin.
+    /// Proposes recording delivery of an escrow, starting a 24-hour timelock. Callable by admin.
+    pub fn propose_record_delivery(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::NotAuthorized)?;
+
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        let escrow = load_escrow(&env, escrow_id)?;
+        if escrow.state != EscrowState::Shipped {
+            return Err(ContractError::InvalidState);
+        }
+
+        if escrow.delivered_at.is_some() {
+            return Err(ContractError::DeliveryAlreadyRecorded);
+        }
+
+        let now = env.ledger().timestamp();
+        let unlock_at = now
+            .checked_add(DELIVERY_TIMELOCK)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::DeliveryProposal(escrow_id), &unlock_at);
+
+        emit_delivery_proposed(&env, escrow_id, now, unlock_at);
+        Ok(())
+    }
+
+    /// Cancels a pending delivery proposal. Callable by admin.
+    pub fn cancel_delivery_proposal(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::NotAuthorized)?;
+
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        let _ = load_escrow(&env, escrow_id)?;
+
+        let key = DataKey::DeliveryProposal(escrow_id);
+        if !env.storage().persistent().has(&key) {
+            return Err(ContractError::DeliveryNotProposed);
+        }
+
+        env.storage().persistent().remove(&key);
+        emit_delivery_proposal_cancelled(&env, escrow_id);
+        Ok(())
+    }
+
+    /// Records the delivery of an escrow after the 24-hour timelock has elapsed. Callable by admin.
     pub fn record_delivery(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         let admin: Address = env
@@ -681,7 +749,21 @@ impl Escrow {
             return Err(ContractError::DeliveryAlreadyRecorded);
         }
 
-        let delivered_at = env.ledger().timestamp();
+        let key = DataKey::DeliveryProposal(escrow_id);
+        let unlock_at: u64 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::DeliveryNotProposed)?;
+
+        let now = env.ledger().timestamp();
+        if now < unlock_at {
+            return Err(ContractError::TimelockNotElapsed);
+        }
+
+        env.storage().persistent().remove(&key);
+
+        let delivered_at = now;
         escrow.delivered_at = Some(delivered_at);
         // escrow.state is untouched by this call, so the pre-mutation state
         // is simply the current one.

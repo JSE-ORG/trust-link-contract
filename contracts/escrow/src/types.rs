@@ -44,6 +44,7 @@ pub enum DataKey {
     TotalRefunded,
     EvidenceLog(u64),
     BasketTokens(u64),
+    DeliveryProposal(u64),
 }
 
 /// A token-amount pair for multi-token basket escrows.
