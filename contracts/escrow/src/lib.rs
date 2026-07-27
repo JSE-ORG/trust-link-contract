@@ -112,10 +112,6 @@ const DEFAULT_TTL_EXTENSION: u32 = 120_960;
 /// TTL is extended to `ext / TTL_THRESHOLD_DIVISOR` on the low end,
 /// giving the contract a window to re-extend before the entry expires.
 const TTL_THRESHOLD_DIVISOR: u32 = 2;
-/// How long (in seconds) a Pending escrow waits for funding before it can be
-/// auto-cancelled.  Default: 7 days.
-#[allow(dead_code)]
-const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 
 /// Maximum number of entries kept in an escrow's state history.
 /// Once reached, the oldest entry is dropped for each new one appended,
