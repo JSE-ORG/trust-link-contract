@@ -171,3 +171,51 @@ fn test_get_escrows_by_buyer_fallback_scan() {
     let escrows_3 = client.get_escrows_by_buyer(&buyer_3);
     assert_eq!(escrows_3.len(), 0);
 }
+
+#[test]
+fn test_get_escrows_by_buyer_fallback_scan_many_escrows() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    // Create 15 escrows for the same buyer without funding, forcing fallback scan
+    let mut expected_ids: Vec<u64> = Vec::new(&env);
+    for _ in 0..15 {
+        let id = client.create_escrow_8(
+            &seller.clone().into_val(&env),
+            &Some(buyer.clone()),
+            &resolver,
+            &token,
+            &1000_i128,
+            &100_u32,
+            &3600_u64,
+        );
+        expected_ids.push_back(id);
+    }
+
+    // Create 5 escrows for a different buyer (should not appear in buyer's results)
+    let other_buyer = Address::generate(&env);
+    for _ in 0..5 {
+        let _id = client.create_escrow_8(
+            &seller.clone().into_val(&env),
+            &Some(other_buyer.clone()),
+            &resolver,
+            &token,
+            &1000_i128,
+            &100_u32,
+            &3600_u64,
+        );
+    }
+
+    let escrows = client.get_escrows_by_buyer(&buyer);
+    assert_eq!(escrows.len(), 15);
+    for i in 0..15 {
+        assert_eq!(escrows.get(i).unwrap(), expected_ids.get(i).unwrap());
+    }
+}
