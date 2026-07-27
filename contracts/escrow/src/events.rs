@@ -1254,6 +1254,11 @@ pub fn emit_emergency_drain(env: &Env, escrow_id: u64, buyer: Address, seller: A
             escrow_id,
             buyer,
             seller,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeliveryProposed {
