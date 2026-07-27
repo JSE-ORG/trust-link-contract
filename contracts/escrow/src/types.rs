@@ -24,6 +24,7 @@ pub enum DataKey {
     MinAmount,
     ApprovedResolvers,
     ResolverStrict,
+    AccumulatedFees(Address),
     /// Schema version of the data currently in storage. Absent on contracts
     /// deployed before migrations existed, which is read as version 0.
     StorageVersion,
