@@ -138,3 +138,38 @@ fn test_combined_fee_cap_boundary_values() {
     // 999 + 1 = 1000 (succeeds)
     assert!(validate_combined_fees(999, 1).is_ok());
 }
+
+#[test]
+fn test_combined_fee_overflow_safety() {
+    // u32::MAX overflow: checked_add should return None -> ArithmeticError
+    assert_eq!(
+        validate_combined_fees(u32::MAX, 1),
+        Err(ContractError::ArithmeticError)
+    );
+    assert_eq!(
+        validate_combined_fees(1, u32::MAX),
+        Err(ContractError::ArithmeticError)
+    );
+
+    // Large but non-overflowing: sum exceeds MAX_COMBINED_FEE_BPS -> FeeExceedsMax
+    assert_eq!(
+        validate_combined_fees(u32::MAX, 0),
+        Err(ContractError::FeeExceedsMax)
+    );
+    assert_eq!(
+        validate_combined_fees(0, u32::MAX),
+        Err(ContractError::FeeExceedsMax)
+    );
+
+    // Half of u32::MAX + half of u32::MAX = u32::MAX - 1 (no overflow, but exceeds cap)
+    assert_eq!(
+        validate_combined_fees(u32::MAX / 2, u32::MAX / 2),
+        Err(ContractError::FeeExceedsMax)
+    );
+
+    // Values that just barely overflow
+    assert_eq!(
+        validate_combined_fees(u32::MAX / 2 + 1, u32::MAX / 2 + 1),
+        Err(ContractError::ArithmeticError)
+    );
+}
