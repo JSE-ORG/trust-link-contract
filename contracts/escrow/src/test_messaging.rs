@@ -27,7 +27,8 @@ impl Fixture {
 fn fixture() -> Fixture {
     let env = Env::default();
     env.mock_all_auths();
-    let (contract_id, client, admin, _fee_collector) = setup_contract(&env.clone());
+    let env2 = env.clone();
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env2);
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
