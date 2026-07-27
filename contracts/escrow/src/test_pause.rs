@@ -256,7 +256,7 @@ fn test_auto_release_blocked_when_paused() {
     mint_tokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AR"));
-    client.record_delivery(&admin, &id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
     env.ledger().set_timestamp(DISPUTE_WINDOW + 10);
     client.pause_contract(&admin);
     let result = client.try_auto_release(&id);

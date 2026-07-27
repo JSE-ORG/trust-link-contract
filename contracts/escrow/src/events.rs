@@ -1141,3 +1141,45 @@ pub fn emit_resolver_strict_updated(
         },
     );
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeliveryProposed {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub proposed_at: u64,
+    pub unlock_at: u64,
+}
+
+/// Topic: `(symbol_short!("Delivery"), symbol_short!("Proposed"),)`, data: `DeliveryProposed`.
+pub fn emit_delivery_proposed(env: &Env, escrow_id: u64, proposed_at: u64, unlock_at: u64) {
+    env.events().publish(
+        (symbol_short!("Delivery"), symbol_short!("Proposed")),
+        DeliveryProposed {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            proposed_at,
+            unlock_at,
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeliveryProposalCancelled {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Delivery"), symbol_short!("Cancelled"),)`, data: `DeliveryProposalCancelled`.
+pub fn emit_delivery_proposal_cancelled(env: &Env, escrow_id: u64) {
+    env.events().publish(
+        (symbol_short!("Delivery"), symbol_short!("Cancelled")),
+        DeliveryProposalCancelled {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}

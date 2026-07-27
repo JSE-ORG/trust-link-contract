@@ -311,7 +311,7 @@ fn test_auto_release() {
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO-1"));
     env.ledger().set_timestamp(1_700_000_000);
-    client.record_delivery(&admin, &id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
 
     let escrow = client.get_escrow(&id);
     env.ledger()
@@ -372,7 +372,7 @@ fn test_auto_release_before_window_fails() {
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO-2"));
     env.ledger().set_timestamp(1_700_000_000);
-    client.record_delivery(&admin, &id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
     let escrow = client.get_escrow(&id);
     env.ledger().set_timestamp(escrow.delivered_at.unwrap() + 1);
     let res = client.try_auto_release(&id);
@@ -686,7 +686,7 @@ fn test_auto_release_with_non_usdc_token() {
         &SorobanString::from_str(&env, "TRACK-SEP41-AUTO"),
     );
     env.ledger().set_timestamp(1_700_000_000);
-    client.record_delivery(&admin, &id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
 
     let escrow = client.get_escrow(&id);
     env.ledger()
@@ -1020,7 +1020,7 @@ fn test_auto_release_after_dispute_deadline() {
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO-3"));
     env.ledger().set_timestamp(1_700_000_000);
-    client.record_delivery(&admin, &id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
 
     let escrow = client.get_escrow(&id);
     let delivered_at = escrow.delivered_at.unwrap();
@@ -1382,7 +1382,7 @@ fn test_event_integrity_auto_released() {
         &SorobanString::from_str(&env, "TRK-EVT-AR"),
     );
     env.ledger().set_timestamp(1_700_000_000);
-    client.record_delivery(&admin, &escrow_id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, escrow_id);
 
     let escrow = client.get_escrow(&escrow_id);
     env.ledger()

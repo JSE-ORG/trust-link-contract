@@ -45,6 +45,8 @@ export const enum ErrorCode {
   NotInitialized = 35,
   IndexOutOfBounds = 36,
   InvalidExpiration = 37,
+  DeliveryNotProposed = 38,
+  TimelockNotElapsed = 39,
 }
 
 /** Human-readable message for every contract error code. */
@@ -111,6 +113,10 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "An internal collection index was out of bounds.",
   [ErrorCode.InvalidExpiration]:
     "The supplied expiration timestamp is not strictly in the future.",
+  [ErrorCode.DeliveryNotProposed]:
+    "Delivery has not been proposed yet.",
+  [ErrorCode.TimelockNotElapsed]:
+    "The 24-hour timelock delay has not elapsed yet.",
 };
 
 /**
