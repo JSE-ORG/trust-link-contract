@@ -24,6 +24,7 @@ pub enum DataKey {
     MinAmount,
     ApprovedResolvers,
     ResolverStrict,
+    AccumulatedFees(Address),
 
     // Persistent storage: per-escrow data and user indexes.
     Escrow(u64),
