@@ -111,3 +111,42 @@ fn test_co_signed_release_from_shipped() {
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Completed);
 }
+
+#[test]
+fn test_co_signed_release_fails_on_active_dispute() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    mint_token(&env, &token, &buyer, 1000);
+
+    let seller_val = seller.clone().into_val(&env);
+    let id = client.create_escrow_8(
+        &seller_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &500_i128,
+        &0_u32,
+        &3600_u64,
+    );
+
+    client.fund_escrow(&id, &buyer);
+    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DISP"));
+
+    // Buyer raises a dispute
+    let reason = Symbol::new(&env, "defective");
+    let description = SorobanString::from_str(&env, "Item is defective");
+    let evidence_hash = BytesN::from_array(&env, &[0xcd; 32]);
+    client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
+
+    // co_signed_release must fail when a dispute is active
+    let result = client.try_co_signed_release(&buyer, &id);
+    assert!(matches!(result, Err(Ok(ContractError::InvalidState))));
+}
