@@ -299,7 +299,7 @@ fn validate_resolvers(
     // For multi-resolver, validate threshold
     if let ResolverSet::Multi(m) = resolvers {
         let count = m.resolvers.len();
-        if m.threshold == 0 || m.threshold > count {
+        if count == 0 || m.threshold == 0 || m.threshold > count {
             return Err(ContractError::InvalidAmount); // Use as proxy for invalid threshold
         }
 

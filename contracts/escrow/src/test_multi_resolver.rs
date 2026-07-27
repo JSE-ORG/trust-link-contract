@@ -57,13 +57,84 @@ fn test_multi_resolver_threshold_met() {
 }
 
 #[test]
-fn test_unauthorized_resolver_cannot_vote() {
+fn test_multi_resolver_validation() {
     let env = Env::default();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
-    // Setup logic here...
-    // Create escrow with Resolver A
-    // Attempt to vote with Resolver Z (not in the list)
-    // Assert result is Err(ContractError::NotAuthorized)
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver_a = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let mut valid_resolvers = Vec::new(&env);
+    valid_resolvers.push_back(resolver_a.clone());
+
+    let empty_resolvers = Vec::new(&env);
+
+    // 1. Empty multi-resolver list with threshold=0 rejected
+    let res = client.try_create_escrow_multi(
+        &seller,
+        &Some(buyer.clone()),
+        &empty_resolvers,
+        &0,
+        &token,
+        &1000,
+        &0,
+        &3600,
+    );
+    assert_eq!(res, Err(Ok(ContractError::InvalidAmount)));
+
+    // 2. Empty multi-resolver list with threshold=1 rejected
+    let res = client.try_create_escrow_multi(
+        &seller,
+        &Some(buyer.clone()),
+        &empty_resolvers,
+        &1,
+        &token,
+        &1000,
+        &0,
+        &3600,
+    );
+    assert_eq!(res, Err(Ok(ContractError::InvalidAmount)));
+
+    // 3. Non-empty resolver list with threshold=0 rejected
+    let res = client.try_create_escrow_multi(
+        &seller,
+        &Some(buyer.clone()),
+        &valid_resolvers,
+        &0,
+        &token,
+        &1000,
+        &0,
+        &3600,
+    );
+    assert_eq!(res, Err(Ok(ContractError::InvalidAmount)));
+
+    // 4. Threshold greater than resolver count rejected
+    let res = client.try_create_escrow_multi(
+        &seller,
+        &Some(buyer.clone()),
+        &valid_resolvers,
+        &2,
+        &token,
+        &1000,
+        &0,
+        &3600,
+    );
+    assert_eq!(res, Err(Ok(ContractError::InvalidAmount)));
+
+    // 5. Valid config (threshold=1, resolvers=[resolver_a]) works
+    let escrow_id = client.create_escrow_multi(
+        &seller,
+        &Some(buyer.clone()),
+        &valid_resolvers,
+        &1,
+        &token,
+        &1000,
+        &0,
+        &3600,
+    );
+    assert_eq!(escrow_id, 1);
 }
+
