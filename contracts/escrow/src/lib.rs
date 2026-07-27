@@ -960,6 +960,52 @@ fn execute_resolution_transition(
     Ok(())
 }
 
+fn resolve_or_vote_internal(
+    env: &Env,
+    caller: Address,
+    escrow_id: u64,
+    resolution: ResolutionType,
+) -> Result<(), ContractError> {
+    caller.require_auth();
+    ensure_action_not_paused(env, Symbol::new(env, "RESOLVE"))?;
+    let escrow = load_escrow(env, escrow_id)?;
+
+    if escrow.state != EscrowState::Disputed {
+        return Err(ContractError::InvalidState);
+    }
+
+    if !escrow.resolvers.can_resolve_now(&caller, env.ledger().timestamp()) {
+        return Err(ContractError::NotAuthorized);
+    }
+
+    let votes = add_or_update_vote(env, escrow_id, &caller, resolution.clone());
+    let threshold = escrow.resolvers.threshold();
+
+    emit_resolver_vote_recorded(
+        env,
+        escrow_id,
+        caller.clone(),
+        resolution.clone(),
+        votes.len(),
+        threshold,
+    );
+
+    if let Some(final_resolution) = tally_votes(&votes, threshold) {
+        execute_resolution_transition(
+            env,
+            escrow_id,
+            escrow,
+            caller,
+            final_resolution,
+            votes,
+        )?;
+    } else {
+        save_resolver_votes(env, escrow_id, &votes);
+    }
+
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl Escrow {
@@ -2242,50 +2288,7 @@ impl Escrow {
         escrow_id: u64,
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
-        ensure_action_not_paused(&env, Symbol::new(&env, "RESOLVE"))?;
-        let escrow = load_escrow(&env, escrow_id)?;
-
-        if escrow.state != EscrowState::Disputed {
-            return Err(ContractError::InvalidState);
-        }
-
-        // Multi-Resolver Authorization. For a Fallback resolver set, the
-        // backup is only authorized once dispute_deadline has passed —
-        // otherwise it could preempt the primary's window to resolve.
-        if !escrow.resolvers.can_resolve_now(&caller, env.ledger().timestamp()) {
-            return Err(ContractError::NotAuthorized);
-        }
-
-        // Record Vote
-        let votes = add_or_update_vote(&env, escrow_id, &caller, resolution.clone());
-        let threshold = escrow.resolvers.threshold();
-
-        emit_resolver_vote_recorded(
-            &env,
-            escrow_id,
-            caller.clone(),
-            resolution.clone(),
-            votes.len(),
-            threshold,
-        );
-
-        // Tally & Execute once threshold is met
-        if let Some(final_resolution) = tally_votes(&votes, threshold) {
-            execute_resolution_transition(
-                &env,
-                escrow_id,
-                escrow,
-                caller,
-                final_resolution,
-                votes,
-            )?;
-        } else {
-            // Threshold not met, save votes and exit
-            save_resolver_votes(&env, escrow_id, &votes);
-        }
-
-        Ok(())
+        resolve_or_vote_internal(&env, caller, escrow_id, resolution)
     }
 
     /// Cast or change a vote on a disputed escrow.
@@ -2296,46 +2299,7 @@ impl Escrow {
         escrow_id: u64,
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
-        ensure_action_not_paused(&env, Symbol::new(&env, "RESOLVE"))?;
-        let escrow = load_escrow(&env, escrow_id)?;
-
-        if escrow.state != EscrowState::Disputed {
-            return Err(ContractError::InvalidState);
-        }
-
-        // Fallback resolver sets restrict the backup to acting only once
-        // dispute_deadline has passed; primary is never time-restricted.
-        if !escrow.resolvers.can_resolve_now(&caller, env.ledger().timestamp()) {
-            return Err(ContractError::NotAuthorized);
-        }
-
-        let votes = add_or_update_vote(&env, escrow_id, &caller, resolution.clone());
-        let threshold = escrow.resolvers.threshold();
-
-        emit_resolver_vote_recorded(
-            &env,
-            escrow_id,
-            caller.clone(),
-            resolution.clone(),
-            votes.len(),
-            threshold,
-        );
-
-        if let Some(final_resolution) = tally_votes(&votes, threshold) {
-            execute_resolution_transition(
-                &env,
-                escrow_id,
-                escrow,
-                caller,
-                final_resolution,
-                votes,
-            )?;
-        } else {
-            save_resolver_votes(&env, escrow_id, &votes);
-        }
-
-        Ok(())
+        resolve_or_vote_internal(&env, caller, escrow_id, resolution)
     }
 
     /// Public contract function.
