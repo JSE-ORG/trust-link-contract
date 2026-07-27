@@ -141,7 +141,10 @@ pub const MAX_SHIPPING_WINDOW: u64 = 63_072_000;
 /// Maximum escrow amount intentionally capped to
 /// preserve arithmetic safety for fee calculations
 /// and aggregate accounting operations.
-pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 10_000;
+pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / BASIS_POINTS as i128;
+
+/// Basis points denominator (100% = 10_000 basis points).
+pub const BASIS_POINTS: u32 = 10_000;
 
 // ============================================================================
 // MULTI-RESOLVER VOTING HELPERS
@@ -462,7 +465,7 @@ fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), ContractError> 
         }
     }
 
-    if total_bps != 10_000 {
+    if total_bps != BASIS_POINTS {
         return Err(ContractError::InvalidAmount);
     }
 
@@ -699,7 +702,7 @@ fn distribute_to_payees(
         let payee_amount = amount
             .checked_mul(payee.bps as i128)
             .ok_or(ContractError::ArithmeticError)?
-            .checked_div(10_000)
+            .checked_div(BASIS_POINTS as i128)
             .ok_or(ContractError::ArithmeticError)?;
 
         if payee_amount > 0 {
@@ -1035,7 +1038,7 @@ impl Escrow {
             let mut p_vec = Vec::new(&env);
             p_vec.push_back(Payee {
                 address: seller_address,
-                bps: 10_000,
+                bps: BASIS_POINTS,
             });
             p_vec
         } else {
@@ -1394,7 +1397,7 @@ impl Escrow {
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
             address: seller,
-            bps: 10_000,
+            bps: BASIS_POINTS,
         });
         let escrow_id = create_escrow_internal(
             &env,
@@ -1640,7 +1643,7 @@ impl Escrow {
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
             address: seller.clone(),
-            bps: 10_000,
+            bps: BASIS_POINTS,
         });
         let escrow = EscrowData {
             payees,
@@ -1799,7 +1802,7 @@ impl Escrow {
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
             address: seller.clone(),
-            bps: 10_000,
+            bps: BASIS_POINTS,
         });
         let escrow = EscrowData {
             payees,
@@ -2776,7 +2779,7 @@ impl Escrow {
         let mut basket_payees = Vec::new(&env);
         basket_payees.push_back(Payee {
             address: seller.clone(),
-            bps: 10_000,
+            bps: BASIS_POINTS,
         });
         let escrow = EscrowData {
             payees: basket_payees,
@@ -3214,7 +3217,7 @@ impl Escrow {
             let mut payees = Vec::new(&env);
             payees.push_back(Payee {
                 address: seller.clone(),
-                bps: 10_000,
+                bps: BASIS_POINTS,
             });
             let id = create_escrow_internal(
                 &env,

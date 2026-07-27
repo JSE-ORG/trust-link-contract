@@ -1,4 +1,4 @@
-use crate::{ContractError, EscrowData, ResolutionType};
+use crate::{BASIS_POINTS, ContractError, EscrowData, ResolutionType};
 use soroban_sdk::{contracttype, token, Address, Env, Vec};
 
 #[contracttype]
@@ -54,15 +54,15 @@ pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, ContractError> 
     }
 
     let part1 = amount
-        .checked_div(10_000)
+        .checked_div(BASIS_POINTS as i128)
         .ok_or(ContractError::ArithmeticOverflow)?
         .checked_mul(fee_bps as i128)
         .ok_or(ContractError::ArithmeticOverflow)?;
 
-    let part2 = (amount % 10_000)
+    let part2 = (amount % BASIS_POINTS as i128)
         .checked_mul(fee_bps as i128)
         .ok_or(ContractError::ArithmeticOverflow)?
-        .checked_div(10_000)
+        .checked_div(BASIS_POINTS as i128)
         .ok_or(ContractError::ArithmeticOverflow)?;
 
     part1
