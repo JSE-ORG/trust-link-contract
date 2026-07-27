@@ -48,7 +48,12 @@ fn test_create_escrow_with_invalid_expiration() {
         &Some(0_u64),
         &100_u64,
     );
-    assert!(matches!(res, Err(Ok(ContractError::InvalidAmount))));
+    // create_escrow_with_expiration validates the escrow body (amount,
+    // shipping window, fees) via create_escrow_internal first — all valid
+    // here — before checking `expires_at <= now`, which is what actually
+    // fails for an expiration of 0 at ledger timestamp 0. The dedicated
+    // InvalidExpiration variant exists specifically for this case.
+    assert!(matches!(res, Err(Ok(ContractError::InvalidExpiration))));
 }
 
 #[test]
