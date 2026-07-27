@@ -29,3 +29,17 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **21** | `InvalidTrackingId` | The tracking ID supplied is empty or improperly formatted. | Provide a non-empty, valid string for the tracking ID. |
 | **22** | `DeliveryNotRecorded` | `auto_release` was attempted but the admin has not yet recorded the delivery. | Ensure that delivery is recorded via `record_delivery` if required by the flow. |
 | **23** | `ConflictingRoles` | Multiple roles (Seller, Buyer, Resolver) were assigned the same address. | Ensure that the Seller, Buyer, and Resolver are all distinct accounts. |
+| **24** | `DisputeWindowStillOpen` | A buyer attempted to confirm delivery while the dispute window is still open. | Wait for the dispute window to close before confirming delivery. |
+| **25** | `UnauthorizedResolver` | A resolver is not in the approved registry and strict mode is enabled. | Use an authorized resolver from the approved registry. |
+| **26** | `ContractNotPaused` | `emergency_drain` was called but the contract is not paused. | Ensure the contract is paused before calling emergency drain operations. |
+| **27** | `TokenNotAllowed` | A token is not in the allowlist and the allowlist is enabled. | Use a token from the approved allowlist or contact the admin to add the token. |
+| **28** | `EscrowExpired` | An escrow's pending expiration window has passed. | The escrow can no longer be funded; create a new escrow. |
+| **29** | `AmountBelowMinimum` | An escrow amount is below the configured minimum. | Increase the escrow amount to meet the minimum requirement. |
+| **30** | `NotPendingFinalization` | An action requires the escrow to be in `PendingFinalization` state. | Ensure the escrow has reached the PendingFinalization state before this action. |
+| **31** | `AppealWindowActive` | Finalization is attempted while the appeal window is still active. | Wait for the appeal window to expire before finalizing. |
+| **32** | `PlatformFeeExceedsMax` | The platform fee exceeds its allowed maximum. | Configure a platform fee within the allowed limits. |
+| **33** | `InvalidShippingWindow` | `shipping_window` is zero or exceeds the maximum allowed value. | Provide a valid shipping window duration within the allowed range. |
+| **34** | `DeliveryAlreadyRecorded` | `record_delivery` was called on an escrow that already has delivery recorded. | No action required; delivery has already been recorded for this escrow. |
+| **35** | `NotInitialized` | A read accessor was called before the contract has been initialized. | Initialize the contract first by calling `initialize`. |
+| **36** | `IndexOutOfBounds` | An internal collection index is out of bounds, indicating a storage or argument invariant violation. | This is an internal error; contact the contract maintainer. |
+| **37** | `InvalidExpiration` | A supplied expiration timestamp is not strictly in the future. | Provide an expiration timestamp that is in the future. |
