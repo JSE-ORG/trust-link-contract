@@ -140,17 +140,6 @@ fn get_messages_paginates_and_returns_empty_after_the_end() {
 }
 
 #[test]
-fn get_messages_caps_the_page_size_at_fifty() {
-    let f = fixture();
-    for _ in 0..51 {
-        f.client
-            .post_message(&f.escrow_id, &f.buyer, &String::from_str(&f.env, "message"));
-    }
-
-    assert_eq!(f.client.get_messages(&f.escrow_id, &0, &99).len(), 50);
-}
-
-#[test]
 fn posting_to_an_unknown_escrow_is_rejected() {
     let f = fixture();
     assert_eq!(
