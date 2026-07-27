@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use crate::internal::validate_combined_fees;
 use crate::{test_helpers::setup_contract, ContractError, EscrowClient, FeeConfig};
 use soroban_sdk::Env;
 
@@ -95,4 +96,45 @@ fn test_combined_fee_cap_is_enforced() {
     // Verify the individual cap is enforced
     let config = client.get_fee_config();
     assert_eq!(config.arbitration_fee_bps, 500); // Unchanged
+}
+
+#[test]
+fn test_combined_fee_cap_boundary_values() {
+    // MAX_COMBINED_FEE_BPS = 1000
+
+    // Exactly at boundary: 500 + 500 = 1000 (should succeed)
+    assert!(validate_combined_fees(500, 500).is_ok());
+
+    // One past boundary: 500 + 501 = 1001 (should fail)
+    assert_eq!(
+        validate_combined_fees(500, 501),
+        Err(ContractError::FeeExceedsMax)
+    );
+
+    // 0 + 1000 = 1000 (should succeed)
+    assert!(validate_combined_fees(0, 1000).is_ok());
+
+    // 0 + 1001 = 1001 (should fail)
+    assert_eq!(
+        validate_combined_fees(0, 1001),
+        Err(ContractError::FeeExceedsMax)
+    );
+
+    // 1000 + 0 = 1000 (should succeed)
+    assert!(validate_combined_fees(1000, 0).is_ok());
+
+    // 1001 + 0 = 1001 (should fail)
+    assert_eq!(
+        validate_combined_fees(1001, 0),
+        Err(ContractError::FeeExceedsMax)
+    );
+
+    // Both at max individual: 500 + 500 = 1000 (succeeds)
+    assert!(validate_combined_fees(500, 500).is_ok());
+
+    // 1 + 999 = 1000 (succeeds)
+    assert!(validate_combined_fees(1, 999).is_ok());
+
+    // 999 + 1 = 1000 (succeeds)
+    assert!(validate_combined_fees(999, 1).is_ok());
 }
