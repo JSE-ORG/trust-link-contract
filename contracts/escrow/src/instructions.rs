@@ -167,15 +167,7 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        if let Some(expires_at) = env
-            .storage()
-            .persistent()
-            .get::<DataKey, u64>(&DataKey::PendingExpiry(escrow_id))
-        {
-            if env.ledger().timestamp() > expires_at {
-                return Err(ContractError::EscrowExpired);
-            }
-        }
+        ensure_not_expired(&env, escrow_id)?;
 
         // Security: buyer must differ from seller and resolver.
         for i in 0..escrow.payees.len() {
@@ -645,7 +637,7 @@ impl Escrow {
         }
 
         // Block shipping of expired escrows.
-        ensure_not_expired(&env, &escrow)?;
+        ensure_not_expired(&env, escrow_id)?;
 
         if tracking_id.is_empty() {
             return Err(ContractError::InvalidTrackingId);

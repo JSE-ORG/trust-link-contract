@@ -609,9 +609,16 @@ pub(crate) fn payout_basket_tokens(
     Ok(())
 }
 
-pub(crate) fn ensure_not_expired(_env: &Env, _escrow: &EscrowData) -> Result<(), ContractError> {
-    // Expiry is checked at fund_escrow time via PendingExpiry(escrow_id).
-    // Once funded (Funded state), the escrow is not subject to pending expiry.
+pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    if let Some(expires_at) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, u64>(&DataKey::PendingExpiry(escrow_id))
+    {
+        if env.ledger().timestamp() > expires_at {
+            return Err(ContractError::EscrowExpired);
+        }
+    }
     Ok(())
 }
 
