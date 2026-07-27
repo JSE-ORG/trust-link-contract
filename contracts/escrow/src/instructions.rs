@@ -626,9 +626,6 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        // Block shipping of expired escrows.
-        ensure_not_expired(&env, &escrow)?;
-
         if tracking_id.is_empty() {
             return Err(ContractError::InvalidTrackingId);
         }

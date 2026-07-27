@@ -609,12 +609,6 @@ pub(crate) fn payout_basket_tokens(
     Ok(())
 }
 
-pub(crate) fn ensure_not_expired(_env: &Env, _escrow: &EscrowData) -> Result<(), ContractError> {
-    // Expiry is checked at fund_escrow time via PendingExpiry(escrow_id).
-    // Once funded (Funded state), the escrow is not subject to pending expiry.
-    Ok(())
-}
-
 pub(crate) fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
     let current: u64 = env.storage().instance().get(key).unwrap_or(0);
     let next = current
