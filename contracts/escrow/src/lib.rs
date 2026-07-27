@@ -22,16 +22,18 @@ pub use crate::events::{
     emit_contract_unpaused, emit_contract_upgraded, emit_delivery_recorded, emit_dispute_appealed,
     emit_dispute_pending_finalization, emit_dispute_raised, emit_dispute_resolved,
     emit_escrow_cancelled, emit_escrow_completed, emit_escrow_created, emit_escrow_funded,
-    emit_escrow_shipped, emit_fee_updated, emit_platform_fee_updated, emit_protocol_fee_updated,
-    emit_refund_approved, emit_refund_requested, emit_resolver_approved, emit_resolver_removed,
-    emit_resolver_rotated, emit_resolver_strict_updated, emit_resolver_vote_recorded,
-    emit_storage_migrated, emit_token_allowlist_updated, emit_treasury_updated,
-    emit_ttl_extension_updated, ActionPausedEvent, ActionUnpausedEvent, AdminRotated,
-    AmountLimitsUpdated, ArbitrationFeeUpdated, AutoReleased, ContractInitialized,
-    ContractPausedEvent, ContractUnpausedEvent, ContractUpgradedEvent, DeliveryRecorded,
-    DisputeRaised, DisputeResolved, EscrowCancelled, EscrowCompleted, EscrowCreated, EscrowFunded,
-    EscrowShipped, FeeUpdated, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved,
-    ResolverRotated, ResolverStrictUpdated, ResolverVoteRecorded, TtlExtensionUpdated,
+    emit_escrow_shipped, emit_fee_collector_updated, emit_fee_updated,
+    emit_platform_fee_updated, emit_protocol_fee_updated, emit_refund_approved,
+    emit_refund_requested, emit_resolver_approved, emit_resolver_removed, emit_resolver_rotated,
+    emit_resolver_strict_updated, emit_resolver_vote_recorded, emit_storage_migrated,
+    emit_token_allowlist_updated, emit_treasury_updated, emit_ttl_extension_updated,
+    ActionPausedEvent, ActionUnpausedEvent, AdminRotated, AmountLimitsUpdated,
+    ArbitrationFeeUpdated, AutoReleased, ContractInitialized, ContractPausedEvent,
+    ContractUnpausedEvent, ContractUpgradedEvent, DeliveryRecorded, DisputeRaised,
+    DisputeResolved, EscrowCancelled, EscrowCompleted, EscrowCreated, EscrowFunded,
+    EscrowShipped, FeeCollectorUpdated, FeeUpdated, ProtocolFeeUpdated, ResolverApproved,
+    ResolverRemoved, ResolverRotated, ResolverStrictUpdated, ResolverVoteRecorded,
+    TtlExtensionUpdated,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
@@ -1370,8 +1372,7 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::FeeCollector, &new_collector);
-        env.events()
-            .publish(("FeeCollectorUpdated",), (old_collector, new_collector));
+        emit_fee_collector_updated(&env, old_collector, new_collector);
         Ok(())
     }
 

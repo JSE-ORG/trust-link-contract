@@ -1141,3 +1141,27 @@ pub fn emit_resolver_strict_updated(
         },
     );
 }
+
+// ── Fee Collector Updated ─────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeCollectorUpdated {
+    pub schema_version: u32,
+    pub old_collector: Address,
+    pub new_collector: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("FeeColl"), symbol_short!("Updated"),)`, data: `FeeCollectorUpdated`.
+pub fn emit_fee_collector_updated(env: &Env, old_collector: Address, new_collector: Address) {
+    env.events().publish(
+        (symbol_short!("FeeColl"), symbol_short!("Updated")),
+        FeeCollectorUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_collector,
+            new_collector,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
