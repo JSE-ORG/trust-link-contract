@@ -30,7 +30,7 @@ impl Escrow {
 
         let zero = Address::from_string(&String::from_str(
             &env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            crate::ZERO_ADDRESS_STR,
         ));
         if admin == zero || fee_collector == zero {
             return Err(ContractError::InvalidAddress);
@@ -253,7 +253,7 @@ impl Escrow {
 
         let zero = Address::from_string(&String::from_str(
             &env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            crate::ZERO_ADDRESS_STR,
         ));
         if new_collector == zero {
             return Err(ContractError::InvalidAddress);
@@ -429,7 +429,7 @@ impl Escrow {
 
         let zero = Address::from_string(&String::from_str(
             &env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            crate::ZERO_ADDRESS_STR,
         ));
         if treasury == zero {
             return Err(ContractError::InvalidAddress);

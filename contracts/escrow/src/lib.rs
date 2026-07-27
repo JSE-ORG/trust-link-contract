@@ -110,6 +110,7 @@ const APPEAL_WINDOW: u64 = 86_400;
 
 pub const MAX_APPEALS: u32 = 3;
 
+pub const ZERO_ADDRESS_STR: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
 /// Minimum escrow amount in stroops.
 /// Keeps the contract from accepting zero or negative escrows.
@@ -347,7 +348,7 @@ fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), ContractError> 
         // Validate each payee address is not zero
         let zero = Address::from_string(&String::from_str(
             env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            ZERO_ADDRESS_STR,
         ));
         if payee.address == zero {
             return Err(ContractError::InvalidAddress);
@@ -437,7 +438,7 @@ fn get_ttl_extension(env: &Env) -> u32 {
         .unwrap_or(DEFAULT_TTL_EXTENSION)
 }
 
-fn next_escrow_id(env: &Env) -> Result<u64, ContractError> {
+pub(crate) fn next_escrow_id(env: &Env) -> Result<u64, ContractError> {
     let escrow_id: u64 = env
         .storage()
         .instance()
@@ -1122,7 +1123,7 @@ impl Escrow {
 
         let zero = Address::from_string(&String::from_str(
             &env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            ZERO_ADDRESS_STR,
         ));
         if admin == zero || fee_collector == zero {
             return Err(ContractError::InvalidAddress);
@@ -1345,7 +1346,7 @@ impl Escrow {
 
         let zero = Address::from_string(&String::from_str(
             &env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            ZERO_ADDRESS_STR,
         ));
         if new_collector == zero {
             return Err(ContractError::InvalidAddress);
@@ -2809,7 +2810,7 @@ impl Escrow {
 
         let zero = Address::from_string(&String::from_str(
             &env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            ZERO_ADDRESS_STR,
         ));
         if treasury == zero {
             return Err(ContractError::InvalidAddress);
