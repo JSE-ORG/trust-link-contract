@@ -437,6 +437,26 @@ fn get_ttl_extension(env: &Env) -> u32 {
         .unwrap_or(DEFAULT_TTL_EXTENSION)
 }
 
+fn next_escrow_id(env: &Env) -> Result<u64, ContractError> {
+    let escrow_id: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::EscrowCounter)
+        .unwrap_or(1u64);
+    let next_id = escrow_id
+        .checked_add(1)
+        .ok_or(ContractError::ArithmeticError)?;
+    env.storage()
+        .instance()
+        .set(&DataKey::EscrowCounter, &next_id);
+
+    let ext = get_ttl_extension(env);
+    env.storage().instance().extend_ttl(ext / 2, ext);
+
+    Ok(escrow_id)
+}
+
+
 /// Saves the escrow and records a state-history entry if the state changed.
 /// Callers that already know the pre-mutation state (most do — they hold it
 /// from `load_escrow` before overwriting `escrow.state`) should pass it via
@@ -803,20 +823,7 @@ fn create_escrow_internal(
     // Token allowlist check
     is_token_allowed(env, &token)?;
 
-    let escrow_id: u64 = env
-        .storage()
-        .instance()
-        .get(&DataKey::EscrowCounter)
-        .unwrap_or(1u64);
-    let next_id = escrow_id
-        .checked_add(1)
-        .ok_or(ContractError::ArithmeticError)?;
-    env.storage()
-        .instance()
-        .set(&DataKey::EscrowCounter, &next_id);
-
-    let ext = get_ttl_extension(env);
-    env.storage().instance().extend_ttl(ext / 2, ext);
+    let escrow_id = next_escrow_id(env)?;
 
     let resolvers = ResolverSet::Single(resolver.clone());
     let escrow = EscrowData {
@@ -1675,20 +1682,7 @@ impl Escrow {
         });
         validate_resolvers(&resolver_set, &seller, &buyer)?;
 
-        let escrow_id: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCounter)
-            .ok_or(ContractError::NotInitialized)?;
-        let next_id = escrow_id
-            .checked_add(1)
-            .ok_or(ContractError::ArithmeticError)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCounter, &next_id);
-        // Extend instance storage TTL on every counter access
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        let escrow_id = next_escrow_id(&env)?;
 
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
@@ -1831,20 +1825,7 @@ impl Escrow {
         });
         validate_resolvers(&resolver_set, &seller, &buyer)?;
 
-        let escrow_id: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCounter)
-            .ok_or(ContractError::NotInitialized)?;
-        let next_id = escrow_id
-            .checked_add(1)
-            .ok_or(ContractError::ArithmeticError)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCounter, &next_id);
-
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        let escrow_id = next_escrow_id(&env)?;
 
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
@@ -2945,20 +2926,7 @@ impl Escrow {
             is_token_allowed(&env, &token)?;
         }
 
-        let escrow_id: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCounter)
-            .unwrap_or(1u64);
-        let next_id = escrow_id
-            .checked_add(1)
-            .ok_or(ContractError::ArithmeticError)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCounter, &next_id);
-
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        let escrow_id = next_escrow_id(&env)?;
 
         let primary_token = tokens.get(0).ok_or(ContractError::InvalidAmount)?;
 
