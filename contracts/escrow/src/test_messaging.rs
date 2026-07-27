@@ -11,17 +11,23 @@ use soroban_sdk::{
 
 struct Fixture {
     env: Env,
-    client: EscrowClient<'static>,
+    contract_id: Address,
     admin: Address,
     seller: Address,
     buyer: Address,
     escrow_id: u64,
 }
 
+impl Fixture {
+    fn client(&self) -> EscrowClient<'_> {
+        EscrowClient::new(&self.env, &self.contract_id)
+    }
+}
+
 fn fixture() -> Fixture {
     let env = Env::default();
     env.mock_all_auths();
-    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
@@ -33,7 +39,7 @@ fn fixture() -> Fixture {
     );
     Fixture {
         env,
-        client,
+        contract_id,
         admin,
         seller,
         buyer,
@@ -47,9 +53,9 @@ fn buyer_can_post_a_message_and_it_is_stored_with_its_timestamp() {
     f.env.ledger().set_timestamp(42);
     let content = String::from_str(&f.env, "Where is my order?");
 
-    f.client.post_message(&f.escrow_id, &f.buyer, &content);
+    f.client().post_message(&f.escrow_id, &f.buyer, &content);
 
-    let messages = f.client.get_messages(&f.escrow_id, &0, &10);
+    let messages = f.client().get_messages(&f.escrow_id, &0, &10);
     assert_eq!(messages.len(), 1);
     assert_eq!(messages.get(0).unwrap().sender, f.buyer);
     assert_eq!(messages.get(0).unwrap().timestamp, 42);
@@ -61,10 +67,10 @@ fn seller_can_post_a_message() {
     let f = fixture();
     let content = String::from_str(&f.env, "It ships tomorrow.");
 
-    f.client.post_message(&f.escrow_id, &f.seller, &content);
+    f.client().post_message(&f.escrow_id, &f.seller, &content);
 
     assert_eq!(
-        f.client
+        f.client()
             .get_messages(&f.escrow_id, &0, &1)
             .get(0)
             .unwrap()
@@ -78,10 +84,10 @@ fn messages_preserve_posting_order() {
     let f = fixture();
     let first = String::from_str(&f.env, "First");
     let second = String::from_str(&f.env, "Second");
-    f.client.post_message(&f.escrow_id, &f.buyer, &first);
-    f.client.post_message(&f.escrow_id, &f.seller, &second);
+    f.client().post_message(&f.escrow_id, &f.buyer, &first);
+    f.client().post_message(&f.escrow_id, &f.seller, &second);
 
-    let messages = f.client.get_messages(&f.escrow_id, &0, &10);
+    let messages = f.client().get_messages(&f.escrow_id, &0, &10);
     assert_eq!(messages.len(), 2);
     assert_eq!(messages.get(0).unwrap().content, first);
     assert_eq!(messages.get(1).unwrap().content, second);
@@ -91,21 +97,21 @@ fn messages_preserve_posting_order() {
 fn non_participant_cannot_post_a_message() {
     let f = fixture();
     let stranger = Address::generate(&f.env);
-    let result = f.client.try_post_message(
+    let result = f.client().try_post_message(
         &f.escrow_id,
         &stranger,
         &String::from_str(&f.env, "Let me in"),
     );
 
     assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
-    assert_eq!(f.client.get_messages(&f.escrow_id, &0, &10).len(), 0);
+    assert_eq!(f.client().get_messages(&f.escrow_id, &0, &10).len(), 0);
 }
 
 #[test]
 fn post_message_rejects_empty_content() {
     let f = fixture();
     let result = f
-        .client
+        .client()
         .try_post_message(&f.escrow_id, &f.buyer, &String::from_str(&f.env, ""));
 
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
@@ -117,7 +123,7 @@ fn post_message_rejects_content_over_the_maximum_length() {
     let content = String::from_str(&f.env, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
     assert_eq!(
-        f.client.try_post_message(&f.escrow_id, &f.buyer, &content),
+        f.client().try_post_message(&f.escrow_id, &f.buyer, &content),
         Err(Ok(ContractError::InputTooLong))
     );
 }
@@ -126,24 +132,24 @@ fn post_message_rejects_content_over_the_maximum_length() {
 fn get_messages_paginates_and_returns_empty_after_the_end() {
     let f = fixture();
     for text in ["one", "two", "three"] {
-        f.client
+        f.client()
             .post_message(&f.escrow_id, &f.buyer, &String::from_str(&f.env, text));
     }
 
-    let page = f.client.get_messages(&f.escrow_id, &1, &1);
+    let page = f.client().get_messages(&f.escrow_id, &1, &1);
     assert_eq!(page.len(), 1);
     assert_eq!(
         page.get(0).unwrap().content,
         String::from_str(&f.env, "two")
     );
-    assert_eq!(f.client.get_messages(&f.escrow_id, &3, &1).len(), 0);
+    assert_eq!(f.client().get_messages(&f.escrow_id, &3, &1).len(), 0);
 }
 
 #[test]
 fn posting_to_an_unknown_escrow_is_rejected() {
     let f = fixture();
     assert_eq!(
-        f.client
+        f.client()
             .try_post_message(&999_u64, &f.buyer, &String::from_str(&f.env, "Hello"),),
         Err(Ok(ContractError::EscrowNotFound))
     );
@@ -152,10 +158,10 @@ fn posting_to_an_unknown_escrow_is_rejected() {
 #[test]
 fn posting_is_blocked_while_the_contract_is_paused() {
     let f = fixture();
-    f.client.pause_contract(&f.admin);
+    f.client().pause_contract(&f.admin);
 
     assert_eq!(
-        f.client
+        f.client()
             .try_post_message(&f.escrow_id, &f.buyer, &String::from_str(&f.env, "Hello"),),
         Err(Ok(ContractError::ContractPaused))
     );
