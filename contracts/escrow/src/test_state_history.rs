@@ -154,7 +154,7 @@ fn state_history_prunes_oldest_entries_beyond_cap() {
             } else {
                 EscrowState::PendingFinalization
             };
-            crate::append_state_history(&env, escrow_id, &state);
+            crate::internal::append_state_history(&env, escrow_id, &state);
         }
     });
 

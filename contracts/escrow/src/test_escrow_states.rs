@@ -3,7 +3,8 @@
 //! matrix (#9): all 10 states exist, every legal edge is accepted, every illegal
 //! edge is rejected with `InvalidStateTransition`, and self-loops are illegal.
 
-use crate::{transition_state, ContractError, EscrowState};
+use crate::internal::transition_state;
+use crate::{ContractError, EscrowState};
 
 #[test]
 fn all_ten_states_are_defined() {

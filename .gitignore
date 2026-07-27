@@ -24,3 +24,10 @@ test_snapshots/
 contracts/escrow/fuzz/corpus/
 contracts/escrow/fuzz/artifacts/
 contracts/escrow/fuzz/coverage/
+
+# Local build/test debug output
+contracts/escrow/*.log
+contracts/escrow/err*.txt
+contracts/escrow/error.txt
+contracts/escrow/compile_err.txt
+contracts/escrow/cargo_test_err*.txt

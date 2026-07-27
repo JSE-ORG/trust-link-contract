@@ -1,19 +1,18 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
-use soroban_sdk::{
-    contract, contractimpl, contracttype, token, Address, BytesN, Env, IntoVal, String, Symbol,
-    TryFromVal, TryIntoVal, Val, Vec,
-};
-
-// Added import for Message
-use crate::events::emit_message_posted;
-use crate::types::Message;
+use soroban_sdk::{contract, contracttype, Symbol, Val, Vec};
 
 pub mod errors;
 pub mod events;
 pub mod helpers;
 pub mod storage;
 pub mod types;
+
+mod admin;
+mod disputes;
+mod instructions;
+mod internal;
+mod queries;
 pub use crate::errors::ContractError;
 pub use crate::events::{
     emit_action_paused, emit_action_unpaused, emit_admin_rotated, emit_allowlist_toggled,
@@ -147,136 +146,6 @@ pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / BASIS_POINTS as i128;
 
 /// Basis points denominator (100% = 10_000 basis points).
 pub const BASIS_POINTS: u32 = 10_000;
-
-// ============================================================================
-// MULTI-RESOLVER VOTING HELPERS
-// ============================================================================
-
-/// Load resolver votes for an escrow from storage
-fn load_resolver_votes(env: &Env, escrow_id: u64) -> Vec<ResolverVote> {
-    use crate::DataKey;
-    env.storage()
-        .persistent()
-        .get(&DataKey::ResolverVotes(escrow_id))
-        .unwrap_or(Vec::new(env))
-}
-
-/// Save resolver votes to storage
-fn save_resolver_votes(env: &Env, escrow_id: u64, votes: &Vec<ResolverVote>) {
-    use crate::DataKey;
-    env.storage()
-        .persistent()
-        .set(&DataKey::ResolverVotes(escrow_id), votes);
-    // Extend TTL for votes
-    let ext = get_ttl_extension(env);
-    env.storage()
-        .persistent()
-        .extend_ttl(&DataKey::ResolverVotes(escrow_id), ext / 2, ext);
-}
-
-/// Add or update a vote from a resolver
-fn add_or_update_vote(
-    env: &Env,
-    escrow_id: u64,
-    resolver: &Address,
-    resolution: ResolutionType,
-) -> Vec<ResolverVote> {
-    let mut votes = load_resolver_votes(env, escrow_id);
-    let current_time = env.ledger().timestamp();
-
-    // Check if this resolver already voted
-    let mut found = false;
-    for i in 0..votes.len() {
-        if let Some(vote) = votes.get(i) {
-            if vote.resolver == *resolver {
-                // Update existing vote
-                let mut updated = vote.clone();
-                updated.resolution = resolution.clone();
-                updated.voted_at = current_time;
-                votes.set(i, updated);
-                found = true;
-                break;
-            }
-        }
-    }
-
-    if !found {
-        // Add new vote
-        votes.push_back(ResolverVote {
-            resolver: resolver.clone(),
-            resolution,
-            voted_at: current_time,
-        });
-    }
-
-    votes
-}
-
-/// Tally votes and determine if resolution should be executed
-/// Returns the winning resolution if threshold is met
-fn tally_votes(votes: &Vec<ResolverVote>, threshold: u32) -> Option<ResolutionType> {
-    if votes.is_empty() {
-        return None;
-    }
-
-    let mut release_count = 0u32;
-    let mut refund_count = 0u32;
-
-    for i in 0..votes.len() {
-        if let Some(vote) = votes.get(i) {
-            match vote.resolution {
-                ResolutionType::Release => release_count = release_count.saturating_add(1),
-                ResolutionType::Refund => refund_count = refund_count.saturating_add(1),
-            }
-        }
-    }
-
-    if release_count >= threshold {
-        Some(ResolutionType::Release)
-    } else if refund_count >= threshold {
-        Some(ResolutionType::Refund)
-    } else {
-        None
-    }
-}
-
-// ============================================================================
-// STATE MACHINE VALIDATION
-// ============================================================================
-
-/// Validity matrix for escrow state transitions (#9).
-///
-/// Returns `Ok(())` if the move from `from` to `to` is legal under the
-/// escrow lifecycle, `Err(InvalidStateTransition)` otherwise. Provided as a
-/// pure helper alongside the existing inline guards so reviewers can audit
-/// every legal edge in one place.
-pub fn transition_state(from: &EscrowState, to: &EscrowState) -> Result<(), ContractError> {
-    use EscrowState::*;
-    let allowed = matches!(
-        (from, to),
-        (Pending, Funded)
-            | (Pending, Canceled)
-            | (Funded, Shipped)
-            | (Funded, Disputed)
-            | (Funded, Refunded)
-            | (Funded, RefundRequested)
-            | (RefundRequested, Refunded)
-            | (Shipped, Completed)
-            | (Shipped, Disputed)
-            | (Shipped, Refunded)
-            | (Disputed, Completed)
-            | (Disputed, Refunded)
-            | (Disputed, PendingFinalization)
-            | (PendingFinalization, Completed)
-            | (PendingFinalization, Refunded)
-            | (PendingFinalization, Disputed)
-    );
-    if allowed {
-        Ok(())
-    } else {
-        Err(ContractError::InvalidStateTransition)
-    }
-}
 
 #[contract]
 pub struct Escrow;

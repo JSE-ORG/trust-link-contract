@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    Address, Env, IntoVal, Vec,
+    Address, Env, IntoVal, String, Vec,
 };
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
