@@ -164,3 +164,7 @@ By placing relevant addresses in the topics, indexers can filter directly for ev
 - **contract_upgraded**:
   - Topics: `["contract_upgraded"]`
   - Payload: `ContractUpgradedEvent` `{ schema_version, admin, new_wasm_hash, timestamp }`
+- **storage_migrated**:
+  - Topics: `["storage_migrated"]`
+  - Payload: `StorageMigratedEvent` `{ schema_version, admin, from_version, to_version, timestamp }`
+  - Emitted by `migrate` after a WASM upgrade; see [UPGRADES.md](UPGRADES.md)

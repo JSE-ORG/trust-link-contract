@@ -1,36 +1,37 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
-use soroban_sdk::{
-    contract, contractimpl, contracttype, token, Address, BytesN, Env, IntoVal, String, Symbol,
-    TryFromVal, TryIntoVal, Val, Vec,
-};
-
-// Added import for Message
-use crate::events::emit_message_posted;
-use crate::types::Message;
+use soroban_sdk::{contract, contracttype, Symbol, Val, Vec};
 
 pub mod errors;
 pub mod events;
 pub mod helpers;
 pub mod storage;
 pub mod types;
+
+mod admin;
+mod disputes;
+mod instructions;
+mod internal;
+mod queries;
 pub use crate::errors::ContractError;
 pub use crate::events::{
     emit_action_paused, emit_action_unpaused, emit_admin_rotated, emit_allowlist_toggled,
     emit_amount_limits_updated, emit_arbitration_fee_updated, emit_auto_released,
     emit_basket_escrow_created, emit_contract_initialized, emit_contract_paused,
-    emit_contract_unpaused, emit_contract_upgraded, emit_delivery_recorded, emit_dispute_appealed,
+    emit_contract_unpaused, emit_contract_upgraded, emit_delivery_proposal_cancelled,
+    emit_delivery_proposed, emit_delivery_recorded, emit_dispute_appealed,
     emit_dispute_pending_finalization, emit_dispute_raised, emit_dispute_resolved,
     emit_escrow_cancelled, emit_escrow_completed, emit_escrow_created, emit_escrow_funded,
     emit_escrow_shipped, emit_fee_updated, emit_platform_fee_updated, emit_protocol_fee_updated,
     emit_refund_approved, emit_refund_requested, emit_resolver_approved, emit_resolver_removed,
     emit_resolver_rotated, emit_resolver_strict_updated, emit_resolver_vote_recorded,
-    emit_token_allowlist_updated, emit_treasury_updated, emit_ttl_extension_updated,
-    ActionPausedEvent, ActionUnpausedEvent, AdminRotated, AmountLimitsUpdated,
-    ArbitrationFeeUpdated, AutoReleased, ContractInitialized, ContractPausedEvent,
-    ContractUnpausedEvent, ContractUpgradedEvent, DeliveryRecorded, DisputeRaised, DisputeResolved,
-    EscrowCancelled, EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, FeeUpdated,
-    ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated, ResolverStrictUpdated,
+    emit_storage_migrated, emit_token_allowlist_updated, emit_treasury_updated,
+    emit_ttl_extension_updated, ActionPausedEvent, ActionUnpausedEvent, AdminRotated,
+    AmountLimitsUpdated, ArbitrationFeeUpdated, AutoReleased, ContractInitialized,
+    ContractPausedEvent, ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled,
+    DeliveryProposed, DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowCancelled,
+    EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, FeeUpdated, ProtocolFeeUpdated,
+    ResolverApproved, ResolverRemoved, ResolverRotated, ResolverStrictUpdated,
     ResolverVoteRecorded, TtlExtensionUpdated,
 };
 pub use crate::types::{
@@ -76,6 +77,13 @@ const MAX_COMBINED_FEE_BPS: u32 = 1_000;
 /// The semantic version of the contract.
 pub const CONTRACT_VERSION: u32 = 1;
 
+/// The on-chain storage schema version this build expects.
+///
+/// Bump this whenever the layout of a stored type changes, and extend
+/// [`Escrow::migrate`] with the corresponding step. Contracts deployed before
+/// versioning existed report `0`; see `docs/UPGRADES.md`.
+pub const STORAGE_VERSION: u32 = 1;
+
 /// Maximum platform fee in basis points (200 = 2%).
 ///
 /// Platform fees are per-escrow fees forwarded to the treasury on successful release.
@@ -99,6 +107,7 @@ pub const MIN_ESCROW_AMOUNT: i128 = 1;
 /// releasable to the seller.
 const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
+pub const DELIVERY_TIMELOCK: u64 = 86_400;
 const DEFAULT_TTL_EXTENSION: u32 = 120_960;
 /// Divisor used when computing the threshold for TTL extension.
 /// TTL is extended to `ext / TTL_THRESHOLD_DIVISOR` on the low end,
@@ -109,6 +118,12 @@ const TTL_THRESHOLD_DIVISOR: u32 = 2;
 #[allow(dead_code)]
 const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 
+/// Maximum number of entries kept in an escrow's state history.
+/// Once reached, the oldest entry is dropped for each new one appended,
+/// bounding storage size for high-churn escrows (e.g. disputed <->
+/// pending_finalization cycles).
+const MAX_STATE_HISTORY_ENTRIES: u32 = 50;
+
 /// Maximum length for user-supplied string fields.
 /// - `tracking_id`: 64 characters
 /// - `description` in `raise_dispute`: 256 characters
@@ -116,6 +131,8 @@ const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 pub const MAX_TRACKING_ID_LEN: u32 = 64;
 pub const MAX_DESCRIPTION_LEN: u32 = 256;
 pub const MAX_NOTES_LEN: u32 = 500;
+/// Maximum length for an on-chain buyer/seller message.
+pub const MAX_MESSAGE_LEN: u32 = 500;
 
 /// Minimum shipping window in seconds (1 second).
 /// A value of 0 would allow an immediate dispute with no shipping time, which is invalid.
@@ -129,136 +146,6 @@ pub const MAX_SHIPPING_WINDOW: u64 = 63_072_000;
 /// preserve arithmetic safety for fee calculations
 /// and aggregate accounting operations.
 pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 10_000;
-
-// ============================================================================
-// MULTI-RESOLVER VOTING HELPERS
-// ============================================================================
-
-/// Load resolver votes for an escrow from storage
-fn load_resolver_votes(env: &Env, escrow_id: u64) -> Vec<ResolverVote> {
-    use crate::DataKey;
-    env.storage()
-        .persistent()
-        .get(&DataKey::ResolverVotes(escrow_id))
-        .unwrap_or(Vec::new(env))
-}
-
-/// Save resolver votes to storage
-fn save_resolver_votes(env: &Env, escrow_id: u64, votes: &Vec<ResolverVote>) {
-    use crate::DataKey;
-    env.storage()
-        .persistent()
-        .set(&DataKey::ResolverVotes(escrow_id), votes);
-    // Extend TTL for votes
-    let ext = get_ttl_extension(env);
-    env.storage()
-        .persistent()
-        .extend_ttl(&DataKey::ResolverVotes(escrow_id), ext / 2, ext);
-}
-
-/// Add or update a vote from a resolver
-fn add_or_update_vote(
-    env: &Env,
-    escrow_id: u64,
-    resolver: &Address,
-    resolution: ResolutionType,
-) -> Vec<ResolverVote> {
-    let mut votes = load_resolver_votes(env, escrow_id);
-    let current_time = env.ledger().timestamp();
-
-    // Check if this resolver already voted
-    let mut found = false;
-    for i in 0..votes.len() {
-        if let Some(vote) = votes.get(i) {
-            if vote.resolver == *resolver {
-                // Update existing vote
-                let mut updated = vote.clone();
-                updated.resolution = resolution.clone();
-                updated.voted_at = current_time;
-                votes.set(i, updated);
-                found = true;
-                break;
-            }
-        }
-    }
-
-    if !found {
-        // Add new vote
-        votes.push_back(ResolverVote {
-            resolver: resolver.clone(),
-            resolution,
-            voted_at: current_time,
-        });
-    }
-
-    votes
-}
-
-/// Tally votes and determine if resolution should be executed
-/// Returns the winning resolution if threshold is met
-fn tally_votes(votes: &Vec<ResolverVote>, threshold: u32) -> Option<ResolutionType> {
-    if votes.is_empty() {
-        return None;
-    }
-
-    let mut release_count = 0u32;
-    let mut refund_count = 0u32;
-
-    for i in 0..votes.len() {
-        if let Some(vote) = votes.get(i) {
-            match vote.resolution {
-                ResolutionType::Release => release_count = release_count.saturating_add(1),
-                ResolutionType::Refund => refund_count = refund_count.saturating_add(1),
-            }
-        }
-    }
-
-    if release_count >= threshold {
-        Some(ResolutionType::Release)
-    } else if refund_count >= threshold {
-        Some(ResolutionType::Refund)
-    } else {
-        None
-    }
-}
-
-// ============================================================================
-// STATE MACHINE VALIDATION
-// ============================================================================
-
-/// Validity matrix for escrow state transitions (#9).
-///
-/// Returns `Ok(())` if the move from `from` to `to` is legal under the
-/// escrow lifecycle, `Err(InvalidStateTransition)` otherwise. Provided as a
-/// pure helper alongside the existing inline guards so reviewers can audit
-/// every legal edge in one place.
-pub fn transition_state(from: &EscrowState, to: &EscrowState) -> Result<(), ContractError> {
-    use EscrowState::*;
-    let allowed = matches!(
-        (from, to),
-        (Pending, Funded)
-            | (Pending, Canceled)
-            | (Funded, Shipped)
-            | (Funded, Disputed)
-            | (Funded, Refunded)
-            | (Funded, RefundRequested)
-            | (RefundRequested, Refunded)
-            | (Shipped, Completed)
-            | (Shipped, Disputed)
-            | (Shipped, Refunded)
-            | (Disputed, Completed)
-            | (Disputed, Refunded)
-            | (Disputed, PendingFinalization)
-            | (PendingFinalization, Completed)
-            | (PendingFinalization, Refunded)
-            | (PendingFinalization, Disputed)
-    );
-    if allowed {
-        Ok(())
-    } else {
-        Err(ContractError::InvalidStateTransition)
-    }
-}
 
 #[contract]
 pub struct Escrow;
@@ -3904,6 +3791,7 @@ mod test_auth_matrix;
 mod test_auth_ordering;
 mod test_auto_release;
 mod test_auto_release_additional;
+mod test_basket_escrow;
 mod test_cancel_restrictions;
 mod test_co_signed_release;
 mod test_concurrent_vendor_escrows;
@@ -3922,6 +3810,7 @@ mod test_escrow_states;
 mod test_fee_calculation_accuracy;
 mod test_fee_config;
 mod test_fee_minimum;
+mod test_finalize_dispute_appeal_boundary;
 mod test_get_escrows_by_buyer;
 mod test_get_escrows_by_ids;
 mod test_get_escrows_by_seller;
@@ -3930,6 +3819,7 @@ mod test_helpers;
 mod test_initialize_twice;
 mod test_initialize_zero_admin;
 mod test_malicious_token;
+mod test_messaging;
 mod test_minimum_amount_guard;
 mod test_not_found;
 mod test_overflow;
@@ -3942,3 +3832,5 @@ mod test_set_fee_collector;
 mod test_shipping_window;
 mod test_state_history;
 mod test_unauthorized;
+mod test_upgrade_migration;
+mod test_vote;

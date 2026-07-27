@@ -45,7 +45,15 @@ export interface RawEvent {
 // Single-topic events (e.g. "resolver_vote_recorded") use the topic directly.
 // ---------------------------------------------------------------------------
 
+/**
+ * Every topic key emitted by contracts/escrow/src/events.rs.
+ *
+ * Keep this union, `KNOWN_TOPIC_KEYS` and the `processEvent` switch in
+ * apply.ts in lockstep — an event missing from the switch is dropped from the
+ * materialized tables.
+ */
 export type EventTopicKey =
+  // Escrow lifecycle
   | "Escrow:Created"
   | "Escrow:Funded"
   | "Escrow:Shipped"
@@ -53,29 +61,78 @@ export type EventTopicKey =
   | "Escrow:Completed"
   | "Escrow:Canceled"
   | "Escrow:Released"
+  | "Basket:Created"
+  | "Refund:Requested"
+  | "Refund:Approved"
+  // Disputes & resolvers
   | "Dispute:Raised"
   | "Dispute:Resolved"
   | "Dispute:Pending"
   | "Dispute:Appealed"
   | "Resolver:Rotated"
+  | "Resolver:Approved"
+  | "Resolver:Removed"
+  | "ResStrct:Updated"
   | "resolver_vote_recorded"
+  // Messaging
+  | "Message:Posted"
+  // Contract-level governance / configuration
   | "Contract:Init"
   | "Contract:Paused"
   | "Contract:Unpaused"
+  | "Action:Paused"
+  | "Action:Unpaused"
   | "Admin:Rotated"
   | "Fee:Updated"
   | "ProtoFee:Updated"
   | "ArbFee:Updated"
   | "PlatFee:Updated"
-  | "Fee:Withdrawn"
+  | "Treasury:Updated"
+  | "TtlExt:Updated"
+  | "AmtLimit:Updated"
   | "Token:Allowlist"
   | "Allowlist:Toggled"
-  | "Treasury:Updated"
-  | "Message:Posted"
-  | "Refund:Requested"
-  | "Refund:Approved"
-  | "contract_upgraded"
-  | "Basket:Created";
+  | "contract_upgraded";
+
+/** Runtime mirror of `EventTopicKey` — used to distinguish unknown events. */
+export const KNOWN_TOPIC_KEYS: ReadonlySet<string> = new Set<EventTopicKey>([
+  "Escrow:Created",
+  "Escrow:Funded",
+  "Escrow:Shipped",
+  "Escrow:Delivered",
+  "Escrow:Completed",
+  "Escrow:Canceled",
+  "Escrow:Released",
+  "Basket:Created",
+  "Refund:Requested",
+  "Refund:Approved",
+  "Dispute:Raised",
+  "Dispute:Resolved",
+  "Dispute:Pending",
+  "Dispute:Appealed",
+  "Resolver:Rotated",
+  "Resolver:Approved",
+  "Resolver:Removed",
+  "ResStrct:Updated",
+  "resolver_vote_recorded",
+  "Message:Posted",
+  "Contract:Init",
+  "Contract:Paused",
+  "Contract:Unpaused",
+  "Action:Paused",
+  "Action:Unpaused",
+  "Admin:Rotated",
+  "Fee:Updated",
+  "ProtoFee:Updated",
+  "ArbFee:Updated",
+  "PlatFee:Updated",
+  "Treasury:Updated",
+  "TtlExt:Updated",
+  "AmtLimit:Updated",
+  "Token:Allowlist",
+  "Allowlist:Toggled",
+  "contract_upgraded",
+]);
 
 export function topicKey(topics: string[]): string {
   if (topics.length === 0) throw new Error("event has no topics");
@@ -210,6 +267,135 @@ export interface ResolverRotatedPayload {
   old_resolver: string;
   new_resolver: string;
   rotated_at: string | number;
+}
+
+export interface ResolverVoteRecordedPayload {
+  schema_version: number;
+  escrow_id: string | number;
+  resolver: string;
+  resolution: string;
+  vote_count: number;
+  threshold: number;
+  voted_at: string | number;
+}
+
+export interface BasketEscrowCreatedPayload {
+  schema_version: number;
+  escrow_id: string | number;
+  seller: string;
+  token_count: number;
+  timestamp: string | number;
+}
+
+export interface MessagePostedPayload {
+  schema_version: number;
+  escrow_id: string | number;
+  sender: string;
+  timestamp: string | number;
+}
+
+export interface RefundPayload {
+  schema_version: number;
+  escrow_id: string | number;
+  timestamp: string | number;
+  prev_state: string;
+  new_state: string;
+}
+
+export interface ContractInitializedPayload {
+  schema_version: number;
+  admin: string;
+  fee_collector: string;
+  arbitration_fee_bps: number;
+  timestamp: string | number;
+}
+
+export interface PauseTogglePayload {
+  schema_version: number;
+  admin: string;
+  timestamp: string | number;
+}
+
+export interface ActionPauseTogglePayload {
+  schema_version: number;
+  action: string;
+  caller: string;
+  timestamp: string | number;
+}
+
+export interface AdminRotatedPayload {
+  schema_version: number;
+  old_admin: string;
+  new_admin: string;
+  timestamp: string | number;
+}
+
+/** Shared shape of Fee:Updated, ProtoFee:Updated, ArbFee:Updated, PlatFee:Updated. */
+export interface FeeUpdatedPayload {
+  schema_version: number;
+  old_fee_bps: number;
+  new_fee_bps: number;
+  timestamp: string | number;
+}
+
+export interface TreasuryUpdatedPayload {
+  schema_version: number;
+  old_treasury: string;
+  new_treasury: string;
+  timestamp: string | number;
+}
+
+export interface TtlExtensionUpdatedPayload {
+  schema_version: number;
+  old_ledgers: number;
+  new_ledgers: number;
+  caller: string;
+  timestamp: string | number;
+}
+
+export interface AmountLimitsUpdatedPayload {
+  schema_version: number;
+  old_min_amount: string;
+  new_min_amount: string;
+  old_max_amount: string;
+  new_max_amount: string;
+  caller: string;
+  timestamp: string | number;
+}
+
+export interface TokenAllowlistUpdatedPayload {
+  schema_version: number;
+  token: string;
+  added: boolean;
+  timestamp: string | number;
+}
+
+export interface AllowlistToggledPayload {
+  schema_version: number;
+  enabled: boolean;
+  timestamp: string | number;
+}
+
+export interface ResolverRegistryPayload {
+  schema_version: number;
+  resolver: string;
+  caller: string;
+  timestamp: string | number;
+}
+
+export interface ResolverStrictUpdatedPayload {
+  schema_version: number;
+  old_strict: boolean;
+  new_strict: boolean;
+  caller: string;
+  timestamp: string | number;
+}
+
+export interface ContractUpgradedPayload {
+  schema_version: number;
+  admin: string;
+  new_wasm_hash: string;
+  timestamp: string | number;
 }
 
 /** Convenience: coerce a payload numeric field to string (handles bigint/number/string). */

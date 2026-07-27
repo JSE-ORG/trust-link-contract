@@ -205,9 +205,9 @@ trustlink-escrow-bindings
 When the contract ABI changes, rebuild the Wasm and regenerate:
 
 ```bash
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 stellar contract bindings typescript \
-  --wasm ../target/wasm32-unknown-unknown/release/trustlink_escrow.wasm \
+  --wasm ../target/wasm32v1-none/release/trustlink_escrow.wasm \
   --output-dir src \
   --overwrite
 npm run typecheck

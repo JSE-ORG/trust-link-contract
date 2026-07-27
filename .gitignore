@@ -2,12 +2,22 @@
 target
 target_local
 
+# Build artifacts
+*.wasm
+
 # Local settings
 .soroban
+.soroban/example_config.toml
 .stellar
 
-# Node (bindings/)
+# Environment / secrets
+.env
+
+# Node (bindings/, indexer/, e2e/)
 node_modules
+dist
+dist-test
+bindings/dist/
 
 issues.txt
 upload_issues.sh
@@ -17,3 +27,15 @@ recreate_issues.sh
 # Test generated snapshots
 test_snapshots/
 **/test_snapshots/
+
+# cargo-fuzz working data
+contracts/escrow/fuzz/corpus/
+contracts/escrow/fuzz/artifacts/
+contracts/escrow/fuzz/coverage/
+
+# Local build/test debug output
+contracts/escrow/*.log
+contracts/escrow/err*.txt
+contracts/escrow/error.txt
+contracts/escrow/compile_err.txt
+contracts/escrow/cargo_test_err*.txt

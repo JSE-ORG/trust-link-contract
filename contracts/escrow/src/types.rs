@@ -25,6 +25,9 @@ pub enum DataKey {
     ApprovedResolvers,
     ResolverStrict,
     AccumulatedFees(Address),
+    /// Schema version of the data currently in storage. Absent on contracts
+    /// deployed before migrations existed, which is read as version 0.
+    StorageVersion,
 
     // Persistent storage: per-escrow data and user indexes.
     Escrow(u64),
@@ -42,6 +45,7 @@ pub enum DataKey {
     TotalRefunded,
     EvidenceLog(u64),
     BasketTokens(u64),
+    DeliveryProposal(u64),
 }
 
 /// A token-amount pair for multi-token basket escrows.

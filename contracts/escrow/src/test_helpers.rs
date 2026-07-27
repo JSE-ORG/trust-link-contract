@@ -53,3 +53,14 @@ pub fn create_funded_escrow(
     client.fund_escrow(&id, buyer);
     id
 }
+
+pub fn record_delivery_timelocked(
+    env: &Env,
+    client: &EscrowClient,
+    admin: &Address,
+    escrow_id: u64,
+) {
+    client.propose_record_delivery(admin, &escrow_id);
+    advance_time(env, crate::DELIVERY_TIMELOCK);
+    client.record_delivery(admin, &escrow_id);
+}

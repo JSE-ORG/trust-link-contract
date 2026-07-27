@@ -89,10 +89,9 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
 
     assert_eq!(balance(&env, &token, &seller), 931);
 
-    // contract balance holds the arbitration fees (50)
-    // protocol fee (19) is sent directly to fee_collector
-    assert_eq!(balance(&env, &token, &contract_id), 50);
-    assert_eq!(balance(&env, &token, &fee_collector), 19);
+    // arbitration fee (50) and protocol fee (19) go to fee_collector
+    assert_eq!(balance(&env, &token, &contract_id), 0);
+    assert_eq!(balance(&env, &token, &fee_collector), 69);
 
     // Dedicated tracking variable should be updated
     assert_eq!(client.get_total_arbitration_fees(&token), 50);
@@ -153,8 +152,8 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
     // 5. final_net = 950 - 28 = 922
 
     assert_eq!(balance(&env, &token, &buyer), 922);
-    assert_eq!(balance(&env, &token, &contract_id), 50); // arbitration fee only
-    assert_eq!(balance(&env, &token, &fee_collector), 28); // protocol fee
+    assert_eq!(balance(&env, &token, &contract_id), 0);
+    assert_eq!(balance(&env, &token, &fee_collector), 78);
     assert_eq!(client.get_total_arbitration_fees(&token), 50);
 }
 

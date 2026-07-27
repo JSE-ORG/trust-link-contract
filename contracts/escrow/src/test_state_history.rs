@@ -103,7 +103,7 @@ fn state_history_ignores_non_state_updates() {
     );
 
     env.ledger().set_timestamp(1_300);
-    client.record_delivery(&admin, &escrow_id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, escrow_id);
 
     let history = client.get_state_history(&escrow_id);
     assert_eq!(history.len(), 3);
@@ -122,4 +122,49 @@ fn state_history_rejects_unknown_escrow() {
         client.try_get_state_history(&99_u64),
         Err(Ok(ContractError::EscrowNotFound))
     );
+}
+
+#[test]
+fn state_history_prunes_oldest_entries_beyond_cap() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, seller, resolver, token, _admin) = setup(&env);
+    let buyer = Address::generate(&env);
+    let amount = 1_000_i128;
+    token::StellarAssetClient::new(&env, &token).mint(&buyer, &amount);
+
+    let payees = single_payee(&env, &seller);
+    let payees_val = payees.into_val(&env);
+    let escrow_id = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &amount,
+        &0_u32,
+        &3_600_u64,
+    );
+
+    // Push far more than MAX_STATE_HISTORY_ENTRIES (50) transitions directly,
+    // alternating between two states, to simulate a high-churn escrow.
+    env.as_contract(&client.address, || {
+        for i in 0..80u64 {
+            let state = if i % 2 == 0 {
+                EscrowState::Disputed
+            } else {
+                EscrowState::PendingFinalization
+            };
+            crate::internal::append_state_history(&env, escrow_id, &state);
+        }
+    });
+
+    let history = client.get_state_history(&escrow_id);
+    // 1 (creation) + 80 appended, capped at MAX_STATE_HISTORY_ENTRIES.
+    assert_eq!(history.len(), crate::MAX_STATE_HISTORY_ENTRIES);
+    // Oldest entries (including the initial Pending) must have been pruned.
+    let oldest = history.get(0).unwrap();
+    assert_ne!(oldest.0, EscrowState::Pending);
+    // The most recent entry reflects the final appended transition.
+    let newest = history.get(history.len() - 1).unwrap();
+    assert_eq!(newest.0, EscrowState::PendingFinalization);
 }

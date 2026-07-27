@@ -129,20 +129,6 @@ export class EscrowClient {
 
   get_fee_config(): Call<FeeConfig> {
     return this.transport.invoke("get_fee_config", []);
-  initialize(admin: AddressLike, feeCollector: AddressLike, arbitrationFeeBps: number): void | Promise<void> {
-    return this.transport.invoke("initialize", [admin, feeCollector, arbitrationFeeBps]);
-  }
-
-  pause_contract(caller: AddressLike): void | Promise<void> {
-    return this.transport.invoke("pause_contract", [caller]);
-  }
-
-  unpause_contract(caller: AddressLike): void | Promise<void> {
-    return this.transport.invoke("unpause_contract", [caller]);
-  }
-
-  withdraw_fees(caller: AddressLike, token: AddressLike, to: AddressLike, amount: bigint): void | Promise<void> {
-    return this.transport.invoke("withdraw_fees", [caller, token, to, amount]);
   }
 
   get_accumulated_fees(token: AddressLike): Call<bigint> {
@@ -175,8 +161,6 @@ export class EscrowClient {
 
   batch_create_escrow(seller: AddressLike, escrows: readonly EscrowInput[]): Call<bigint[]> {
     return this.transport.invoke("batch_create_escrow", [seller, escrows]);
-  ): bigint | Promise<bigint> {
-    return this.transport.invoke("create_escrow", [payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow]);
   }
 
   fund_escrow(escrowId: bigint, buyer: AddressLike): Call<void> {
@@ -262,11 +246,6 @@ export class EscrowClient {
   // ── Queries ─────────────────────────────────────────────────────────────
 
   get_escrow(escrowId: bigint): Call<EscrowData> {
-  cancel_escrow(caller: AddressLike, escrowId: bigint): void | Promise<void> {
-    return this.transport.invoke("cancel_escrow", [caller, escrowId]);
-  }
-
-  get_escrow(escrowId: bigint): EscrowData | Promise<EscrowData> {
     return this.transport.invoke("get_escrow", [escrowId]);
   }
 

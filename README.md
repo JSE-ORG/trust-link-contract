@@ -4,7 +4,7 @@
 > Trustless escrow for social commerce on Stellar: funds move only when the contract can prove the requested lifecycle event has happened.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/JSE-ORG/trust-link-contract/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/JSE-ORG/trust-link-contract/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-248%20passing-success?style=flat-square&logo=rust)](contracts/escrow)
+[![Tests](https://img.shields.io/badge/tests-334%20passing-success?style=flat-square&logo=rust)](contracts/escrow)
 [![Coverage](https://img.shields.io/codecov/c/github/JSE-ORG/trust-link-contract?style=flat-square&logo=codecov&label=coverage)](https://codecov.io/gh/JSE-ORG/trust-link-contract)
 [![Crate](https://img.shields.io/badge/crate-v0.1.0-blue?style=flat-square&logo=rust)](contracts/escrow/Cargo.toml)
 [![Stellar](https://img.shields.io/badge/Stellar-Soroban-7B68EE?style=flat-square&logo=stellar)](https://stellar.org)
@@ -23,36 +23,51 @@ Buyers and sellers never meet. The contract handles the trust gap.
 
 ## State Machine
 
-```
+```text
   create_escrow()
        |
        v
   ┌─────────┐   fund_escrow()   ┌────────┐   mark_shipped()   ┌─────────┐
   │ PENDING │─────────────────▶ │ FUNDED │──────────────────▶ │ SHIPPED │
   └────┬────┘                   └────┬───┘                    └────┬────┘
-       │                             │                      ┌──────┴──────┐
-       │ cancel_escrow()        raise_dispute()      confirm_delivery() │
+       │                             │                      ┌──────┴─────────┐
+cancel_escrow()                 raise_dispute()        confirm_delivery()    │
+or reclaim_expired()                 │                      │           auto_release()
        │                             │                      │    raise_dispute()
-       v                             v                      v          │
-  ┌──────────┐                 ┌──────────┐           ┌──────────┐     │
-  │CANCELLED │                 │ DISPUTED │           │COMPLETED │     │
-  └──────────┘                 └────┬─────┘           └──────────┘     │
-                                    │                                  │
-                            resolve_dispute()                    auto_release()
-                           ┌───────┴────────┐                         │
-                           v                v                         v
-                     ┌──────────┐    ┌──────────┐              ┌──────────┐
-                     │COMPLETED │    │ REFUNDED │              │COMPLETED │
-                     └──────────┘    └──────────┘              └──────────┘
+       v                             v                      v                │
+  ┌──────────┐                 ┌──────────┐           ┌──────────┐           │
+  │CANCELLED │                 │ DISPUTED │◀──────────┼──────────┼───────────┘
+  │    or    │                 └────┬─────┘           │          │           
+  │ EXPIRED  │                      │                 │          v           
+  └──────────┘              resolve_dispute()         │    ┌──────────┐      
+                                    │                 │    │COMPLETED │      
+                                    v                 │    └──────────┘      
+                          ┌─────────────────────┐     │                      
+                          │ PENDINGFINALIZATION │     │                      
+                          └─────────┬───────────┘     │                      
+                                    │                 │                      
+                           finalize_dispute()         │                      
+                                    │                 │                      
+                                    v                 │                      
+                            ┌───────────────┐         │                      
+                            │   COMPLETED   │◀────────┘                      
+                            │  or REFUNDED  │                                
+                            └───────────────┘                                
+
+  (Appeal Flow: PendingFinalization ──appeal_dispute()──▶ Disputed)
+  (Refund Flow: Funded/Shipped ──request_refund()──▶ RefundRequested ──approve_refund()──▶ Refunded)
 ```
 
 Key rules:
-- **Pending**: seller cancels freely (no money moved)
-- **Funded → Shipped**: only seller can mark shipped
-- **Shipped → Completed**: buyer confirms delivery, funds release to seller
-- **Funded or Shipped → Disputed**: buyer raises dispute
-- **Shipped → Completed (auto)**: anyone triggers after `shipped_at + shipping_window` elapses
-- **Disputed → Completed/Refunded**: only the `resolver` address decides
+- **Pending**: seller cancels freely (no money moved); `reclaim_expired` sets state to `Expired` if not funded in time.
+- **Funded → Shipped**: only seller can mark shipped.
+- **Shipped → Completed**: buyer confirms delivery, funds release to seller.
+- **Funded or Shipped → Disputed**: buyer raises dispute.
+- **Funded or Shipped → RefundRequested**: buyer requests refund, which must be approved by seller.
+- **Shipped → Completed (auto)**: anyone triggers after `shipped_at + shipping_window` elapses.
+- **Disputed → PendingFinalization**: resolver (or M-of-N multi-resolvers) decide outcome.
+- **PendingFinalization → Completed/Refunded**: anyone finalizes the dispute after resolution is reached.
+- **PendingFinalization → Disputed**: either party can appeal before finalization, resetting the resolution.
 
 ---
 
@@ -267,6 +282,31 @@ path while asserting on-chain state — use the idempotent scripts in
 ```bash
 cd e2e && ./run_all.sh
 ```
+
+### Local devnet
+
+`scripts/start-testnet.sh` brings up a self-contained Stellar QuickStart
+devnet, deploys and initializes the contract, and seeds escrows covering the
+Pending / Funded / Shipped / Disputed states. It is idempotent — re-running it
+reuses the container, identities and deployment:
+
+```bash
+make testnet                      # start + deploy + seed
+source .stellar/local-testnet/local-testnet.env
+make testnet-stop                 # tear down
+```
+
+### Fuzzing
+
+Eight `cargo-fuzz` harnesses cover the public entry points. They are compiled
+and smoke-run on every push by [`.github/workflows/fuzz.yml`](.github/workflows/fuzz.yml),
+with longer runs on a nightly schedule. See
+[`contracts/escrow/fuzz/README.md`](contracts/escrow/fuzz/README.md):
+
+```bash
+make fuzz-build                   # compile all targets
+FUZZ_TIME=60 make fuzz            # run each target for 60s
+```
 - `Pending`
 - `Funded`
 - `Shipped`
@@ -441,6 +481,8 @@ contracts/escrow/
 - **No admin key**: The dispute `resolver` is set per-escrow at creation, not a global key.
 
 > This contract has not been formally audited. Use on mainnet at your own risk.
+
+Please see our [Responsible Disclosure Policy](SECURITY.md#responsible-disclosure-policy) if you wish to report a vulnerability.
 
 ---
 

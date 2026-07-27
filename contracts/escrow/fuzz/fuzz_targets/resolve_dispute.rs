@@ -1,60 +1,54 @@
 #![no_main]
+//! Fuzzes `resolve_dispute` over both resolution types and every caller role,
+//! including callers that are not the escrow's registered resolver.
+
+mod common;
+
+use common::{Harness, Reader, DISPUTE_REASONS};
 use libfuzzer_sys::fuzz_target;
-use soroban_sdk::{testutils::Ledger, Env, Address, Symbol, String, BytesN, Vec};
-use trustlink_escrow::{Escrow, Payee, ResolutionType};
+use soroban_sdk::{testutils::Ledger as _, BytesN, Symbol};
+use trustlink_escrow::ResolutionType;
 
 fuzz_target!(|data: &[u8]| {
-    if data.len() < 64 {
+    let mut r = Reader::new(data);
+    let h = Harness::new();
+
+    let Some(escrow_id) = h.create_funded_escrow() else {
         return;
-    }
-    
-    let mut env = Env::default();
-    env.mock_all_auths();
-    
-    let admin = Address::generate(&env);
-    let fee_collector = Address::generate(&env);
-    let token = Address::generate(&env);
-    
-    // Initialize contract
-    let _ = Escrow::initialize(env.clone(), admin.clone(), fee_collector, 0);
-    
-    // Create, fund, and dispute an escrow
-    let seller = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let resolver = Address::generate(&env);
-    
-    let mut payees = Vec::new(&env);
-    payees.push_back(Payee { address: seller.clone(), bps: 10_000 });
-    
-    let escrow_id = Escrow::create_escrow(
-        env.clone(),
-        payees,
-        Some(buyer.clone()),
-        resolver.clone(),
-        token.clone(),
-        1000,
-        100,
-        0,
-        604800,
-    ).unwrap_or(1);
-    
-    let _ = Escrow::fund_escrow(env.clone(), escrow_id, buyer.clone());
-    
-    let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
-    let description = String::from_str(&env, "Item not as described");
-    let mut evidence_bytes = [0u8; 32];
-    evidence_bytes.copy_from_slice(&data[data.len().saturating_sub(32)..]);
-    let evidence_hash = BytesN::from_array(&env, &evidence_bytes);
-    
-    let _ = Escrow::raise_dispute(env.clone(), buyer.clone(), escrow_id, reason, description, evidence_hash);
-    
-    // Determine resolution type from fuzz data
-    let resolution = if data[0] % 2 == 0 {
+    };
+
+    let reason = Symbol::new(
+        &h.env,
+        DISPUTE_REASONS[(r.u8() as usize) % DISPUTE_REASONS.len()],
+    );
+    let description = r.ascii_string(&h.env, 64);
+    let evidence_hash = BytesN::from_array(&h.env, &r.bytes32());
+    let _ = h.client.try_raise_dispute(
+        &h.buyer,
+        &escrow_id,
+        &reason,
+        &description,
+        &evidence_hash,
+    );
+
+    h.env.ledger().set_timestamp(r.timestamp());
+
+    let resolution = if r.bool() {
         ResolutionType::Release
     } else {
         ResolutionType::Refund
     };
-    
-    // Test resolve_dispute with fuzzed inputs
-    let _ = Escrow::resolve_dispute(env.clone(), resolver, escrow_id, resolution);
+    let caller = h.actor(r.u8());
+    let target_id = if r.bool() { escrow_id } else { r.u64() };
+
+    let _ = h
+        .client
+        .try_resolve_dispute(&caller, &target_id, &resolution);
+
+    // A resolved dispute must not be resolvable again.
+    if r.bool() {
+        let _ = h
+            .client
+            .try_resolve_dispute(&caller, &target_id, &resolution);
+    }
 });

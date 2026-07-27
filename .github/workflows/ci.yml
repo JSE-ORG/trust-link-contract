@@ -13,8 +13,11 @@ env:
 
 jobs:
   check:
-    name: fmt + clippy + test
-    runs-on: ubuntu-latest
+    name: fmt + clippy + test (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,6 +35,41 @@ jobs:
 
       - name: Run tests
         run: cargo test --lib
+
+  error-codes:
+    name: errors.rs <-> errors.ts drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check ErrorCode enum is in sync
+        run: node scripts/check-error-codes.mjs
+
+  indexer:
+    name: indexer typecheck + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: indexer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
 
   build-wasm:
     name: build wasm artifact

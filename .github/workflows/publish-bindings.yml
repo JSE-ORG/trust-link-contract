@@ -19,12 +19,10 @@ jobs:
           registry-url: 'https://registry.npmjs.org/'
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: wasm32-unknown-unknown
-          override: true
+        run: rustup show
+
+      - name: Add wasm target
+        run: rustup target add wasm32v1-none
 
       - name: Install Stellar CLI
         run: |
@@ -33,7 +31,7 @@ jobs:
       - name: Build Smart Contract
         run: |
           stellar contract build
-          stellar contract optimize --wasm target/wasm32-unknown-unknown/release/trustlink_escrow.wasm
+          stellar contract optimize --wasm target/wasm32v1-none/release/trustlink_escrow.wasm
 
       - name: Install bindings dependencies
         working-directory: ./bindings

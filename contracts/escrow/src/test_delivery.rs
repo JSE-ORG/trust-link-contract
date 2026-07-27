@@ -130,6 +130,8 @@ fn test_record_delivery_sets_timestamp() {
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-002"));
 
     advance_time(&env, 60);
+    client.propose_record_delivery(&admin, &id);
+    advance_time(&env, crate::DELIVERY_TIMELOCK);
     let expected_ts = env.ledger().timestamp();
 
     client.record_delivery(&admin, &id);
@@ -280,15 +282,13 @@ fn test_record_delivery_timestamp_matches_ledger_timestamp() {
 
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
 
-    // Advance time and capture the timestamp AFTER advancing so it matches
-    // exactly what the ledger will report during record_delivery.
     advance_time(&env, 60);
+    client.propose_record_delivery(&admin, &id);
+    advance_time(&env, crate::DELIVERY_TIMELOCK);
     let expected_ts = env.ledger().timestamp();
 
     client.record_delivery(&admin, &id);
 
-    // Verify the event is emitted — check immediately after the emitting call,
-    // before any subsequent contract invocations reset the event buffer.
     assert!(has_event::<DeliveryRecorded, _>(
         &env,
         &contract_id,
@@ -296,15 +296,12 @@ fn test_record_delivery_timestamp_matches_ledger_timestamp() {
         |event| { event.escrow_id == id && event.delivered_at == expected_ts }
     ));
 
-    // Verify the stored timestamp matches exactly what was set in the ledger
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.delivered_at, Some(expected_ts));
 
     let _ = contract_id;
 }
 
-/// Tests that record_delivery fails when the ledger timestamp is at or before Unix epoch zero.
-/// Stellar network timestamps must be valid Unix timestamps after 1970-01-01.
 #[test]
 fn test_record_delivery_rejects_zero_timestamp() {
     let env = Env::default();
@@ -323,22 +320,17 @@ fn test_record_delivery_rejects_zero_timestamp() {
 
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
 
-    // Simulate an invalid zero timestamp at network boundary
-    // Note: Soroban SDK doesn't allow setting zero timestamp directly in most cases,
-    // but we verify the contract behavior by checking that it records what the ledger provides.
-    // If the ledger provides a valid timestamp (even at boundary), the contract accepts it.
     let _escrow_before = client.get_escrow(&id);
     env.ledger().set_timestamp(0);
+    client.propose_record_delivery(&admin, &id);
+    env.ledger().set_timestamp(crate::DELIVERY_TIMELOCK);
 
     client.record_delivery(&admin, &id);
 
     let escrow_after = client.get_escrow(&id);
-    // The delivered_at should be whatever the ledger timestamp was
-    assert_eq!(escrow_after.delivered_at, Some(0));
+    assert_eq!(escrow_after.delivered_at, Some(crate::DELIVERY_TIMELOCK));
 }
 
-/// Tests that record_delivery properly records timestamps at boundary values
-/// (maximum plausible Unix timestamp for the network).
 #[test]
 fn test_record_delivery_accepts_maximum_valid_timestamp() {
     let env = Env::default();
@@ -357,8 +349,10 @@ fn test_record_delivery_accepts_maximum_valid_timestamp() {
 
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
 
-    // Set a large but reasonable timestamp (year ~2600)
     let max_ts: u64 = 100_000_000_000;
+    env.ledger()
+        .set_timestamp(max_ts - crate::DELIVERY_TIMELOCK);
+    client.propose_record_delivery(&admin, &id);
     env.ledger().set_timestamp(max_ts);
 
     client.record_delivery(&admin, &id);
@@ -367,7 +361,6 @@ fn test_record_delivery_accepts_maximum_valid_timestamp() {
     assert_eq!(escrow.delivered_at, Some(max_ts));
 }
 
-/// Tests that record_delivery replaces any prior delivered_at value when called multiple times.
 #[test]
 fn test_record_delivery_rejects_duplicate_call() {
     let env = Env::default();
@@ -386,24 +379,97 @@ fn test_record_delivery_rejects_duplicate_call() {
 
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
 
-    // First delivery recording succeeds
+    env.ledger()
+        .set_timestamp(1_700_000_100 - crate::DELIVERY_TIMELOCK);
+    client.propose_record_delivery(&admin, &id);
     env.ledger().set_timestamp(1_700_000_100);
     client.record_delivery(&admin, &id);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.delivered_at, Some(1_700_000_100));
 
-    // Second delivery recording rejected (idempotency guard)
     env.ledger().set_timestamp(1_700_000_200);
     let result = client.try_record_delivery(&admin, &id);
     assert_eq!(result, Err(Ok(ContractError::DeliveryAlreadyRecorded)));
 
-    // Original timestamp preserved
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.delivered_at, Some(1_700_000_100));
     assert_eq!(escrow.state, EscrowState::Shipped);
 
     let _ = contract_id;
+}
+
+#[test]
+fn test_record_delivery_timelock_flow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, admin, _fee) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+    );
+
+    client.mark_shipped(
+        &seller,
+        &id,
+        &SorobanString::from_str(&env, "TRACK-TIMELOCK"),
+    );
+
+    // Propose delivery
+    env.ledger().set_timestamp(1_000_000);
+    client.propose_record_delivery(&admin, &id);
+
+    // Try recording before timelock elapses
+    env.ledger()
+        .set_timestamp(1_000_000 + crate::DELIVERY_TIMELOCK - 1);
+    let res = client.try_record_delivery(&admin, &id);
+    assert_eq!(res, Err(Ok(ContractError::TimelockNotElapsed)));
+
+    // Try cancelling proposal by non-admin
+    let res = client.try_cancel_delivery_proposal(&seller, &id);
+    assert_eq!(res, Err(Ok(ContractError::NotAuthorized)));
+
+    // Try recording after timelock elapses
+    env.ledger()
+        .set_timestamp(1_000_000 + crate::DELIVERY_TIMELOCK);
+    client.record_delivery(&admin, &id);
+
+    let escrow = client.get_escrow(&id);
+    assert_eq!(
+        escrow.delivered_at,
+        Some(1_000_000 + crate::DELIVERY_TIMELOCK)
+    );
+}
+
+#[test]
+fn test_cancel_delivery_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, admin, _fee) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+    );
+
+    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-CANCEL"));
+
+    client.propose_record_delivery(&admin, &id);
+    client.cancel_delivery_proposal(&admin, &id);
+
+    // Even after timelock duration, recording delivery should fail because proposal was cancelled
+    advance_time(&env, crate::DELIVERY_TIMELOCK);
+    let res = client.try_record_delivery(&admin, &id);
+    assert_eq!(res, Err(Ok(ContractError::DeliveryNotProposed)));
 }
 
 #[test]

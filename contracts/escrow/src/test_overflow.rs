@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    Address, Env, IntoVal, Vec,
+    Address, Env, IntoVal, String, Vec,
 };
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
@@ -317,6 +317,8 @@ fn test_addition_overflow_shipping_window() {
         &escrow_id_2,
         &soroban_sdk::String::from_str(&env, "TRACK-OVERFLOW"),
     );
+    env.ledger().set_timestamp(u64::MAX - 100_000);
+    client.propose_record_delivery(&admin, &escrow_id_2);
     env.ledger().set_timestamp(u64::MAX - 10);
     client.record_delivery(&admin, &escrow_id_2);
 
