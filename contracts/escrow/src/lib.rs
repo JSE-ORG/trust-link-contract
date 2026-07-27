@@ -131,6 +131,8 @@ const MAX_STATE_HISTORY_ENTRIES: u32 = 50;
 pub const MAX_TRACKING_ID_LEN: u32 = 64;
 pub const MAX_DESCRIPTION_LEN: u32 = 256;
 pub const MAX_NOTES_LEN: u32 = 500;
+/// Maximum length for an on-chain buyer/seller message.
+pub const MAX_MESSAGE_LEN: u32 = 500;
 
 /// Minimum shipping window in seconds (1 second).
 /// A value of 0 would allow an immediate dispute with no shipping time, which is invalid.
@@ -186,6 +188,7 @@ mod test_helpers;
 mod test_initialize_twice;
 mod test_initialize_zero_admin;
 mod test_malicious_token;
+mod test_messaging;
 mod test_minimum_amount_guard;
 mod test_not_found;
 mod test_overflow;
