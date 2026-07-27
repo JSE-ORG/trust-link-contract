@@ -9,7 +9,7 @@ use crate::ResolutionType;
 /// Increment this constant whenever a field is added, removed, or renamed in
 /// any event struct.  Consumers can use it to guard against decoding stale
 /// snapshots with the wrong XDR shape.
-pub const EVENT_SCHEMA_VERSION: u32 = 1;
+pub const EVENT_SCHEMA_VERSION: u32 = 2;
 
 /// Event topic/data schemas used by the escrow contract.
 ///
@@ -166,7 +166,6 @@ pub struct EscrowCreated {
     pub resolver_fee_bps: u32,
     pub shipping_window: u64,
     pub timestamp: u64,
-    pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
 }
 
@@ -182,7 +181,6 @@ pub fn emit_escrow_created(
     fee_bps: u32,
     resolver_fee_bps: u32,
     shipping_window: u64,
-    prev_state: crate::EscrowState,
     new_state: crate::EscrowState,
 ) {
     env.events().publish(
@@ -202,7 +200,6 @@ pub fn emit_escrow_created(
             resolver_fee_bps,
             shipping_window,
             timestamp: env.ledger().timestamp(),
-            prev_state,
             new_state,
         },
     );

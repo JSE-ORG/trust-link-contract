@@ -1125,18 +1125,6 @@
                 },
                 {
                   "key": {
-                    "symbol": "prev_state"
-                  },
-                  "val": {
-                    "vec": [
-                      {
-                        "symbol": "Pending"
-                      }
-                    ]
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "resolver"
                   },
                   "val": {
@@ -1156,7 +1144,7 @@
                     "symbol": "schema_version"
                   },
                   "val": {
-                    "u32": 1
+                    "u32": 2
                   }
                 },
                 {
