@@ -276,3 +276,112 @@ fn zero_amount_token_is_skipped_on_fund_and_payout() {
     assert_eq!(zero.token.balance(&fx.seller), 0);
     assert_eq!(c.token.balance(&fx.seller), 200);
 }
+
+#[test]
+fn fund_basket_escrow_rejects_a_buyer_other_than_the_expected_buyer() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let expected_buyer = Address::generate(&fx.env);
+    let stranger = Address::generate(&fx.env);
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(expected_buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address]),
+        &vec_i128(&fx.env, &[100]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    primary.admin.mint(&stranger, &100);
+    assert_eq!(
+        client.try_fund_basket_escrow(&escrow_id, &stranger),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+    assert_eq!(primary.token.balance(&stranger), 100);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+}
+
+#[test]
+fn fund_basket_escrow_is_atomic_when_the_buyer_only_has_part_of_the_basket() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let additional = make_token(&fx.env);
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address, &additional.address]),
+        &vec_i128(&fx.env, &[100, 50]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    primary.admin.mint(&fx.buyer, &100);
+    additional.admin.mint(&fx.buyer, &49);
+    assert!(client
+        .try_fund_basket_escrow(&escrow_id, &fx.buyer)
+        .is_err());
+
+    // The failed second transfer rolls back the first transfer and state update.
+    assert_eq!(primary.token.balance(&fx.buyer), 100);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+    assert_eq!(additional.token.balance(&fx.buyer), 49);
+    assert_eq!(additional.token.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+}
+
+#[test]
+fn fund_basket_escrow_rejects_a_basket_already_funded_by_fund_escrow() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let additional = make_token(&fx.env);
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address, &additional.address]),
+        &vec_i128(&fx.env, &[100, 50]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    primary.admin.mint(&fx.buyer, &100);
+    additional.admin.mint(&fx.buyer, &50);
+    client.fund_escrow(&escrow_id, &fx.buyer);
+
+    assert_eq!(
+        client.try_fund_basket_escrow(&escrow_id, &fx.buyer),
+        Err(Ok(ContractError::InvalidState))
+    );
+    assert_eq!(primary.token.balance(&fx.contract_id), 100);
+    assert_eq!(additional.token.balance(&fx.contract_id), 50);
+}
+
+#[test]
+fn fund_basket_escrow_transfers_only_the_configured_amounts() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let additional = make_token(&fx.env);
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address, &additional.address]),
+        &vec_i128(&fx.env, &[100, 50]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    primary.admin.mint(&fx.buyer, &150);
+    additional.admin.mint(&fx.buyer, &75);
+
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    assert_eq!(primary.token.balance(&fx.contract_id), 100);
+    assert_eq!(additional.token.balance(&fx.contract_id), 50);
+    assert_eq!(primary.token.balance(&fx.buyer), 50);
+    assert_eq!(additional.token.balance(&fx.buyer), 25);
+}

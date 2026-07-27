@@ -12,7 +12,7 @@ use crate::types::EscrowState;
 use crate::ContractError;
 use soroban_sdk::{
     testutils::Address as _,
-    token, Address, Env, String,
+    token, Address, Env, String, Vec,
 };
 
 const AMOUNT: i128 = 1_000_000;
@@ -122,6 +122,48 @@ fn seller_can_approve_refund_and_buyer_is_paid_back() {
     // Buyer is made whole; the contract no longer holds the funds.
     assert_eq!(token_client.balance(&f.buyer), AMOUNT);
     assert_eq!(token_client.balance(&f.contract_id), 0);
+}
+
+#[test]
+fn seller_approval_refunds_every_basket_token_to_buyer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let primary = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let additional = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let mut tokens = Vec::new(&env);
+    tokens.push_back(primary.clone());
+    tokens.push_back(additional.clone());
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(1_000);
+    amounts.push_back(250);
+    let escrow_id = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    token::StellarAssetClient::new(&env, &primary).mint(&buyer, &1_000);
+    token::StellarAssetClient::new(&env, &additional).mint(&buyer, &250);
+    client.fund_basket_escrow(&escrow_id, &buyer);
+
+    client.request_refund(&buyer, &escrow_id);
+    client.approve_refund(&seller, &escrow_id);
+
+    assert_eq!(token::Client::new(&env, &primary).balance(&buyer), 1_000);
+    assert_eq!(token::Client::new(&env, &additional).balance(&buyer), 250);
+    assert_eq!(token::Client::new(&env, &primary).balance(&contract_id), 0);
+    assert_eq!(token::Client::new(&env, &additional).balance(&contract_id), 0);
 }
 
 #[test]

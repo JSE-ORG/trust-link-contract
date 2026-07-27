@@ -1142,6 +1142,51 @@ pub fn emit_resolver_strict_updated(
     );
 }
 
+// ── Fee Collector Updated ─────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeCollectorUpdated {
+    pub schema_version: u32,
+    pub old_collector: Address,
+    pub new_collector: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("FeeColl"), symbol_short!("Updated"),)`, data: `FeeCollectorUpdated`.
+pub fn emit_fee_collector_updated(env: &Env, old_collector: Address, new_collector: Address) {
+    env.events().publish(
+        (symbol_short!("FeeColl"), symbol_short!("Updated")),
+        FeeCollectorUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_collector,
+            new_collector,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+// ── Emergency Drain ───────────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmergencyDrain {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub buyer: Address,
+    pub seller: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Emergency"), symbol_short!("Drain"),)`, data: `EmergencyDrain`.
+pub fn emit_emergency_drain(env: &Env, escrow_id: u64, buyer: Address, seller: Address) {
+    env.events().publish(
+        (symbol_short!("Emergency"), symbol_short!("Drain")),
+        EmergencyDrain {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            buyer,
+            seller,
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeliveryProposed {

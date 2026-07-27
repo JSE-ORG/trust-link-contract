@@ -79,4 +79,7 @@ libfuzzer-sys = "0.4"
 [profile.release]
 opt-level = "z"
 overflow-checks = true
+
+[package.metadata]
+cargo-fuzz = true
 debug = 1

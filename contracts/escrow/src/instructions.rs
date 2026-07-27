@@ -364,8 +364,26 @@ impl Escrow {
         sender: Address,
         content: String,
     ) -> Result<(), ContractError> {
+        sender.require_auth();
         ensure_not_paused(&env)?;
-        let _ = load_escrow(&env, escrow_id)?;
+        let escrow = load_escrow(&env, escrow_id)?;
+
+        let mut is_payee = false;
+        for payee in escrow.payees.iter() {
+            if payee.address == sender {
+                is_payee = true;
+                break;
+            }
+        }
+        if escrow.buyer.as_ref() != Some(&sender) && !is_payee {
+            return Err(ContractError::NotAuthorized);
+        }
+        if content.is_empty() {
+            return Err(ContractError::InvalidAmount);
+        }
+        if content.len() > MAX_MESSAGE_LEN {
+            return Err(ContractError::InputTooLong);
+        }
 
         let message = Message {
             sender: sender.clone(),
@@ -1313,6 +1331,7 @@ impl Escrow {
 
         let token_client = token::Client::new(&env, &escrow.token);
         token_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
 
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;

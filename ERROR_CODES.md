@@ -29,8 +29,6 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **21** | `InvalidTrackingId` | The tracking ID supplied is empty or improperly formatted. | Provide a non-empty, valid string for the tracking ID. |
 | **22** | `DeliveryNotRecorded` | `auto_release` was attempted but the admin has not yet recorded the delivery. | Ensure that delivery is recorded via `record_delivery` if required by the flow. |
 | **23** | `ConflictingRoles` | Multiple roles (Seller, Buyer, Resolver) were assigned the same address. | Ensure that the Seller, Buyer, and Resolver are all distinct accounts. |
-| **38** | `DeliveryNotProposed` | `record_delivery` was called before a delivery proposal was initiated. | Admin must first call `propose_record_delivery` and wait for the timelock. |
-| **39** | `TimelockNotElapsed` | `record_delivery` was called before the required 24-hour timelock elapsed. | Wait until 24 hours have passed since `propose_record_delivery` was called. |
 | **24** | `DisputeWindowStillOpen` | A buyer attempted to confirm delivery while the dispute window is still open. | Wait for the dispute window to close before confirming delivery. |
 | **25** | `UnauthorizedResolver` | A resolver is not in the approved registry and strict mode is enabled. | Use an authorized resolver from the approved registry. |
 | **26** | `ContractNotPaused` | `emergency_drain` was called but the contract is not paused. | Ensure the contract is paused before calling emergency drain operations. |
