@@ -27,7 +27,7 @@ impl Fixture {
 fn fixture() -> Fixture {
     let env = Env::default();
     env.mock_all_auths();
-    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env.clone());
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
@@ -123,7 +123,8 @@ fn post_message_rejects_content_over_the_maximum_length() {
     let content = String::from_str(&f.env, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
     assert_eq!(
-        f.client().try_post_message(&f.escrow_id, &f.buyer, &content),
+        f.client()
+            .try_post_message(&f.escrow_id, &f.buyer, &content),
         Err(Ok(ContractError::InputTooLong))
     );
 }
