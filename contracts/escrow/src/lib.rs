@@ -200,3 +200,4 @@ mod test_state_history;
 mod test_unauthorized;
 mod test_upgrade_migration;
 mod test_vote;
+mod test_fallback_resolver;

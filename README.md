@@ -91,16 +91,26 @@ Key rules:
 
 ```rust
 pub struct EscrowData {
-    pub seller: Address,           // creator
+    pub payees: Vec<Payee>,        // list of payees and their shares
     pub buyer: Option<Address>,    // set when funded, None during Pending
-    pub resolver: Address,         // dispute admin key
+    pub resolvers: ResolverSet,    // resolver configuration (Single, Multi, Fallback)
     pub token: Address,            // Stellar asset contract (USDC etc.)
     pub amount: i128,              // raw units (incl. decimals)
+    pub fee_bps: u32,              // creator/escrow fee in basis points
+    pub resolver_fee_bps: u32,     // dispute resolution fee in basis points
     pub shipping_window: u64,      // seconds after shipped_at for auto-release
     pub funded_at: u64,            // ledger timestamp when funded (0 if pending)
+    pub dispute_deadline: u64,     // deadline for raising disputes (0 if not funded)
     pub shipped_at: u64,           // ledger timestamp when shipped (0 if not shipped)
-    pub created_at: u64,           // ledger timestamp of creation
-    pub state: EscrowState,
+    pub delivered_at: Option<u64>, // ledger timestamp when delivery confirmed
+    pub tracking_id: Option<String>,// tracking reference for delivery
+    pub state: EscrowState,        // current lifecycle state of the escrow
+    pub notes: Option<String>,     // arbitrary metadata notes
+}
+
+pub struct Payee {
+    pub address: Address,
+    pub bps: u32,                  // share of payout in basis points (100 = 1%)
 }
 
 pub enum EscrowState {
@@ -109,8 +119,11 @@ pub enum EscrowState {
     Shipped,
     Completed,
     Disputed,
+    RefundRequested,
     Refunded,
-    Cancelled,
+    Canceled,
+    PendingFinalization,
+    Expired,
 }
 ```
 
@@ -605,16 +618,17 @@ The escrow contract is token-agnostic, using SEP-41 token interface clients. All
 Token transfers occur in:
 
 - `fund_escrow`: buyer → contract
-- `confirm_delivery`: contract → seller + contract → fee collector
-- `auto_release`: contract → seller + contract → fee collector
-- `resolve_dispute`: contract → seller or buyer + contract → fee collector
+- `confirm_delivery`: contract → payees (payout split based on basis points) + contract → fee collector
+- `auto_release`: contract → payees (payout split based on basis points) + contract → fee collector
+- `resolve_dispute`: contract → payees (payout split based on basis points) or buyer + contract → fee collector
 
-The payout logic is governed by `transfer_with_protocol_fee`, which calculates:
+The payout logic is governed by `transfer_with_protocol_fee`, which splits the net amount (after fee deduction) among the list of payees:
 
 - fee = amount * fee_bps / 10_000 (basis points)
-- net = amount - fee
+- net_total = amount - fee
+- payee_payout = net_total * payee.bps / 10_000
 
-and transfers `net` to the recipient and `fee` directly to the configured fee collector in the same call — the protocol fee never accumulates in the contract.
+and transfers each `payee_payout` to the respective payee address and `fee` directly to the configured fee collector in the same call — the protocol fee never accumulates in the contract. The sum of basis points (bps) across all payees must equal exactly 10,000 (100%).
 
 The arbitration fee is handled as a separate deduction in `resolve_dispute`.
 

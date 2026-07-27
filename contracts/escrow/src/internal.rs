@@ -263,7 +263,7 @@ pub(crate) fn validate_resolvers(
     if let ResolverSet::Multi(m) = resolvers {
         let count = m.resolvers.len();
         if m.threshold == 0 || m.threshold > count {
-            return Err(ContractError::InvalidAmount); // Use as proxy for invalid threshold
+            return Err(ContractError::InvalidThreshold);
         }
 
         // Ensure all resolvers are unique
@@ -314,7 +314,7 @@ pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), Cont
     }
 
     if total_bps != 10_000 {
-        return Err(ContractError::InvalidAmount);
+        return Err(ContractError::PayeeBpsMismatch);
     }
 
     Ok(())

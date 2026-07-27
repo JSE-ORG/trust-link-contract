@@ -483,3 +483,56 @@ fn test_dispute_from_refunded_state() {
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
     assert_eq!(result, Err(Ok(crate::ContractError::InvalidState)));
 }
+
+#[test]
+fn test_appeal_dispute_overflow() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = crate::EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let amount = 1000_i128;
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
+
+    let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    sac.mint(&buyer, &amount);
+    client.fund_escrow(&id, &buyer);
+    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "TRK"));
+
+    let reason = soroban_sdk::Symbol::new(&env, "reason");
+    let description = soroban_sdk::String::from_str(&env, "desc");
+    let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
+    client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
+
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Split);
+
+    use crate::{DataKey, DisputeData};
+    env.as_contract(&contract_id, || {
+        let key = DataKey::Dispute(id);
+        let mut dispute: DisputeData = env.storage().persistent().get(&key).unwrap();
+        dispute.appeal_count = u32::MAX;
+        env.storage().persistent().set(&key, &dispute);
+    });
+
+    let result = client.try_appeal_dispute(&buyer, &id);
+    assert_eq!(
+        result,
+        Err(Ok(crate::ContractError::ArithmeticError))
+    );
+}

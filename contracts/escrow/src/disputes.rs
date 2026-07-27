@@ -92,6 +92,15 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
+        if let ResolverSet::Fallback(ref f) = escrow.resolvers {
+            if caller == f.backup {
+                let dispute = load_dispute(&env, escrow_id)?;
+                if env.ledger().timestamp() < dispute.disputed_at + f.dispute_deadline {
+                    return Err(ContractError::NotAuthorized);
+                }
+            }
+        }
+
         // Record Vote
         let votes = add_or_update_vote(&env, escrow_id, &caller, resolution.clone());
         let threshold = escrow.resolvers.threshold();
@@ -141,6 +150,15 @@ impl Escrow {
 
         if !escrow.resolvers.contains(&caller) {
             return Err(ContractError::NotAuthorized);
+        }
+
+        if let ResolverSet::Fallback(ref f) = escrow.resolvers {
+            if caller == f.backup {
+                let dispute = load_dispute(&env, escrow_id)?;
+                if env.ledger().timestamp() < dispute.disputed_at + f.dispute_deadline {
+                    return Err(ContractError::NotAuthorized);
+                }
+            }
         }
 
         let votes = add_or_update_vote(&env, escrow_id, &caller, resolution.clone());
@@ -341,7 +359,9 @@ impl Escrow {
         let mut updated_dispute = dispute_data;
         updated_dispute.status = DisputeStatus::Active;
         updated_dispute.clear_resolution();
-        updated_dispute.appeal_count += 1;
+        updated_dispute.appeal_count = updated_dispute.appeal_count
+            .checked_add(1)
+            .ok_or(ContractError::ArithmeticError)?;
 
         // Clear votes for Multi resolver sets so a fresh round begins
         if matches!(escrow.resolvers, ResolverSet::Multi(_)) {

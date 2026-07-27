@@ -135,7 +135,7 @@ fn create_basket_escrow_rejects_malformed_baskets() {
         &0_u32,
         &SHIPPING_WINDOW,
     );
-    assert_eq!(mismatched, Err(Ok(ContractError::InvalidAmount)));
+    assert_eq!(mismatched, Err(Ok(ContractError::BasketTokenMismatch)));
 
     // Empty basket
     let empty = client.try_create_basket_escrow(
@@ -147,7 +147,7 @@ fn create_basket_escrow_rejects_malformed_baskets() {
         &0_u32,
         &SHIPPING_WINDOW,
     );
-    assert_eq!(empty, Err(Ok(ContractError::InvalidAmount)));
+    assert_eq!(empty, Err(Ok(ContractError::BasketTokenMismatch)));
 }
 
 #[test]

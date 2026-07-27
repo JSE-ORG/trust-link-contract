@@ -1017,7 +1017,7 @@ impl Escrow {
         ensure_not_paused(&env)?;
 
         if tokens.len() != amounts.len() || tokens.is_empty() {
-            return Err(ContractError::InvalidAmount);
+            return Err(ContractError::BasketTokenMismatch);
         }
 
         validate_escrow_fee_bps(fee_bps)?;
@@ -1393,93 +1393,93 @@ impl Escrow {
                 let escrow_id: u64 = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let buyer: Address = call
                     .args
                     .get(1)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::fund_escrow(env.clone(), escrow_id, buyer)?;
                 ().into_val(&env)
             } else if call.function == s_get_escrow {
                 let escrow_id: u64 = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let res = Self::get_escrow(env.clone(), escrow_id)?;
                 res.into_val(&env)
             } else if call.function == s_mark_shipped {
                 let caller: Address = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let escrow_id: u64 = call
                     .args
                     .get(1)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let tracking_id: String = call
                     .args
                     .get(2)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::mark_shipped(env.clone(), caller, escrow_id, tracking_id)?;
                 ().into_val(&env)
             } else if call.function == s_confirm_delivery {
                 let caller: Address = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let escrow_id: u64 = call
                     .args
                     .get(1)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::confirm_delivery(env.clone(), caller, escrow_id)?;
                 ().into_val(&env)
             } else if call.function == s_raise_dispute {
                 let caller: Address = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let escrow_id: u64 = call
                     .args
                     .get(1)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let reason: Symbol = call
                     .args
                     .get(2)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let description: String = call
                     .args
                     .get(3)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let evidence_hash: BytesN<32> = call
                     .args
                     .get(4)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::raise_dispute(
                     env.clone(),
                     caller,
@@ -1493,114 +1493,114 @@ impl Escrow {
                 let caller: Address = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let escrow_id: u64 = call
                     .args
                     .get(1)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let resolution: ResolutionType = call
                     .args
                     .get(2)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::resolve_dispute(env.clone(), caller, escrow_id, resolution)?;
                 ().into_val(&env)
             } else if call.function == s_auto_release {
                 let escrow_id: u64 = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::auto_release(env.clone(), escrow_id)?;
                 ().into_val(&env)
             } else if call.function == s_cancel_escrow {
                 let caller: Address = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let escrow_id: u64 = call
                     .args
                     .get(1)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::cancel_escrow(env.clone(), caller, escrow_id)?;
                 ().into_val(&env)
             } else if call.function == s_rotate_resolver {
                 let caller: Address = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let escrow_id: u64 = call
                     .args
                     .get(1)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let new_resolver: Address = call
                     .args
                     .get(2)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::rotate_resolver(env.clone(), caller, escrow_id, new_resolver)?;
                 ().into_val(&env)
             } else if call.function == s_initialize {
                 let admin: Address = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let fee_collector: Address = call
                     .args
                     .get(1)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let arbitration_fee_bps: u32 = call
                     .args
                     .get(2)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::initialize(env.clone(), admin, fee_collector, arbitration_fee_bps)?;
                 ().into_val(&env)
             } else if call.function == s_pause_contract {
                 let caller: Address = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::pause_contract(env.clone(), caller)?;
                 ().into_val(&env)
             } else if call.function == s_unpause_contract {
                 let caller: Address = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::unpause_contract(env.clone(), caller)?;
                 ().into_val(&env)
             } else if call.function == s_get_dispute {
                 let escrow_id: u64 = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let res = Self::get_dispute(env.clone(), escrow_id);
                 res.into_val(&env)
             } else if call.function == s_get_fee_config {
@@ -1610,15 +1610,15 @@ impl Escrow {
                 let caller: Address = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let fee_bps: u32 = call
                     .args
                     .get(1)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 Self::set_arbitration_fee(env.clone(), caller, fee_bps)?;
                 ().into_val(&env)
             } else if call.function == s_get_arbitration_fee {
@@ -1628,51 +1628,51 @@ impl Escrow {
                 let payees: Vec<Payee> = call
                     .args
                     .get(0)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let buyer: Option<Address> = call
                     .args
                     .get(1)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let resolver: Address = call
                     .args
                     .get(2)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let token: Address = call
                     .args
                     .get(3)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let amount: i128 = call
                     .args
                     .get(4)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let fee_bps: u32 = call
                     .args
                     .get(5)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let resolver_fee_bps: u32 = call
                     .args
                     .get(6)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let shipping_window: u64 = call
                     .args
                     .get(7)
-                    .ok_or(ContractError::InvalidAmount)?
+                    .ok_or(ContractError::InvalidMulticallArg)?
                     .try_into_val(&env)
-                    .map_err(|_| ContractError::InvalidAmount)?;
+                    .map_err(|_| ContractError::InvalidMulticallArg)?;
                 let res = Self::create_escrow(
                     env.clone(),
                     payees.into_val(&env),

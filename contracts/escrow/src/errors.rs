@@ -86,4 +86,12 @@ pub enum ContractError {
     DeliveryNotProposed = 38,
     /// Returned when `record_delivery` is called before the required timelock delay has elapsed.
     TimelockNotElapsed = 39,
+    /// Returned when a multi-resolver threshold validation fails.
+    InvalidThreshold = 40,
+    /// Returned when payee basis points sum is not exactly 10,000.
+    PayeeBpsMismatch = 41,
+    /// Returned when basket token/amount lengths mismatch or are empty.
+    BasketTokenMismatch = 42,
+    /// Returned when multicall argument parsing fails.
+    InvalidMulticallArg = 43,
 }
