@@ -201,6 +201,15 @@ pub(crate) fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
         .set(&DataKey::FeeConfig, fee_config);
 }
 
+pub(crate) fn contains(list: &soroban_sdk::Vec<Address>, target: &Address) -> bool {
+    for item in list.iter() {
+        if item == *target {
+            return true;
+        }
+    }
+    false
+}
+
 pub(crate) fn is_token_allowlist_enabled(env: &Env) -> bool {
     env.storage()
         .instance()
@@ -279,14 +288,12 @@ pub(crate) fn validate_resolvers(
         }
 
         // Ensure all resolvers are unique
-        for i in 0..m.resolvers.len() {
-            for j in (i + 1)..m.resolvers.len() {
-                if m.resolvers.get(i).ok_or(ContractError::IndexOutOfBounds)?
-                    == m.resolvers.get(j).ok_or(ContractError::IndexOutOfBounds)?
-                {
-                    return Err(ContractError::ConflictingRoles);
-                }
+        let mut seen = soroban_sdk::Vec::new(m.resolvers.env());
+        for resolver in m.resolvers.iter() {
+            if contains(&seen, &resolver) {
+                return Err(ContractError::ConflictingRoles);
             }
+            seen.push_back(resolver);
         }
     }
 
@@ -728,14 +735,7 @@ pub(crate) fn create_escrow_internal(
             .instance()
             .get(&DataKey::ApprovedResolvers)
             .unwrap_or_else(|| soroban_sdk::Vec::new(env));
-        let mut found = false;
-        for r in approved.iter() {
-            if r == resolver {
-                found = true;
-                break;
-            }
-        }
-        if !found {
+        if !contains(&approved, &resolver) {
             return Err(ContractError::UnauthorizedResolver);
         }
     }
