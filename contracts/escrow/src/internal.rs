@@ -221,12 +221,12 @@ pub(crate) fn is_token_allowed(env: &Env, token: &Address) -> Result<(), Contrac
     if !is_token_allowlist_enabled(env) {
         return Ok(());
     }
-    let allowlist: soroban_sdk::Vec<Address> = env
+    let allowlist: soroban_sdk::Map<Address, bool> = env
         .storage()
         .instance()
         .get(&DataKey::TokenAllowlist)
-        .unwrap_or(soroban_sdk::Vec::new(env));
-    if contains(&allowlist, token) {
+        .unwrap_or(soroban_sdk::Map::new(env));
+    if allowlist.contains_key(token.clone()) {
         return Ok(());
     }
     Err(ContractError::TokenNotAllowed)
