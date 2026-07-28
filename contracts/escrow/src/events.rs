@@ -9,7 +9,7 @@ use crate::ResolutionType;
 /// Increment this constant whenever a field is added, removed, or renamed in
 /// any event struct.  Consumers can use it to guard against decoding stale
 /// snapshots with the wrong XDR shape.
-pub const EVENT_SCHEMA_VERSION: u32 = 2;
+pub const EVENT_SCHEMA_VERSION: u32 = 3;
 
 /// Event topic/data schemas used by the escrow contract.
 ///
@@ -215,6 +215,9 @@ pub struct EscrowFunded {
     pub timestamp: u64,
     pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
+    /// Basket token addresses and amounts (optional, for basket escrows).
+    /// Field added in schema_version 3 for issue #668.
+    pub basket_tokens: Option<soroban_sdk::Vec<(Address, i128)>>,
 }
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("Funded"), buyer.clone(),)`, data: `EscrowFunded`.
@@ -225,6 +228,7 @@ pub fn emit_escrow_funded(
     amount: i128,
     prev_state: crate::EscrowState,
     new_state: crate::EscrowState,
+    basket_tokens: Option<soroban_sdk::Vec<(Address, i128)>>,
 ) {
     env.events().publish(
         (
@@ -240,6 +244,7 @@ pub fn emit_escrow_funded(
             timestamp: env.ledger().timestamp(),
             prev_state,
             new_state,
+            basket_tokens,
         },
     );
 }
@@ -522,7 +527,7 @@ pub fn emit_auto_released(
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EscrowCancelled {
+pub struct EscrowCanceled {
     pub schema_version: u32,
     pub escrow_id: u64,
     pub seller: Address,
@@ -534,11 +539,11 @@ pub struct EscrowCancelled {
     pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(symbol_short!("Escrow"), symbol_short!("Canceled"), cancelled_by.clone(),)`, data: `EscrowCancelled`.
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Canceled"), cancelled_by.clone(),)`, data: `EscrowCanceled`.
 ///
 /// `seller` is the escrow's seller (first payee). `cancelled_by` is the caller that
 /// triggered the cancellation, which may be the buyer rather than the seller.
-pub fn emit_escrow_cancelled(
+pub fn emit_escrow_canceled(
     env: &Env,
     escrow_id: u64,
     seller: Address,
@@ -552,7 +557,7 @@ pub fn emit_escrow_cancelled(
             symbol_short!("Canceled"),
             cancelled_by.clone(),
         ),
-        EscrowCancelled {
+        EscrowCanceled {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             seller,
@@ -617,7 +622,7 @@ pub struct EscrowAutoCanceled {
 
 /// Topic: `(symbol_short!("Escrow"), symbol_short!("AutoCncl"),)`, data: `EscrowAutoCanceled`.
 ///
-/// Emitted by `auto_cancel_pending`. Unlike `emit_escrow_cancelled`, there is
+/// Emitted by `auto_cancel_pending`. Unlike `emit_escrow_canceled`, there is
 /// no `cancelled_by` actor — this is a permissionless keeper action, not
 /// attributable to a specific counterparty.
 pub fn emit_escrow_auto_canceled(env: &Env, escrow_id: u64) {
@@ -907,6 +912,9 @@ pub struct RefundRequestedEvent {
     pub timestamp: u64,
     pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
+    /// Basket token addresses and amounts (optional, for basket escrows).
+    /// Field added in schema_version 3 for issue #669.
+    pub basket_tokens: Option<soroban_sdk::Vec<(Address, i128)>>,
 }
 
 /// Topic: `(symbol_short!("Refund"), symbol_short!("Requested"), buyer.clone(),)`, data: `RefundRequestedEvent`.
@@ -916,6 +924,7 @@ pub fn emit_refund_requested(
     buyer: Address,
     prev_state: crate::EscrowState,
     new_state: crate::EscrowState,
+    basket_tokens: Option<soroban_sdk::Vec<(Address, i128)>>,
 ) {
     env.events().publish(
         (
@@ -930,6 +939,7 @@ pub fn emit_refund_requested(
             timestamp: env.ledger().timestamp(),
             prev_state,
             new_state,
+            basket_tokens,
         },
     );
 }

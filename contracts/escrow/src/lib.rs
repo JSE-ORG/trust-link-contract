@@ -25,7 +25,7 @@ pub use crate::events::{
     emit_contract_unpaused, emit_contract_upgraded, emit_delivery_proposal_cancelled,
     emit_delivery_proposed, emit_delivery_recorded, emit_dispute_appealed,
     emit_dispute_pending_finalization, emit_dispute_raised, emit_dispute_resolved,
-    emit_emergency_drain, emit_escrow_auto_canceled, emit_escrow_cancelled, emit_escrow_completed,
+    emit_emergency_drain, emit_escrow_auto_canceled, emit_escrow_canceled, emit_escrow_completed,
     emit_escrow_created, emit_escrow_expired, emit_escrow_funded, emit_escrow_shipped,
     emit_fee_collector_updated, emit_fee_updated, emit_platform_fee_updated,
     emit_protocol_fee_updated, emit_refund_approved, emit_refund_requested, emit_resolver_approved,
@@ -35,7 +35,7 @@ pub use crate::events::{
     AdminRotated, AmountLimitsUpdated, ArbitrationFeeUpdated, AutoReleased, ContractInitialized,
     ContractPausedEvent, ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled,
     DeliveryProposed, DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowAutoCanceled,
-    EscrowCancelled, EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped,
+    EscrowCanceled, EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped,
     FeeUpdated, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated,
     ResolverStrictUpdated, ResolverVoteRecorded, TtlExtensionUpdated,
 };
