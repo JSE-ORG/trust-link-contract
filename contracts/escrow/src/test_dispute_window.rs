@@ -25,6 +25,7 @@ struct Fx {
 fn setup_funded_and_shipped() -> Fx {
     let env = Env::default();
     env.mock_all_auths();
+    env.ledger().set_timestamp(1_700_000_000);
 
     let admin = Address::generate(&env);
     let seller = Address::generate(&env);
@@ -56,7 +57,6 @@ fn setup_funded_and_shipped() -> Fx {
         &3600_u64,
     );
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
-    env.ledger().set_timestamp(1_700_000_000);
     client.fund_escrow(&escrow_id, &buyer);
     client.mark_shipped(&seller, &escrow_id, &String::from_str(&env, "TRK-001"));
 

@@ -28,10 +28,7 @@ impl Escrow {
         }
         validate_arbitration_fee_bps(arbitration_fee_bps)?;
 
-        let zero = Address::from_string(&String::from_str(
-            &env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-        ));
+        let zero = Address::from_string(&String::from_str(&env, crate::ZERO_ADDRESS_STR));
         if admin == zero || fee_collector == zero {
             return Err(ContractError::InvalidAddress);
         }
@@ -251,10 +248,7 @@ impl Escrow {
         let admin = require_admin(&env)?;
         admin.require_auth();
 
-        let zero = Address::from_string(&String::from_str(
-            &env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-        ));
+        let zero = Address::from_string(&String::from_str(&env, crate::ZERO_ADDRESS_STR));
         if new_collector == zero {
             return Err(ContractError::InvalidAddress);
         }
@@ -427,10 +421,7 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        let zero = Address::from_string(&String::from_str(
-            &env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-        ));
+        let zero = Address::from_string(&String::from_str(&env, crate::ZERO_ADDRESS_STR));
         if treasury == zero {
             return Err(ContractError::InvalidAddress);
         }

@@ -304,10 +304,7 @@ pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), Cont
             .ok_or(ContractError::ArithmeticError)?;
 
         // Validate each payee address is not zero
-        let zero = Address::from_string(&String::from_str(
-            env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-        ));
+        let zero = Address::from_string(&String::from_str(env, crate::ZERO_ADDRESS_STR));
         if payee.address == zero {
             return Err(ContractError::InvalidAddress);
         }
@@ -610,12 +607,12 @@ pub(crate) fn payout_basket_tokens(
 }
 
 pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
-    if let Some(expires_at) = env
+    if let Some(schedule) = env
         .storage()
         .persistent()
-        .get::<DataKey, u64>(&DataKey::PendingExpiry(escrow_id))
+        .get::<crate::DataKey, crate::ExpirySchedule>(&crate::DataKey::PendingExpiry(escrow_id))
     {
-        if env.ledger().timestamp() > expires_at {
+        if env.ledger().timestamp() >= schedule.expires_at {
             return Err(ContractError::EscrowExpired);
         }
     }
@@ -882,4 +879,11 @@ pub(crate) fn execute_resolution_transition(
         appeal_deadline,
     );
     Ok(())
+}
+
+pub(crate) fn escrow_created_at(env: &Env, escrow_id: u64) -> u64 {
+    load_state_history(env, escrow_id)
+        .get(0)
+        .map(|(_, ts)| ts)
+        .unwrap_or(0)
 }
