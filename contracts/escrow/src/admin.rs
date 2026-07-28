@@ -336,9 +336,6 @@ impl Escrow {
 
     // 8. SetTtlExtension
     pub fn queue_set_ttl_extension(env: Env, caller: Address, ledgers: u32) -> Result<(), ContractError> {
-        if ledgers < crate::MIN_TTL_EXTENSION {
-            return Err(ContractError::TtlBelowMinimum);
-        }
         let mut params = Vec::new(&env);
         params.push_back(ledgers.into_val(&env));
         queue_timelock_op(&env, &caller, TimelockOperation::SetTtlExtension, params)
@@ -347,10 +344,6 @@ impl Escrow {
     pub fn execute_set_ttl_extension(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTtlExtension)?;
         let ledgers = u32::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
-        
-        if ledgers < crate::MIN_TTL_EXTENSION {
-            return Err(ContractError::TtlBelowMinimum);
-        }
         
         let old_ledgers = storage::get_ttl_extension(&env);
         env.storage().instance().set(&DataKey::TtlExtensionLedgers, &ledgers);
