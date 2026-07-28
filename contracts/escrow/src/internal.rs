@@ -558,6 +558,16 @@ pub(crate) fn transfer_with_protocol_fee(
     Ok((fee, net))
 }
 
+/// Distributes the specified `amount` among the `payees` proportionally based on their BPS shares.
+///
+/// **Rounding Strategy Documented:**
+/// To ensure the exact `amount` is fully distributed without leaving dust in the contract,
+/// the function calculates the truncated (floor) amount for payees 1 through N, subtracting 
+/// each from a `remaining` accumulator. The primary payee (index 0) receives the entire 
+/// `remaining` balance. Because integer division truncates, this strategy intentionally 
+/// accumulates all rounding dust and awards it to the primary payee. While this silently 
+/// favors the first payee by up to `N-1` stroops, it guarantees exactly 100% of the funds 
+/// are distributed and avoids complex sub-stroop accounting.
 pub(crate) fn distribute_to_payees(
     env: &Env,
     token_addr: &Address,
