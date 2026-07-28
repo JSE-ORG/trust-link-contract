@@ -338,19 +338,21 @@ impl Escrow {
             .extend_ttl(&buyer_key, ext / 2, ext);
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-        
+
         // Build basket_tokens event data if this is a basket escrow
         let basket_event_data = if basket_tokens.len() > 1 {
             let mut tuples = soroban_sdk::Vec::new(&env);
             for i in 0..basket_tokens.len() {
-                let entry = basket_tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+                let entry = basket_tokens
+                    .get(i)
+                    .ok_or(ContractError::IndexOutOfBounds)?;
                 tuples.push_back((entry.token, entry.amount));
             }
             Some(tuples)
         } else {
             None
         };
-        
+
         emit_escrow_funded(
             &env,
             escrow_id,
@@ -497,6 +499,11 @@ impl Escrow {
             .persistent()
             .get(&key)
             .unwrap_or_else(|| Vec::new(&env));
+            
+        if msgs.len() >= crate::MAX_MESSAGES_PER_ESCROW {
+            return Err(ContractError::TooManyMessages);
+        }
+        
         msgs.push_back(message);
         env.storage().persistent().set(&key, &msgs);
         emit_message_posted(&env, escrow_id, sender);
@@ -1267,14 +1274,16 @@ impl Escrow {
             .extend_ttl(&buyer_key, ext / 2, ext);
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-        
+
         // Build basket_tokens event data (always Some for basket escrows)
         let mut basket_event_tuples = soroban_sdk::Vec::new(&env);
         for i in 0..basket_tokens.len() {
-            let entry = basket_tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+            let entry = basket_tokens
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
             basket_event_tuples.push_back((entry.token, entry.amount));
         }
-        
+
         emit_escrow_funded(
             &env,
             escrow_id,
@@ -1393,7 +1402,9 @@ impl Escrow {
         let basket_event_data = if basket_tokens.len() > 1 {
             let mut tuples = soroban_sdk::Vec::new(&env);
             for i in 0..basket_tokens.len() {
-                let entry = basket_tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+                let entry = basket_tokens
+                    .get(i)
+                    .ok_or(ContractError::IndexOutOfBounds)?;
                 tuples.push_back((entry.token, entry.amount));
             }
             Some(tuples)
