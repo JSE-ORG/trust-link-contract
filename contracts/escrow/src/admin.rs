@@ -200,20 +200,12 @@ impl Escrow {
     }
 
     /// Updates the protocol fee. Only callable by admin.
+    ///
+    /// **Deprecated:** Use `set_protocol_fee` instead. This function now
+    /// delegates to `set_protocol_fee` and emits `ProtocolFeeUpdated`.
+    #[deprecated(note = "use set_protocol_fee instead")]
     pub fn set_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
-        caller.require_auth();
-        let admin = require_admin(&env)?;
-        if caller != admin {
-            return Err(ContractError::NotAuthorized);
-        }
-        validate_escrow_fee_bps(fee_bps)?;
-        let mut config = read_fee_config(&env);
-        let old_fee = config.protocol_fee_bps;
-        validate_combined_fees(fee_bps, config.arbitration_fee_bps)?;
-        config.protocol_fee_bps = fee_bps;
-        write_fee_config(&env, &config);
-        emit_fee_updated(&env, old_fee, fee_bps);
-        Ok(())
+        Self::set_protocol_fee(env, caller, fee_bps)
     }
 
     /// Updates the protocol fee configuration in basis points. Requires admin auth.
