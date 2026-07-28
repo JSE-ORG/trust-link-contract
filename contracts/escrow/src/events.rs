@@ -1250,20 +1250,20 @@ pub fn emit_fee_collector_updated(env: &Env, old_collector: Address, new_collect
 pub struct EmergencyDrain {
     pub schema_version: u32,
     pub escrow_id: u64,
-    pub buyer: Address,
-    pub seller: Address,
+    pub token: Address,
+    pub amount: i128,
     pub timestamp: u64,
 }
 
 /// Topic: `(symbol_short!("Emergency"), symbol_short!("Drain"),)`, data: `EmergencyDrain`.
-pub fn emit_emergency_drain(env: &Env, escrow_id: u64, buyer: Address, seller: Address) {
+pub fn emit_emergency_drain(env: &Env, escrow_id: u64, token: Address, amount: i128) {
     env.events().publish(
         (symbol_short!("Emergency"), symbol_short!("Drain")),
         EmergencyDrain {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
-            buyer,
-            seller,
+            token,
+            amount,
             timestamp: env.ledger().timestamp(),
         },
     );
