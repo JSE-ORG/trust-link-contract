@@ -168,7 +168,7 @@ impl Escrow {
             .storage()
             .instance()
             .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotAuthorized)?;
+            .ok_or(ContractError::NotInitialized)?;
         let escrow_count: u64 = env
             .storage()
             .instance()

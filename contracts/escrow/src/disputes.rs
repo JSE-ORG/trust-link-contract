@@ -148,7 +148,7 @@ impl Escrow {
             .storage()
             .instance()
             .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotAuthorized)?;
+            .ok_or(ContractError::NotInitialized)?;
 
         let platform_fee_bps = read_platform_fee_bps(&env);
         let platform_fee = if platform_fee_bps > 0 {
