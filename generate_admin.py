@@ -1,4 +1,14 @@
-//! Admin-controlled contract configuration: pausing, fee parameters,
+import os
+
+def generate_admin_rs():
+    # Read original admin.rs
+    with open('contracts/escrow/src/admin.rs', 'r') as f:
+        lines = f.readlines()
+        
+    # We will generate a completely new admin.rs to be sure it's clean and consistent.
+    # It will contain the timelock base logic and the queue/execute pairs.
+    
+    content = """//! Admin-controlled contract configuration: pausing, fee parameters,
 //! upgrades/migration, token allowlist, platform treasury, and the
 //! approved-resolver registry.
 //!
@@ -601,3 +611,9 @@ impl Escrow {
         Ok(())
     }
 }
+"""
+    
+    with open('contracts/escrow/src/admin.rs', 'w') as f:
+        f.write(content)
+
+generate_admin_rs()

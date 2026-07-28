@@ -38,11 +38,13 @@ pub use crate::events::{
     EscrowCanceled, EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped,
     FeeUpdated, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated,
     ResolverStrictUpdated, ResolverVoteRecorded, TtlExtensionUpdated,
+    emit_timelock_queued, emit_timelock_executed, emit_timelock_cancelled,
+    TimelockQueued, TimelockExecuted, TimelockCancelled,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
     EscrowState, ExpirySchedule, FeeConfig, Payee, PublicContractConfig, ResolutionType,
-    ResolverSet, ResolverVote, TokenEntry,
+    ResolverSet, ResolverVote, TokenEntry, TimelockProposal, TimelockOperation,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
