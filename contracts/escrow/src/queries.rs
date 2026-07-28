@@ -9,7 +9,11 @@ use soroban_sdk::{contractimpl, Address, Env, Vec};
 impl Escrow {
     /// Retrieves messages for a given escrow with pagination.
     pub fn get_messages(env: Env, escrow_id: u64, start: u64, limit: u64) -> Vec<Message> {
-        let max_limit = if limit > 50 { 50 } else { limit };
+        let max_limit = if limit > crate::MAX_MESSAGES_PER_PAGE {
+            crate::MAX_MESSAGES_PER_PAGE
+        } else {
+            limit
+        };
         let key = DataKey::Messages(escrow_id);
         let msgs: Vec<Message> = env
             .storage()
@@ -37,6 +41,8 @@ impl Escrow {
         load_basket_tokens(&env, escrow_id)
     }
 
+    /// Returns the full escrow record for `escrow_id`. Reverts with
+    /// `EscrowNotFound` if it does not exist.
     pub fn get_escrow(env: Env, escrow_id: u64) -> Result<EscrowData, ContractError> {
         load_escrow(&env, escrow_id)
     }
@@ -52,6 +58,7 @@ impl Escrow {
         Ok(load_state_history(&env, escrow_id))
     }
 
+    /// Retrieves all escrow IDs associated with a specific buyer.
     pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
         if let Some(ids) = env
             .storage()
@@ -137,6 +144,8 @@ impl Escrow {
         }
     }
 
+    /// Returns publicly-readable contract configuration: protocol fee,
+    /// pause state, and total escrow count. Callable by anyone.
     pub fn get_public_config(env: Env) -> PublicContractConfig {
         let fee_bps: u32 = read_fee_config(&env).protocol_fee_bps;
         let paused: bool = env
@@ -159,6 +168,10 @@ impl Escrow {
         }
     }
 
+    /// Returns admin-only contract configuration: admin address, protocol
+    /// fee, fee collector, and total escrow count. Requires the caller to
+    /// authenticate as the current admin. Reverts with `NotInitialized` if
+    /// the contract has not been initialized.
     pub fn get_contract_config(env: Env) -> Result<ContractConfig, ContractError> {
         let admin = require_admin(&env)?;
         admin.require_auth();

@@ -91,4 +91,10 @@ pub enum ContractError {
     GracePeriodNotElapsed = 40,
     /// Returned when the maximum number of dispute appeals has been reached.
     MaxAppealsReached = 41,
+    /// Returned when `create_basket_escrow` is called with mismatched or empty `tokens`/`amounts`.
+    BasketTokenMismatch = 42,
+    /// Returned when a `multicall` call argument is missing or fails to decode into the expected type.
+    InvalidMulticallArg = 43,
+    /// Returned when a `Payee` list's basis points do not sum to exactly `BASIS_POINTS` (10_000).
+    PayeeBpsMismatch = 44,
 }

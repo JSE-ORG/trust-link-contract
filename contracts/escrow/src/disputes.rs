@@ -73,6 +73,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Casts `caller`'s vote for `resolution` on a disputed escrow. An alias
+    /// for `vote` retained for backward compatibility. Reverts with
+    /// `InvalidState` if the escrow is not `Disputed`, or `NotAuthorized` if
+    /// `caller` is not an eligible resolver right now. Once enough votes are
+    /// recorded to meet the resolver set's threshold, transitions the escrow
+    /// to `PendingFinalization` (see `finalize_dispute`). Emits
+    /// `resolver_vote_recorded`.
     pub fn resolve_dispute(
         env: Env,
         caller: Address,
@@ -98,6 +105,13 @@ impl Escrow {
         load_resolver_votes(&env, escrow_id)
     }
 
+    /// Pays out a resolved dispute once its appeal window has elapsed.
+    /// Reverts with `NotPendingFinalization` if the escrow is not in
+    /// `PendingFinalization`, or `AppealWindowActive` if `now <
+    /// resolved_at + APPEAL_WINDOW`. Transfers the platform fee to the
+    /// treasury (if configured) and the remainder — minus the protocol fee —
+    /// to the winning party, then transitions the escrow to `Completed`
+    /// (release) or `Refunded` (refund). Emits `dispute_resolved`.
     pub fn finalize_dispute(
         env: Env,
         caller: Address,
@@ -221,6 +235,16 @@ impl Escrow {
         Ok(())
     }
 
+    /// Reopens a resolved dispute for another round of voting. Callable by
+    /// the escrow's buyer or seller while the escrow is `PendingFinalization`
+    /// and the appeal window (`resolved_at + APPEAL_WINDOW`) has not yet
+    /// elapsed. Reverts with `NotPendingFinalization` if the escrow isn't
+    /// awaiting finalization, `MaxAppealsReached` if `appeal_count >=
+    /// MAX_APPEALS`, `DisputeWindowStillOpen` if the appeal window has
+    /// closed, or `NotAuthorized` if `caller` is neither the buyer nor
+    /// seller. On success, transitions the escrow back to `Disputed`, clears
+    /// the prior resolution and any recorded votes, and increments
+    /// `appeal_count`. Emits `dispute_appealed`.
     pub fn appeal_dispute(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
@@ -285,6 +309,8 @@ impl Escrow {
         Ok(())
     }
 
+    /// Returns the dispute record for `escrow_id`, or `None` if no dispute
+    /// has ever been raised on it.
     pub fn get_dispute(env: Env, escrow_id: u64) -> Option<DisputeData> {
         load_dispute(&env, escrow_id).ok()
     }

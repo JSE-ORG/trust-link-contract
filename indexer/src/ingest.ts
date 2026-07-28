@@ -12,6 +12,8 @@
  * processed twice and no event is skipped.
  */
 
+import { rpc, scValToNative } from "@stellar/stellar-sdk";
+
 import { getPool, withTx, closePool } from "./db.js";
 import { readCursor, writeCursor } from "./cursor.js";
 import { processEvent } from "./apply.js";
@@ -88,28 +90,93 @@ export async function ingestBatch(
 // ---------------------------------------------------------------------------
 
 const POLL_INTERVAL_MS = parseInt(process.env["POLL_INTERVAL_MS"] ?? "6000", 10);
+const EVENTS_PAGE_SIZE = parseInt(process.env["EVENTS_PAGE_SIZE"] ?? "1000", 10);
 const CONTRACT_ID = process.env["CONTRACT_ID"] ?? "";
 
 /**
- * Minimal stub for the Soroban RPC event source.
- *
- * Replace the body of fetchEvents with a real stellar-sdk GetEvents call that:
- *   1. Opens a Soroban RPC connection to SOROBAN_RPC_URL
- *   2. Calls getEvents({ startLedger, filters: [{ contractIds: [contractId] }] })
- *   3. Decodes XDR topics and values using stellar-sdk
- *   4. Maps the results to RawEvent[]
+ * Recursively converts a `scValToNative()` result into a JSON-safe value:
+ * bigints (u64/i64/u128/i128/...) become decimal strings and raw byte
+ * buffers (e.g. `BytesN<32>` evidence hashes) become hex strings, matching
+ * the shapes of the `*Payload` interfaces in types.ts and the fixture data
+ * in fixtures/events.json.
  */
-class SorobanRpcSource implements EventSource {
-  async fetchEvents(afterCursor: Cursor, contractId: string): Promise<RawEvent[]> {
-    const rpcUrl = process.env["SOROBAN_RPC_URL"];
-    if (!rpcUrl) throw new Error("SOROBAN_RPC_URL is required for live ingestion");
+function toJsonSafe(value: unknown): unknown {
+  if (typeof value === "bigint") return value.toString();
+  if (value instanceof Uint8Array) return Buffer.from(value).toString("hex");
+  if (Array.isArray(value)) return value.map(toJsonSafe);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, toJsonSafe(v)]),
+    );
+  }
+  return value;
+}
 
-    // TODO: integrate stellar-sdk SorobanRpc.Server.getEvents()
-    // For now return empty so the loop idles gracefully.
-    void afterCursor;
-    void contractId;
-    console.warn("[ingest] SorobanRpcSource is a stub — wire up stellar-sdk here");
-    return [];
+/** Decodes a single event's topic list into the plain strings RawEvent expects. */
+function decodeTopics(topic: ReturnType<typeof scValToNative>[]): string[] {
+  return topic.map((t) => String(toJsonSafe(scValToNative(t))));
+}
+
+/**
+ * Soroban RPC event source — polls `getEvents` for the configured contract
+ * and maps the results to `RawEvent[]`.
+ *
+ * `getEvents` only accepts a ledger-granular `startLedger`, finer than our
+ * persisted (ledger, tx, event) cursor, so we always re-request from
+ * `afterCursor.ledger_sequence` (not `+ 1`) and rely on `cursorAfter` to
+ * drop anything at or before the cursor — this covers resuming mid-ledger
+ * without skipping or reprocessing events (the latter is harmless anyway,
+ * since `ingestBatch` upserts are idempotent).
+ *
+ * The RPC response has no explicit per-ledger event index, so `event_index`
+ * is derived by counting events per `(ledger, transactionIndex)` in the
+ * order the server returns them — stable and deterministic since Soroban
+ * RPC always returns events in ledger/tx/operation order.
+ */
+export class SorobanRpcSource implements EventSource {
+  private readonly server: Pick<rpc.Server, "getEvents">;
+
+  /** Accepts either an RPC URL or a pre-built server (e.g. a test double). */
+  constructor(rpcUrlOrServer: string | Pick<rpc.Server, "getEvents">) {
+    this.server =
+      typeof rpcUrlOrServer === "string" ? new rpc.Server(rpcUrlOrServer) : rpcUrlOrServer;
+  }
+
+  async fetchEvents(afterCursor: Cursor, contractId: string): Promise<RawEvent[]> {
+    const startLedger = Math.max(afterCursor.ledger_sequence, 1);
+
+    const response = await this.server.getEvents({
+      startLedger,
+      filters: [{ type: "contract", contractIds: [contractId] }],
+      limit: EVENTS_PAGE_SIZE,
+    });
+
+    const perTxEventCount = new Map<string, number>();
+    const events: RawEvent[] = [];
+
+    for (const event of response.events) {
+      const key = `${event.ledger}:${event.transactionIndex}`;
+      const eventIndex = perTxEventCount.get(key) ?? 0;
+      perTxEventCount.set(key, eventIndex + 1);
+
+      const candidate: Cursor = {
+        ledger_sequence: event.ledger,
+        tx_index: event.transactionIndex,
+        event_index: eventIndex,
+      };
+      if (!cursorAfter(candidate, afterCursor)) continue;
+
+      events.push({
+        ledger_sequence: event.ledger,
+        tx_index: event.transactionIndex,
+        event_index: eventIndex,
+        contract_id: event.contractId?.toString() ?? contractId,
+        topics: decodeTopics(event.topic),
+        payload: toJsonSafe(scValToNative(event.value)) as Record<string, unknown>,
+      });
+    }
+
+    return events;
   }
 }
 
@@ -152,10 +219,13 @@ const isMain =
   new URL(import.meta.url).pathname === process.argv[1];
 
 if (isMain) {
-  runLive(new SorobanRpcSource()).catch((err) => {
+  const rpcUrl = process.env["SOROBAN_RPC_URL"];
+  if (!rpcUrl) throw new Error("SOROBAN_RPC_URL is required for live ingestion");
+
+  runLive(new SorobanRpcSource(rpcUrl)).catch((err) => {
     console.error("[ingest] fatal:", err);
     process.exit(1);
   });
 }
 
-export { cursorAfter };
+export { cursorAfter, toJsonSafe, decodeTopics };

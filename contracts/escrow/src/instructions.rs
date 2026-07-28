@@ -97,8 +97,8 @@ impl Escrow {
             token,
             amount,
             fee_bps,
-            0_u32,    // Default resolver fee
-            3600_u64, // Default shipping window fallback
+            0_u32,                           // Default resolver fee
+            crate::DEFAULT_SHIPPING_WINDOW,  // Default shipping window fallback
             None,
         )
     }
@@ -603,6 +603,13 @@ impl Escrow {
         Ok(escrow_id)
     }
 
+    /// Cancels an escrow. Callable by any payee (seller) or the buyer.
+    /// A `Pending` (unfunded) escrow simply transitions to `Canceled`. A
+    /// `Funded` escrow may only be cancelled by the buyer, which refunds the
+    /// full amount (and any basket tokens) and transitions to `Refunded`.
+    /// Reverts with `NotAuthorized` if `caller` is neither a payee nor the
+    /// buyer, or `InvalidState` for any other escrow state. Emits
+    /// `escrow_canceled`.
     pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
@@ -1032,6 +1039,15 @@ impl Escrow {
         Ok(())
     }
 
+    /// Releases funds to the payees once the shipping/delivery window has
+    /// elapsed with no dispute raised. Callable by anyone. Reverts with
+    /// `InvalidState` if the escrow is not `Funded`/`Shipped` or has an open
+    /// dispute, `DeliveryNotRecorded` if `Shipped` with no `delivered_at`,
+    /// `DeliveryBeforeDisputeWindow` if the buyer's dispute window hasn't
+    /// opened yet, or `ShippingWindowNotElapsed` if the relevant window
+    /// (delivery-release or shipping) hasn't elapsed. Deducts the protocol
+    /// fee, distributes the remainder across `payees`, and transitions the
+    /// escrow to `Completed`. Emits `auto_released`.
     pub fn auto_release(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_not_paused(&env)?;
         crate::internal::ensure_not_expired(&env, escrow_id)?;
@@ -1366,6 +1382,11 @@ impl Escrow {
         }
     }
 
+    /// Buyer requests a refund on a `Funded` escrow, transitioning it to
+    /// `RefundRequested` pending seller approval via `approve_refund`.
+    /// Reverts with `NotAuthorized` if `caller` is not the buyer, or
+    /// `InvalidStateTransition` if the escrow is not `Funded`. Emits
+    /// `refund_requested`.
     pub fn request_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
@@ -1412,6 +1433,11 @@ impl Escrow {
         Ok(())
     }
 
+    /// Seller (any payee) approves a pending refund request, transferring the
+    /// full amount (and any basket tokens) back to the buyer. Reverts with
+    /// `NotAuthorized` if `caller` is not a payee, or
+    /// `InvalidStateTransition` if the escrow is not `RefundRequested`.
+    /// Transitions the escrow to `Refunded`. Emits `refund_approved`.
     pub fn approve_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
@@ -1500,6 +1526,18 @@ impl Escrow {
         Ok(escrow_ids)
     }
 
+    /// Executes a batch of contract calls in sequence, returning each call's
+    /// result in the same order as `calls`. Supports a fixed allowlist of
+    /// entry points (`initialize`, `pause_contract`, `unpause_contract`,
+    /// `create_escrow`, `fund_escrow`, `mark_shipped`, `confirm_delivery`,
+    /// `raise_dispute`, `resolve_dispute`, `auto_release`, `get_escrow`,
+    /// `get_dispute`, `get_fee_config`, `set_arbitration_fee`,
+    /// `get_arbitration_fee`, `rotate_resolver`, `cancel_escrow`); any other
+    /// `function` name reverts the entire call with `NotAuthorized`, and a
+    /// missing or undecodable argument reverts with `InvalidMulticallArg`.
+    /// Authorization for each sub-call is enforced exactly as if it were
+    /// called directly. Reverts with `ContractPaused` if the contract is
+    /// paused.
     pub fn multicall(env: Env, calls: Vec<ContractCall>) -> Result<Vec<Val>, ContractError> {
         ensure_not_paused(&env)?;
         let mut results = Vec::new(&env);

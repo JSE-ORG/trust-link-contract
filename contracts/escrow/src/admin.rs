@@ -259,6 +259,11 @@ impl Escrow {
         Ok(())
     }
 
+    /// Sets the arbitration fee (in basis points) deducted from escrows
+    /// during dispute resolution. Only callable by admin. Reverts with
+    /// `FeeExceedsMax` if `fee_bps` exceeds `MAX_ARBITRATION_FEE_BPS`, or
+    /// with the combined-fee cap if `protocol_fee_bps + fee_bps` would
+    /// exceed `MAX_COMBINED_FEE_BPS`. Emits `arbitration_fee_updated`.
     pub fn set_arbitration_fee(
         env: Env,
         caller: Address,
@@ -269,6 +274,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Returns the current arbitration fee in basis points.
     pub fn get_arbitration_fee(env: Env) -> u32 {
         read_fee_config(&env).arbitration_fee_bps
     }
@@ -281,6 +287,10 @@ impl Escrow {
             .unwrap_or(0)
     }
 
+    /// Enables or disables the token allowlist. Only callable by admin.
+    /// While enabled, `create_escrow` and related entry points reject any
+    /// `token` not present in `get_allowed_tokens`. Emits
+    /// `allowlist_toggled`.
     pub fn set_token_allowlist_enabled(
         env: Env,
         caller: Address,
@@ -299,6 +309,9 @@ impl Escrow {
         Ok(())
     }
 
+    /// Adds `token` to the allowlist. Only callable by admin. A no-op
+    /// (returns `Ok`) if the token is already present. Emits
+    /// `token_allowlist_updated` with `allowed = true`.
     pub fn add_allowed_token(
         env: Env,
         caller: Address,
@@ -331,6 +344,9 @@ impl Escrow {
         Ok(())
     }
 
+    /// Removes `token` from the allowlist. Only callable by admin. Reverts
+    /// with `TokenNotAllowed` if the token is not currently allowlisted.
+    /// Emits `token_allowlist_updated` with `allowed = false`.
     pub fn remove_allowed_token(
         env: Env,
         caller: Address,
@@ -371,10 +387,12 @@ impl Escrow {
         Ok(())
     }
 
+    /// Returns whether the token allowlist is currently enforced.
     pub fn is_token_allowlist_enabled(env: Env) -> bool {
         is_token_allowlist_enabled(&env)
     }
 
+    /// Returns the full list of allowlisted tokens.
     pub fn get_allowed_tokens(env: Env) -> soroban_sdk::Vec<Address> {
         env.storage()
             .instance()
@@ -425,10 +443,13 @@ impl Escrow {
         Ok(())
     }
 
+    /// Returns the current platform fee in basis points.
     pub fn get_platform_fee_bps(env: Env) -> u32 {
         read_platform_fee_bps(&env)
     }
 
+    /// Returns the configured treasury address. Reverts with
+    /// `NotInitialized` if no treasury has been set via `set_treasury`.
     pub fn get_treasury(env: Env) -> Result<Address, ContractError> {
         read_treasury(&env)
     }
