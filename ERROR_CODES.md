@@ -45,3 +45,5 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **37** | `InvalidExpiration` | A supplied expiration timestamp is not strictly in the future. | Provide an expiration timestamp that is in the future. |
 | **38** | `DeliveryNotProposed` | `record_delivery` was called before a delivery proposal was initiated. | Admin must first call `propose_record_delivery` and wait for the timelock. |
 | **39** | `TimelockNotElapsed` | `record_delivery` was called before the required 24-hour timelock elapsed. | Wait until 24 hours have passed since `propose_record_delivery` was called. |
+| **40** | `GracePeriodNotElapsed` | The grace period has not elapsed yet. | Wait for the grace period to elapse before performing this action. |
+| **41** | `MaxAppealsReached` | The maximum number of appeals has been reached. | The dispute can no longer be appealed. |
