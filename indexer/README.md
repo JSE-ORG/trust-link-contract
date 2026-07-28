@@ -126,6 +126,12 @@ psql $DATABASE_URL -c \
   "SELECT escrow_id, seller, buyer, resolver, state, amount
      FROM escrows
     WHERE seller = 'G...' OR buyer = 'G...' OR resolver = 'G...'"
+
+# 5. Query vote status (plain SQL)
+psql $DATABASE_URL -c \
+  "SELECT escrow_id, resolver, resolution, vote_count, threshold, voted_at
+     FROM resolver_votes
+    WHERE escrow_id = 12345"
 ```
 
 Live ingestion (after wiring `SorobanRpcSource` in `indexer/src/ingest.ts`):
