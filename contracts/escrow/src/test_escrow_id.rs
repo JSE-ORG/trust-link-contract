@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{Escrow, EscrowCancelled, EscrowClient, Payee};
+use crate::{Escrow, EscrowCanceled, EscrowClient, Payee};
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events as _},
@@ -51,7 +51,7 @@ fn has_cancel_event(env: &Env, contract_id: &Address, escrow_id: u64, seller: &A
                     return false;
                 };
 
-                EscrowCancelled::try_from_val(env, &data)
+                EscrowCanceled::try_from_val(env, &data)
                     .map(|event| event.escrow_id == escrow_id && &event.seller == seller)
                     .unwrap_or(false)
             }

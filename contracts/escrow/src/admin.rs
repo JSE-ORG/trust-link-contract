@@ -141,6 +141,28 @@ impl Escrow {
     pub fn is_action_paused(env: Env, action: Symbol) -> bool {
         env.storage()
             .instance()
+            .set(&DataKey::FeeCollector, &new_collector);
+        env.events()
+            .publish(("FeeCollectorUpdated",), (old_collector, new_collector));
+        Ok(())
+    }
+
+    /// Sets the arbitration fee (in basis points) deducted from escrows
+    /// during dispute resolution. Only callable by admin. Reverts with
+    /// `FeeExceedsMax` if `fee_bps` exceeds `MAX_ARBITRATION_FEE_BPS`, or
+    /// with the combined-fee cap if `protocol_fee_bps + fee_bps` would
+    /// exceed `MAX_COMBINED_FEE_BPS`. Emits `arbitration_fee_updated`.
+    pub fn set_arbitration_fee(
+        env: Env,
+        caller: Address,
+        fee_bps: u32,
+    ) -> Result<(), ContractError> {
+        let old_fee_bps = update_arbitration_fee(&env, &caller, fee_bps)?;
+        emit_arbitration_fee_updated(&env, old_fee_bps, fee_bps);
+        Ok(())
+    }
+
+    /// Returns the current arbitration fee in basis points.
             .get(&DataKey::ActionPaused(action))
             .unwrap_or(false)
     }
@@ -160,6 +182,21 @@ impl Escrow {
         crate::internal::is_token_allowlist_enabled(&env)
     }
 
+    /// Enables or disables the token allowlist. Only callable by admin.
+    /// While enabled, `create_escrow` and related entry points reject any
+    /// `token` not present in `get_allowed_tokens`. Emits
+    /// `allowlist_toggled`.
+    pub fn set_token_allowlist_enabled(
+        env: Env,
+        caller: Address,
+        enabled: bool,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+
     pub fn get_allowed_tokens(env: Env) -> soroban_sdk::Vec<Address> {
         env.storage()
             .instance()
@@ -171,6 +208,9 @@ impl Escrow {
         read_platform_fee_bps(&env)
     }
 
+    /// Adds `token` to the allowlist. Only callable by admin. A no-op
+    /// (returns `Ok`) if the token is already present. Emits
+    /// `token_allowlist_updated` with `allowed = true`.
     pub fn add_allowed_token(
         env: Env,
         caller: Address,
@@ -198,6 +238,15 @@ impl Escrow {
             .get(&DataKey::ResolverStrict)
             .unwrap_or(false)
     }
+
+    /// Removes `token` from the allowlist. Only callable by admin. Reverts
+    /// with `TokenNotAllowed` if the token is not currently allowlisted.
+    /// Emits `token_allowlist_updated` with `allowed = false`.
+    pub fn remove_allowed_token(
+        env: Env,
+        caller: Address,
+        token: Address,
+    ) -> Result<(), ContractError> {
     
     pub fn cancel_timelock_op(env: Env, caller: Address, operation: u32) -> Result<(), ContractError> {
         caller.require_auth();
@@ -226,6 +275,9 @@ impl Escrow {
         Ok(())
     }
 
+    /// Returns whether the token allowlist is currently enforced.
+    pub fn is_token_allowlist_enabled(env: Env) -> bool {
+        is_token_allowlist_enabled(&env)
     // 2. Upgrade
     pub fn queue_upgrade(env: Env, caller: Address, new_wasm_hash: BytesN<32>) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
@@ -243,6 +295,7 @@ impl Escrow {
         Ok(())
     }
 
+    /// Returns the full list of allowlisted tokens.
     pub fn get_allowed_tokens(env: Env) -> soroban_sdk::Vec<Address> {
         let allowlist: soroban_sdk::Map<Address, bool> = env
             .storage()
@@ -309,6 +362,15 @@ impl Escrow {
         Ok(())
     }
 
+    /// Returns the current platform fee in basis points.
+    pub fn get_platform_fee_bps(env: Env) -> u32 {
+        read_platform_fee_bps(&env)
+    }
+
+    /// Returns the configured treasury address. Reverts with
+    /// `NotInitialized` if no treasury has been set via `set_treasury`.
+    pub fn get_treasury(env: Env) -> Result<Address, ContractError> {
+        read_treasury(&env)
     // 7. SetFeeCollector
     pub fn queue_set_fee_collector(env: Env, caller: Address, new_collector: Address) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);

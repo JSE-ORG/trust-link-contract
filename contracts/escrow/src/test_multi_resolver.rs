@@ -76,8 +76,13 @@ fn test_multi_resolver_threshold_met() {
 #[test]
 fn test_multi_resolver_validation() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(Escrow, ());
-    let _client = EscrowClient::new(&env, &contract_id);
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    client.initialize(&admin, &fee_collector, &0_u32);
 
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);

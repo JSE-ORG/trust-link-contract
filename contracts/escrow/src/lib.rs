@@ -152,6 +152,14 @@ pub const MIN_SHIPPING_WINDOW: u64 = 1;
 /// Prevents accidental or malicious use of u64::MAX which would lock funds indefinitely.
 pub const MAX_SHIPPING_WINDOW: u64 = 63_072_000;
 
+/// Default shipping window in seconds (3600 = 1 hour), used as a fallback by
+/// the legacy 7-argument `create_escrow_7` entry point.
+pub const DEFAULT_SHIPPING_WINDOW: u64 = 3600;
+
+/// Maximum number of messages returned per page by `get_messages`, regardless
+/// of the caller-supplied `limit`.
+pub const MAX_MESSAGES_PER_PAGE: u64 = 50;
+
 /// Maximum escrow amount intentionally capped to
 /// preserve arithmetic safety for fee calculations
 /// and aggregate accounting operations.
@@ -230,6 +238,7 @@ fn resolve_or_vote_internal(
 mod malicious_token;
 mod test;
 mod test_admin;
+mod test_appeal;
 mod test_admin_event_emissions;
 mod test_admin_rotation;
 mod test_amount_limits;
