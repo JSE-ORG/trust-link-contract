@@ -1,8 +1,8 @@
 #![cfg(test)]
 
 use crate::{ContractError, EscrowClient, Payee};
-use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
-use soroban_sdk::{token, Address, Env, IntoVal, Vec};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{Address, Env, IntoVal, Vec};
 
 fn single_payee(env: &Env, address: &Address) -> Vec<Payee> {
     let mut payees = Vec::new(env);
@@ -59,7 +59,6 @@ fn test_amount_limits_enforced() {
         &token,
         &499,
         &100,
-        &0_u32,
         &3600,
     );
     assert_eq!(res, Err(Ok(ContractError::AmountBelowMinimum)));
@@ -75,7 +74,6 @@ fn test_amount_limits_enforced() {
         &token,
         &500,
         &100,
-        &0_u32,
         &3600,
     );
     assert_eq!(id1, 1);
@@ -91,7 +89,6 @@ fn test_amount_limits_enforced() {
         &token,
         &5000,
         &100,
-        &0_u32,
         &3600,
     );
     assert_eq!(id2, 2);
@@ -105,7 +102,6 @@ fn test_amount_limits_enforced() {
         &token,
         &5001,
         &100,
-        &0_u32,
         &3600,
     );
     assert_eq!(res, Err(Ok(ContractError::AmountExceedsMaximum)));

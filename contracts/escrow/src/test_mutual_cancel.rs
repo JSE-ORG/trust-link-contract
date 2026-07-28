@@ -8,7 +8,7 @@ use soroban_sdk::{
 };
 
 use crate::test_helpers::{create_funded_escrow, setup_contract};
-use crate::{Payee, ContractError, EscrowState};
+use crate::{ContractError, EscrowState};
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);

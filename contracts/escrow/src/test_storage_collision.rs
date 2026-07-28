@@ -10,7 +10,7 @@
 use crate::{Escrow, EscrowClient, EscrowState, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    token, Address, Env, IntoVal, String,
+    token, Address, Env, IntoVal, String, Vec,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -118,8 +118,8 @@ fn mark_shipped_escrow1_does_not_affect_escrow2() {
     let payees = single_payee(&env, &seller);
     let payees_val = payees.into_val(&env);
 
-    let id1 = client.create_escrow(&payees_val, &Some(buyer1.clone()), &resolver, &token, &300_i128, &0_u32, &0_u32, &0_u64, &None::<String>);
-    let id2 = client.create_escrow(&payees_val, &Some(buyer2.clone()), &resolver, &token, &400_i128, &0_u32, &0_u32, &0_u64, &None::<String>);
+    let id1 = client.create_escrow(&payees_val, &Some(buyer1.clone()), &resolver, &token, &300_i128, &0_u32, &0_u32, &1_u64, &None::<String>);
+    let id2 = client.create_escrow(&payees_val, &Some(buyer2.clone()), &resolver, &token, &400_i128, &0_u32, &0_u32, &1_u64, &None::<String>);
 
     fund(&env, &client, &token, &buyer1, &id1);
     fund(&env, &client, &token, &buyer2, &id2);

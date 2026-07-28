@@ -37,7 +37,28 @@
               "function_name": "create_escrow",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  "vec": [
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "address"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "bps"
+                          },
+                          "val": {
+                            "u32": 10000
+                          }
+                        }
+                      ]
+                    }
+                  ]
                 },
                 "void",
                 {
@@ -53,8 +74,12 @@
                   "u32": 0
                 },
                 {
+                  "u32": 0
+                },
+                {
                   "u64": "3600"
-                }
+                },
+                "void"
               ]
             }
           },
@@ -72,7 +97,28 @@
               "function_name": "create_escrow",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  "vec": [
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "address"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "bps"
+                          },
+                          "val": {
+                            "u32": 10000
+                          }
+                        }
+                      ]
+                    }
+                  ]
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
@@ -90,8 +136,12 @@
                   "u32": 0
                 },
                 {
+                  "u32": 0
+                },
+                {
                   "u64": "3600"
-                }
+                },
+                "void"
               ]
             }
           },
@@ -425,18 +475,54 @@
                   },
                   {
                     "key": {
-                      "symbol": "resolver"
+                      "symbol": "payees"
                     },
                     "val": {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                      "vec": [
+                        {
+                          "map": [
+                            {
+                              "key": {
+                                "symbol": "address"
+                              },
+                              "val": {
+                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "bps"
+                              },
+                              "val": {
+                                "u32": 10000
+                              }
+                            }
+                          ]
+                        }
+                      ]
                     }
                   },
                   {
                     "key": {
-                      "symbol": "seller"
+                      "symbol": "resolver_fee_bps"
                     },
                     "val": {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                      "u32": 0
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "resolvers"
+                    },
+                    "val": {
+                      "vec": [
+                        {
+                          "symbol": "Single"
+                        },
+                        {
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                        }
+                      ]
                     }
                   },
                   {
@@ -563,18 +649,54 @@
                   },
                   {
                     "key": {
-                      "symbol": "resolver"
+                      "symbol": "payees"
                     },
                     "val": {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                      "vec": [
+                        {
+                          "map": [
+                            {
+                              "key": {
+                                "symbol": "address"
+                              },
+                              "val": {
+                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "bps"
+                              },
+                              "val": {
+                                "u32": 10000
+                              }
+                            }
+                          ]
+                        }
+                      ]
                     }
                   },
                   {
                     "key": {
-                      "symbol": "seller"
+                      "symbol": "resolver_fee_bps"
                     },
                     "val": {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                      "u32": 0
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "resolvers"
+                    },
+                    "val": {
+                      "vec": [
+                        {
+                          "symbol": "Single"
+                        },
+                        {
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                        }
+                      ]
                     }
                   },
                   {
@@ -618,6 +740,118 @@
                       "symbol": "tracking_id"
                     },
                     "val": "void"
+                  }
+                ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 120960
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "EscrowStateHistory"
+                  },
+                  {
+                    "u64": "1"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "vec": [
+                  {
+                    "vec": [
+                      {
+                        "vec": [
+                          {
+                            "symbol": "Pending"
+                          }
+                        ]
+                      },
+                      {
+                        "u64": "1700000000"
+                      }
+                    ]
+                  },
+                  {
+                    "vec": [
+                      {
+                        "vec": [
+                          {
+                            "symbol": "Canceled"
+                          }
+                        ]
+                      },
+                      {
+                        "u64": "1700000000"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 120960
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "EscrowStateHistory"
+                  },
+                  {
+                    "u64": "2"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "vec": [
+                  {
+                    "vec": [
+                      {
+                        "vec": [
+                          {
+                            "symbol": "Pending"
+                          }
+                        ]
+                      },
+                      {
+                        "u64": "1700000000"
+                      }
+                    ]
+                  },
+                  {
+                    "vec": [
+                      {
+                        "vec": [
+                          {
+                            "symbol": "Funded"
+                          }
+                        ]
+                      },
+                      {
+                        "u64": "1700000000"
+                      }
+                    ]
                   }
                 ]
               }
@@ -751,6 +985,18 @@
                       },
                       "val": {
                         "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "StorageVersion"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 1
                       }
                     },
                     {

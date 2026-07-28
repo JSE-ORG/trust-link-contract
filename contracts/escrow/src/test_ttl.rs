@@ -19,9 +19,9 @@
 //! - [`test_custom_ttl_applied_to_persistent_entry`] — custom TTL is used for new escrows
 //! - [`test_resolver_votes_ttl_extended`] — resolver votes persistent entry survives
 
-use crate::test_helpers::{advance_time, create_funded_escrow, setup_contract};
+use crate::test_helpers::{create_funded_escrow, setup_contract};
 use crate::DEFAULT_TTL_EXTENSION;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);

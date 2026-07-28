@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{Payee, test_helpers::setup_contract, ContractError, DataKey, FeeConfig, ProtocolFeeUpdated};
+use crate::{test_helpers::setup_contract, ContractError, DataKey, FeeConfig, ProtocolFeeUpdated};
 use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env, IntoVal, Symbol, TryFromVal, Val};
 
 /// Test: set_protocol_fee with 0 bps (minimum)
@@ -48,15 +48,15 @@ fn test_set_fee_100_bps() {
     );
 }
 
-/// Test: set_protocol_fee with 10_000 bps (100%, the maximum)
+/// Test: set_protocol_fee with 500 bps (5%, the maximum)
 #[test]
-fn test_set_fee_max_10000_bps() {
+fn test_set_fee_max_500_bps() {
     let env = Env::default();
     env.mock_all_auths();
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
-    let result = client.try_set_protocol_fee(&admin, &10_000_u32);
-    assert!(result.is_ok(), "set_protocol_fee(10_000) should succeed");
+    let result = client.try_set_protocol_fee(&admin, &500_u32);
+    assert!(result.is_ok(), "set_protocol_fee(500) should succeed");
 
     let stored = env.as_contract(&client.address, || {
         env.storage().instance().get(&DataKey::FeeConfig)
@@ -64,20 +64,20 @@ fn test_set_fee_max_10000_bps() {
     assert_eq!(
         stored,
         Some(FeeConfig {
-            protocol_fee_bps: 10_000,
+            protocol_fee_bps: 500,
             arbitration_fee_bps: 0
         })
     );
 }
 
-/// Test: set_protocol_fee rejects 10_001 bps (exceeds cap)
+/// Test: set_protocol_fee rejects 501 bps (exceeds cap of 500)
 #[test]
-fn test_set_fee_rejects_10001_bps() {
+fn test_set_fee_rejects_501_bps() {
     let env = Env::default();
     env.mock_all_auths();
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
-    let result = client.try_set_protocol_fee(&admin, &10_001_u32);
+    let result = client.try_set_protocol_fee(&admin, &501_u32);
     assert!(matches!(result, Err(Ok(ContractError::FeeExceedsMax))));
 }
 
@@ -135,7 +135,7 @@ fn test_set_fee_emits_event() {
     let result2 = client.try_set_protocol_fee(&admin, &250_u32);
     assert!(result2.is_ok(), "second set_protocol_fee succeeds");
 
-    let expected_topic = Symbol::new(&env, "protocol_fee_updated");
+    let expected_topic = Symbol::new(&env, "ProtoFee");
     let saw_fee_updated = env
         .events()
         .all()
@@ -246,7 +246,7 @@ fn test_set_fee_not_retroactive() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     // Create an escrow with fee_bps = 50
-    let escrow_id = client.create_escrow_legacy(&seller, &resolver, &token, &1000_i128, &50_u32, &3600_u64);
+    let escrow_id = client.create_escrow_8(&seller.into_val(&env), &None::<Address>, &resolver, &token, &1000_i128, &50_u32, &3600_u64);
 
     // Verify escrow has fee_bps = 50
     let escrow = client.get_escrow(&escrow_id);
@@ -264,7 +264,7 @@ fn test_set_fee_not_retroactive() {
     );
 
     // Create a new escrow; it will use the fee_bps passed in create_escrow, not the default
-    let escrow_id2 = client.create_escrow_legacy(&seller, &resolver, &token, &1000_i128, &100_u32, &3600_u64);
+    let escrow_id2 = client.create_escrow_8(&seller.into_val(&env), &None::<Address>, &resolver, &token, &1000_i128, &100_u32, &3600_u64);
     let escrow2 = client.get_escrow(&escrow_id2);
     assert_eq!(
         escrow2.fee_bps, 100,
@@ -277,7 +277,7 @@ fn test_set_fee_not_retroactive() {
 fn test_set_fee_unauthorized_caller_rejected() {
     let env = Env::default();
     let admin = Address::generate(&env);
-    let unauthorized = Address::generate(&env);
+    let _unauthorized = Address::generate(&env);
     let fee_collector = Address::generate(&env);
     let contract_id = env.register(crate::Escrow, ());
     let client = crate::EscrowClient::new(&env, &contract_id);

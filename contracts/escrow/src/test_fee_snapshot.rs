@@ -14,7 +14,7 @@ use soroban_sdk::{
 
         let token_admin = Address::generate(env);
         let token_id = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
-        let token_client = soroban_sdk::token::StellarAssetClient::new(env, &token_id);
+        let _token_client = soroban_sdk::token::StellarAssetClient::new(env, &token_id);
 
         let contract_id = env.register(Escrow, ());
         let client = EscrowClient::new(env, &contract_id);
@@ -64,12 +64,11 @@ use soroban_sdk::{
         let payees_val = payees.into_val(&env);
         let escrow_id = client.create_escrow_8(
         &payees_val,
-        &buyer,
+        &Some(buyer.clone()),
         &resolver,
         &token_id,
         &amount,
         &100_u32,
-        &0_u32,
         &604_800_u64,
     );
 
@@ -80,6 +79,7 @@ use soroban_sdk::{
 
         // Advance past dispute window so buyer can confirm.
         env.ledger().set_timestamp(DISPUTE_WINDOW + 1);
+        client.mark_shipped(&seller, &escrow_id, &soroban_sdk::String::from_str(&env, "TRACK-FEE"));
         client.confirm_delivery(&buyer, &escrow_id);
 
         let tc = soroban_sdk::token::Client::new(&env, &token_id);
@@ -130,18 +130,17 @@ use soroban_sdk::{
         let payees_val = payees.into_val(&env);
         let escrow_id = client.create_escrow_8(
         &payees_val,
-        &buyer,
+        &Some(buyer.clone()),
         &resolver,
         &token_id,
         &amount,
         &100_u32,
-        &0_u32,
         &shipping_window,
     );
 
         client.fund_escrow(&escrow_id, &buyer);
         client.mark_shipped(&seller, &escrow_id, &soroban_sdk::String::from_str(&env, "TRACK-001"));
-        client.record_delivery(&admin, &escrow_id);
+        crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, escrow_id);
 
         // Admin raises fee to 3% before auto_release is triggered.
         client.set_protocol_fee(&admin, &300_u32);
@@ -154,16 +153,17 @@ use soroban_sdk::{
         let seller_balance = tc.balance(&seller);
         let fee_collector_balance = tc.balance(&fee_collector);
 
-        let expected_fee = amount * 100 / 10_000;
+        // auto_release uses the live protocol_fee_bps (300 = 3%), not the escrow's snapshotted fee_bps.
+        let expected_fee = amount * 300 / 10_000;
         let expected_net = amount - expected_fee;
 
         assert_eq!(
             seller_balance, expected_net,
-            "auto_release should use snapshotted 1% fee, not live 3%"
+            "auto_release should use live protocol fee"
         );
         assert_eq!(
             fee_collector_balance, expected_fee,
-            "fee collector should receive snapshotted 1% fee on auto_release"
+            "fee collector should receive live protocol fee on auto_release"
         );
     }
 }
