@@ -606,6 +606,19 @@ pub(crate) fn payout_basket_tokens(
     Ok(())
 }
 
+pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    if let Some(schedule) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, crate::ExpirySchedule>(&DataKey::PendingExpiry(escrow_id))
+    {
+        if env.ledger().timestamp() >= schedule.expires_at {
+            return Err(ContractError::EscrowExpired);
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
     let current: u64 = env.storage().instance().get(key).unwrap_or(0);
     let next = current
