@@ -634,8 +634,7 @@ impl Escrow {
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         increment_counter(&env, &DataKey::TotalRefunded)?;
 
-        env.events()
-            .publish(("emergency_drain",), (escrow_id, buyer, seller));
+        crate::events::emit_emergency_drain(&env, escrow_id, escrow.token.clone(), escrow.amount);
         Ok(())
     }
 }
