@@ -10,6 +10,8 @@ use soroban_sdk::{
 #[test]
 fn test_fund_escrow_dispute_deadline_overflow_is_handled() {
     let env = Env::default();
+    env.ledger()
+        .set_timestamp(u64::MAX - crate::DISPUTE_WINDOW + 1);
     env.mock_all_auths();
 
     let seller = Address::generate(&env);
@@ -41,8 +43,7 @@ fn test_fund_escrow_dispute_deadline_overflow_is_handled() {
 
     // Set ledger timestamp so funded_at + DISPUTE_WINDOW would overflow
     // funded_at = u64::MAX - DISPUTE_WINDOW + 1
-    let funded_at = u64::MAX - DISPUTE_WINDOW + 1;
-    env.ledger().set_timestamp(funded_at);
+    // moved to setup
 
     // Mint tokens and attempt to fund - expect ArithmeticOverflow error, not panic
     token::StellarAssetClient::new(&env, &token).mint(&buyer, &1000_i128);

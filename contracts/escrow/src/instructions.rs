@@ -144,17 +144,107 @@ impl Escrow {
             if expires_at <= env.ledger().timestamp() {
                 return Err(ContractError::InvalidExpiration);
             }
-            let effective_expiry = expires_at
+            expires_at
                 .checked_add(grace_period)
                 .ok_or(ContractError::ArithmeticOverflow)?;
 
+            let schedule = crate::ExpirySchedule {
+                expires_at,
+                grace_period,
+            };
             let key = DataKey::PendingExpiry(escrow_id);
             let ext = get_ttl_extension(&env);
-            env.storage().persistent().set(&key, &effective_expiry);
+            env.storage().persistent().set(&key, &schedule);
             env.storage().persistent().extend_ttl(&key, ext / 2, ext);
         }
 
         Ok(escrow_id)
+    }
+
+    /// Buyer reclaims tokens from a Funded/Shipped escrow that has passed its
+    /// expiry schedule's grace period. Transitions the escrow to Expired.
+    pub fn reclaim_expired(env: Env, escrow_id: u64) -> Result<(), ContractError> {
+        ensure_action_not_paused(&env, Symbol::new(&env, "RECLAIM"))?;
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+            return Err(ContractError::InvalidState);
+        }
+
+        let schedule: crate::ExpirySchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingExpiry(escrow_id))
+            .ok_or(ContractError::InvalidState)?;
+
+        let now = env.ledger().timestamp();
+        if now < schedule.expires_at {
+            return Err(ContractError::InvalidState);
+        }
+        let reclaimable_at = schedule
+            .expires_at
+            .checked_add(schedule.grace_period)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if now < reclaimable_at {
+            return Err(ContractError::GracePeriodNotElapsed);
+        }
+
+        let buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
+        buyer.require_auth();
+
+        token::Client::new(&env, &escrow.token).transfer(
+            &env.current_contract_address(),
+            &buyer,
+            &escrow.amount,
+        );
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
+
+        let prev_state = escrow.state.clone();
+        escrow.state = EscrowState::Expired;
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingExpiry(escrow_id));
+
+        emit_escrow_expired(
+            &env,
+            escrow_id,
+            buyer,
+            escrow.amount,
+            prev_state,
+            EscrowState::Expired,
+        );
+        Ok(())
+    }
+
+    /// Cancels a `Pending` escrow that was never funded within
+    /// `PENDING_EXPIRY_WINDOW` of its creation. Callable by anyone.
+    pub fn auto_cancel_pending(env: Env, escrow_id: u64) -> Result<(), ContractError> {
+        ensure_not_paused(&env)?;
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        if escrow.state != EscrowState::Pending {
+            return Err(ContractError::InvalidState);
+        }
+
+        let created_at = escrow_created_at(&env, escrow_id);
+        let deadline = created_at
+            .checked_add(PENDING_EXPIRY_WINDOW)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if env.ledger().timestamp() <= deadline {
+            return Err(ContractError::ShippingWindowNotElapsed);
+        }
+
+        let prev_state = escrow.state.clone();
+        escrow.state = EscrowState::Canceled;
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        emit_escrow_auto_canceled(&env, escrow_id);
+        Ok(())
     }
 
     /// Buyer funds a pending escrow. Transitions Pending → Funded.
@@ -167,14 +257,24 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        if let Some(expires_at) = env
+        let now = env.ledger().timestamp();
+
+        if let Some(schedule) = env
             .storage()
             .persistent()
-            .get::<DataKey, u64>(&DataKey::PendingExpiry(escrow_id))
+            .get::<DataKey, crate::ExpirySchedule>(&DataKey::PendingExpiry(escrow_id))
         {
-            if env.ledger().timestamp() > expires_at {
+            if now >= schedule.expires_at {
                 return Err(ContractError::EscrowExpired);
             }
+        }
+
+        let created_at = crate::internal::escrow_created_at(&env, escrow_id);
+        let blanket_deadline = created_at
+            .checked_add(crate::PENDING_EXPIRY_WINDOW)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if now > blanket_deadline {
+            return Err(ContractError::EscrowExpired);
         }
 
         // Security: buyer must differ from seller and resolver.
@@ -287,20 +387,7 @@ impl Escrow {
         });
         validate_resolvers(&resolver_set, &seller, &buyer)?;
 
-        let escrow_id: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCounter)
-            .ok_or(ContractError::NotInitialized)?;
-        let next_id = escrow_id
-            .checked_add(1)
-            .ok_or(ContractError::ArithmeticError)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCounter, &next_id);
-        // Extend instance storage TTL on every counter access
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        let escrow_id = crate::next_escrow_id(&env)?;
 
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
@@ -505,6 +592,7 @@ impl Escrow {
     pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         let buyer = escrow.buyer.clone();
@@ -563,6 +651,7 @@ impl Escrow {
     /// Cancels a funded—but not yet shipped—escrow by mutual agreement and refunds the buyer in full.
     pub fn mutual_cancel(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_not_paused(&env)?;
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
         let buyer = escrow
             .buyer
@@ -614,6 +703,7 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         let first_payee = escrow
@@ -645,7 +735,7 @@ impl Escrow {
         }
 
         // Block shipping of expired escrows.
-        ensure_not_expired(&env, &escrow)?;
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
 
         if tracking_id.is_empty() {
             return Err(ContractError::InvalidTrackingId);
@@ -799,6 +889,7 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         let buyer = escrow
@@ -932,6 +1023,7 @@ impl Escrow {
 
     pub fn auto_release(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_not_paused(&env)?;
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
@@ -1053,20 +1145,7 @@ impl Escrow {
             is_token_allowed(&env, &token)?;
         }
 
-        let escrow_id: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCounter)
-            .unwrap_or(1u64);
-        let next_id = escrow_id
-            .checked_add(1)
-            .ok_or(ContractError::ArithmeticError)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCounter, &next_id);
-
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        let escrow_id = crate::next_escrow_id(&env)?;
 
         let primary_amount = amounts.get(0).ok_or(ContractError::InvalidAmount)?;
         let primary_token = tokens.get(0).ok_or(ContractError::InvalidAmount)?;
@@ -1270,6 +1349,7 @@ impl Escrow {
     pub fn request_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         let buyer = escrow
@@ -1301,6 +1381,7 @@ impl Escrow {
     pub fn approve_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         let mut is_payee = false;

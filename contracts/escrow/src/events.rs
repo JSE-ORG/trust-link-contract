@@ -566,6 +566,73 @@ pub fn emit_escrow_cancelled(
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowExpired {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub buyer: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+    pub prev_state: crate::EscrowState,
+    pub new_state: crate::EscrowState,
+}
+
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Expired"), buyer.clone(),)`, data: `EscrowExpired`.
+///
+/// Emitted by `reclaim_expired` once the buyer's principal (and any basket
+/// tokens) have been transferred back and the escrow has transitioned to
+/// `EscrowState::Expired`.
+pub fn emit_escrow_expired(
+    env: &Env,
+    escrow_id: u64,
+    buyer: Address,
+    amount: i128,
+    prev_state: crate::EscrowState,
+    new_state: crate::EscrowState,
+) {
+    env.events().publish(
+        (
+            symbol_short!("Escrow"),
+            symbol_short!("Expired"),
+            buyer.clone(),
+        ),
+        EscrowExpired {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            buyer,
+            amount,
+            timestamp: env.ledger().timestamp(),
+            prev_state,
+            new_state,
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowAutoCanceled {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("AutoCncl"),)`, data: `EscrowAutoCanceled`.
+///
+/// Emitted by `auto_cancel_pending`. Unlike `emit_escrow_cancelled`, there is
+/// no `cancelled_by` actor — this is a permissionless keeper action, not
+/// attributable to a specific counterparty.
+pub fn emit_escrow_auto_canceled(env: &Env, escrow_id: u64) {
+    env.events().publish(
+        (symbol_short!("Escrow"), symbol_short!("AutoCncl")),
+        EscrowAutoCanceled {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractInitialized {
     pub schema_version: u32,
     pub admin: Address,
@@ -1187,6 +1254,11 @@ pub fn emit_emergency_drain(env: &Env, escrow_id: u64, buyer: Address, seller: A
             escrow_id,
             buyer,
             seller,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeliveryProposed {

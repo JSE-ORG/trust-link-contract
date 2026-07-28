@@ -43,7 +43,7 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **35** | `NotInitialized` | A read accessor was called before the contract has been initialized. | Initialize the contract first by calling `initialize`. |
 | **36** | `IndexOutOfBounds` | An internal collection index is out of bounds, indicating a storage or argument invariant violation. | This is an internal error; contact the contract maintainer. |
 | **37** | `InvalidExpiration` | A supplied expiration timestamp is not strictly in the future. | Provide an expiration timestamp that is in the future. |
-| **40** | `InvalidThreshold` | The voting threshold is zero or greater than the number of resolvers. | Ensure the threshold is positive and does not exceed the total resolver count. |
-| **41** | `PayeeBpsMismatch` | The sum of basis points (bps) across all payees does not equal 10,000. | Ensure that all payees' bps combine to exactly 10,000 (100%). |
-| **42** | `BasketTokenMismatch` | The length of basket tokens does not match that of amounts, or is empty. | Provide matching, non-empty, and unique lists of tokens and amounts. |
-| **43** | `InvalidMulticallArg` | A batch multicall argument failed to parse or could not be converted. | Ensure multicall arguments are valid and match the target method signature in order. |
+| **38** | `DeliveryNotProposed` | `record_delivery` was called before a delivery proposal was initiated. | Admin must first call `propose_record_delivery` and wait for the timelock. |
+| **39** | `TimelockNotElapsed` | `record_delivery` was called before the required 24-hour timelock elapsed. | Wait until 24 hours have passed since `propose_record_delivery` was called. |
+| **40** | `GracePeriodNotElapsed` | The grace period has not elapsed yet. | Wait for the grace period to elapse before performing this action. |
+| **41** | `MaxAppealsReached` | The maximum number of appeals has been reached. | The dispute can no longer be appealed. |
