@@ -46,6 +46,7 @@ pub enum DataKey {
     EvidenceLog(u64),
     BasketTokens(u64),
     DeliveryProposal(u64),
+    TimelockOp(u32),
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -323,4 +324,44 @@ pub enum EscrowState {
     Canceled,
     PendingFinalization,
     Expired,
+}
+
+/// Identifies a specific privileged admin operation subject to the two-step
+/// timelock delay. The numeric discriminant is used as the `TimelockOp(u32)`
+/// storage key. Do not renumber existing entries; append new operations only.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum TimelockOperation {
+    SetAdmin = 1,
+    Upgrade = 2,
+    SetProtocolFee = 3,
+    SetArbitrationFee = 4,
+    SetPlatformFee = 5,
+    SetTreasury = 6,
+    SetFeeCollector = 7,
+    SetTtlExtension = 8,
+    SetAmountLimits = 9,
+    AddApprovedResolver = 10,
+    RemoveApprovedResolver = 11,
+    SetResolverStrict = 12,
+    SetTokenAllowlistEnabled = 13,
+    AddAllowedToken = 14,
+    RemoveAllowedToken = 15,
+    PauseContract = 16,
+    UnpauseContract = 17,
+}
+
+/// A queued admin change awaiting the 24-hour timelock delay before it can be
+/// executed. `params` is a contract-serialised `Vec<Val>` mirroring the
+/// operation's function arguments (excluding `env` and `caller/admin`),
+/// encoded with `IntoVal` / decoded with `TryFromVal` in the execute step.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimelockProposal {
+    pub operation: u32,
+    pub proposer: Address,
+    pub params: Vec<soroban_sdk::Val>,
+    pub queued_at: u64,
+    pub ready_at: u64,
 }

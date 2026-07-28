@@ -91,4 +91,17 @@ pub enum ContractError {
     GracePeriodNotElapsed = 40,
     /// Returned when the maximum number of dispute appeals has been reached.
     MaxAppealsReached = 41,
+    /// Returned when a timelocked admin operation is already queued for the
+    /// same `TimelockOperation` variant; callers must cancel or execute the
+    /// existing proposal before queueing a replacement.
+    TimelockAlreadyQueued = 42,
+    /// Returned when `execute_timelock_op` is called for an operation with no
+    /// queued proposal in storage.
+    TimelockNotQueued = 43,
+    /// Returned when `execute_timelock_op` is called before `ready_at` has
+    /// been reached by the ledger clock.
+    TimelockDelayNotElapsed = 44,
+    /// Returned when `cancel_timelock_op` is called by an address that is
+    /// neither the original proposer nor the current admin.
+    TimelockCancelUnauthorized = 45,
 }

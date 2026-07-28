@@ -1310,3 +1310,91 @@ pub fn emit_delivery_proposal_cancelled(env: &Env, escrow_id: u64) {
         },
     );
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimelockQueued {
+    pub schema_version: u32,
+    pub operation: u32,
+    pub proposer: Address,
+    pub queued_at: u64,
+    pub ready_at: u64,
+}
+
+/// Topic: `(symbol_short!("Timelock"), symbol_short!("Queued"), operation as u32,)`, data: `TimelockQueued`.
+pub fn emit_timelock_queued(
+    env: &Env,
+    operation: u32,
+    proposer: Address,
+    queued_at: u64,
+    ready_at: u64,
+) {
+    env.events().publish(
+        (symbol_short!("Timelock"), symbol_short!("Queued")),
+        TimelockQueued {
+            schema_version: EVENT_SCHEMA_VERSION,
+            operation,
+            proposer,
+            queued_at,
+            ready_at,
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimelockExecuted {
+    pub schema_version: u32,
+    pub operation: u32,
+    pub proposer: Address,
+    pub executor: Address,
+    pub executed_at: u64,
+}
+
+/// Topic: `(symbol_short!("Timelock"), symbol_short!("Executed"), operation as u32,)`, data: `TimelockExecuted`.
+pub fn emit_timelock_executed(
+    env: &Env,
+    operation: u32,
+    proposer: Address,
+    executor: Address,
+) {
+    env.events().publish(
+        (symbol_short!("Timelock"), symbol_short!("Executed")),
+        TimelockExecuted {
+            schema_version: EVENT_SCHEMA_VERSION,
+            operation,
+            proposer,
+            executor,
+            executed_at: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimelockCancelled {
+    pub schema_version: u32,
+    pub operation: u32,
+    pub proposer: Address,
+    pub canceller: Address,
+    pub cancelled_at: u64,
+}
+
+/// Topic: `(symbol_short!("Timelock"), symbol_short!("Cancelled"), operation as u32,)`, data: `TimelockCancelled`.
+pub fn emit_timelock_cancelled(
+    env: &Env,
+    operation: u32,
+    proposer: Address,
+    canceller: Address,
+) {
+    env.events().publish(
+        (symbol_short!("Timelock"), symbol_short!("Cancelled")),
+        TimelockCancelled {
+            schema_version: EVENT_SCHEMA_VERSION,
+            operation,
+            proposer,
+            canceller,
+            cancelled_at: env.ledger().timestamp(),
+        },
+    );
+}

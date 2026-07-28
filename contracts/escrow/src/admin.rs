@@ -1,10 +1,26 @@
 //! Admin-controlled contract configuration: pausing, fee parameters,
 //! upgrades/migration, token allowlist, platform treasury, and the
 //! approved-resolver registry.
+//!
+//! Critical admin operations no longer execute immediately. A 24-hour
+//! timelock (`ADMIN_TIMELOCK_DELAY_SECONDS`) applies to every mutating
+//! privileged function via a two-step `queue_OP → execute_timelocked_OP`
+//! workflow, plus generic `queue_timelock_op` / `execute_timelock_op` /
+//! `cancel_timelock_op` primitives.
 
 use crate::internal::*;
-use crate::*;
+use crate::storage;
+use crate::{
+    emit_timelock_cancelled, emit_timelock_executed, emit_timelock_queued, ContractError, Escrow,
+    EscrowState, TimelockOperation, TimelockProposal, *,
+};
 use soroban_sdk::{contractimpl, token, Address, BytesN, Env, String, Symbol};
+
+/// Minimum 24-hour delay enforced between `queue_timelock_op` and a successful
+/// `execute_timelock_op` for every privileged admin mutation. Expressed in
+/// seconds so it lines up with the Soroban `ledger.timestamp()` clock used by
+/// dispute windows and auto-release delays.
+pub const ADMIN_TIMELOCK_DELAY_SECONDS: u64 = 24 * 60 * 60;
 
 #[contractimpl]
 impl Escrow {
