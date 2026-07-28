@@ -82,4 +82,13 @@ pub enum ContractError {
     IndexOutOfBounds = 36,
     /// Returned when a supplied expiration timestamp is not strictly in the future.
     InvalidExpiration = 37,
+    /// Returned when `record_delivery` is called before a delivery proposal is initiated.
+    DeliveryNotProposed = 38,
+    /// Returned when `record_delivery` is called before the required timelock delay has elapsed.
+    TimelockNotElapsed = 39,
+    /// Returned when `reclaim_expired` is called after `expires_at` but before
+    /// `expires_at + grace_period` has elapsed.
+    GracePeriodNotElapsed = 40,
+    /// Returned when the maximum number of dispute appeals has been reached.
+    MaxAppealsReached = 41,
 }

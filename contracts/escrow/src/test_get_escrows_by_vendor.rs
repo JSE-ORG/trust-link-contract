@@ -157,7 +157,7 @@ fn test_vendor_escrow_data_integrity_and_state_transitions() {
     assert_eq!(escrow.state, EscrowState::Shipped);
 
     // Record delivery
-    client.record_delivery(&admin, &id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
 
     // Confirm delivery
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
