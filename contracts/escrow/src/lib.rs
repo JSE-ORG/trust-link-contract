@@ -114,6 +114,7 @@ pub const MIN_ESCROW_AMOUNT: i128 = 1;
 /// releasable to the seller.
 const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
+pub const MIN_TTL_EXTENSION: u32 = 1_000;
 const DEFAULT_TTL_EXTENSION: u32 = 120_960;
 /// Divisor used when computing the threshold for TTL extension.
 /// TTL is extended to `ext / TTL_THRESHOLD_DIVISOR` on the low end,

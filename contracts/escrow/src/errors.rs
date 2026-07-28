@@ -104,4 +104,6 @@ pub enum ContractError {
     /// Returned when `cancel_timelock_op` is called by an address that is
     /// neither the original proposer nor the current admin.
     TimelockCancelUnauthorized = 45,
+    /// Returned when the proposed TTL extension is below the required minimum.
+    TtlBelowMinimum = 46,
 }
