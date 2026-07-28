@@ -73,12 +73,19 @@ impl Escrow {
             .instance()
             .get(&DataKey::EscrowCounter)
             .unwrap_or(1);
-        for id in 1..counter {
+
+        let mut iterations = 0;
+        let max_iterations = 1000;
+        for id in (1..counter).rev() {
+            if iterations >= max_iterations {
+                break;
+            }
             if let Ok(escrow) = load_escrow(&env, id) {
                 if escrow.buyer.as_ref() == Some(&buyer) {
                     result.push_back(id);
                 }
             }
+            iterations += 1;
         }
         result
     }

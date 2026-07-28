@@ -323,19 +323,17 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        let mut allowlist: soroban_sdk::Vec<Address> = env
+        let mut allowlist: soroban_sdk::Map<Address, bool> = env
             .storage()
             .instance()
             .get(&DataKey::TokenAllowlist)
-            .unwrap_or(soroban_sdk::Vec::new(&env));
+            .unwrap_or(soroban_sdk::Map::new(&env));
 
-        for allowed_token in allowlist.iter() {
-            if allowed_token == token {
-                return Ok(());
-            }
+        if allowlist.contains_key(token.clone()) {
+            return Ok(());
         }
 
-        allowlist.push_back(token.clone());
+        allowlist.set(token.clone(), true);
         env.storage()
             .instance()
             .set(&DataKey::TokenAllowlist, &allowlist);
@@ -358,30 +356,21 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        let allowlist: soroban_sdk::Vec<Address> = env
+        let mut allowlist: soroban_sdk::Map<Address, bool> = env
             .storage()
             .instance()
             .get(&DataKey::TokenAllowlist)
-            .unwrap_or(soroban_sdk::Vec::new(&env));
+            .unwrap_or(soroban_sdk::Map::new(&env));
 
-        let mut found = false;
-        let mut new_allowlist = soroban_sdk::Vec::new(&env);
-
-        for allowed_token in allowlist.iter() {
-            if allowed_token == token {
-                found = true;
-            } else {
-                new_allowlist.push_back(allowed_token);
-            }
-        }
-
-        if !found {
+        if !allowlist.contains_key(token.clone()) {
             return Err(ContractError::TokenNotAllowed);
         }
 
+        allowlist.remove(token.clone());
+
         env.storage()
             .instance()
-            .set(&DataKey::TokenAllowlist, &new_allowlist);
+            .set(&DataKey::TokenAllowlist, &allowlist);
 
         emit_token_allowlist_updated(&env, token, false);
         Ok(())
@@ -394,10 +383,12 @@ impl Escrow {
 
     /// Returns the full list of allowlisted tokens.
     pub fn get_allowed_tokens(env: Env) -> soroban_sdk::Vec<Address> {
-        env.storage()
+        let allowlist: soroban_sdk::Map<Address, bool> = env
+            .storage()
             .instance()
             .get(&DataKey::TokenAllowlist)
-            .unwrap_or(soroban_sdk::Vec::new(&env))
+            .unwrap_or(soroban_sdk::Map::new(&env));
+        allowlist.keys()
     }
 
     /// Sets the platform fee (in basis points) charged on escrow settlements.
@@ -655,8 +646,7 @@ impl Escrow {
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         increment_counter(&env, &DataKey::TotalRefunded)?;
 
-        env.events()
-            .publish(("emergency_drain",), (escrow_id, buyer, seller));
+        crate::events::emit_emergency_drain(&env, escrow_id, escrow.token.clone(), escrow.amount);
         Ok(())
     }
 }

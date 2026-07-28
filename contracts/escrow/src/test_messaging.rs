@@ -168,3 +168,16 @@ fn posting_is_blocked_while_the_contract_is_paused() {
         Err(Ok(ContractError::ContractPaused))
     );
 }
+
+#[test]
+fn post_message_enforces_cap() {
+    let f = fixture();
+    let content = String::from_str(&f.env, "A message");
+    for _ in 0..100 {
+        f.client().post_message(&f.escrow_id, &f.buyer, &content);
+    }
+    assert_eq!(
+        f.client().try_post_message(&f.escrow_id, &f.buyer, &content),
+        Err(Ok(ContractError::TooManyMessages))
+    );
+}
