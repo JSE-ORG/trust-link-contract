@@ -22,7 +22,16 @@ fn single_payee(env: &Env, address: &Address) -> Vec<Payee> {
 
 const PENDING_EXPIRY_WINDOW: u64 = 604_800; // 7 days, must match lib.rs
 
-fn setup(env: &Env) -> (EscrowClient<'static>, Address, Address, Address, Address, Address) {
+fn setup(
+    env: &Env,
+) -> (
+    EscrowClient<'static>,
+    Address,
+    Address,
+    Address,
+    Address,
+    Address,
+) {
     env.mock_all_auths();
     let admin = Address::generate(env);
     let seller = Address::generate(env);
@@ -57,8 +66,7 @@ fn fund_escrow_before_expiry_succeeds() {
         &token_addr,
         &1_000_i128,
         &0_u32,
-        &0_u32,
-        &0_u64,
+        &3600_u64,
     );
 
     // Fund one second before the window closes — should succeed.
@@ -92,8 +100,7 @@ fn fund_escrow_after_expiry_returns_escrow_expired() {
         &token_addr,
         &1_000_i128,
         &0_u32,
-        &0_u32,
-        &0_u64,
+        &3600_u64,
     );
 
     // Advance past the expiry window.
@@ -124,8 +131,7 @@ fn auto_cancel_pending_before_expiry_is_rejected() {
         &token_addr,
         &1_000_i128,
         &0_u32,
-        &0_u32,
-        &0_u64,
+        &3600_u64,
     );
 
     // One second before the expiry deadline — cancel must be rejected.
@@ -156,8 +162,7 @@ fn auto_cancel_pending_after_expiry_transitions_to_canceled() {
         &token_addr,
         &1_000_i128,
         &0_u32,
-        &0_u32,
-        &0_u64,
+        &3600_u64,
     );
 
     // One second past the expiry window.
@@ -195,8 +200,7 @@ fn auto_cancel_pending_on_funded_escrow_returns_invalid_state() {
         &token_addr,
         &1_000_i128,
         &0_u32,
-        &0_u32,
-        &0_u64,
+        &3600_u64,
     );
 
     client.fund_escrow(&escrow_id, &buyer);

@@ -304,10 +304,7 @@ pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), Cont
             .ok_or(ContractError::ArithmeticError)?;
 
         // Validate each payee address is not zero
-        let zero = Address::from_string(&String::from_str(
-            env,
-            crate::ZERO_ADDRESS_STR,
-        ));
+        let zero = Address::from_string(&String::from_str(env, crate::ZERO_ADDRESS_STR));
         if payee.address == zero {
             return Err(ContractError::InvalidAddress);
         }
@@ -609,9 +606,16 @@ pub(crate) fn payout_basket_tokens(
     Ok(())
 }
 
-pub(crate) fn ensure_not_expired(_env: &Env, _escrow: &EscrowData) -> Result<(), ContractError> {
-    // Expiry is checked at fund_escrow time via PendingExpiry(escrow_id).
-    // Once funded (Funded state), the escrow is not subject to pending expiry.
+pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    if let Some(schedule) = env
+        .storage()
+        .persistent()
+        .get::<crate::DataKey, crate::ExpirySchedule>(&crate::DataKey::PendingExpiry(escrow_id))
+    {
+        if env.ledger().timestamp() >= schedule.expires_at {
+            return Err(ContractError::EscrowExpired);
+        }
+    }
     Ok(())
 }
 
@@ -727,7 +731,20 @@ pub(crate) fn create_escrow_internal(
     // Token allowlist check
     is_token_allowed(env, &token)?;
 
-    let escrow_id = next_escrow_id(env)?;
+    let escrow_id: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::EscrowCounter)
+        .unwrap_or(1u64);
+    let next_id = escrow_id
+        .checked_add(1)
+        .ok_or(ContractError::ArithmeticError)?;
+    env.storage()
+        .instance()
+        .set(&DataKey::EscrowCounter, &next_id);
+
+    let ext = get_ttl_extension(env);
+    env.storage().instance().extend_ttl(ext / 2, ext);
 
     let resolvers = ResolverSet::Single(resolver.clone());
     let escrow = EscrowData {
@@ -862,4 +879,11 @@ pub(crate) fn execute_resolution_transition(
         appeal_deadline,
     );
     Ok(())
+}
+
+pub(crate) fn escrow_created_at(env: &Env, escrow_id: u64) -> u64 {
+    load_state_history(env, escrow_id)
+        .get(0)
+        .map(|(_, ts)| ts)
+        .unwrap_or(0)
 }

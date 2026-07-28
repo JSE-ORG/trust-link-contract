@@ -92,4 +92,3 @@ pub enum ContractError {
     /// Returned when the maximum number of dispute appeals has been reached.
     MaxAppealsReached = 41,
 }
-

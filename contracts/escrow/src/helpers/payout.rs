@@ -1,4 +1,4 @@
-use crate::{BASIS_POINTS, ContractError, EscrowData, ResolutionType};
+use crate::{ContractError, EscrowData, ResolutionType, BASIS_POINTS};
 use soroban_sdk::{contracttype, token, Address, Env, Vec};
 
 #[contracttype]

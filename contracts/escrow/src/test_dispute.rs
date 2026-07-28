@@ -9,6 +9,7 @@ use soroban_sdk::{
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
+    env.ledger().set_timestamp(1_700_000_000);
 
     let admin = Address::generate(&env);
     let seller = Address::generate(&env);
@@ -127,7 +128,6 @@ fn test_dispute_allowed_after_shipping() {
     sac.mint(&buyer, &amount);
 
     // Use fixed deterministic timestamp
-    env.ledger().set_timestamp(1_700_000_000);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &String::from_str(&env, "TRACK-BOUNDARY"));
 
@@ -175,7 +175,6 @@ fn test_dispute_allowed_on_late_shipped_escrow() {
     sac.mint(&buyer, &amount);
 
     // Use fixed deterministic timestamp
-    env.ledger().set_timestamp(1_700_000_000);
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &String::from_str(&env, "TRACK-LATE"));
     env.ledger().set_timestamp(1_700_172_799);
@@ -273,7 +272,6 @@ fn test_dispute_rejected_after_48h_deadline() {
     sac.mint(&buyer, &amount);
 
     // Use fixed deterministic timestamp
-    env.ledger().set_timestamp(1_700_000_000);
     client.fund_escrow(&id, &buyer);
 
     let escrow = client.get_escrow(&id);
@@ -436,7 +434,7 @@ fn test_dispute_from_completed_state() {
     client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "TRK"));
 
     // Force completion by confirm_delivery
-    env.ledger().set_timestamp(172_801);
+    env.ledger().set_timestamp(1_700_172_801);
     client.confirm_delivery(&buyer, &id);
 
     let reason = soroban_sdk::Symbol::new(&env, "reason");
@@ -617,4 +615,3 @@ fn test_appeal_non_participant_fails() {
     let result = client.try_appeal_dispute(&intruder, &id);
     assert_eq!(result, Err(Ok(crate::ContractError::NotAuthorized)));
 }
-

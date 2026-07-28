@@ -1,7 +1,5 @@
 #![cfg(test)]
-use crate::{
-    ContractError, Escrow, EscrowClient, EscrowData, EscrowState, Payee, ResolutionType,
-};
+use crate::{ContractError, Escrow, EscrowClient, EscrowData, EscrowState, Payee, ResolutionType};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     token, Address, BytesN, Env, IntoVal, String, Symbol, Vec,
@@ -86,14 +84,7 @@ fn create_escrow_with_fallback_succeeds() {
 
     let escrow = client.get_escrow(&escrow_id);
     assert_eq!(escrow.state, EscrowState::Pending);
-    assert_eq!(
-        escrow
-            .payees
-            .get(0)
-            .unwrap()
-            .address,
-        seller
-    );
+    assert_eq!(escrow.payees.get(0).unwrap().address, seller);
 }
 
 #[test]
@@ -101,9 +92,8 @@ fn primary_resolver_can_resolve_dispute() {
     let env = Env::default();
     let (client, seller, buyer, primary, backup, token) = setup(&env);
 
-    let escrow_id = create_funded_shipped_disputed(
-        &env, &client, &seller, &buyer, &primary, &backup, &token,
-    );
+    let escrow_id =
+        create_funded_shipped_disputed(&env, &client, &seller, &buyer, &primary, &backup, &token);
 
     client.resolve_dispute(&primary, &escrow_id, &ResolutionType::Release);
 
@@ -122,9 +112,8 @@ fn backup_resolver_can_resolve_dispute_after_deadline() {
     let env = Env::default();
     let (client, seller, buyer, primary, backup, token) = setup(&env);
 
-    let escrow_id = create_funded_shipped_disputed(
-        &env, &client, &seller, &buyer, &primary, &backup, &token,
-    );
+    let escrow_id =
+        create_funded_shipped_disputed(&env, &client, &seller, &buyer, &primary, &backup, &token);
 
     // #661 — the backup may only resolve once dispute_deadline has passed.
     // create_funded_shipped_disputed sets dispute_deadline = timestamp() (at
@@ -151,9 +140,8 @@ fn backup_resolver_cannot_resolve_dispute_before_deadline() {
     // #661 regression: the backup must not be able to preempt the primary's
     // window to resolve. create_funded_shipped_disputed leaves the ledger
     // timestamp still before dispute_deadline at this point.
-    let escrow_id = create_funded_shipped_disputed(
-        &env, &client, &seller, &buyer, &primary, &backup, &token,
-    );
+    let escrow_id =
+        create_funded_shipped_disputed(&env, &client, &seller, &buyer, &primary, &backup, &token);
 
     let result = client.try_resolve_dispute(&backup, &escrow_id, &ResolutionType::Refund);
     assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
@@ -166,9 +154,8 @@ fn primary_resolver_can_resolve_dispute_regardless_of_deadline() {
 
     // #661: the primary is never time-restricted — before or after the
     // backup's deadline, the primary can always resolve.
-    let escrow_id = create_funded_shipped_disputed(
-        &env, &client, &seller, &buyer, &primary, &backup, &token,
-    );
+    let escrow_id =
+        create_funded_shipped_disputed(&env, &client, &seller, &buyer, &primary, &backup, &token);
 
     client.resolve_dispute(&primary, &escrow_id, &ResolutionType::Release);
 
@@ -212,13 +199,11 @@ fn single_resolver_set_is_unaffected_by_fallback_deadline_logic() {
         &token,
         &1000_i128,
         &0_u32,
-        &0_u32,
         &3600_u64,
     );
 
     client.fund_escrow(&escrow_id, &buyer);
-    env.ledger()
-        .set_timestamp(env.ledger().timestamp() + 3601);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
     client.mark_shipped(&seller, &escrow_id, &String::from_str(&env, "TRK-SINGLE"));
 
     let reason = Symbol::new(&env, "defective");
@@ -238,9 +223,8 @@ fn non_resolver_cannot_resolve_dispute() {
     let (client, seller, buyer, primary, backup, token) = setup(&env);
     let unauthorized = Address::generate(&env);
 
-    let escrow_id = create_funded_shipped_disputed(
-        &env, &client, &seller, &buyer, &primary, &backup, &token,
-    );
+    let escrow_id =
+        create_funded_shipped_disputed(&env, &client, &seller, &buyer, &primary, &backup, &token);
 
     let result = client.try_resolve_dispute(&unauthorized, &escrow_id, &ResolutionType::Release);
     assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
@@ -274,9 +258,8 @@ fn duplicate_resolution_fails() {
     let env = Env::default();
     let (client, seller, buyer, primary, backup, token) = setup(&env);
 
-    let escrow_id = create_funded_shipped_disputed(
-        &env, &client, &seller, &buyer, &primary, &backup, &token,
-    );
+    let escrow_id =
+        create_funded_shipped_disputed(&env, &client, &seller, &buyer, &primary, &backup, &token);
 
     client.resolve_dispute(&primary, &escrow_id, &ResolutionType::Release);
 

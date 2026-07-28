@@ -3,7 +3,7 @@
 use crate::{ContractError, Escrow, EscrowClient, EscrowState, ResolutionType};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    token, Address, Env, String as SorobanString, Symbol, BytesN,
+    token, Address, BytesN, Env, String as SorobanString, Symbol,
 };
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
@@ -17,13 +17,23 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+    let token_address = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
     let contract_id = env.register(Escrow, ());
     {
         let client = EscrowClient::new(&env, &contract_id);
         client.initialize(&admin, &fee_collector, &0_u32);
     }
-    (env, admin, seller, buyer, resolver, token_address, contract_id)
+    (
+        env,
+        admin,
+        seller,
+        buyer,
+        resolver,
+        token_address,
+        contract_id,
+    )
 }
 
 fn mint_tokens(env: &Env, token: &Address, to: &Address, amount: i128) {
@@ -139,7 +149,7 @@ fn test_reclaim_lifecycle() {
 
     // 1. Try to reclaim immediately (before expiration) -> should fail with InvalidState
     let res = client.try_reclaim_expired(&id);
-    assert!(matches!(res, Err(Ok(ContractError::InvalidState))));
+    assert_eq!(res, Err(Ok(ContractError::InvalidState)));
 
     // 2. Advance to timestamp 10 (expired, but within grace period) -> should fail with GracePeriodNotElapsed
     env.ledger().set_timestamp(10);
@@ -196,13 +206,13 @@ fn test_reclaim_with_active_dispute() {
 
     // Try to reclaim -> should fail with InvalidState because dispute is active.
     let res = client.try_reclaim_expired(&id);
-    assert!(matches!(res, Err(Ok(ContractError::InvalidState))));
+    assert_eq!(res, Err(Ok(ContractError::InvalidState)));
 
     // Resolver resolves dispute in favor of Refund.
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund);
 
     let escrow = client.get_escrow(&id);
-    assert_eq!(escrow.state, EscrowState::Refunded);
+    assert_eq!(escrow.state, EscrowState::PendingFinalization);
 
     // Subsequent reclaim should fail with InvalidState (not in Funded/Shipped state).
     let res2 = client.try_reclaim_expired(&id);

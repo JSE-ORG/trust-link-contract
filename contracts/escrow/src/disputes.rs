@@ -5,54 +5,6 @@ use crate::internal::*;
 use crate::*;
 use soroban_sdk::{contractimpl, token, Address, BytesN, Env, String, Symbol, Vec};
 
-pub const MAX_APPEALS: u32 = 3;
-
-fn resolve_or_vote_internal(
-    env: &Env,
-    caller: Address,
-    escrow_id: u64,
-    resolution: ResolutionType,
-) -> Result<(), ContractError> {
-    caller.require_auth();
-    ensure_action_not_paused(env, Symbol::new(env, "RESOLVE"))?;
-    let escrow = load_escrow(env, escrow_id)?;
-
-    if escrow.state != EscrowState::Disputed {
-        return Err(ContractError::InvalidState);
-    }
-
-    if !escrow.resolvers.contains(&caller) {
-        return Err(ContractError::NotAuthorized);
-    }
-
-    let votes = add_or_update_vote(env, escrow_id, &caller, resolution.clone());
-    let threshold = escrow.resolvers.threshold();
-
-    emit_resolver_vote_recorded(
-        env,
-        escrow_id,
-        caller.clone(),
-        resolution.clone(),
-        votes.len(),
-        threshold,
-    );
-
-    if let Some(final_resolution) = tally_votes(&votes, threshold) {
-        execute_resolution_transition(
-            env,
-            escrow_id,
-            escrow,
-            caller,
-            final_resolution,
-            votes,
-        )?;
-    } else {
-        save_resolver_votes(env, escrow_id, &votes);
-    }
-
-    Ok(())
-}
-
 #[contractimpl]
 impl Escrow {
     /// Buyer raises a dispute on a funded or shipped escrow.
@@ -127,7 +79,7 @@ impl Escrow {
         escrow_id: u64,
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
-        resolve_or_vote_internal(&env, caller, escrow_id, resolution)
+        crate::resolve_or_vote_internal(&env, caller, escrow_id, resolution)
     }
 
     /// Cast or change a vote on a disputed escrow.
@@ -138,7 +90,7 @@ impl Escrow {
         escrow_id: u64,
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
-        resolve_or_vote_internal(&env, caller, escrow_id, resolution)
+        crate::resolve_or_vote_internal(&env, caller, escrow_id, resolution)
     }
 
     /// Get the resolver votes for a disputed escrow (for multi-resolver voting tracking)
@@ -279,10 +231,11 @@ impl Escrow {
         }
 
         let dispute_data = load_dispute(&env, escrow_id)?;
-        if dispute_data.appeal_count >= MAX_APPEALS {
+        let now = env.ledger().timestamp();
+
+        if dispute_data.appeal_count >= crate::MAX_APPEALS {
             return Err(ContractError::MaxAppealsReached);
         }
-        let now = env.ledger().timestamp();
 
         // Appeal window must still be active (based on resolved_at)
         let appeal_deadline = dispute_data
