@@ -289,3 +289,4 @@ mod test_string_length;
 mod test_ttl;
 mod test_vote;
 mod test_fallback_resolver;
+mod test_gas_profile;
