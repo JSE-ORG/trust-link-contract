@@ -34,6 +34,13 @@ contracts/escrow/fuzz/artifacts/
 contracts/escrow/fuzz/coverage/
 
 # Local build/test debug output
+*.log
+*.txt.log
+err.txt
+err*.txt
+error.txt
+compile_err.txt
+cargo_test_err*.txt
 contracts/escrow/*.log
 contracts/escrow/err*.txt
 contracts/escrow/error.txt

@@ -123,3 +123,39 @@ fn grace_period_overflow_is_rejected() {
     );
     assert_eq!(result, Err(Ok(ContractError::ArithmeticOverflow)));
 }
+
+#[test]
+fn ship_after_expiry_returns_escrow_expired() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    let (client, seller, buyer, resolver, token_addr) = setup(&env);
+
+    let expires_at = 1_000_000 + 3600;
+    let grace_period = 600;
+    let escrow_id = client.create_escrow_with_expiration(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+        &Some(expires_at),
+        &grace_period,
+    );
+
+    // Fund while valid
+    client.fund_escrow(&escrow_id, &buyer);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Funded);
+
+    // Advance time past expiration + grace period
+    env.ledger().set_timestamp(expires_at + grace_period + 1);
+
+    // Marking shipped after expiration must return EscrowExpired
+    let result = client.try_mark_shipped(
+        &seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&env, "TRACK123"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::EscrowExpired)));
+}

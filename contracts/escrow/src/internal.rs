@@ -66,6 +66,20 @@ pub(crate) fn add_or_update_vote(
 
 /// Tally votes and determine if resolution should be executed
 /// Returns the winning resolution if threshold is met
+///
+/// # Deadlock Scenario (Issue #667)
+///
+/// **Known Issue**: Voting can deadlock with split votes when no side reaches
+/// the threshold. For example, if `threshold=3` and you get 2 Release + 2 Refund
+/// votes, neither reaches 3 — funds stay stuck in Disputed state indefinitely.
+///
+/// **Mitigation Recommendations**:
+/// - Implement a timeout-based default resolution after all resolvers have voted
+/// - Add a majority-rules fallback when all resolvers have voted but no threshold is met
+/// - Consider adding an escalation mechanism for deadlocked disputes
+///
+/// This is a known limitation of the current M-of-N voting system and should be
+/// addressed in a future contract upgrade.
 pub(crate) fn tally_votes(votes: &Vec<ResolverVote>, threshold: u32) -> Option<ResolutionType> {
     if votes.is_empty() {
         return None;
@@ -262,8 +276,8 @@ pub(crate) fn validate_resolvers(
     // For multi-resolver, validate threshold
     if let ResolverSet::Multi(m) = resolvers {
         let count = m.resolvers.len();
-        if m.threshold == 0 || m.threshold > count {
-            return Err(ContractError::InvalidThreshold);
+        if count == 0 || m.threshold == 0 || m.threshold > count {
+            return Err(ContractError::InvalidAmount); // Use as proxy for invalid threshold
         }
 
         // Ensure all resolvers are unique

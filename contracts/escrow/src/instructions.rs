@@ -338,6 +338,19 @@ impl Escrow {
             .extend_ttl(&buyer_key, ext / 2, ext);
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        
+        // Build basket_tokens event data if this is a basket escrow
+        let basket_event_data = if basket_tokens.len() > 1 {
+            let mut tuples = soroban_sdk::Vec::new(&env);
+            for i in 0..basket_tokens.len() {
+                let entry = basket_tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+                tuples.push_back((entry.token, entry.amount));
+            }
+            Some(tuples)
+        } else {
+            None
+        };
+        
         emit_escrow_funded(
             &env,
             escrow_id,
@@ -345,6 +358,7 @@ impl Escrow {
             escrow.amount,
             crate::EscrowState::Pending,
             crate::EscrowState::Funded,
+            basket_event_data,
         );
         Ok(())
     }
@@ -637,7 +651,7 @@ impl Escrow {
             .ok_or(ContractError::IndexOutOfBounds)?
             .address
             .clone();
-        emit_escrow_cancelled(
+        emit_escrow_canceled(
             &env,
             escrow_id,
             first_payee_addr,
@@ -683,7 +697,7 @@ impl Escrow {
         escrow.state = EscrowState::Canceled;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
-        emit_escrow_cancelled(
+        emit_escrow_canceled(
             &env,
             escrow_id,
             seller_addr,
@@ -1256,6 +1270,14 @@ impl Escrow {
             .extend_ttl(&buyer_key, ext / 2, ext);
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        
+        // Build basket_tokens event data (always Some for basket escrows)
+        let mut basket_event_tuples = soroban_sdk::Vec::new(&env);
+        for i in 0..basket_tokens.len() {
+            let entry = basket_tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+            basket_event_tuples.push_back((entry.token, entry.amount));
+        }
+        
         emit_escrow_funded(
             &env,
             escrow_id,
@@ -1263,6 +1285,7 @@ impl Escrow {
             escrow.amount,
             crate::EscrowState::Pending,
             crate::EscrowState::Funded,
+            Some(basket_event_tuples),
         );
         Ok(())
     }
@@ -1368,12 +1391,26 @@ impl Escrow {
         escrow.state = EscrowState::RefundRequested;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
+        // Build basket_tokens event data if this is a basket escrow
+        let basket_tokens = load_basket_tokens(&env, escrow_id);
+        let basket_event_data = if basket_tokens.len() > 1 {
+            let mut tuples = soroban_sdk::Vec::new(&env);
+            for i in 0..basket_tokens.len() {
+                let entry = basket_tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+                tuples.push_back((entry.token, entry.amount));
+            }
+            Some(tuples)
+        } else {
+            None
+        };
+
         emit_refund_requested(
             &env,
             escrow_id,
             caller,
             prev_state,
             crate::EscrowState::RefundRequested,
+            basket_event_data,
         );
         Ok(())
     }
