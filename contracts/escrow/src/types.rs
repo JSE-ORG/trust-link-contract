@@ -121,14 +121,7 @@ impl ResolverSet {
     pub fn contains(&self, addr: &Address) -> bool {
         match self {
             ResolverSet::Single(resolver) => addr == resolver,
-            ResolverSet::Multi(m) => {
-                for resolver in m.resolvers.clone() {
-                    if resolver == *addr {
-                        return true;
-                    }
-                }
-                false
-            }
+            ResolverSet::Multi(m) => crate::internal::contains(&m.resolvers, addr),
             ResolverSet::Fallback(f) => addr == &f.primary || addr == &f.backup,
         }
     }

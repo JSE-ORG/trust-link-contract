@@ -390,10 +390,8 @@ impl Escrow {
         let resolver = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
         
         let mut approved: soroban_sdk::Vec<Address> = env.storage().instance().get(&DataKey::ApprovedResolvers).unwrap_or_else(|| soroban_sdk::Vec::new(&env));
-        for existing in approved.iter() {
-            if existing == resolver {
-                return Ok(());
-            }
+        if crate::internal::contains(&approved, &resolver) {
+            return Ok(());
         }
         approved.push_back(resolver.clone());
         env.storage().instance().set(&DataKey::ApprovedResolvers, &approved);
@@ -413,17 +411,14 @@ impl Escrow {
         let resolver = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
         
         let approved: soroban_sdk::Vec<Address> = env.storage().instance().get(&DataKey::ApprovedResolvers).unwrap_or_else(|| soroban_sdk::Vec::new(&env));
+        if !crate::internal::contains(&approved, &resolver) {
+            return Err(ContractError::InvalidAddress);
+        }
         let mut new_approved = soroban_sdk::Vec::new(&env);
-        let mut found = false;
         for existing in approved.iter() {
-            if existing == resolver {
-                found = true;
-            } else {
+            if existing != resolver {
                 new_approved.push_back(existing);
             }
-        }
-        if !found {
-            return Err(ContractError::InvalidAddress);
         }
         env.storage().instance().set(&DataKey::ApprovedResolvers, &new_approved);
         emit_resolver_removed(&env, resolver, caller);
@@ -475,10 +470,8 @@ impl Escrow {
         let token = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
         
         let mut allowlist: soroban_sdk::Vec<Address> = env.storage().instance().get(&DataKey::TokenAllowlist).unwrap_or(soroban_sdk::Vec::new(&env));
-        for allowed_token in allowlist.iter() {
-            if allowed_token == token {
-                return Ok(());
-            }
+        if crate::internal::contains(&allowlist, &token) {
+            return Ok(());
         }
         allowlist.push_back(token.clone());
         env.storage().instance().set(&DataKey::TokenAllowlist, &allowlist);
@@ -498,17 +491,14 @@ impl Escrow {
         let token = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
         
         let allowlist: soroban_sdk::Vec<Address> = env.storage().instance().get(&DataKey::TokenAllowlist).unwrap_or(soroban_sdk::Vec::new(&env));
-        let mut found = false;
+        if !crate::internal::contains(&allowlist, &token) {
+            return Err(ContractError::TokenNotAllowed);
+        }
         let mut new_allowlist = soroban_sdk::Vec::new(&env);
         for allowed_token in allowlist.iter() {
-            if allowed_token == token {
-                found = true;
-            } else {
+            if allowed_token != token {
                 new_allowlist.push_back(allowed_token);
             }
-        }
-        if !found {
-            return Err(ContractError::TokenNotAllowed);
         }
         env.storage().instance().set(&DataKey::TokenAllowlist, &new_allowlist);
         emit_token_allowlist_updated(&env, token, false);
