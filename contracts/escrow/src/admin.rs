@@ -141,9 +141,33 @@ impl Escrow {
     pub fn is_action_paused(env: Env, action: Symbol) -> bool {
         env.storage()
             .instance()
+            .get(&DataKey::ActionPaused(action))
+            .unwrap_or(false)
+    }
+
+    /// Sets the fee collector address immediately (not timelocked). Only
+    /// callable by the current admin, gated at the host level via
+    /// `admin.require_auth()`. Reverts with `InvalidAddress` if
+    /// `new_collector` is the all-zero address. Emits
+    /// `emit_fee_collector_updated`.
+    pub fn set_fee_collector(env: Env, new_collector: Address) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        admin.require_auth();
+
+        let zero = Address::from_string(&String::from_str(&env, crate::ZERO_ADDRESS_STR));
+        if new_collector == zero {
+            return Err(ContractError::InvalidAddress);
+        }
+
+        let old_collector: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeCollector)
+            .ok_or(ContractError::NotAuthorized)?;
+        env.storage()
+            .instance()
             .set(&DataKey::FeeCollector, &new_collector);
-        env.events()
-            .publish(("FeeCollectorUpdated",), (old_collector, new_collector));
+        emit_fee_collector_updated(&env, old_collector, new_collector);
         Ok(())
     }
 
@@ -163,10 +187,6 @@ impl Escrow {
     }
 
     /// Returns the current arbitration fee in basis points.
-            .get(&DataKey::ActionPaused(action))
-            .unwrap_or(false)
-    }
-    
     pub fn get_arbitration_fee(env: Env) -> u32 {
         storage::read_fee_config(&env).unwrap_or(FeeConfig { protocol_fee_bps: 0, arbitration_fee_bps: 0 }).arbitration_fee_bps
     }
@@ -197,13 +217,21 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
+        env.storage()
+            .instance()
+            .set(&DataKey::TokenAllowlistEnabled, &enabled);
+        emit_allowlist_toggled(&env, enabled);
+        Ok(())
+    }
+
+    /// Returns the full list of allowlisted tokens.
     pub fn get_allowed_tokens(env: Env) -> soroban_sdk::Vec<Address> {
         env.storage()
             .instance()
             .get(&DataKey::TokenAllowlist)
             .unwrap_or(soroban_sdk::Vec::new(&env))
     }
-    
+
     pub fn get_platform_fee_bps(env: Env) -> u32 {
         read_platform_fee_bps(&env)
     }
@@ -222,21 +250,23 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        let mut allowlist: soroban_sdk::Map<Address, bool> = env
+        let mut allowlist: soroban_sdk::Vec<Address> = env
             .storage()
             .instance()
             .get(&DataKey::TokenAllowlist)
-            .unwrap_or(soroban_sdk::Map::new(&env));
+            .unwrap_or(soroban_sdk::Vec::new(&env));
 
-        if allowlist.contains_key(token.clone()) {
+        if crate::internal::contains(&allowlist, &token) {
             return Ok(());
         }
 
-        allowlist.set(token.clone(), true);
+        allowlist.push_back(token.clone());
         env.storage()
             .instance()
-            .get(&DataKey::ResolverStrict)
-            .unwrap_or(false)
+            .set(&DataKey::TokenAllowlist, &allowlist);
+
+        emit_token_allowlist_updated(&env, token, true);
+        Ok(())
     }
 
     /// Removes `token` from the allowlist. Only callable by admin. Reverts
@@ -247,7 +277,39 @@ impl Escrow {
         caller: Address,
         token: Address,
     ) -> Result<(), ContractError> {
-    
+        caller.require_auth();
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        let allowlist: soroban_sdk::Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::TokenAllowlist)
+            .unwrap_or(soroban_sdk::Vec::new(&env));
+
+        if !crate::internal::contains(&allowlist, &token) {
+            return Err(ContractError::TokenNotAllowed);
+        }
+
+        let mut new_allowlist = soroban_sdk::Vec::new(&env);
+        for allowed_token in allowlist.iter() {
+            if allowed_token != token {
+                new_allowlist.push_back(allowed_token);
+            }
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::TokenAllowlist, &new_allowlist);
+
+        emit_token_allowlist_updated(&env, token, false);
+        Ok(())
+    }
+
+    /// Cancels a queued (not-yet-executed) timelocked admin operation. Only
+    /// callable by admin. Reverts with `InvalidState` if no proposal is
+    /// currently queued for `operation`. Emits `emit_timelock_cancelled`.
     pub fn cancel_timelock_op(env: Env, caller: Address, operation: u32) -> Result<(), ContractError> {
         caller.require_auth();
         let admin = require_admin(&env)?;
@@ -255,29 +317,14 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        let mut allowlist: soroban_sdk::Map<Address, bool> = env
-            .storage()
-            .instance()
-            .get(&DataKey::TokenAllowlist)
-            .unwrap_or(soroban_sdk::Map::new(&env));
+        let proposal = storage::read_timelock_proposal(&env, operation)
+            .ok_or(ContractError::InvalidState)?;
 
-        if !allowlist.contains_key(token.clone()) {
-            return Err(ContractError::TokenNotAllowed);
-        }
-
-        allowlist.remove(token.clone());
-
-        env.storage()
-            .instance()
-            .set(&DataKey::TokenAllowlist, &allowlist);
-
-        emit_token_allowlist_updated(&env, token, false);
+        storage::remove_timelock_proposal(&env, operation);
+        emit_timelock_cancelled(&env, operation, proposal.proposer, caller);
         Ok(())
     }
 
-    /// Returns whether the token allowlist is currently enforced.
-    pub fn is_token_allowlist_enabled(env: Env) -> bool {
-        is_token_allowlist_enabled(&env)
     // 2. Upgrade
     pub fn queue_upgrade(env: Env, caller: Address, new_wasm_hash: BytesN<32>) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
@@ -293,16 +340,6 @@ impl Escrow {
         env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
         emit_contract_upgraded(&env, admin, new_wasm_hash);
         Ok(())
-    }
-
-    /// Returns the full list of allowlisted tokens.
-    pub fn get_allowed_tokens(env: Env) -> soroban_sdk::Vec<Address> {
-        let allowlist: soroban_sdk::Map<Address, bool> = env
-            .storage()
-            .instance()
-            .get(&DataKey::TokenAllowlist)
-            .unwrap_or(soroban_sdk::Map::new(&env));
-        allowlist.keys()
     }
 
     // 4. SetArbitrationFee
@@ -362,15 +399,12 @@ impl Escrow {
         Ok(())
     }
 
-    /// Returns the current platform fee in basis points.
-    pub fn get_platform_fee_bps(env: Env) -> u32 {
-        read_platform_fee_bps(&env)
-    }
-
     /// Returns the configured treasury address. Reverts with
     /// `NotInitialized` if no treasury has been set via `set_treasury`.
     pub fn get_treasury(env: Env) -> Result<Address, ContractError> {
         read_treasury(&env)
+    }
+
     // 7. SetFeeCollector
     pub fn queue_set_fee_collector(env: Env, caller: Address, new_collector: Address) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
