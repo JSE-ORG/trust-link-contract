@@ -78,12 +78,15 @@ bindings-install: ## Install bindings dependencies
 indexer-test: ## Typecheck and test the event indexer
 	cd indexer && npm run typecheck && npm test
 
+# Detect Docker Compose v1 vs v2
+DOCKER_COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
+
 # Docker
 docker-up: ## Start local Stellar network
-	docker-compose up -d
+	$(DOCKER_COMPOSE) up -d
 
 docker-down: ## Stop local Stellar network
-	docker-compose down
+	$(DOCKER_COMPOSE) down
 
 # Local devnet
 testnet: ## Start local devnet, deploy the contract and seed test escrows
