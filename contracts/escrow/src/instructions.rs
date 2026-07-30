@@ -396,6 +396,11 @@ impl Escrow {
 
         validate_escrow_fee_bps(fee_bps)?;
 
+        // Reject tokens not on the allowlist (mirrors create_escrow_internal).
+        // is_token_allowed is a no-op when the allowlist is disabled, so this
+        // adds no overhead for contracts that have not enabled the allowlist.
+        is_token_allowed(&env, &token)?;
+
         // Validate multi-resolver configuration
         let resolver_set = ResolverSet::Multi(crate::types::MultiResolver {
             resolvers,
@@ -499,11 +504,11 @@ impl Escrow {
             .persistent()
             .get(&key)
             .unwrap_or_else(|| Vec::new(&env));
-            
+
         if msgs.len() >= crate::MAX_MESSAGES_PER_ESCROW {
             return Err(ContractError::TooManyMessages);
         }
-        
+
         msgs.push_back(message);
         env.storage().persistent().set(&key, &msgs);
         emit_message_posted(&env, escrow_id, sender);

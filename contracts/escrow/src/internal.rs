@@ -67,19 +67,38 @@ pub(crate) fn add_or_update_vote(
 /// Tally votes and determine if resolution should be executed
 /// Returns the winning resolution if threshold is met
 ///
-/// # Deadlock Scenario (Issue #667)
+/// # Deadlock Scenario (Issue #707 / related: #667)
 ///
-/// **Known Issue**: Voting can deadlock with split votes when no side reaches
-/// the threshold. For example, if `threshold=3` and you get 2 Release + 2 Refund
-/// votes, neither reaches 3 — funds stay stuck in Disputed state indefinitely.
+/// **Known Issue**: Voting can permanently deadlock when split votes prevent
+/// either side from reaching the threshold.  Example: `threshold=3` with
+/// 3 resolvers, getting 1 Release + 1 Refund + 1 abstention — neither side
+/// reaches 3.  Worse, if `threshold=N` (unanimous) and every resolver has
+/// voted but votes are split (e.g. 2 Release + 1 Refund with `threshold=3`),
+/// no additional votes are possible and funds remain frozen in `Disputed`
+/// indefinitely.
 ///
-/// **Mitigation Recommendations**:
-/// - Implement a timeout-based default resolution after all resolvers have voted
-/// - Add a majority-rules fallback when all resolvers have voted but no threshold is met
-/// - Consider adding an escalation mechanism for deadlocked disputes
+/// **Recommended on-chain escape hatches** (to be implemented in a future
+/// upgrade — at least one of the following):
 ///
-/// This is a known limitation of the current M-of-N voting system and should be
-/// addressed in a future contract upgrade.
+/// 1. **Admin override**: Allow the platform admin to force a resolution after
+///    the dispute has been in a deadlocked state for a configurable timeout
+///    (e.g. 30 days).  This path should go through the existing 24-hour
+///    timelock to prevent abuse.
+///
+/// 2. **Expiration-based majority-rules fallback**: Once all `N` resolvers have
+///    cast votes *and* a configurable deadline has passed without threshold
+///    being reached, automatically resolve in favour of whichever side holds
+///    the simple majority of votes cast (or trigger a Refund by default when
+///    perfectly tied).
+///
+/// 3. **Escalation mechanism**: Allow either party to escalate a deadlocked
+///    dispute to a higher-authority arbitrator (e.g. a DAO governance vote)
+///    that can break the tie.
+///
+/// Until one of these paths is added, operators should configure thresholds
+/// carefully (e.g. avoid `threshold == N` for `N > 1`) and document the
+/// deadlock risk in user-facing material.  This is a known limitation of the
+/// current M-of-N voting system.
 pub(crate) fn tally_votes(votes: &Vec<ResolverVote>, threshold: u32) -> Option<ResolutionType> {
     if votes.is_empty() {
         return None;
@@ -562,11 +581,11 @@ pub(crate) fn transfer_with_protocol_fee(
 ///
 /// **Rounding Strategy Documented:**
 /// To ensure the exact `amount` is fully distributed without leaving dust in the contract,
-/// the function calculates the truncated (floor) amount for payees 1 through N, subtracting 
-/// each from a `remaining` accumulator. The primary payee (index 0) receives the entire 
-/// `remaining` balance. Because integer division truncates, this strategy intentionally 
-/// accumulates all rounding dust and awards it to the primary payee. While this silently 
-/// favors the first payee by up to `N-1` stroops, it guarantees exactly 100% of the funds 
+/// the function calculates the truncated (floor) amount for payees 1 through N, subtracting
+/// each from a `remaining` accumulator. The primary payee (index 0) receives the entire
+/// `remaining` balance. Because integer division truncates, this strategy intentionally
+/// accumulates all rounding dust and awards it to the primary payee. While this silently
+/// favors the first payee by up to `N-1` stroops, it guarantees exactly 100% of the funds
 /// are distributed and avoids complex sub-stroop accounting.
 pub(crate) fn distribute_to_payees(
     env: &Env,
@@ -612,18 +631,33 @@ pub(crate) fn distribute_to_payees(
 
 /// Transfer all non-primary basket tokens to a recipient after the primary
 /// token has been paid out by the calling function.
+///
+/// # Index-0 Invariant (Issue #708)
+///
+/// `save_basket_tokens` always stores the primary token (the one recorded in
+/// `EscrowData.token`) at index 0, mirroring the order passed to
+/// `create_basket_escrow`.  Rather than relying on that positional assumption
+/// this function skips any entry whose token address matches `EscrowData.token`
+/// by value, so the primary token is never double-paid regardless of the order
+/// the basket was originally saved.  This makes the function safe even if the
+/// token list is ever persisted in a different order.
 pub(crate) fn payout_basket_tokens(
     env: &Env,
     escrow_id: u64,
     recipient: &Address,
 ) -> Result<(), ContractError> {
+    let escrow = load_escrow(env, escrow_id)?;
+    let primary_token = &escrow.token;
     let basket_tokens = load_basket_tokens(env, escrow_id);
     let contract_addr = env.current_contract_address();
-    // Skip index 0 (primary token, already handled by caller)
-    for i in 1..basket_tokens.len() {
+    for i in 0..basket_tokens.len() {
         let entry = basket_tokens
             .get(i)
             .ok_or(ContractError::IndexOutOfBounds)?;
+        // Skip the primary token — it is always paid out by the calling function.
+        if &entry.token == primary_token {
+            continue;
+        }
         if entry.amount > 0 {
             token::Client::new(env, &entry.token).transfer(
                 &contract_addr,
