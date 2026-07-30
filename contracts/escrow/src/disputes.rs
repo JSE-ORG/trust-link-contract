@@ -55,6 +55,8 @@ impl Escrow {
             resolved_by: None,
             appeal_count: 0,
             resolved_at: 0,
+            arbitration_fee: 0,
+            resolver_fee: 0,
         };
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
@@ -227,8 +229,8 @@ impl Escrow {
             resolution,
             recipient,
             escrow.amount,
-            0,
-            0,
+            dispute_data.arbitration_fee,
+            dispute_data.resolver_fee,
             prev_state,
             new_state,
         );

@@ -186,6 +186,10 @@ pub struct DisputeData {
     pub appeal_count: u32,
     /// Timestamp when the resolution was made
     pub resolved_at: u64,
+    /// Arbitration fee deducted when the resolution transition executed
+    pub arbitration_fee: i128,
+    /// Resolver fee paid out when the resolution transition executed
+    pub resolver_fee: i128,
 }
 
 impl DisputeData {
@@ -208,6 +212,8 @@ impl DisputeData {
         self.resolution = 0;
         self.resolved_by = None;
         self.resolved_at = 0;
+        self.arbitration_fee = 0;
+        self.resolver_fee = 0;
     }
 }
 

@@ -885,6 +885,8 @@ pub(crate) fn execute_resolution_transition(
     dispute_data.set_resolution(final_resolution.clone());
     dispute_data.resolved_by = Some(caller.clone());
     dispute_data.resolved_at = now;
+    dispute_data.arbitration_fee = arbitration_fee;
+    dispute_data.resolver_fee = resolver_fee;
 
     updated_escrow.state = EscrowState::PendingFinalization;
 
