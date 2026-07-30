@@ -4,7 +4,7 @@
 //!
 //! The contract stores the token address in `EscrowData.token` and instantiates
 //! `token::Client` from that address at runtime in both `fund_escrow` and every
-//! payout path (`deduct_and_transfer`).  These tests verify that the full
+//! payout path (`transfer_with_protocol_fee`).  These tests verify that the full
 //! lifecycle works correctly with a generic SEP-41 token that is not USDC.
 
 use crate::{EscrowState, Payee};
