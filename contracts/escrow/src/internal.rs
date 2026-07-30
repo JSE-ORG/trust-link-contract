@@ -543,15 +543,14 @@ pub(crate) fn save_basket_tokens(env: &Env, escrow_id: u64, tokens: &soroban_sdk
 
 pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<TokenEntry> {
     let key = DataKey::BasketTokens(escrow_id);
-    if !env.storage().persistent().has(&key) {
-        return soroban_sdk::Vec::new(env);
+    match env.storage().persistent().get(&key) {
+        Some(tokens) => {
+            let ext = get_ttl_extension(env);
+            env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+            tokens
+        }
+        None => soroban_sdk::Vec::new(env),
     }
-    let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or_else(|| soroban_sdk::Vec::new(env))
 }
 
 pub(crate) fn transfer_with_protocol_fee(
