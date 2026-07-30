@@ -174,6 +174,11 @@ pub const MAX_APPEALS: u32 = 3;
 /// Zero address string for the Stellar network.
 pub const ZERO_ADDRESS_STR: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
+/// Construct the zero address once, avoiding repeated `String::from_str` calls.
+pub(crate) fn zero_address(env: &Env) -> Address {
+    Address::from_string(&soroban_sdk::String::from_str(env, ZERO_ADDRESS_STR))
+}
+
 pub(crate) fn next_escrow_id(env: &Env) -> Result<u64, ContractError> {
     let escrow_id: u64 = env
         .storage()

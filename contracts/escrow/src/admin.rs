@@ -80,7 +80,7 @@ impl Escrow {
         }
         validate_arbitration_fee_bps(arbitration_fee_bps)?;
 
-        let zero = Address::from_string(&String::from_str(&env, crate::ZERO_ADDRESS_STR));
+        let zero = crate::zero_address(&env);
         if admin == zero || fee_collector == zero {
             return Err(ContractError::InvalidAddress);
         }
@@ -154,7 +154,7 @@ impl Escrow {
         let admin = require_admin(&env)?;
         admin.require_auth();
 
-        let zero = Address::from_string(&String::from_str(&env, crate::ZERO_ADDRESS_STR));
+        let zero = crate::zero_address(&env);
         if new_collector == zero {
             return Err(ContractError::InvalidAddress);
         }
@@ -395,7 +395,7 @@ impl Escrow {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTreasury)?;
         let treasury = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
 
-        let zero = Address::from_string(&String::from_str(&env, crate::ZERO_ADDRESS_STR));
+        let zero = crate::zero_address(&env);
         if treasury == zero {
             return Err(ContractError::InvalidAddress);
         }
@@ -422,7 +422,7 @@ impl Escrow {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetFeeCollector)?;
         let new_collector = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
 
-        let zero = Address::from_string(&String::from_str(&env, crate::ZERO_ADDRESS_STR));
+        let zero = crate::zero_address(&env);
         if new_collector == zero {
             return Err(ContractError::InvalidAddress);
         }

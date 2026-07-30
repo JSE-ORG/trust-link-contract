@@ -342,7 +342,7 @@ pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), Cont
             .ok_or(ContractError::ArithmeticError)?;
 
         // Validate each payee address is not zero
-        let zero = Address::from_string(&String::from_str(env, crate::ZERO_ADDRESS_STR));
+        let zero = crate::zero_address(env);
         if payee.address == zero {
             return Err(ContractError::InvalidAddress);
         }
