@@ -97,8 +97,8 @@ impl Escrow {
             token,
             amount,
             fee_bps,
-            0_u32,                           // Default resolver fee
-            crate::DEFAULT_SHIPPING_WINDOW,  // Default shipping window fallback
+            0_u32,                          // Default resolver fee
+            crate::DEFAULT_SHIPPING_WINDOW, // Default shipping window fallback
             None,
         )
     }
@@ -1542,7 +1542,6 @@ impl Escrow {
         Ok(escrow_ids)
     }
 
-        pub fn multicall(env: Env, calls: Vec<ContractCall>) -> Result<Vec<Val>, ContractError> {
     /// Executes a batch of contract calls in sequence, returning each call's
     /// result in the same order as `calls`. Supports a fixed allowlist of
     /// entry points (`initialize`, `pause_contract`, `unpause_contract`,
@@ -1619,7 +1618,7 @@ impl Escrow {
         }
         Ok(results)
     }
-
+}
 
 fn parse_arg<T: TryFromVal<Env, Val>>(
     env: &Env,
@@ -1666,7 +1665,14 @@ fn dispatch_raise_dispute(env: &Env, args: &Vec<Val>) -> Result<Val, ContractErr
     let reason: Symbol = parse_arg(env, args, 2)?;
     let description: String = parse_arg(env, args, 3)?;
     let evidence_hash: BytesN<32> = parse_arg(env, args, 4)?;
-    Escrow::raise_dispute(env.clone(), caller, escrow_id, reason, description, evidence_hash)?;
+    Escrow::raise_dispute(
+        env.clone(),
+        caller,
+        escrow_id,
+        reason,
+        description,
+        evidence_hash,
+    )?;
     Ok(().into_val(env))
 }
 
@@ -1709,13 +1715,13 @@ fn dispatch_initialize(env: &Env, args: &Vec<Val>) -> Result<Val, ContractError>
 
 fn dispatch_pause_contract(env: &Env, args: &Vec<Val>) -> Result<Val, ContractError> {
     let caller: Address = parse_arg(env, args, 0)?;
-    Escrow::pause_contract(env.clone(), caller)?;
+    Escrow::queue_pause_contract(env.clone(), caller)?;
     Ok(().into_val(env))
 }
 
 fn dispatch_unpause_contract(env: &Env, args: &Vec<Val>) -> Result<Val, ContractError> {
     let caller: Address = parse_arg(env, args, 0)?;
-    Escrow::unpause_contract(env.clone(), caller)?;
+    Escrow::queue_unpause_contract(env.clone(), caller)?;
     Ok(().into_val(env))
 }
 
@@ -1764,6 +1770,4 @@ fn dispatch_create_escrow(env: &Env, args: &Vec<Val>) -> Result<Val, ContractErr
         None,
     )?;
     Ok(res.into_val(env))
-}
-
 }

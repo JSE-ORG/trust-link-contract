@@ -22,7 +22,9 @@ fn setup() -> (Env, Address, Address, Address, Address, Address, Address) {
     env.ledger().set_timestamp(1_700_000_000);
 
     let token_admin = Address::generate(&env);
-    let token = env.register_stellar_asset_contract_v2(token_admin).address();
+    let token = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
 
     let admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
@@ -33,12 +35,23 @@ fn setup() -> (Env, Address, Address, Address, Address, Address, Address) {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    (env, contract_id, admin, fee_collector, seller, resolver, token)
+    (
+        env,
+        contract_id,
+        admin,
+        fee_collector,
+        seller,
+        resolver,
+        token,
+    )
 }
 
 fn single_payee(env: &Env, seller: &Address) -> Vec<Payee> {
     let mut p = Vec::new(env);
-    p.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    p.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     p
 }
 
@@ -59,8 +72,28 @@ fn cancel_escrow1_does_not_affect_escrow2() {
 
     let payees = single_payee(&env, &seller);
     let payees_val = payees.into_val(&env);
-    let id1 = client.create_escrow(&payees_val, &None::<Address>, &resolver, &token, &500_i128, &0_u32, &0_u32, &3600_u64, &None::<String>);
-    let id2 = client.create_escrow(&payees_val, &None::<Address>, &resolver, &token, &750_i128, &0_u32, &0_u32, &3600_u64, &None::<String>);
+    let id1 = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &500_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
+    let id2 = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &750_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
 
     // Snapshot escrow 2 before the mutation.
     let before = client.get_escrow(&id2);
@@ -92,8 +125,28 @@ fn fund_escrow2_does_not_affect_escrow1() {
     let payees = single_payee(&env, &seller);
     let payees_val = payees.into_val(&env);
 
-    let id1 = client.create_escrow(&payees_val, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &0_u32, &3600_u64, &None::<String>);
-    let id2 = client.create_escrow(&payees_val, &Some(buyer.clone()), &resolver, &token, &200_i128, &0_u32, &0_u32, &3600_u64, &None::<String>);
+    let id1 = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
+    let id2 = client.create_escrow(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &200_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
 
     let before = client.get_escrow(&id1);
 
@@ -118,8 +171,28 @@ fn mark_shipped_escrow1_does_not_affect_escrow2() {
     let payees = single_payee(&env, &seller);
     let payees_val = payees.into_val(&env);
 
-    let id1 = client.create_escrow(&payees_val, &Some(buyer1.clone()), &resolver, &token, &300_i128, &0_u32, &0_u32, &1_u64, &None::<String>);
-    let id2 = client.create_escrow(&payees_val, &Some(buyer2.clone()), &resolver, &token, &400_i128, &0_u32, &0_u32, &1_u64, &None::<String>);
+    let id1 = client.create_escrow(
+        &payees_val,
+        &Some(buyer1.clone()),
+        &resolver,
+        &token,
+        &300_i128,
+        &0_u32,
+        &0_u32,
+        &1_u64,
+        &None::<String>,
+    );
+    let id2 = client.create_escrow(
+        &payees_val,
+        &Some(buyer2.clone()),
+        &resolver,
+        &token,
+        &400_i128,
+        &0_u32,
+        &0_u32,
+        &1_u64,
+        &None::<String>,
+    );
 
     fund(&env, &client, &token, &buyer1, &id1);
     fund(&env, &client, &token, &buyer2, &id2);
@@ -132,8 +205,14 @@ fn mark_shipped_escrow1_does_not_affect_escrow2() {
 
     let after = client.get_escrow(&id2);
     assert_eq!(after.state, before.state);
-    assert!(after.tracking_id.is_none(), "escrow 2 tracking_id should still be None");
-    assert_eq!(after.shipped_at, 0, "escrow 2 shipped_at should still be zero");
+    assert!(
+        after.tracking_id.is_none(),
+        "escrow 2 tracking_id should still be None"
+    );
+    assert_eq!(
+        after.shipped_at, 0,
+        "escrow 2 shipped_at should still be zero"
+    );
 }
 
 /// Three escrows: modifying the middle one (escrow 2) must leave
@@ -145,9 +224,39 @@ fn modifying_middle_escrow_leaves_neighbors_unchanged() {
 
     let payees = single_payee(&env, &seller);
     let payees_val = payees.into_val(&env);
-    let id1 = client.create_escrow(&payees_val, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &0_u32, &3600_u64, &None::<String>);
-    let id2 = client.create_escrow(&payees_val, &None::<Address>, &resolver, &token, &200_i128, &0_u32, &0_u32, &3600_u64, &None::<String>);
-    let id3 = client.create_escrow(&payees_val, &None::<Address>, &resolver, &token, &300_i128, &0_u32, &0_u32, &3600_u64, &None::<String>);
+    let id1 = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
+    let id2 = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &200_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
+    let id3 = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &300_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
 
     let before1 = client.get_escrow(&id1);
     let before3 = client.get_escrow(&id3);
@@ -183,7 +292,17 @@ fn independent_escrows_store_correct_fields() {
     let payees2_val = payees2.into_val(&env);
 
     // Escrow 1: open buyer, amount=111, fee=50, window=1800
-    let id1 = client.create_escrow(&payees1_val, &None::<Address>, &resolver, &token, &111_i128, &50_u32, &0_u32, &1800_u64, &None::<String>);
+    let id1 = client.create_escrow(
+        &payees1_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &111_i128,
+        &50_u32,
+        &0_u32,
+        &1800_u64,
+        &None::<String>,
+    );
 
     // Escrow 2: locked buyer, amount=999, fee=100, window=7200
     let id2 = client.create_escrow(
@@ -231,8 +350,28 @@ fn funded_at_of_escrow2_unchanged_after_cancelling_escrow1() {
     let payees = single_payee(&env, &seller);
     let payees_val = payees.into_val(&env);
 
-    let id1 = client.create_escrow(&payees_val, &None::<Address>, &resolver, &token, &50_i128, &0_u32, &0_u32, &3600_u64, &None::<String>);
-    let id2 = client.create_escrow(&payees_val, &Some(buyer.clone()), &resolver, &token, &50_i128, &0_u32, &0_u32, &3600_u64, &None::<String>);
+    let id1 = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &50_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
+    let id2 = client.create_escrow(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &50_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
 
     fund(&env, &client, &token, &buyer, &id2);
 

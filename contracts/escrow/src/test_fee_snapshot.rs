@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    Address, Env, IntoVal, Vec,
-};
     use crate::{Escrow, EscrowClient, Payee};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        Address, Env, IntoVal, Vec,
+    };
 
     const DISPUTE_WINDOW: u64 = 172_800;
 
@@ -13,7 +13,9 @@ use soroban_sdk::{
         let fee_collector = Address::generate(env);
 
         let token_admin = Address::generate(env);
-        let token_id = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
         let _token_client = soroban_sdk::token::StellarAssetClient::new(env, &token_id);
 
         let contract_id = env.register(Escrow, ());
@@ -39,14 +41,16 @@ use soroban_sdk::{
         let env = Env::default();
         env.mock_all_auths();
 
-        let seller   = Address::generate(&env);
-        let buyer    = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let buyer = Address::generate(&env);
         let resolver = Address::generate(&env);
-        let admin    = Address::generate(&env);
+        let admin = Address::generate(&env);
         let fee_collector = Address::generate(&env);
 
         let token_admin = Address::generate(&env);
-        let token_id = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
         let token_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
         token_client.mint(&buyer, &1_000_000_000_i128);
 
@@ -63,14 +67,14 @@ use soroban_sdk::{
         let payees = single_payee(&env, &seller);
         let payees_val = payees.into_val(&env);
         let escrow_id = client.create_escrow_8(
-        &payees_val,
-        &Some(buyer.clone()),
-        &resolver,
-        &token_id,
-        &amount,
-        &100_u32,
-        &604_800_u64,
-    );
+            &payees_val,
+            &Some(buyer.clone()),
+            &resolver,
+            &token_id,
+            &amount,
+            &100_u32,
+            &604_800_u64,
+        );
 
         client.fund_escrow(&escrow_id, &buyer);
 
@@ -79,7 +83,11 @@ use soroban_sdk::{
 
         // Advance past dispute window so buyer can confirm.
         env.ledger().set_timestamp(DISPUTE_WINDOW + 1);
-        client.mark_shipped(&seller, &escrow_id, &soroban_sdk::String::from_str(&env, "TRACK-FEE"));
+        client.mark_shipped(
+            &seller,
+            &escrow_id,
+            &soroban_sdk::String::from_str(&env, "TRACK-FEE"),
+        );
         client.confirm_delivery(&buyer, &escrow_id);
 
         let tc = soroban_sdk::token::Client::new(&env, &token_id);
@@ -106,14 +114,16 @@ use soroban_sdk::{
         let env = Env::default();
         env.mock_all_auths();
 
-        let seller   = Address::generate(&env);
-        let buyer    = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let buyer = Address::generate(&env);
         let resolver = Address::generate(&env);
-        let admin    = Address::generate(&env);
+        let admin = Address::generate(&env);
         let fee_collector = Address::generate(&env);
 
         let token_admin = Address::generate(&env);
-        let token_id = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
         let token_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
         token_client.mint(&buyer, &1_000_000_000_i128);
 
@@ -129,24 +139,29 @@ use soroban_sdk::{
         let payees = single_payee(&env, &seller);
         let payees_val = payees.into_val(&env);
         let escrow_id = client.create_escrow_8(
-        &payees_val,
-        &Some(buyer.clone()),
-        &resolver,
-        &token_id,
-        &amount,
-        &100_u32,
-        &shipping_window,
-    );
+            &payees_val,
+            &Some(buyer.clone()),
+            &resolver,
+            &token_id,
+            &amount,
+            &100_u32,
+            &shipping_window,
+        );
 
         client.fund_escrow(&escrow_id, &buyer);
-        client.mark_shipped(&seller, &escrow_id, &soroban_sdk::String::from_str(&env, "TRACK-001"));
+        client.mark_shipped(
+            &seller,
+            &escrow_id,
+            &soroban_sdk::String::from_str(&env, "TRACK-001"),
+        );
         crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, escrow_id);
 
         // Admin raises fee to 3% before auto_release is triggered.
         client.set_protocol_fee(&admin, &300_u32);
 
         // Advance past delivery release window.
-        env.ledger().set_timestamp(shipping_window + DISPUTE_WINDOW + 1);
+        env.ledger()
+            .set_timestamp(shipping_window + DISPUTE_WINDOW + 1);
         client.auto_release(&escrow_id);
 
         let tc = soroban_sdk::token::Client::new(&env, &token_id);

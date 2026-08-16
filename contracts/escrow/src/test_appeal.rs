@@ -254,7 +254,9 @@ fn appeal_succeeds_by_seller_and_reopens_dispute() {
         client.get_escrow(&setup.escrow_id).state,
         EscrowState::Disputed,
     );
-    let dispute = client.get_dispute(&setup.escrow_id).expect("dispute exists");
+    let dispute = client
+        .get_dispute(&setup.escrow_id)
+        .expect("dispute exists");
     assert_eq!(dispute.appeal_count, 1);
     assert_eq!(dispute.status, DisputeStatus::Active);
     assert_eq!(dispute.resolution, 0);

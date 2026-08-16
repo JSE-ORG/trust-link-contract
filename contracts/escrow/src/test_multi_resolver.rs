@@ -1,7 +1,11 @@
 #![cfg(test)]
 use super::*;
-use soroban_sdk::{testutils::{Address as _, Ledger}, symbol_short, token, Address, BytesN, Env, String, Vec};
 use crate::types::ResolutionType;
+use soroban_sdk::{
+    symbol_short,
+    testutils::{Address as _, Ledger},
+    token, Address, BytesN, Env, String, Vec,
+};
 
 #[test]
 fn test_multi_resolver_threshold_met() {
@@ -20,7 +24,9 @@ fn test_multi_resolver_threshold_met() {
     let resolver_b = Address::generate(&env);
     let resolver_c = Address::generate(&env);
     let token_admin = Address::generate(&env);
-    let token = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+    let token = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
 
     // Mint tokens to buyer
     token::StellarAssetClient::new(&env, &token).mint(&buyer, &10000);
@@ -41,14 +47,20 @@ fn test_multi_resolver_threshold_met() {
         &token,
         &1000,
         &0,
-        &3600
+        &3600,
     );
 
     // Fund escrow
     client.fund_escrow(&escrow_id, &buyer);
 
     // Raise dispute
-    client.raise_dispute(&buyer, &escrow_id, &symbol_short!("item"), &String::from_str(&env, "broken"), &BytesN::from_array(&env, &[0; 32]));
+    client.raise_dispute(
+        &buyer,
+        &escrow_id,
+        &symbol_short!("item"),
+        &String::from_str(&env, "broken"),
+        &BytesN::from_array(&env, &[0; 32]),
+    );
 
     // Resolver A votes Release
     client.resolve_dispute(&resolver_a, &escrow_id, &ResolutionType::Release);
@@ -65,7 +77,8 @@ fn test_multi_resolver_threshold_met() {
     assert_eq!(escrow_pending.state, EscrowState::PendingFinalization);
 
     // Advance past appeal window and finalize
-    env.ledger().set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
     client.finalize_dispute(&admin, &escrow_id);
 
     // Check status - should be Completed
@@ -159,4 +172,3 @@ fn test_multi_resolver_validation() {
     );
     assert_eq!(escrow_id, 1);
 }
-

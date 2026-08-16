@@ -21,11 +21,15 @@
 
 use crate::test_helpers::{create_funded_escrow, setup_contract};
 use crate::DEFAULT_TTL_EXTENSION;
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env,
+};
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
-    env.register_stellar_asset_contract_v2(token_admin).address()
+    env.register_stellar_asset_contract_v2(token_admin)
+        .address()
 }
 
 // ============================================================================
@@ -253,7 +257,11 @@ fn test_vendor_index_ttl_extended_on_write() {
 
     // Vendor index must still be queryable — TTL was extended on write.
     let escrows = client.get_escrows_by_vendor(&seller);
-    assert_eq!(escrows.len(), 1, "vendor index was archived after ledger advance");
+    assert_eq!(
+        escrows.len(),
+        1,
+        "vendor index was archived after ledger advance"
+    );
 }
 
 /// Vendor index TTL is extended when the index is read.
@@ -316,7 +324,8 @@ fn test_buyer_index_ttl_extended_on_write() {
     // Buyer index must still be queryable after the advance.
     let buyer_escrows = client.get_escrows_by_buyer(&buyer);
     assert_eq!(
-        buyer_escrows.len(), 1,
+        buyer_escrows.len(),
+        1,
         "buyer index was archived after ledger advance"
     );
 }

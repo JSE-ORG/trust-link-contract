@@ -355,16 +355,6 @@ pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), Cont
     Ok(())
 }
 
-/// Validates individual protocol/arbitration fees against their respective maximums.
-///
-/// Returns Err(FeeExceedsMax) if the value exceeds its cap.
-pub(crate) fn validate_protocol_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
-    if fee_bps > MAX_PROTOCOL_FEE_BPS {
-        return Err(ContractError::FeeExceedsMax);
-    }
-    Ok(())
-}
-
 pub(crate) fn validate_arbitration_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
     if fee_bps > MAX_ARBITRATION_FEE_BPS {
         return Err(ContractError::FeeExceedsMax);
@@ -387,26 +377,6 @@ pub(crate) fn validate_combined_fees(
         return Err(ContractError::FeeExceedsMax);
     }
     Ok(())
-}
-
-pub(crate) fn update_protocol_fee(
-    env: &Env,
-    caller: &Address,
-    fee_bps: u32,
-) -> Result<u32, ContractError> {
-    caller.require_auth();
-    let admin = require_admin(env)?;
-    if caller != &admin {
-        return Err(ContractError::NotAuthorized);
-    }
-    validate_protocol_fee_bps(fee_bps)?;
-    let mut config = read_fee_config(env);
-    // Validate that new protocol fee + existing arbitration fee doesn't exceed combined cap
-    validate_combined_fees(fee_bps, config.arbitration_fee_bps)?;
-    let old_fee = config.protocol_fee_bps;
-    config.protocol_fee_bps = fee_bps;
-    write_fee_config(env, &config);
-    Ok(old_fee)
 }
 
 /// Updates the arbitration fee. Requires admin auth.

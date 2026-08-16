@@ -30,21 +30,21 @@ pub use crate::events::{
     emit_fee_collector_updated, emit_fee_updated, emit_platform_fee_updated,
     emit_protocol_fee_updated, emit_refund_approved, emit_refund_requested, emit_resolver_approved,
     emit_resolver_removed, emit_resolver_rotated, emit_resolver_strict_updated,
-    emit_resolver_vote_recorded, emit_storage_migrated, emit_token_allowlist_updated,
+    emit_resolver_vote_recorded, emit_storage_migrated, emit_timelock_cancelled,
+    emit_timelock_executed, emit_timelock_queued, emit_token_allowlist_updated,
     emit_treasury_updated, emit_ttl_extension_updated, ActionPausedEvent, ActionUnpausedEvent,
     AdminRotated, AmountLimitsUpdated, ArbitrationFeeUpdated, AutoReleased, ContractInitialized,
     ContractPausedEvent, ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled,
     DeliveryProposed, DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowAutoCanceled,
     EscrowCanceled, EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped,
     FeeUpdated, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated,
-    ResolverStrictUpdated, ResolverVoteRecorded, TtlExtensionUpdated,
-    emit_timelock_queued, emit_timelock_executed, emit_timelock_cancelled,
-    TimelockQueued, TimelockExecuted, TimelockCancelled,
+    ResolverStrictUpdated, ResolverVoteRecorded, TimelockCancelled, TimelockExecuted,
+    TimelockQueued, TtlExtensionUpdated,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
     EscrowState, ExpirySchedule, FeeConfig, Payee, PublicContractConfig, ResolutionType,
-    ResolverSet, ResolverVote, TokenEntry, TimelockProposal, TimelockOperation,
+    ResolverSet, ResolverVote, TimelockOperation, TimelockProposal, TokenEntry,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
@@ -62,12 +62,6 @@ pub struct ContractCall {
 /// This applies to the per-escrow `fee_bps` value supplied at creation time,
 /// and to the legacy `set_fee` helper that persists `DefaultFeeBps`.
 const MAX_ESCROW_FEE_BPS: u32 = 300;
-
-/// Maximum protocol fee in basis points (500 = 5%).
-///
-/// Protocol fees are deducted from escrow payouts during delivery/resolution.
-/// Capped at 5% to ensure meaningful payouts to winners.
-const MAX_PROTOCOL_FEE_BPS: u32 = 500;
 
 /// Maximum arbitration fee in basis points (500 = 5%).
 ///
@@ -243,10 +237,10 @@ fn resolve_or_vote_internal(
 mod malicious_token;
 mod test;
 mod test_admin;
-mod test_appeal;
 mod test_admin_event_emissions;
 mod test_admin_rotation;
 mod test_amount_limits;
+mod test_appeal;
 mod test_arbitration_fee;
 mod test_auth_matrix;
 mod test_auth_ordering;

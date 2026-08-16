@@ -98,7 +98,5 @@ pub enum ContractError {
     /// Returned when a `Payee` list's basis points do not sum to exactly `BASIS_POINTS` (10_000).
     PayeeBpsMismatch = 44,
     /// Returned when the maximum number of messages for an escrow has been reached.
-    TooManyMessages = 42,
-    /// Returned when a multicall argument is missing or invalid.
-    InvalidMulticallArg = 43,
+    TooManyMessages = 45,
 }

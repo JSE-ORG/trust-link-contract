@@ -7,17 +7,17 @@
 //! payout path (`transfer_with_protocol_fee`).  These tests verify that the full
 //! lifecycle works correctly with a generic SEP-41 token that is not USDC.
 
+use crate::test_helpers::{record_delivery_timelocked, setup_contract};
 use crate::{EscrowState, Payee};
-use crate::test_helpers::{setup_contract, record_delivery_timelocked};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    token, Address, Env, IntoVal, String as SorobanString, Vec,
-    BytesN, Symbol,
+    token, Address, BytesN, Env, IntoVal, String as SorobanString, Symbol, Vec,
 };
 
 /// Register a fresh Stellar asset contract (generic SEP-41 token).
 fn register_sep41_token(env: &Env) -> Address {
-    env.register_stellar_asset_contract_v2(Address::generate(env)).address()
+    env.register_stellar_asset_contract_v2(Address::generate(env))
+        .address()
 }
 
 fn mint(env: &Env, token: &Address, to: &Address, amount: i128) {
@@ -44,9 +44,20 @@ fn test_sep41_fund_and_confirm_delivery() {
     mint(&env, &token, &buyer, 500);
 
     let mut payees1 = Vec::new(&env);
-    payees1.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees1.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let payees1_val = payees1.into_val(&env);
-    let id = client.create_escrow_8(&payees1_val, &None::<Address>, &resolver, &token, &500_i128, &100_u32, &3600_u64);
+    let id = client.create_escrow_8(
+        &payees1_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &500_i128,
+        &100_u32,
+        &3600_u64,
+    );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
 
@@ -80,9 +91,20 @@ fn test_sep41_auto_release() {
     mint(&env, &token, &buyer, 1000);
 
     let mut payees2 = Vec::new(&env);
-    payees2.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees2.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let payees2_val = payees2.into_val(&env);
-    let id = client.create_escrow_8(&payees2_val, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow_8(
+        &payees2_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &0_u32,
+        &3600_u64,
+    );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO"));
     env.ledger().set_timestamp(1_700_000_000);
@@ -90,7 +112,8 @@ fn test_sep41_auto_release() {
 
     // Advance 48 hours past delivery.
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.delivered_at.unwrap() + 172_801);
+    env.ledger()
+        .set_timestamp(escrow.delivered_at.unwrap() + 172_801);
     client.auto_release(&id);
 
     assert_eq!(balance(&env, &token, &seller), 1000);
@@ -113,11 +136,26 @@ fn test_sep41_dispute_and_refund() {
     mint(&env, &token, &buyer, 800);
 
     let mut payees3 = Vec::new(&env);
-    payees3.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees3.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let payees3_val = payees3.into_val(&env);
-    let id = client.create_escrow_8(&payees3_val, &None::<Address>, &resolver, &token, &800_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow_8(
+        &payees3_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &800_i128,
+        &0_u32,
+        &3600_u64,
+    );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DISPUTE"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &SorobanString::from_str(&env, "TRACK-DISPUTE"),
+    );
 
     client.raise_dispute(
         &buyer,
@@ -130,7 +168,8 @@ fn test_sep41_dispute_and_refund() {
     client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Refund);
 
     // Advance past appeal window and finalize
-    env.ledger().set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
     client.finalize_dispute(&admin, &id);
 
     // Zero fee — full 800 back to buyer
@@ -151,9 +190,20 @@ fn test_sep41_token_address_stored_in_escrow() {
     let resolver = Address::generate(&env);
 
     let mut payees4 = Vec::new(&env);
-    payees4.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees4.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let payees4_val = payees4.into_val(&env);
-    let id = client.create_escrow_8(&payees4_val, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow_8(
+        &payees4_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
     // Verify the stored token address matches what was passed in
     assert_eq!(client.get_escrow(&id).token, token);
 }
@@ -174,9 +224,20 @@ fn test_sep41_cancel_escrow() {
 
     // Create escrow (starts in Pending state)
     let mut payees5 = Vec::new(&env);
-    payees5.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees5.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let payees5_val = payees5.into_val(&env);
-    let id = client.create_escrow_8(&payees5_val, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow_8(
+        &payees5_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &0_u32,
+        &3600_u64,
+    );
 
     let escrow_before = client.get_escrow(&id);
     assert_eq!(escrow_before.state, EscrowState::Pending);
@@ -189,7 +250,10 @@ fn test_sep41_cancel_escrow() {
 
     // Verify it cannot be funded
     let fund_result = client.try_fund_escrow(&id, &buyer);
-    assert!(matches!(fund_result, Err(Ok(crate::ContractError::InvalidState))));
+    assert!(matches!(
+        fund_result,
+        Err(Ok(crate::ContractError::InvalidState))
+    ));
 }
 
 #[test]
@@ -211,11 +275,26 @@ fn test_sep41_dispute_and_release() {
 
     // Create escrow with 1000 amount, 100 BPS (1.0%) fee
     let mut payees6 = Vec::new(&env);
-    payees6.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees6.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let payees6_val = payees6.into_val(&env);
-    let id = client.create_escrow_8(&payees6_val, &None::<Address>, &resolver, &token, &1000_i128, &100_u32, &3600_u64);
+    let id = client.create_escrow_8(
+        &payees6_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &100_u32,
+        &3600_u64,
+    );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-RELEASE"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &SorobanString::from_str(&env, "TRACK-RELEASE"),
+    );
 
     // Buyer raises a dispute
     client.raise_dispute(
@@ -230,7 +309,8 @@ fn test_sep41_dispute_and_release() {
     client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Release);
 
     // Advance past appeal window and finalize
-    env.ledger().set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
     client.finalize_dispute(&admin, &id);
 
     // Calculations:
@@ -267,17 +347,33 @@ fn test_sep41_auto_release_with_fees() {
     mint(&env, &token, &buyer, 1000);
 
     let mut payees7 = Vec::new(&env);
-    payees7.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees7.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let payees7_val = payees7.into_val(&env);
-    let id = client.create_escrow_8(&payees7_val, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
+    let id = client.create_escrow_8(
+        &payees7_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &0_u32,
+        &3600_u64,
+    );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO-FEES"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &SorobanString::from_str(&env, "TRACK-AUTO-FEES"),
+    );
     env.ledger().set_timestamp(1_700_000_000);
     record_delivery_timelocked(&env, &client, &admin, id);
 
     // Advance 48 hours past delivery.
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.delivered_at.unwrap() + 172_801);
+    env.ledger()
+        .set_timestamp(escrow.delivered_at.unwrap() + 172_801);
     client.auto_release(&id);
 
     // Calculation:

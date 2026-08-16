@@ -1352,12 +1352,7 @@ pub struct TimelockExecuted {
 }
 
 /// Topic: `(symbol_short!("Timelock"), symbol_short!("Executed"), operation as u32,)`, data: `TimelockExecuted`.
-pub fn emit_timelock_executed(
-    env: &Env,
-    operation: u32,
-    proposer: Address,
-    executor: Address,
-) {
+pub fn emit_timelock_executed(env: &Env, operation: u32, proposer: Address, executor: Address) {
     env.events().publish(
         (symbol_short!("Timelock"), symbol_short!("Executed")),
         TimelockExecuted {
@@ -1381,12 +1376,7 @@ pub struct TimelockCancelled {
 }
 
 /// Topic: `(symbol_short!("Timelock"), symbol_short!("Cancelled"), operation as u32,)`, data: `TimelockCancelled`.
-pub fn emit_timelock_cancelled(
-    env: &Env,
-    operation: u32,
-    proposer: Address,
-    canceller: Address,
-) {
+pub fn emit_timelock_cancelled(env: &Env, operation: u32, proposer: Address, canceller: Address) {
     env.events().publish(
         (symbol_short!("Timelock"), symbol_short!("Cancelled")),
         TimelockCancelled {

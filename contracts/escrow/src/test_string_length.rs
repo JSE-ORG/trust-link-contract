@@ -2,13 +2,11 @@
 
 use crate::test_helpers::{create_funded_escrow, setup_contract};
 use crate::{ContractError, MAX_DESCRIPTION_LEN, MAX_TRACKING_ID_LEN};
-use soroban_sdk::{
-    testutils::Address as _,
-    Address, BytesN, Env, String as SorobanString, Symbol,
-};
+use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String as SorobanString, Symbol};
 
 fn register_token(env: &Env) -> Address {
-    env.register_stellar_asset_contract_v2(Address::generate(env)).address()
+    env.register_stellar_asset_contract_v2(Address::generate(env))
+        .address()
 }
 
 /// Build a SorobanString of exactly `len` ASCII 'a' characters (max 512).

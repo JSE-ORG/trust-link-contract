@@ -293,7 +293,8 @@ impl Escrow {
         let mut updated_dispute = dispute_data;
         updated_dispute.status = DisputeStatus::Active;
         updated_dispute.clear_resolution();
-        updated_dispute.appeal_count = updated_dispute.appeal_count
+        updated_dispute.appeal_count = updated_dispute
+            .appeal_count
             .checked_add(1)
             .ok_or(ContractError::ArithmeticError)?;
 

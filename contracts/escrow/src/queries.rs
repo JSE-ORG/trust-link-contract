@@ -74,9 +74,8 @@ impl Escrow {
             .get(&DataKey::EscrowCounter)
             .unwrap_or(1);
 
-        let mut iterations = 0;
         let max_iterations = 1000;
-        for id in (1..counter).rev() {
+        for (iterations, id) in (1..counter).rev().enumerate() {
             if iterations >= max_iterations {
                 break;
             }
@@ -85,7 +84,6 @@ impl Escrow {
                     result.push_back(id);
                 }
             }
-            iterations += 1;
         }
         result
     }

@@ -73,7 +73,11 @@ fn create_funded_shipped_disputed(setup: &Setup) -> u64 {
     let sac = token::StellarAssetClient::new(&setup.env, &setup.token);
     sac.mint(&setup.buyer, &amount);
     client.fund_escrow(&escrow_id, &setup.buyer);
-    client.mark_shipped(&setup.seller, &escrow_id, &String::from_str(&setup.env, "TRK"));
+    client.mark_shipped(
+        &setup.seller,
+        &escrow_id,
+        &String::from_str(&setup.env, "TRK"),
+    );
 
     let reason = Symbol::new(&setup.env, "reason");
     let description = String::from_str(&setup.env, "desc");
@@ -272,7 +276,11 @@ fn resolve_non_disputed_escrow_fails() {
     let sac = token::StellarAssetClient::new(&setup.env, &setup.token);
     sac.mint(&setup.buyer, &amount);
     client.fund_escrow(&escrow_id, &setup.buyer);
-    client.mark_shipped(&setup.seller, &escrow_id, &String::from_str(&setup.env, "TRK"));
+    client.mark_shipped(
+        &setup.seller,
+        &escrow_id,
+        &String::from_str(&setup.env, "TRK"),
+    );
 
     // No dispute has been raised — the escrow is still `Shipped`, so any
     // attempt to resolve it must fail with `InvalidState` regardless of who
