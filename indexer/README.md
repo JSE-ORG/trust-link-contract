@@ -118,6 +118,7 @@ docker compose up -d postgres
 psql $DATABASE_URL -f indexer/schema.sql
 
 # 3. Replay fixture (deterministic, resume-safe)
+#    The path is optional — it defaults to indexer/fixtures/events.json.
 DATABASE_URL=postgres://stellar:stellar@localhost/stellar \
   npx tsx indexer/src/replay.ts indexer/fixtures/events.json
 
@@ -133,6 +134,50 @@ psql $DATABASE_URL -c \
      FROM resolver_votes
     WHERE escrow_id = 12345"
 ```
+
+### Replay API
+
+`src/replay.ts` is both a CLI and an importable module — importing it does not
+run the CLI, so tests and scripts can drive a replay directly.
+
+| Export | Signature | Notes |
+|---|---|---|
+| `replay` | `(fixturePath?, options?) => Promise<number>` | Resumes from the persisted cursor; returns the number of events applied **by this run** (`0` if already fully ingested) |
+| `loadFixture` | `(filePath) => RawEvent[]` | Reads and validates a fixture; throws on bad shape or bad ordering |
+| `findResumeIndex` | `(events, cursor) => number` | Index of the first event after `cursor`; `events.length` when nothing is left |
+| `DEFAULT_FIXTURE` | `string` | Absolute path to `indexer/fixtures/events.json` |
+
+```ts
+import { replay, loadFixture, DEFAULT_FIXTURE } from "./src/replay.js";
+
+// Replay the bundled fixture.
+const applied = await replay();
+
+// Replay several fixtures in one process, then close the pool yourself.
+for (const path of ["./fixtures/a.json", "./fixtures/b.json"]) {
+  await replay(path, { closePoolWhenDone: false });
+}
+await closePool();
+
+// Inspect a fixture without touching the database.
+console.log(loadFixture(DEFAULT_FIXTURE).length, "events");
+```
+
+`ReplayOptions`:
+
+| Option | Default | Purpose |
+|---|---|---|
+| `closePoolWhenDone` | `true` | Set `false` to keep the pool open across several replays |
+| `log` | `console.log` | Redirect or silence progress output |
+
+**Fixture format.** A JSON array of `RawEvent`, sorted strictly ascending by
+`(ledger_sequence, tx_index, event_index)` — the order Soroban emits them in.
+`loadFixture` rejects anything else: the resume cursor only moves forward, so an
+out-of-order event would be skipped permanently rather than applied late.
+
+**Guarantees.** Replaying the same fixture twice applies each event exactly
+once. Each event is written, applied and cursor-advanced in a single
+transaction, so an interrupted run resumes from the last committed event.
 
 Live ingestion (after wiring `SorobanRpcSource` in `indexer/src/ingest.ts`):
 ```sh
@@ -170,7 +215,8 @@ indexer/
 │   ├── cursor.ts                                  # read/write indexer_cursor
 │   ├── apply.ts                                   # event → SQL state machine
 │   ├── ingest.ts                                  # polling loop + ingestBatch
-│   └── replay.ts                                  # deterministic fixture replay
+│   ├── replay.ts                                  # deterministic fixture replay (CLI + API)
+│   └── *.test.ts                                  # node:test unit tests
 ├── mercury/
 │   ├── manifest.toml                              # subscription manifest
 │   └── queries/
