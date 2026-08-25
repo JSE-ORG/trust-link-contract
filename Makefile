@@ -1,5 +1,5 @@
 .PHONY: help build build-wasm test fmt clippy bench clean check check-error-codes doc audit indexer-test xtask-test \
-	testnet testnet-reset testnet-stop fuzz-build fuzz
+	testnet testnet-reset testnet-stop fuzz-build fuzz fuzz-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -30,6 +30,9 @@ clippy: ## Run clippy lints
 
 bench: ## Run benchmarks (if available)
 	cargo test --release -- --ignored
+
+fuzz-check: ## Type-check every fuzz target on stable (no cargo-fuzz needed)
+	cargo check --manifest-path contracts/escrow/fuzz/Cargo.toml --all-targets
 
 fuzz-build: ## Compile every fuzz target (requires nightly + cargo-fuzz)
 	cd contracts/escrow && cargo fuzz build --release

@@ -20,14 +20,10 @@ fuzz_target!(|data: &[u8]| {
     let tracking_id = r.ascii_string(&h.env, 96);
     let target_id = if r.bool() { escrow_id } else { r.u64() };
 
-    let _ = h
-        .client
-        .try_mark_shipped(&caller, &target_id, &tracking_id);
+    let _ = h.client.try_mark_shipped(&caller, &target_id, &tracking_id);
 
     // Shipping twice must not advance the state a second time.
     if r.bool() {
-        let _ = h
-            .client
-            .try_mark_shipped(&caller, &target_id, &tracking_id);
+        let _ = h.client.try_mark_shipped(&caller, &target_id, &tracking_id);
     }
 });

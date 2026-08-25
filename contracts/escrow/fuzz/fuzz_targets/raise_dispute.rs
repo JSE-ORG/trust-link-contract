@@ -26,22 +26,14 @@ fuzz_target!(|data: &[u8]| {
     let caller = h.actor(r.u8());
     let target_id = if r.bool() { escrow_id } else { r.u64() };
 
-    let _ = h.client.try_raise_dispute(
-        &caller,
-        &target_id,
-        &reason,
-        &description,
-        &evidence_hash,
-    );
+    let _ = h
+        .client
+        .try_raise_dispute(&caller, &target_id, &reason, &description, &evidence_hash);
 
     // Raising the same dispute twice must not corrupt the dispute record.
     if r.bool() {
-        let _ = h.client.try_raise_dispute(
-            &caller,
-            &target_id,
-            &reason,
-            &description,
-            &evidence_hash,
-        );
+        let _ =
+            h.client
+                .try_raise_dispute(&caller, &target_id, &reason, &description, &evidence_hash);
     }
 });

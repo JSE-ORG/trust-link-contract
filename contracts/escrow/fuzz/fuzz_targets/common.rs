@@ -12,7 +12,8 @@
 #![allow(dead_code)]
 
 use soroban_sdk::{
-    testutils::Address as _, token, Address, Env, IntoVal, String as SorobanString, Val, Vec,
+    testutils::Address as _, token, Address, BytesN, Env, IntoVal, String as SorobanString, Symbol,
+    Val, Vec,
 };
 use trustlink_escrow::{Escrow, EscrowClient, Payee};
 
@@ -29,12 +30,8 @@ pub const VALID_SHIPPING_WINDOW: u64 = 86_400;
 /// Reason symbols accepted by `raise_dispute`. `Symbol::new` panics on
 /// characters outside the Soroban symbol alphabet, so the reason is selected
 /// from this fixed set rather than built from raw fuzz bytes.
-pub const DISPUTE_REASONS: [&str; 4] = [
-    "ITEM_NOT_RECEIVED",
-    "NOT_AS_DESCRIBED",
-    "DAMAGED",
-    "OTHER",
-];
+pub const DISPUTE_REASONS: [&str; 4] =
+    ["ITEM_NOT_RECEIVED", "NOT_AS_DESCRIBED", "DAMAGED", "OTHER"];
 
 pub struct Harness {
     pub env: Env,
@@ -135,6 +132,58 @@ impl Harness {
             _ => self.outsider.clone(),
         }
     }
+
+    /// A fresh address that holds no role on any escrow.
+    pub fn stranger(&self) -> Address {
+        Address::generate(&self.env)
+    }
+
+    /// `n` generated addresses, for the multi-resolver entry points.
+    pub fn addresses(&self, n: usize) -> Vec<Address> {
+        let mut out = Vec::new(&self.env);
+        for _ in 0..n {
+            out.push_back(Address::generate(&self.env));
+        }
+        out
+    }
+
+    /// Registers a second Stellar Asset Contract, for basket escrows that need
+    /// more than one distinct token.
+    pub fn extra_token(&self) -> Address {
+        let token_admin = Address::generate(&self.env);
+        let token = self
+            .env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        let minter = token::StellarAssetClient::new(&self.env, &token);
+        minter.mint(&self.buyer, &MINT_AMOUNT);
+        minter.mint(&self.seller, &MINT_AMOUNT);
+        token
+    }
+
+    /// Drives a funded escrow into `Disputed`, returning its id.
+    ///
+    /// `None` means an earlier step was rejected, in which case the caller
+    /// should bail out rather than fuzz against the wrong state.
+    pub fn create_disputed_escrow(&self, r: &mut Reader) -> Option<u64> {
+        let id = self.create_funded_escrow()?;
+        let reason = self.dispute_reason(r);
+        let description = r.ascii_string(&self.env, 64);
+        let evidence_hash = BytesN::from_array(&self.env, &r.bytes32());
+        self.client
+            .try_raise_dispute(&self.buyer, &id, &reason, &description, &evidence_hash)
+            .ok()?
+            .ok()?;
+        Some(id)
+    }
+
+    /// One of the accepted dispute reason symbols, chosen by a fuzz byte.
+    pub fn dispute_reason(&self, r: &mut Reader) -> Symbol {
+        Symbol::new(
+            &self.env,
+            DISPUTE_REASONS[(r.u8() as usize) % DISPUTE_REASONS.len()],
+        )
+    }
 }
 
 impl Default for Harness {
@@ -192,7 +241,7 @@ impl<'d> Reader<'d> {
     }
 
     pub fn bool(&mut self) -> bool {
-        self.u8() % 2 == 0
+        self.u8().is_multiple_of(2)
     }
 
     /// A ledger timestamp bounded to 63 bits. Full-width `u64::MAX` timestamps
@@ -200,6 +249,12 @@ impl<'d> Reader<'d> {
     /// contract logic; every deadline the contract computes still fits.
     pub fn timestamp(&mut self) -> u64 {
         self.u64() >> 1
+    }
+
+    /// A collection length in `0..=max`, so targets cover the empty case, the
+    /// documented cap and everything in between.
+    pub fn len(&mut self, max: usize) -> usize {
+        (self.u8() as usize) % (max + 1)
     }
 
     /// An ASCII string of up to `max` characters, exercising the contract's
