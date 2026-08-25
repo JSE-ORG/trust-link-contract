@@ -1255,7 +1255,8 @@ fn test_event_integrity_dispute_resolved_release_to_seller() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let cid = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &cid);
-    client.initialize(&admin, &fee_collector, &0_u32);
+    // Non-zero arbitration fee (5%) so the resolved event must carry it.
+    client.initialize(&admin, &fee_collector, &500_u32);
     mint_tokens(&env, &token, &buyer, 1000);
 
     let mut payees_85 = Vec::new(&env);
@@ -1271,7 +1272,7 @@ fn test_event_integrity_dispute_resolved_release_to_seller() {
         &token,
         &1000_i128,
         &200_u32,
-        &0_u32,
+        &300_u32,
         &3600_u64,
         &None::<SorobanString>,
     );
@@ -1292,11 +1293,17 @@ fn test_event_integrity_dispute_resolved_release_to_seller() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &escrow_id);
 
+    // arbitration_fee = 5% of 1000 = 50, resolver_fee = 3% of 1000 = 30.
     assert!(has_event::<DisputeResolved, _>(
         &env,
         &cid,
         "Dispute",
-        |ev| { ev.escrow_id == escrow_id as u64 && ev.resolution == ResolutionType::Release }
+        |ev| {
+            ev.escrow_id == escrow_id as u64
+                && ev.resolution == ResolutionType::Release
+                && ev.arbitration_fee == 50
+                && ev.resolver_fee == 30
+        }
     ));
 }
 
@@ -1305,7 +1312,8 @@ fn test_event_integrity_dispute_resolved_refund_buyer() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let cid = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &cid);
-    client.initialize(&admin, &fee_collector, &0_u32);
+    // Non-zero arbitration fee (5%) so the resolved event must carry it.
+    client.initialize(&admin, &fee_collector, &500_u32);
     mint_tokens(&env, &token, &buyer, 1000);
 
     let mut payees_86 = Vec::new(&env);
@@ -1321,7 +1329,7 @@ fn test_event_integrity_dispute_resolved_refund_buyer() {
         &token,
         &1000_i128,
         &200_u32,
-        &0_u32,
+        &300_u32,
         &3600_u64,
         &None::<SorobanString>,
     );
@@ -1342,11 +1350,17 @@ fn test_event_integrity_dispute_resolved_refund_buyer() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &escrow_id);
 
+    // arbitration_fee = 5% of 1000 = 50, resolver_fee = 3% of 1000 = 30.
     assert!(has_event::<DisputeResolved, _>(
         &env,
         &cid,
         "Dispute",
-        |ev| { ev.escrow_id == escrow_id as u64 && ev.resolution == ResolutionType::Refund }
+        |ev| {
+            ev.escrow_id == escrow_id as u64
+                && ev.resolution == ResolutionType::Refund
+                && ev.arbitration_fee == 50
+                && ev.resolver_fee == 30
+        }
     ));
 }
 

@@ -5,11 +5,8 @@
 //! `multicall` allows multiple contract calls to be dispatched within a single
 //! Stellar transaction, reducing the total transaction count to 1.
 
-use soroban_sdk::{
-    testutils::Address as _,
-    token, Address, Env, IntoVal, Symbol, Vec,
-};
 use crate::{ContractCall, ContractError, Escrow, EscrowClient, EscrowState, Payee};
+use soroban_sdk::{testutils::Address as _, token, Address, Env, IntoVal, Symbol, Vec};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -19,20 +16,25 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
 
-    let admin        = Address::generate(&env);
-    let seller       = Address::generate(&env);
-    let buyer        = Address::generate(&env);
-    let resolver     = Address::generate(&env);
-    let token_admin  = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
-    let token        = env.register_stellar_asset_contract_v2(token_admin).address();
+    let token = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
 
     (env, admin, seller, buyer, resolver, token, fee_collector)
 }
 
 fn single_payee(env: &Env, address: &Address) -> Vec<Payee> {
     let mut p = Vec::new(env);
-    p.push_back(Payee { address: address.clone(), bps: 10_000 });
+    p.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
     p
 }
 
@@ -58,7 +60,15 @@ fn test_multicall_single_call_fund_escrow() {
     // returns a non-unit value we need to capture.
     let payees = single_payee(&env, &seller);
     let payees_val = payees.into_val(&env);
-    let id = client.create_escrow_8(&payees_val, &Some(buyer.clone()), &resolver, &token, &1_000_i128, &0_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
 
     // Mint tokens for the buyer.
     mint(&env, &token, &buyer, 1_000);
@@ -93,7 +103,15 @@ fn test_multicall_two_get_escrow_calls() {
 
     let payees = single_payee(&env, &seller);
     let payees_val = payees.into_val(&env);
-    let id = client.create_escrow_8(&payees_val, &None::<Address>, &resolver, &token, &1_000_i128, &0_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow_8(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
 
     let mut args1: Vec<soroban_sdk::Val> = Vec::new(&env);
     args1.push_back(id.into_val(&env));
@@ -102,8 +120,14 @@ fn test_multicall_two_get_escrow_calls() {
     args2.push_back(id.into_val(&env));
 
     let mut calls: Vec<ContractCall> = Vec::new(&env);
-    calls.push_back(ContractCall { function: Symbol::new(&env, "get_escrow"), args: args1 });
-    calls.push_back(ContractCall { function: Symbol::new(&env, "get_escrow"), args: args2 });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "get_escrow"),
+        args: args1,
+    });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "get_escrow"),
+        args: args2,
+    });
 
     let results = client.multicall(&calls);
     assert_eq!(results.len(), 2);
@@ -120,7 +144,15 @@ fn test_multicall_blocked_when_paused() {
     // Create an escrow so there is something to call on.
     let payees = single_payee(&env, &seller);
     let payees_val = payees.into_val(&env);
-    let id = client.create_escrow_8(&payees_val, &None::<Address>, &resolver, &token, &1_000_i128, &0_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow_8(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
 
     client.pause_contract(&admin);
 
@@ -128,7 +160,10 @@ fn test_multicall_blocked_when_paused() {
     args.push_back(id.into_val(&env));
 
     let mut calls: Vec<ContractCall> = Vec::new(&env);
-    calls.push_back(ContractCall { function: Symbol::new(&env, "get_escrow"), args });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "get_escrow"),
+        args,
+    });
 
     let result = client.try_multicall(&calls);
     assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
@@ -161,7 +196,15 @@ fn test_multicall_mark_shipped_then_get_escrow() {
 
     let payees = single_payee(&env, &seller);
     let payees_val = payees.into_val(&env);
-    let id = client.create_escrow_8(&payees_val, &Some(buyer.clone()), &resolver, &token, &1_000_i128, &0_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
     mint(&env, &token, &buyer, 1_000);
     client.fund_escrow(&id, &buyer);
 
@@ -176,12 +219,36 @@ fn test_multicall_mark_shipped_then_get_escrow() {
     args_get.push_back(id.into_val(&env));
 
     let mut calls: Vec<ContractCall> = Vec::new(&env);
-    calls.push_back(ContractCall { function: Symbol::new(&env, "mark_shipped"), args: args_ship });
-    calls.push_back(ContractCall { function: Symbol::new(&env, "get_escrow"), args: args_get });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "mark_shipped"),
+        args: args_ship,
+    });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "get_escrow"),
+        args: args_get,
+    });
 
     let results = client.multicall(&calls);
     assert_eq!(results.len(), 2);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Shipped);
+}
+
+/// `multicall` fails with InvalidMulticallArg when an argument is missing.
+#[test]
+fn test_multicall_missing_arg() {
+    let (env, admin, _seller, _buyer, _resolver, _token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let mut calls: Vec<ContractCall> = Vec::new(&env);
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "get_escrow"),
+        args: Vec::new(&env), // Missing the escrow_id arg
+    });
+
+    let result = client.try_multicall(&calls);
+    assert_eq!(result, Err(Ok(ContractError::InvalidMulticallArg)));
 }

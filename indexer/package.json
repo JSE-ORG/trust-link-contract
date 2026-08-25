@@ -10,6 +10,7 @@
     "test": "tsc -p tsconfig.test.json && node --test dist-test/*.test.js"
   },
   "dependencies": {
+    "@stellar/stellar-sdk": "^16.0.1",
     "pg": "^8.13.0"
   },
   "devDependencies": {

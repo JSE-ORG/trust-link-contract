@@ -46,3 +46,4 @@ contracts/escrow/err*.txt
 contracts/escrow/error.txt
 contracts/escrow/compile_err.txt
 contracts/escrow/cargo_test_err*.txt
+.env

@@ -168,3 +168,9 @@ CREATE TABLE IF NOT EXISTS indexer_cursor (
 INSERT INTO indexer_cursor (id, ledger_sequence, tx_index, event_index)
 VALUES (1, 0, 0, 0)
 ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE basket_tokens (
+    escrow_id VARCHAR(56) NOT NULL,
+    token VARCHAR(56) NOT NULL,
+    amount NUMERIC NOT NULL
+);

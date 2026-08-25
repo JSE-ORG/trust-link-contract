@@ -20,7 +20,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
                 {
-                  "u32": 300
+                  "u32": 500
                 }
               ]
             }
@@ -137,7 +137,7 @@
                               "symbol": "protocol_fee_bps"
                             },
                             "val": {
-                              "u32": 300
+                              "u32": 500
                             }
                           }
                         ]

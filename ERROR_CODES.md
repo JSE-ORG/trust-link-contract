@@ -47,3 +47,7 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **39** | `TimelockNotElapsed` | `record_delivery` was called before the required 24-hour timelock elapsed. | Wait until 24 hours have passed since `propose_record_delivery` was called. |
 | **40** | `GracePeriodNotElapsed` | The grace period has not elapsed yet. | Wait for the grace period to elapse before performing this action. |
 | **41** | `MaxAppealsReached` | The maximum number of appeals has been reached. | The dispute can no longer be appealed. |
+| **42** | `BasketTokenMismatch` | `create_basket_escrow` was called with mismatched or empty `tokens`/`amounts`. | Ensure `tokens` and `amounts` vectors are non-empty and of equal length. |
+| **43** | `InvalidMulticallArg` | A `multicall` argument is missing or fails to decode into the expected type. | Provide valid arguments that match the types expected by the target function. |
+| **44** | `PayeeBpsMismatch` | A `Payee` list's basis points do not sum to exactly 10,000 (100%). | Ensure the sum of all `bps` values across payees equals exactly 10,000. |
+| **45** | `TooManyMessages` | The maximum number of messages for an escrow has been reached. | No more messages can be attached to this escrow. |

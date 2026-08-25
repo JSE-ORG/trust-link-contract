@@ -5,14 +5,7 @@
 
 use crate::test_helpers::setup_contract;
 use crate::{ContractError, DataKey};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
-
-/// Strkey for the all-zero ed25519 public key — the canonical "empty" address.
-const ZERO_ADDRESS_STRKEY: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
-
-fn zero_address(env: &Env) -> Address {
-    Address::from_string(&String::from_str(env, ZERO_ADDRESS_STRKEY))
-}
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]
 fn set_fee_collector_rejects_zero_address() {
@@ -20,7 +13,7 @@ fn set_fee_collector_rejects_zero_address() {
     env.mock_all_auths();
     let (_contract_id, client, _admin, fee_collector) = setup_contract(&env);
 
-    let res = client.try_set_fee_collector(&zero_address(&env));
+    let res = client.try_set_fee_collector(&crate::zero_address(&env));
     assert_eq!(
         res,
         Err(Ok(ContractError::InvalidAddress)),

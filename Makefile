@@ -78,12 +78,15 @@ bindings-install: ## Install bindings dependencies
 indexer-test: ## Typecheck and test the event indexer
 	cd indexer && npm run typecheck && npm test
 
+# Detect Docker Compose v1 vs v2
+DOCKER_COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
+
 # Docker
 docker-up: ## Start local Stellar network
-	docker-compose up -d
+	$(DOCKER_COMPOSE) up -d
 
 docker-down: ## Stop local Stellar network
-	docker-compose down
+	$(DOCKER_COMPOSE) down
 
 # Local devnet
 testnet: ## Start local devnet, deploy the contract and seed test escrows
@@ -98,3 +101,9 @@ testnet-stop: ## Stop and remove the local devnet container
 # Full setup
 setup: bindings-install build test ## Full project setup (install + build + test)
 	@echo "Setup complete!"
+.PHONY: e2e
+e2e:
+	./e2e/01_setup_and_deploy.sh
+	./e2e/02_happy_path.sh
+	./e2e/03_dispute_path.sh
+	./e2e/04_cancel_path.sh

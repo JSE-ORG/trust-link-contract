@@ -25,24 +25,26 @@ pub use crate::events::{
     emit_contract_unpaused, emit_contract_upgraded, emit_delivery_proposal_cancelled,
     emit_delivery_proposed, emit_delivery_recorded, emit_dispute_appealed,
     emit_dispute_pending_finalization, emit_dispute_raised, emit_dispute_resolved,
-    emit_emergency_drain, emit_escrow_auto_canceled, emit_escrow_cancelled, emit_escrow_completed,
+    emit_emergency_drain, emit_escrow_auto_canceled, emit_escrow_canceled, emit_escrow_completed,
     emit_escrow_created, emit_escrow_expired, emit_escrow_funded, emit_escrow_shipped,
     emit_fee_collector_updated, emit_fee_updated, emit_platform_fee_updated,
     emit_protocol_fee_updated, emit_refund_approved, emit_refund_requested, emit_resolver_approved,
     emit_resolver_removed, emit_resolver_rotated, emit_resolver_strict_updated,
-    emit_resolver_vote_recorded, emit_storage_migrated, emit_token_allowlist_updated,
+    emit_resolver_vote_recorded, emit_storage_migrated, emit_timelock_cancelled,
+    emit_timelock_executed, emit_timelock_queued, emit_token_allowlist_updated,
     emit_treasury_updated, emit_ttl_extension_updated, ActionPausedEvent, ActionUnpausedEvent,
     AdminRotated, AmountLimitsUpdated, ArbitrationFeeUpdated, AutoReleased, ContractInitialized,
     ContractPausedEvent, ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled,
     DeliveryProposed, DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowAutoCanceled,
-    EscrowCancelled, EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped,
+    EscrowCanceled, EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped,
     FeeUpdated, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated,
-    ResolverStrictUpdated, ResolverVoteRecorded, TtlExtensionUpdated,
+    ResolverStrictUpdated, ResolverVoteRecorded, TimelockCancelled, TimelockExecuted,
+    TimelockQueued, TtlExtensionUpdated,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
     EscrowState, ExpirySchedule, FeeConfig, Payee, PublicContractConfig, ResolutionType,
-    ResolverSet, ResolverVote, TokenEntry,
+    ResolverSet, ResolverVote, TimelockOperation, TimelockProposal, TokenEntry,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
@@ -60,12 +62,6 @@ pub struct ContractCall {
 /// This applies to the per-escrow `fee_bps` value supplied at creation time,
 /// and to the legacy `set_fee` helper that persists `DefaultFeeBps`.
 const MAX_ESCROW_FEE_BPS: u32 = 300;
-
-/// Maximum protocol fee in basis points (500 = 5%).
-///
-/// Protocol fees are deducted from escrow payouts during delivery/resolution.
-/// Capped at 5% to ensure meaningful payouts to winners.
-const MAX_PROTOCOL_FEE_BPS: u32 = 500;
 
 /// Maximum arbitration fee in basis points (500 = 5%).
 ///
@@ -112,6 +108,7 @@ pub const MIN_ESCROW_AMOUNT: i128 = 1;
 /// releasable to the seller.
 const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
+pub const MIN_TTL_EXTENSION: u32 = 1_000;
 const DEFAULT_TTL_EXTENSION: u32 = 120_960;
 /// Divisor used when computing the threshold for TTL extension.
 /// TTL is extended to `ext / TTL_THRESHOLD_DIVISOR` on the low end,
@@ -139,6 +136,7 @@ pub const MAX_TRACKING_ID_LEN: u32 = 64;
 pub const MAX_DESCRIPTION_LEN: u32 = 256;
 pub const MAX_NOTES_LEN: u32 = 500;
 pub const MAX_MESSAGE_LEN: u32 = 500;
+pub const MAX_MESSAGES_PER_ESCROW: u32 = 100;
 
 /// Minimum shipping window in seconds (1 second).
 /// A value of 0 would allow an immediate dispute with no shipping time, which is invalid.
@@ -147,6 +145,14 @@ pub const MIN_SHIPPING_WINDOW: u64 = 1;
 /// Maximum shipping window in seconds (approximately 2 years).
 /// Prevents accidental or malicious use of u64::MAX which would lock funds indefinitely.
 pub const MAX_SHIPPING_WINDOW: u64 = 63_072_000;
+
+/// Default shipping window in seconds (3600 = 1 hour), used as a fallback by
+/// the legacy 7-argument `create_escrow_7` entry point.
+pub const DEFAULT_SHIPPING_WINDOW: u64 = 3600;
+
+/// Maximum number of messages returned per page by `get_messages`, regardless
+/// of the caller-supplied `limit`.
+pub const MAX_MESSAGES_PER_PAGE: u64 = 50;
 
 /// Maximum escrow amount intentionally capped to
 /// preserve arithmetic safety for fee calculations
@@ -161,6 +167,11 @@ pub const MAX_APPEALS: u32 = 3;
 
 /// Zero address string for the Stellar network.
 pub const ZERO_ADDRESS_STR: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+
+/// Construct the zero address once, avoiding repeated `String::from_str` calls.
+pub(crate) fn zero_address(env: &Env) -> Address {
+    Address::from_string(&soroban_sdk::String::from_str(env, ZERO_ADDRESS_STR))
+}
 
 pub(crate) fn next_escrow_id(env: &Env) -> Result<u64, ContractError> {
     let escrow_id: u64 = env
@@ -228,6 +239,8 @@ mod test;
 mod test_admin;
 mod test_admin_event_emissions;
 mod test_admin_rotation;
+mod test_amount_limits;
+mod test_appeal;
 mod test_arbitration_fee;
 mod test_auth_matrix;
 mod test_auth_ordering;
@@ -251,9 +264,12 @@ mod test_escrow_id;
 mod test_escrow_states;
 mod test_expiration;
 mod test_fallback_resolver;
+mod test_fallback_resolver;
 mod test_fee_calculation_accuracy;
 mod test_fee_config;
 mod test_fee_minimum;
+mod test_fee_snapshot;
+mod test_fee_update;
 mod test_finalize_dispute_appeal_boundary;
 mod test_get_escrows_by_buyer;
 mod test_get_escrows_by_ids;
@@ -264,6 +280,9 @@ mod test_initialize_twice;
 mod test_initialize_zero_admin;
 mod test_malicious_token;
 mod test_minimum_amount_guard;
+mod test_multi_resolver;
+mod test_multicall;
+mod test_mutual_cancel;
 mod test_not_found;
 mod test_overflow;
 mod test_pause;
@@ -271,10 +290,14 @@ mod test_pending_expiry;
 mod test_resolution;
 mod test_resolver_registry;
 mod test_resolver_rotation;
+mod test_sep41;
 mod test_set_fee_boundary;
 mod test_set_fee_collector;
 mod test_shipping_window;
 mod test_state_history;
+mod test_storage_collision;
+mod test_string_length;
+mod test_ttl;
 mod test_unauthorized;
 mod test_upgrade_migration;
 mod test_vote;

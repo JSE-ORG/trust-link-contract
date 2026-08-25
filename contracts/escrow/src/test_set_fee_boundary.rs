@@ -1,9 +1,9 @@
 #![cfg(test)]
-//! Boundary + authorization tests for `set_fee` (#26).
+//! Boundary + authorization tests for `set_fee` / `set_protocol_fee` (#26).
 //!
 //! Covers:
 //! - valid values (0 / 100 / 300 bps) accepted and persisted
-//! - 301 bps rejected with `FeeExceedsMax`
+//! - 501 bps rejected with `FeeExceedsMax` (MAX_PROTOCOL_FEE_BPS = 500)
 //! - non-admin caller rejected with `NotAuthorized`
 
 use crate::{ContractError, Escrow, EscrowClient, FeeConfig};
@@ -49,16 +49,16 @@ fn rejects_fee_above_maximum() {
     env.mock_all_auths();
     let (client, admin, cid) = deploy(&env);
 
-    // 300 bps is the boundary — passes.
-    client.set_fee(&admin, &300_u32);
-    assert_eq!(stored_fee(&env, &cid), 300);
+    // 500 bps is the boundary for protocol fee — passes.
+    client.set_fee(&admin, &500_u32);
+    assert_eq!(stored_fee(&env, &cid), 500);
 
-    // 301 bps is one above MAX_FEE_BPS — rejected with FeeExceedsMax.
-    let result = client.try_set_fee(&admin, &301_u32);
+    // 501 bps is one above MAX_PROTOCOL_FEE_BPS — rejected with FeeExceedsMax.
+    let result = client.try_set_fee(&admin, &501_u32);
     assert_eq!(result, Err(Ok(ContractError::FeeExceedsMax)));
 
     // Storage is unchanged at the previously accepted value.
-    assert_eq!(stored_fee(&env, &cid), 300);
+    assert_eq!(stored_fee(&env, &cid), 500);
 }
 
 #[test]

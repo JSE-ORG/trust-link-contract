@@ -1,8 +1,8 @@
 #![cfg(test)]
 
 use crate::{ContractError, EscrowClient, Payee};
-use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
-use soroban_sdk::{token, Address, Env, IntoVal, Vec};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{Address, Env, IntoVal, Vec};
 
 fn single_payee(env: &Env, address: &Address) -> Vec<Payee> {
     let mut payees = Vec::new(env);
@@ -24,7 +24,9 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+    let token_address = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
 
     (
         env,
@@ -59,14 +61,16 @@ fn test_amount_limits_enforced() {
         &token,
         &499,
         &100,
-        &0_u32,
         &3600,
     );
     assert_eq!(res, Err(Ok(ContractError::AmountBelowMinimum)));
 
     // Test exactly minimum
     let mut payees_2 = Vec::new(&env);
-    payees_2.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_2.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let payees_2_val = payees_2.into_val(&env);
     let id1 = client.create_escrow_8(
         &payees_2_val,
@@ -75,14 +79,16 @@ fn test_amount_limits_enforced() {
         &token,
         &500,
         &100,
-        &0_u32,
         &3600,
     );
     assert_eq!(id1, 1);
 
     // Test exactly maximum
     let mut payees_1 = Vec::new(&env);
-    payees_1.push_back(Payee { address: seller.clone(), bps: 10_000 });
+    payees_1.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
     let payees_1_val = payees_1.into_val(&env);
     let id2 = client.create_escrow_8(
         &payees_1_val,
@@ -91,7 +97,6 @@ fn test_amount_limits_enforced() {
         &token,
         &5000,
         &100,
-        &0_u32,
         &3600,
     );
     assert_eq!(id2, 2);
@@ -105,7 +110,6 @@ fn test_amount_limits_enforced() {
         &token,
         &5001,
         &100,
-        &0_u32,
         &3600,
     );
     assert_eq!(res, Err(Ok(ContractError::AmountExceedsMaximum)));

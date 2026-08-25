@@ -66,6 +66,39 @@ pub(crate) fn add_or_update_vote(
 
 /// Tally votes and determine if resolution should be executed
 /// Returns the winning resolution if threshold is met
+///
+/// # Deadlock Scenario (Issue #707 / related: #667)
+///
+/// **Known Issue**: Voting can permanently deadlock when split votes prevent
+/// either side from reaching the threshold.  Example: `threshold=3` with
+/// 3 resolvers, getting 1 Release + 1 Refund + 1 abstention — neither side
+/// reaches 3.  Worse, if `threshold=N` (unanimous) and every resolver has
+/// voted but votes are split (e.g. 2 Release + 1 Refund with `threshold=3`),
+/// no additional votes are possible and funds remain frozen in `Disputed`
+/// indefinitely.
+///
+/// **Recommended on-chain escape hatches** (to be implemented in a future
+/// upgrade — at least one of the following):
+///
+/// 1. **Admin override**: Allow the platform admin to force a resolution after
+///    the dispute has been in a deadlocked state for a configurable timeout
+///    (e.g. 30 days).  This path should go through the existing 24-hour
+///    timelock to prevent abuse.
+///
+/// 2. **Expiration-based majority-rules fallback**: Once all `N` resolvers have
+///    cast votes *and* a configurable deadline has passed without threshold
+///    being reached, automatically resolve in favour of whichever side holds
+///    the simple majority of votes cast (or trigger a Refund by default when
+///    perfectly tied).
+///
+/// 3. **Escalation mechanism**: Allow either party to escalate a deadlocked
+///    dispute to a higher-authority arbitrator (e.g. a DAO governance vote)
+///    that can break the tie.
+///
+/// Until one of these paths is added, operators should configure thresholds
+/// carefully (e.g. avoid `threshold == N` for `N > 1`) and document the
+/// deadlock risk in user-facing material.  This is a known limitation of the
+/// current M-of-N voting system.
 pub(crate) fn tally_votes(votes: &Vec<ResolverVote>, threshold: u32) -> Option<ResolutionType> {
     if votes.is_empty() {
         return None;
@@ -187,6 +220,15 @@ pub(crate) fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
         .set(&DataKey::FeeConfig, fee_config);
 }
 
+pub(crate) fn contains(list: &soroban_sdk::Vec<Address>, target: &Address) -> bool {
+    for item in list.iter() {
+        if item == *target {
+            return true;
+        }
+    }
+    false
+}
+
 pub(crate) fn is_token_allowlist_enabled(env: &Env) -> bool {
     env.storage()
         .instance()
@@ -198,15 +240,13 @@ pub(crate) fn is_token_allowed(env: &Env, token: &Address) -> Result<(), Contrac
     if !is_token_allowlist_enabled(env) {
         return Ok(());
     }
-    let allowlist: soroban_sdk::Vec<Address> = env
+    let allowlist: soroban_sdk::Map<Address, bool> = env
         .storage()
         .instance()
         .get(&DataKey::TokenAllowlist)
-        .unwrap_or(soroban_sdk::Vec::new(env));
-    for allowed_token in allowlist.iter() {
-        if allowed_token == *token {
-            return Ok(());
-        }
+        .unwrap_or(soroban_sdk::Map::new(env));
+    if allowlist.contains_key(token.clone()) {
+        return Ok(());
     }
     Err(ContractError::TokenNotAllowed)
 }
@@ -267,14 +307,12 @@ pub(crate) fn validate_resolvers(
         }
 
         // Ensure all resolvers are unique
-        for i in 0..m.resolvers.len() {
-            for j in (i + 1)..m.resolvers.len() {
-                if m.resolvers.get(i).ok_or(ContractError::IndexOutOfBounds)?
-                    == m.resolvers.get(j).ok_or(ContractError::IndexOutOfBounds)?
-                {
-                    return Err(ContractError::ConflictingRoles);
-                }
+        let mut seen = soroban_sdk::Vec::new(m.resolvers.env());
+        for resolver in m.resolvers.iter() {
+            if contains(&seen, &resolver) {
+                return Err(ContractError::ConflictingRoles);
             }
+            seen.push_back(resolver);
         }
     }
 
@@ -304,26 +342,16 @@ pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), Cont
             .ok_or(ContractError::ArithmeticError)?;
 
         // Validate each payee address is not zero
-        let zero = Address::from_string(&String::from_str(env, crate::ZERO_ADDRESS_STR));
+        let zero = crate::zero_address(env);
         if payee.address == zero {
             return Err(ContractError::InvalidAddress);
         }
     }
 
     if total_bps != 10_000 {
-        return Err(ContractError::InvalidAmount);
+        return Err(ContractError::PayeeBpsMismatch);
     }
 
-    Ok(())
-}
-
-/// Validates individual protocol/arbitration fees against their respective maximums.
-///
-/// Returns Err(FeeExceedsMax) if the value exceeds its cap.
-pub(crate) fn validate_protocol_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
-    if fee_bps > MAX_PROTOCOL_FEE_BPS {
-        return Err(ContractError::FeeExceedsMax);
-    }
     Ok(())
 }
 
@@ -349,26 +377,6 @@ pub(crate) fn validate_combined_fees(
         return Err(ContractError::FeeExceedsMax);
     }
     Ok(())
-}
-
-pub(crate) fn update_protocol_fee(
-    env: &Env,
-    caller: &Address,
-    fee_bps: u32,
-) -> Result<u32, ContractError> {
-    caller.require_auth();
-    let admin = require_admin(env)?;
-    if caller != &admin {
-        return Err(ContractError::NotAuthorized);
-    }
-    validate_protocol_fee_bps(fee_bps)?;
-    let mut config = read_fee_config(env);
-    // Validate that new protocol fee + existing arbitration fee doesn't exceed combined cap
-    validate_combined_fees(fee_bps, config.arbitration_fee_bps)?;
-    let old_fee = config.protocol_fee_bps;
-    config.protocol_fee_bps = fee_bps;
-    write_fee_config(env, &config);
-    Ok(old_fee)
 }
 
 /// Updates the arbitration fee. Requires admin auth.
@@ -505,15 +513,14 @@ pub(crate) fn save_basket_tokens(env: &Env, escrow_id: u64, tokens: &soroban_sdk
 
 pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<TokenEntry> {
     let key = DataKey::BasketTokens(escrow_id);
-    if !env.storage().persistent().has(&key) {
-        return soroban_sdk::Vec::new(env);
+    match env.storage().persistent().get(&key) {
+        Some(tokens) => {
+            let ext = get_ttl_extension(env);
+            env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+            tokens
+        }
+        None => soroban_sdk::Vec::new(env),
     }
-    let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or_else(|| soroban_sdk::Vec::new(env))
 }
 
 pub(crate) fn transfer_with_protocol_fee(
@@ -539,6 +546,16 @@ pub(crate) fn transfer_with_protocol_fee(
     Ok((fee, net))
 }
 
+/// Distributes the specified `amount` among the `payees` proportionally based on their BPS shares.
+///
+/// **Rounding Strategy Documented:**
+/// To ensure the exact `amount` is fully distributed without leaving dust in the contract,
+/// the function calculates the truncated (floor) amount for payees 1 through N, subtracting
+/// each from a `remaining` accumulator. The primary payee (index 0) receives the entire
+/// `remaining` balance. Because integer division truncates, this strategy intentionally
+/// accumulates all rounding dust and awards it to the primary payee. While this silently
+/// favors the first payee by up to `N-1` stroops, it guarantees exactly 100% of the funds
+/// are distributed and avoids complex sub-stroop accounting.
 pub(crate) fn distribute_to_payees(
     env: &Env,
     token_addr: &Address,
@@ -583,18 +600,33 @@ pub(crate) fn distribute_to_payees(
 
 /// Transfer all non-primary basket tokens to a recipient after the primary
 /// token has been paid out by the calling function.
+///
+/// # Index-0 Invariant (Issue #708)
+///
+/// `save_basket_tokens` always stores the primary token (the one recorded in
+/// `EscrowData.token`) at index 0, mirroring the order passed to
+/// `create_basket_escrow`.  Rather than relying on that positional assumption
+/// this function skips any entry whose token address matches `EscrowData.token`
+/// by value, so the primary token is never double-paid regardless of the order
+/// the basket was originally saved.  This makes the function safe even if the
+/// token list is ever persisted in a different order.
 pub(crate) fn payout_basket_tokens(
     env: &Env,
     escrow_id: u64,
     recipient: &Address,
 ) -> Result<(), ContractError> {
+    let escrow = load_escrow(env, escrow_id)?;
+    let primary_token = &escrow.token;
     let basket_tokens = load_basket_tokens(env, escrow_id);
     let contract_addr = env.current_contract_address();
-    // Skip index 0 (primary token, already handled by caller)
-    for i in 1..basket_tokens.len() {
+    for i in 0..basket_tokens.len() {
         let entry = basket_tokens
             .get(i)
             .ok_or(ContractError::IndexOutOfBounds)?;
+        // Skip the primary token — it is always paid out by the calling function.
+        if &entry.token == primary_token {
+            continue;
+        }
         if entry.amount > 0 {
             token::Client::new(env, &entry.token).transfer(
                 &contract_addr,
@@ -610,7 +642,7 @@ pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), Contra
     if let Some(schedule) = env
         .storage()
         .persistent()
-        .get::<crate::DataKey, crate::ExpirySchedule>(&crate::DataKey::PendingExpiry(escrow_id))
+        .get::<DataKey, crate::ExpirySchedule>(&DataKey::PendingExpiry(escrow_id))
     {
         if env.ledger().timestamp() >= schedule.expires_at {
             return Err(ContractError::EscrowExpired);
@@ -716,14 +748,7 @@ pub(crate) fn create_escrow_internal(
             .instance()
             .get(&DataKey::ApprovedResolvers)
             .unwrap_or_else(|| soroban_sdk::Vec::new(env));
-        let mut found = false;
-        for r in approved.iter() {
-            if r == resolver {
-                found = true;
-                break;
-            }
-        }
-        if !found {
+        if !contains(&approved, &resolver) {
             return Err(ContractError::UnauthorizedResolver);
         }
     }
@@ -863,6 +888,8 @@ pub(crate) fn execute_resolution_transition(
     dispute_data.set_resolution(final_resolution.clone());
     dispute_data.resolved_by = Some(caller.clone());
     dispute_data.resolved_at = now;
+    dispute_data.arbitration_fee = arbitration_fee;
+    dispute_data.resolver_fee = resolver_fee;
 
     updated_escrow.state = EscrowState::PendingFinalization;
 

@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::{DataKey, EscrowData, FeeConfig, DEFAULT_TTL_EXTENSION};
+use crate::{DataKey, EscrowData, FeeConfig, TimelockProposal, DEFAULT_TTL_EXTENSION};
 
 // ============================================================================
 // TTL CONSTANTS — documented here as the canonical reference.
@@ -144,6 +144,28 @@ pub fn read_buyer_escrow_index(env: &Env, buyer: &Address) -> Vec<u64> {
         extend_ttl_for_key(env, &key);
     }
     result
+}
+
+pub fn write_timelock_proposal(env: &Env, operation: u32, proposal: &TimelockProposal) {
+    let key = DataKey::TimelockOp(operation);
+    env.storage().instance().set(&key, proposal);
+    extend_instance_ttl(env);
+}
+
+pub fn read_timelock_proposal(env: &Env, operation: u32) -> Option<TimelockProposal> {
+    let key = DataKey::TimelockOp(operation);
+    let result: Option<TimelockProposal> = env.storage().instance().get(&key);
+    if result.is_some() {
+        extend_instance_ttl(env);
+    }
+    result
+}
+
+pub fn remove_timelock_proposal(env: &Env, operation: u32) {
+    let key = DataKey::TimelockOp(operation);
+    if env.storage().instance().has(&key) {
+        env.storage().instance().remove(&key);
+    }
 }
 
 #[cfg(test)]
