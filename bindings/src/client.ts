@@ -13,6 +13,7 @@ import {
   type Payee,
   type PublicContractConfig,
   type ResolutionType,
+  type TokenEntry,
 } from "./types.js";
 
 /**
@@ -197,6 +198,52 @@ export class EscrowClient {
 
   approve_refund(caller: AddressLike, escrowId: bigint): Call<void> {
     return this.transport.invoke("approve_refund", [caller, escrowId]);
+  }
+
+  // ── Basket (multi-token) escrows ────────────────────────────────────────
+
+  /**
+   * Creates an escrow that pays out multiple tokens to a single seller
+   * instead of the single-token flow used by `create_escrow`. Must be funded
+   * with {@link fund_basket_escrow}, not `fund_escrow`.
+   *
+   * @example
+   * ```ts
+   * const escrowId = await client.create_basket_escrow(
+   *   seller, buyer, resolver,
+   *   [usdcAddress, xlmAddress], [1_000_000n, 500_000n],
+   *   feeBps, shippingWindow,
+   * );
+   * ```
+   */
+  create_basket_escrow(
+    seller: AddressLike,
+    buyer: AddressLike | null,
+    resolver: AddressLike,
+    tokens: readonly AddressLike[],
+    amounts: readonly bigint[],
+    feeBps: number,
+    shippingWindow: bigint,
+  ): Call<bigint> {
+    return this.transport.invoke("create_basket_escrow", [
+      seller,
+      buyer,
+      resolver,
+      tokens,
+      amounts,
+      feeBps,
+      shippingWindow,
+    ]);
+  }
+
+  /** Funds a basket escrow by transferring every configured token from `buyer`. */
+  fund_basket_escrow(escrowId: bigint, buyer: AddressLike): Call<void> {
+    return this.transport.invoke("fund_basket_escrow", [escrowId, buyer]);
+  }
+
+  /** Returns the token/amount entries stored for a basket escrow (empty for a non-basket escrow). */
+  get_basket_tokens(escrowId: bigint): Call<TokenEntry[]> {
+    return this.transport.invoke("get_basket_tokens", [escrowId]);
   }
 
   // ── Disputes ────────────────────────────────────────────────────────────
@@ -468,6 +515,37 @@ export class EscrowBatch {
   /** Batch `rotate_resolver(caller, escrowId, newResolver)`. */
   rotate_resolver(caller: AddressLike, escrowId: bigint, newResolver: AddressLike): this {
     return this.push("rotate_resolver", [caller, escrowId, newResolver]);
+  }
+
+  /** Batch `create_basket_escrow(seller, buyer, resolver, tokens, amounts, feeBps, shippingWindow)`. */
+  create_basket_escrow(
+    seller: AddressLike,
+    buyer: AddressLike | null,
+    resolver: AddressLike,
+    tokens: readonly AddressLike[],
+    amounts: readonly bigint[],
+    feeBps: number,
+    shippingWindow: bigint,
+  ): this {
+    return this.push("create_basket_escrow", [
+      seller,
+      buyer,
+      resolver,
+      tokens,
+      amounts,
+      feeBps,
+      shippingWindow,
+    ]);
+  }
+
+  /** Batch `fund_basket_escrow(escrowId, buyer)`. */
+  fund_basket_escrow(escrowId: bigint, buyer: AddressLike): this {
+    return this.push("fund_basket_escrow", [escrowId, buyer]);
+  }
+
+  /** Batch `get_basket_tokens(escrowId)` (read-only). */
+  get_basket_tokens(escrowId: bigint): this {
+    return this.push("get_basket_tokens", [escrowId]);
   }
 }
 
