@@ -307,3 +307,346 @@ fn backup_resolver_vote_allowed_after_deadline() {
     let escrow = client.get_escrow(&escrow_id);
     assert_eq!(escrow.state, EscrowState::PendingFinalization);
 }
+
+#[test]
+fn test_fallback_creation_role_conflicts() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let amount = 1000_i128;
+    let deadline = 100_000_u64;
+
+    // 1. Seller as primary resolver
+    let res = client.try_create_escrow_with_fallback(
+        &setup.seller,
+        &Some(setup.buyer.clone()),
+        &setup.seller,
+        &setup.backup,
+        &deadline,
+        &setup.token,
+        &amount,
+        &0_u32,
+        &3600_u64,
+    );
+    assert_eq!(res, Err(Ok(ContractError::ConflictingRoles)));
+
+    // 2. Seller as backup resolver
+    let res = client.try_create_escrow_with_fallback(
+        &setup.seller,
+        &Some(setup.buyer.clone()),
+        &setup.primary,
+        &setup.seller,
+        &deadline,
+        &setup.token,
+        &amount,
+        &0_u32,
+        &3600_u64,
+    );
+    assert_eq!(res, Err(Ok(ContractError::ConflictingRoles)));
+
+    // 3. Buyer as primary resolver
+    let res = client.try_create_escrow_with_fallback(
+        &setup.seller,
+        &Some(setup.buyer.clone()),
+        &setup.buyer,
+        &setup.backup,
+        &deadline,
+        &setup.token,
+        &amount,
+        &0_u32,
+        &3600_u64,
+    );
+    assert_eq!(res, Err(Ok(ContractError::ConflictingRoles)));
+
+    // 4. Buyer as backup resolver
+    let res = client.try_create_escrow_with_fallback(
+        &setup.seller,
+        &Some(setup.buyer.clone()),
+        &setup.primary,
+        &setup.buyer,
+        &deadline,
+        &setup.token,
+        &amount,
+        &0_u32,
+        &3600_u64,
+    );
+    assert_eq!(res, Err(Ok(ContractError::ConflictingRoles)));
+
+    // 5. Primary equals backup
+    let res = client.try_create_escrow_with_fallback(
+        &setup.seller,
+        &Some(setup.buyer.clone()),
+        &setup.primary,
+        &setup.primary,
+        &deadline,
+        &setup.token,
+        &amount,
+        &0_u32,
+        &3600_u64,
+    );
+    assert_eq!(res, Err(Ok(ContractError::ConflictingRoles)));
+}
+
+#[test]
+fn test_fallback_creation_amount_and_fee_boundaries() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let deadline = 100_000_u64;
+
+    // Zero amount
+    assert_eq!(
+        client.try_create_escrow_with_fallback(
+            &setup.seller,
+            &Some(setup.buyer.clone()),
+            &setup.primary,
+            &setup.backup,
+            &deadline,
+            &setup.token,
+            &0_i128,
+            &0_u32,
+            &3600_u64,
+        ),
+        Err(Ok(ContractError::InvalidAmount))
+    );
+
+    // Negative amount
+    assert_eq!(
+        client.try_create_escrow_with_fallback(
+            &setup.seller,
+            &Some(setup.buyer.clone()),
+            &setup.primary,
+            &setup.backup,
+            &deadline,
+            &setup.token,
+            &-100_i128,
+            &0_u32,
+            &3600_u64,
+        ),
+        Err(Ok(ContractError::InvalidAmount))
+    );
+
+    // Exceeds max fee cap (300 bps)
+    assert_eq!(
+        client.try_create_escrow_with_fallback(
+            &setup.seller,
+            &Some(setup.buyer.clone()),
+            &setup.primary,
+            &setup.backup,
+            &deadline,
+            &setup.token,
+            &1000_i128,
+            &301_u32,
+            &3600_u64,
+        ),
+        Err(Ok(ContractError::FeeExceedsMax))
+    );
+}
+
+#[test]
+fn test_fallback_primary_resolves_refund_and_finalizes() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    client.resolve_dispute(&setup.primary, &escrow_id, &ResolutionType::Refund);
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::PendingFinalization);
+
+    let t = setup.env.ledger().timestamp();
+    setup.env.ledger().set_timestamp(t + 86401);
+    client.finalize_dispute(&setup.buyer, &escrow_id);
+
+    let escrow_after = client.get_escrow(&escrow_id);
+    assert_eq!(escrow_after.state, EscrowState::Refunded);
+
+    let tc = token::Client::new(&setup.env, &setup.token);
+    assert_eq!(tc.balance(&setup.buyer), 1000);
+}
+
+#[test]
+fn test_fallback_backup_resolves_release_and_finalizes() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    // Advance past fallback dispute_deadline (now + 100)
+    let t = setup.env.ledger().timestamp();
+    setup.env.ledger().set_timestamp(t + 101);
+
+    client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Release);
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::PendingFinalization);
+
+    setup.env.ledger().set_timestamp(t + 101 + 86401);
+    client.finalize_dispute(&setup.seller, &escrow_id);
+
+    let escrow_after = client.get_escrow(&escrow_id);
+    assert_eq!(escrow_after.state, EscrowState::Completed);
+
+    let tc = token::Client::new(&setup.env, &setup.token);
+    assert_eq!(tc.balance(&setup.seller), 1000);
+}
+
+#[test]
+fn test_fallback_backup_exact_deadline_boundary() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    let escrow_id = create_funded_shipped_disputed(&setup);
+    let now = setup.env.ledger().timestamp();
+    // In create_funded_shipped_disputed, fallback deadline is now + 100
+
+    // 1 second before deadline:
+    setup.env.ledger().set_timestamp(now + 99);
+    assert_eq!(
+        client.try_resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Release),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+
+    // Exactly at deadline:
+    setup.env.ledger().set_timestamp(now + 100);
+    assert!(client
+        .try_resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Release)
+        .is_ok());
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::PendingFinalization);
+}
+
+#[test]
+fn test_fallback_get_resolver_votes_query() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    client.resolve_dispute(&setup.primary, &escrow_id, &ResolutionType::Release);
+
+    let votes = client.get_resolver_votes(&escrow_id);
+    assert_eq!(votes.len(), 1);
+    let vote = votes.get(0).unwrap();
+    assert_eq!(vote.resolver, setup.primary);
+    assert_eq!(vote.resolution, ResolutionType::Release);
+}
+
+#[test]
+fn test_fallback_appeal_flow_reopens_dispute() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    // Primary resolves Release
+    client.resolve_dispute(&setup.primary, &escrow_id, &ResolutionType::Release);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+
+    // Buyer appeals before appeal window ends
+    client.appeal_dispute(&setup.buyer, &escrow_id);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Disputed);
+
+    // Advance time past fallback deadline:
+    let now = setup.env.ledger().timestamp();
+    setup.env.ledger().set_timestamp(now + 200);
+
+    // Backup resolver now resolves as Refund
+    client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Refund);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+
+    // Finalize after appeal window
+    setup.env.ledger().set_timestamp(now + 200 + 86401);
+    client.finalize_dispute(&setup.buyer, &escrow_id);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Refunded);
+
+    let tc = token::Client::new(&setup.env, &setup.token);
+    assert_eq!(tc.balance(&setup.buyer), 1000);
+}
+
+#[test]
+fn test_fallback_rotate_resolver_fails() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let new_res = Address::generate(&setup.env);
+
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    // rotate_resolver is only supported for Single resolver escrows
+    assert_eq!(
+        client.try_rotate_resolver(&setup.seller, &escrow_id, &new_res),
+        Err(Ok(ContractError::InvalidState))
+    );
+}
+
+#[test]
+fn test_fallback_mutual_cancel_success() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let amount = 1000_i128;
+    let deadline = 100_000_u64;
+
+    let escrow_id = client.create_escrow_with_fallback(
+        &setup.seller,
+        &Some(setup.buyer.clone()),
+        &setup.primary,
+        &setup.backup,
+        &deadline,
+        &setup.token,
+        &amount,
+        &0_u32,
+        &3600_u64,
+    );
+
+    let sac = token::StellarAssetClient::new(&setup.env, &setup.token);
+    sac.mint(&setup.buyer, &amount);
+    client.fund_escrow(&escrow_id, &setup.buyer);
+
+    // Both parties agree to cancel
+    client.mutual_cancel(&escrow_id);
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::Canceled);
+
+    let tc = token::Client::new(&setup.env, &setup.token);
+    assert_eq!(tc.balance(&setup.buyer), amount);
+}
+
+#[test]
+fn test_fallback_co_signed_release_success() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let amount = 1000_i128;
+    let deadline = 100_000_u64;
+
+    let escrow_id = client.create_escrow_with_fallback(
+        &setup.seller,
+        &Some(setup.buyer.clone()),
+        &setup.primary,
+        &setup.backup,
+        &deadline,
+        &setup.token,
+        &amount,
+        &0_u32,
+        &3600_u64,
+    );
+
+    let sac = token::StellarAssetClient::new(&setup.env, &setup.token);
+    sac.mint(&setup.buyer, &amount);
+    client.fund_escrow(&escrow_id, &setup.buyer);
+
+    // Both parties co-sign release
+    client.co_signed_release(&setup.seller, &escrow_id);
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::Completed);
+
+    let tc = token::Client::new(&setup.env, &setup.token);
+    assert_eq!(tc.balance(&setup.seller), amount);
+}

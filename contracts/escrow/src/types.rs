@@ -86,16 +86,26 @@ pub struct MultiResolver {
     pub threshold: u32,
 }
 
+/// Fallback resolver scheme consisting of a primary resolver and a backup resolver.
+///
+/// The primary resolver has immediate authority to resolve disputes. If the dispute
+/// is not resolved before `dispute_deadline` (Unix timestamp in seconds), the backup
+/// resolver becomes authorized to resolve the dispute, preventing permanent deadlock
+/// or abandonment if the primary resolver becomes unresponsive.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FallbackResolver {
+    /// The primary dispute arbitrator who has authority to resolve disputes at any time.
     pub primary: Address,
+    /// The backup dispute arbitrator who becomes authorized once ledger timestamp >= `dispute_deadline`.
     pub backup: Address,
+    /// The Unix timestamp (in seconds) after which the backup resolver is permitted to resolve disputes.
     pub dispute_deadline: u64,
 }
 
-/// Resolver configuration: either a single resolver (backward compat)
-/// or multiple resolvers with a voting threshold.
+/// Resolver configuration: single resolver (backward compat),
+/// multiple resolvers with M-of-N voting threshold, or
+/// primary/backup fallback resolver with a takeover deadline.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResolverSet {
@@ -103,7 +113,7 @@ pub enum ResolverSet {
     Single(Address),
     /// Multiple resolvers with M-of-N voting threshold
     Multi(MultiResolver),
-    /// Primary resolver with a backup that can resolve after a deadline
+    /// Primary resolver with a backup resolver that can take over after `dispute_deadline`
     Fallback(FallbackResolver),
 }
 

@@ -314,6 +314,10 @@ pub(crate) fn validate_resolvers(
             }
             seen.push_back(resolver);
         }
+    } else if let ResolverSet::Fallback(f) = resolvers {
+        if f.primary == f.backup {
+            return Err(ContractError::ConflictingRoles);
+        }
     }
 
     Ok(())

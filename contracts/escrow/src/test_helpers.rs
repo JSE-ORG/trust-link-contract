@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![allow(dead_code)]
 
 use crate::{Escrow, EscrowClient, Payee};
 use soroban_sdk::{
@@ -6,7 +7,7 @@ use soroban_sdk::{
     token, Address, Env, IntoVal, Vec,
 };
 
-pub fn setup_contract(env: &Env) -> (Address, EscrowClient, Address, Address) {
+pub fn setup_contract(env: &Env) -> (Address, EscrowClient<'_>, Address, Address) {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(env, &contract_id);
     let admin = Address::generate(env);

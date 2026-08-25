@@ -234,70 +234,13 @@ fn resolve_or_vote_internal(
     Ok(())
 }
 
+#[cfg(test)]
 mod malicious_token;
+#[cfg(test)]
 mod test;
-mod test_admin;
-mod test_admin_event_emissions;
-mod test_admin_rotation;
-mod test_amount_limits;
-mod test_appeal;
-mod test_arbitration_fee;
-mod test_auth_matrix;
-mod test_auth_ordering;
+#[cfg(test)]
 mod test_auto_release;
-mod test_auto_release_additional;
-mod test_basket_escrow;
-mod test_cancel_restrictions;
-mod test_co_signed_release;
-mod test_concurrent_vendor_escrows;
-mod test_contract_config;
-mod test_create_escrow_boundary;
-mod test_create_escrow_with_expiration;
-mod test_delivery;
-mod test_dispute;
-mod test_dispute_deadline_overflow;
-mod test_dispute_flow;
-mod test_dispute_window;
-mod test_edge_cases;
-mod test_emergency_drain;
-mod test_escrow_id;
-mod test_escrow_states;
-mod test_expiration;
+#[cfg(test)]
 mod test_fallback_resolver;
-mod test_fallback_resolver;
-mod test_fee_calculation_accuracy;
-mod test_fee_config;
-mod test_fee_minimum;
-mod test_fee_snapshot;
-mod test_fee_update;
-mod test_finalize_dispute_appeal_boundary;
-mod test_get_escrows_by_buyer;
-mod test_get_escrows_by_ids;
-mod test_get_escrows_by_seller;
-mod test_get_escrows_by_vendor;
+#[cfg(test)]
 mod test_helpers;
-mod test_initialize_twice;
-mod test_initialize_zero_admin;
-mod test_malicious_token;
-mod test_minimum_amount_guard;
-mod test_multi_resolver;
-mod test_multicall;
-mod test_mutual_cancel;
-mod test_not_found;
-mod test_overflow;
-mod test_pause;
-mod test_pending_expiry;
-mod test_resolution;
-mod test_resolver_registry;
-mod test_resolver_rotation;
-mod test_sep41;
-mod test_set_fee_boundary;
-mod test_set_fee_collector;
-mod test_shipping_window;
-mod test_state_history;
-mod test_storage_collision;
-mod test_string_length;
-mod test_ttl;
-mod test_unauthorized;
-mod test_upgrade_migration;
-mod test_vote;

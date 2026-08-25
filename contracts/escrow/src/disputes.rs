@@ -298,12 +298,10 @@ impl Escrow {
             .checked_add(1)
             .ok_or(ContractError::ArithmeticError)?;
 
-        // Clear votes for Multi resolver sets so a fresh round begins
-        if matches!(escrow.resolvers, ResolverSet::Multi(_)) {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::ResolverVotes(escrow_id));
-        }
+        // Clear votes so a fresh round begins
+        env.storage()
+            .persistent()
+            .remove(&DataKey::ResolverVotes(escrow_id));
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         save_dispute(&env, escrow_id, &updated_dispute);

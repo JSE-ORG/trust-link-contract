@@ -722,9 +722,29 @@ A second call panics in current implementation.
 - **Guards:** amount > 0, fee_bps <= 300, not paused.
 - **Effects:**
   - creates new escrow record with unique id from `EscrowCounter`,
+  - resolver set configured as `ResolverSet::Single(resolver)`,
   - state = `Pending`,
   - buyer is unset (`None`),
   - dispute deadline and funding fields set to zero defaults.
+
+#### `create_escrow_with_fallback(seller, buyer, primary_resolver, backup_resolver, dispute_deadline, token, amount, fee_bps, shipping_window)`
+
+- **Auth:** `seller.require_auth()`.
+- **Guards:** amount >= `MIN_ESCROW_AMOUNT`, amount <= `MAX_ESCROW_AMOUNT`, fee_bps <= 300, no role conflicts, primary != backup, not paused.
+- **Effects:**
+  - creates escrow with `ResolverSet::Fallback(FallbackResolver { primary, backup, dispute_deadline })`,
+  - primary resolver can resolve disputes immediately upon dispute,
+  - backup resolver can resolve disputes once `ledger.timestamp() >= dispute_deadline`,
+  - state = `Pending`.
+
+#### `create_escrow_multi(seller, buyer, resolvers, threshold, token, amount, fee_bps, shipping_window)`
+
+- **Auth:** `seller.require_auth()`.
+- **Guards:** amount > 0, fee_bps <= 300, resolvers non-empty and unique, 0 < threshold <= resolvers.len(), not paused.
+- **Effects:**
+  - creates escrow with `ResolverSet::Multi(MultiResolver { resolvers, threshold })`,
+  - disputes resolved via M-of-N voting tally,
+  - state = `Pending`.
 
 #### `cancel_escrow(escrow_id)`
 

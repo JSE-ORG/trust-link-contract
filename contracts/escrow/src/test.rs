@@ -164,7 +164,6 @@ fn test_confirm_delivery() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
-    client.set_protocol_fee(&admin, &200_u32);
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -291,8 +290,7 @@ fn test_auto_release() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_u32);
-    client.set_protocol_fee(&admin, &200_u32);
+    client.initialize(&admin, &fee_collector, &200_u32);
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -355,7 +353,6 @@ fn test_auto_release_before_window_fails() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
-    client.set_protocol_fee(&admin, &200_u32);
     mint_tokens(&env, &token, &buyer, 1000);
     let payees = single_payee(&env, &seller);
     let id = client.create_escrow(
@@ -515,7 +512,6 @@ fn test_fund_and_confirm_delivery_with_non_usdc_token() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
-    client.set_protocol_fee(&admin, &100_u32);
     mint_tokens(&env, &alt_token, &buyer, 1000);
     let mut payees_70 = Vec::new(&env);
     payees_70.push_back(Payee {
@@ -995,8 +991,7 @@ fn test_auto_release_after_dispute_deadline() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_u32);
-    client.set_protocol_fee(&admin, &200_u32);
+    client.initialize(&admin, &fee_collector, &200_u32);
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -1063,8 +1058,6 @@ fn test_fee_change_does_not_affect_funded_escrow() {
         &None::<SorobanString>,
     );
     client.fund_escrow(&escrow_id, &buyer);
-
-    client.set_fee(&admin, &300_u32);
 
     client.mark_shipped(
         &seller,

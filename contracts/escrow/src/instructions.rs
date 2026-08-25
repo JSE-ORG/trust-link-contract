@@ -515,7 +515,50 @@ impl Escrow {
         Ok(())
     }
 
-    /// Create escrow with a fallback resolver that can take over after a deadline.
+    /// Creates an escrow configured with a fallback resolver scheme (`ResolverSet::Fallback`).
+    ///
+    /// The fallback scheme designates a primary resolver and a backup resolver:
+    /// - **Primary Resolver**: Authorized to resolve disputes at any time once a dispute is raised.
+    /// - **Backup Resolver**: Authorized to resolve disputes only when the ledger timestamp is at
+    ///   or after `dispute_deadline`. This prevents deadlocks if the primary resolver is unresponsive.
+    /// - **Threshold**: The voting threshold is 1 (either the primary resolver or the backup resolver
+    ///   can unilaterally resolve the dispute once authorized).
+    ///
+    /// # Arguments
+    /// * `env` - Soroban environment.
+    /// * `seller` - Address of the seller (must authenticate this call).
+    /// * `buyer` - Optional address of the designated buyer (if None, anyone can fund).
+    /// * `primary_resolver` - Address of the primary dispute arbitrator.
+    /// * `backup_resolver` - Address of the backup dispute arbitrator who takes over after `dispute_deadline`.
+    /// * `dispute_deadline` - Unix timestamp in seconds after which the backup resolver becomes eligible to resolve disputes.
+    /// * `token` - Address of the SPL/SEP-41 payment token.
+    /// * `amount` - Escrow deposit amount in stroops (must be >= `MIN_ESCROW_AMOUNT` and <= `MAX_ESCROW_AMOUNT`).
+    /// * `fee_bps` - Escrow fee in basis points (100 bps = 1%, max 300 bps).
+    /// * `shipping_window` - Duration in seconds allocated for shipping before auto-cancellation or delivery.
+    ///
+    /// # Errors
+    /// * `ContractError::ContractPaused` - Contract is currently paused.
+    /// * `ContractError::InvalidAmount` - Amount is <= 0 or < `MIN_ESCROW_AMOUNT`.
+    /// * `ContractError::AmountExceedsMaximum` - Amount exceeds `MAX_ESCROW_AMOUNT`.
+    /// * `ContractError::InvalidFeeBps` - Fee exceeds maximum permitted cap (`MAX_ESCROW_FEE_BPS`).
+    /// * `ContractError::ResolverRoleConflict` - `primary_resolver` or `backup_resolver` matches `seller` or `buyer`.
+    /// * `ContractError::DuplicateResolver` - `primary_resolver` equals `backup_resolver`.
+    /// * `ContractError::ResolverNotApproved` - Strict resolver mode is enabled and a resolver is not on the approved list.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let escrow_id = client.create_escrow_with_fallback(
+    ///     &seller,
+    ///     &Some(buyer),
+    ///     &primary_resolver,
+    ///     &backup_resolver,
+    ///     &(env.ledger().timestamp() + 86_400), // backup eligible after 24h
+    ///     &token,
+    ///     &1_000_000_i128,
+    ///     &100_u32, // 1%
+    ///     &86_400_u64, // 24h shipping window
+    /// );
+    /// ```
     pub fn create_escrow_with_fallback(
         env: Env,
         seller: Address,
@@ -1101,7 +1144,6 @@ impl Escrow {
             }
         }
 
-        let fee_config = read_fee_config(&env);
         let fee_collector: Address = env
             .storage()
             .instance()
@@ -1114,10 +1156,8 @@ impl Escrow {
             .ok_or(ContractError::IndexOutOfBounds)?
             .address
             .clone();
-        let (protocol_fee, net_amount) = crate::helpers::payout::calculate_protocol_fee(
-            escrow.amount,
-            fee_config.protocol_fee_bps,
-        )?;
+        let (protocol_fee, net_amount) =
+            crate::helpers::payout::calculate_protocol_fee(escrow.amount, escrow.fee_bps)?;
         if protocol_fee > 0 {
             token::Client::new(&env, &escrow.token).transfer(
                 &env.current_contract_address(),
