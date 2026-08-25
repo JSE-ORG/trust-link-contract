@@ -264,7 +264,6 @@ mod test_escrow_id;
 mod test_escrow_states;
 mod test_expiration;
 mod test_fallback_resolver;
-mod test_fallback_resolver;
 mod test_fee_calculation_accuracy;
 mod test_fee_config;
 mod test_fee_minimum;
