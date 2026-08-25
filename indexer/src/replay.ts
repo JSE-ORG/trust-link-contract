@@ -92,10 +92,23 @@ async function replay(fixturePath: string): Promise<void> {
 // CLI
 // ---------------------------------------------------------------------------
 
-const fixturePath =
-  process.argv[2] ?? new URL("../../fixtures/events.json", import.meta.url).pathname;
+/** Path to the bundled fixture, relative to this module (`indexer/fixtures/events.json`). */
+function defaultFixturePath(): string {
+  return new URL("../fixtures/events.json", import.meta.url).pathname;
+}
 
-replay(fixturePath).catch((err) => {
-  console.error("[replay] fatal:", err);
-  process.exit(1);
-});
+// Run when invoked directly (mirrors the `isMain` guard in ingest.ts) — this
+// keeps the module import-safe so `findResumeIndex`/`defaultFixturePath` can
+// be exercised from tests without kicking off a real replay.
+const isMain =
+  process.argv[1] !== undefined && new URL(import.meta.url).pathname === process.argv[1];
+
+if (isMain) {
+  const fixturePath = process.argv[2] ?? defaultFixturePath();
+  replay(fixturePath).catch((err) => {
+    console.error("[replay] fatal:", err);
+    process.exit(1);
+  });
+}
+
+export { findResumeIndex, defaultFixturePath };
