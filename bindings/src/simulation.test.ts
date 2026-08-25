@@ -79,10 +79,10 @@ test("assertSimulationSucceeds returns the value or throws the expected error", 
   await assert.rejects(
     () =>
       assertSimulationSucceeds(() => {
-        throw new ContractInvokeError(ErrorCode.DisputeWindowClosed);
+        throw new ContractInvokeError(ErrorCode.DisputeWindowStillOpen);
       }),
     (err: unknown) =>
-      err instanceof ContractInvokeError && err.code === ErrorCode.DisputeWindowClosed,
+      err instanceof ContractInvokeError && err.code === ErrorCode.DisputeWindowStillOpen,
   );
 });
 
