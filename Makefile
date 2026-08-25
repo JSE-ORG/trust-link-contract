@@ -1,4 +1,4 @@
-.PHONY: help build build-wasm test fmt clippy bench clean check check-error-codes doc audit indexer-test \
+.PHONY: help build build-wasm test fmt clippy bench clean check check-error-codes doc audit indexer-test xtask-test \
 	testnet testnet-reset testnet-stop fuzz-build fuzz
 
 help: ## Show this help
@@ -77,6 +77,10 @@ bindings-install: ## Install bindings dependencies
 # Indexer
 indexer-test: ## Typecheck and test the event indexer
 	cd indexer && npm run typecheck && npm test
+
+# Developer CLI (xtask is its own workspace, so root cargo test does not reach it)
+xtask-test: ## Test the cargo xtask developer CLI
+	cd xtask && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 
 # Detect Docker Compose v1 vs v2
 DOCKER_COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
