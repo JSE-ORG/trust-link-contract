@@ -258,15 +258,23 @@ export async function replay(
 // CLI
 // ---------------------------------------------------------------------------
 
-/** True when this module was run directly rather than imported. */
-function isMain(): boolean {
-  const entry = process.argv[1];
-  return entry !== undefined && resolve(entry) === fileURLToPath(import.meta.url);
+/** Path to the bundled fixture, relative to this module (`indexer/fixtures/events.json`). */
+function defaultFixturePath(): string {
+  return new URL("../fixtures/events.json", import.meta.url).pathname;
 }
 
-if (isMain()) {
-  replay(process.argv[2] ?? DEFAULT_FIXTURE).catch((err: unknown) => {
+// Run when invoked directly (mirrors the `isMain` guard in ingest.ts) — this
+// keeps the module import-safe so `findResumeIndex`/`defaultFixturePath` can
+// be exercised from tests without kicking off a real replay.
+const isMain =
+  process.argv[1] !== undefined && new URL(import.meta.url).pathname === process.argv[1];
+
+if (isMain) {
+  const fixturePath = process.argv[2] ?? defaultFixturePath();
+  replay(fixturePath).catch((err) => {
     console.error("[replay] fatal:", err);
     process.exit(1);
   });
 }
+
+export { findResumeIndex, defaultFixturePath };

@@ -55,6 +55,12 @@ export interface Payee {
   bps: number;
 }
 
+/** One token/amount pair in a basket (multi-token) escrow. See `get_basket_tokens`. */
+export interface TokenEntry {
+  token: AddressLike;
+  amount: bigint;
+}
+
 export interface EscrowData {
   payees: Payee[];
   buyer: AddressLike | null;

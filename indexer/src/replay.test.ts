@@ -4,6 +4,8 @@
  * These cover fixture loading, validation and resume arithmetic — everything
  * that does not need a live database. `replay()` itself is exercised against
  * Postgres by `npm run replay`.
+ * Regression coverage for the replay script's fixture-path resolution and
+ * resume-index logic.
  */
 
 import test from "node:test";

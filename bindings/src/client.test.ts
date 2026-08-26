@@ -294,6 +294,48 @@ describe("cancel_escrow", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Basket (multi-token) escrows
+// ---------------------------------------------------------------------------
+
+describe("create_basket_escrow", () => {
+  it("invokes 'create_basket_escrow' with tokens/amounts and returns the escrow id", () => {
+    const { transport, calls } = makeMockTransport(ESCROW_ID);
+    const client = new EscrowClient(transport);
+    const tokens = [TOKEN, "GTOKEN200000000000000000000000000000000000000000000000000000"];
+    const amounts = [AMOUNT, 500_000n];
+    const id = client.create_basket_escrow(SELLER, BUYER, RESOLVER, tokens, amounts, FEE_BPS, SHIPPING_WINDOW);
+    assert.equal(calls[0].method, "create_basket_escrow");
+    assert.deepEqual(calls[0].args, [SELLER, BUYER, RESOLVER, tokens, amounts, FEE_BPS, SHIPPING_WINDOW]);
+    assert.equal(id, ESCROW_ID);
+  });
+});
+
+describe("fund_basket_escrow", () => {
+  it("invokes 'fund_basket_escrow' with escrowId and buyer", () => {
+    const { transport, calls } = makeMockTransport();
+    const client = new EscrowClient(transport);
+    client.fund_basket_escrow(ESCROW_ID, BUYER);
+    assert.equal(calls[0].method, "fund_basket_escrow");
+    assert.deepEqual(calls[0].args, [ESCROW_ID, BUYER]);
+  });
+});
+
+describe("get_basket_tokens", () => {
+  it("invokes 'get_basket_tokens' and returns the token entries", () => {
+    const entries = [
+      { token: TOKEN, amount: AMOUNT },
+      { token: "GTOKEN200000000000000000000000000000000000000000000000000000", amount: 500_000n },
+    ];
+    const { transport, calls } = makeMockTransport(entries);
+    const client = new EscrowClient(transport);
+    const result = client.get_basket_tokens(ESCROW_ID);
+    assert.equal(calls[0].method, "get_basket_tokens");
+    assert.deepEqual(calls[0].args, [ESCROW_ID]);
+    assert.deepEqual(result, entries);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Transport: async support
 // ---------------------------------------------------------------------------
 
@@ -412,8 +454,11 @@ describe("EscrowBatch / batch / createBatch", () => {
       .set_arbitration_fee(ADMIN, 200)
       .get_arbitration_fee()
       .cancel_escrow(SELLER, ESCROW_ID)
-      .rotate_resolver(SELLER, ESCROW_ID, RESOLVER);
+      .rotate_resolver(SELLER, ESCROW_ID, RESOLVER)
+      .create_basket_escrow(SELLER, BUYER, RESOLVER, [TOKEN], [AMOUNT], FEE_BPS, SHIPPING_WINDOW)
+      .fund_basket_escrow(ESCROW_ID, BUYER)
+      .get_basket_tokens(ESCROW_ID);
 
-    assert.equal(batch.pendingCalls().length, 14);
+    assert.equal(batch.pendingCalls().length, 17);
   });
 });
