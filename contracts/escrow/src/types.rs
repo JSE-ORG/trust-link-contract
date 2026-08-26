@@ -358,7 +358,7 @@ pub enum TimelockOperation {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TimelockProposal {
-    pub operation: u32,
+    pub operation: TimelockOperation,
     pub proposer: Address,
     pub params: Vec<soroban_sdk::Val>,
     pub queued_at: u64,
