@@ -51,6 +51,9 @@ function subtle(): SubtleCrypto {
   return webcrypto.subtle;
 }
 
+import sha256 from "crypto-js/sha256.js";
+import encHex from "crypto-js/enc-hex.js";
+
 /**
  * SHA-256 digest of `input`, ready to pass as `evidence_hash`.
  *
@@ -59,8 +62,15 @@ function subtle(): SubtleCrypto {
  * re-hashed later and matched against what the dispute recorded.
  */
 export async function hashEvidence(input: EvidenceInput): Promise<Bytes32> {
-  const digest = await subtle().digest("SHA-256", toBufferSource(input));
-  return new Uint8Array(digest);
+  try {
+    const digest = await subtle().digest("SHA-256", toBufferSource(input));
+    return new Uint8Array(digest);
+  } catch (e) {
+    // Fallback to crypto-js if Web Crypto API is unavailable
+    const str = typeof input === "string" ? input : new TextDecoder().decode(input as BufferSource);
+    const hash = sha256(str).toString(encHex);
+    return fromHex(hash);
+  }
 }
 
 /** As {@link hashEvidence}, but returns the lowercase hex encoding. */
