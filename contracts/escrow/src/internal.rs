@@ -859,7 +859,7 @@ pub(crate) fn execute_resolution_transition(
         .storage()
         .instance()
         .get(&DataKey::FeeCollector)
-        .expect("fee collector not set");
+        .ok_or(ContractError::NotInitialized)?;
 
     if arbitration_fee > 0 {
         token::Client::new(env, &updated_escrow.token).transfer(
