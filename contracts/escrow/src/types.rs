@@ -239,6 +239,7 @@ pub struct FeeConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicContractConfig {
     pub fee_bps: u32,
+    pub arbitration_fee_bps: u32,
     pub paused: bool,
     pub escrow_count: u64,
 }
@@ -249,6 +250,7 @@ pub struct PublicContractConfig {
 pub struct ContractConfig {
     pub admin: Address,
     pub fee_bps: u32,
+    pub arbitration_fee_bps: u32,
     pub fee_collector: Address,
     pub escrow_count: u64,
 }
