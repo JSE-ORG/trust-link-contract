@@ -1,5 +1,5 @@
 .PHONY: help build build-wasm test fmt clippy bench clean check check-error-codes doc audit indexer-test xtask-test \
-	testnet testnet-reset testnet-stop fuzz-build fuzz fuzz-check
+	testnet testnet-reset testnet-stop fuzz-build fuzz fuzz-check setup hooks-uninstall
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -27,6 +27,8 @@ fmt-check: ## Check formatting without modifying files
 
 clippy: ## Run clippy lints
 	cargo clippy --lib -- -D warnings
+
+check: fmt-check clippy test check-error-codes ## Run all checks (fmt + clippy + test + error-code drift)
 
 bench: ## Run benchmarks (if available)
 	cargo test --release -- --ignored
@@ -105,9 +107,20 @@ testnet-reset: ## Recreate the local devnet from scratch
 testnet-stop: ## Stop and remove the local devnet container
 	./scripts/start-testnet.sh --stop
 
-# Full setup
-setup: bindings-install build test ## Full project setup (install + build + test)
+# Git hooks
+setup: bindings-install build test hooks-install ## Full project setup (install + build + test + git hooks)
 	@echo "Setup complete!"
+
+hooks-install: ## Install pre-commit git hooks
+	@echo "Installing git hooks..."
+	@chmod +x .githooks/pre-commit
+	@git config core.hooksPath .githooks
+	@echo "Git hooks installed successfully."
+	@echo "Pre-commit hook will run cargo fmt and cargo clippy on each commit."
+
+hooks-uninstall: ## Uninstall git hooks
+	@git config --unset core.hooksPath
+	@echo "Git hooks uninstalled. Using default .git/hooks/ directory."
 .PHONY: e2e
 e2e:
 	./e2e/01_setup_and_deploy.sh
