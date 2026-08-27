@@ -191,6 +191,7 @@ Run the helper test suite with `npm test` (uses Node's built-in test runner).
 trustlink-escrow-bindings
 ├── types.ts          — enums and data interfaces (EscrowState, EscrowData …)
 ├── client.ts         — EscrowClient + ContractTransport interface
+├── batch.ts          — EscrowBatch fluent builder + createBatch (also re-exported from client.ts)
 ├── abi.ts            — contract ABI manifest
 ├── errors.ts         — ErrorCode enum, ContractInvokeError, parseContractError
 ├── simulation.ts     — simulateAndCatch, assertSimulationSucceeds, createEscrowSimulator

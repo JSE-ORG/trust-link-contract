@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./client.js";
+export * from "./batch.js";
 export * from "./abi.js";
 export * from "./errors.js";
 export * from "./evidence.js";
