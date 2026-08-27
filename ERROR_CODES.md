@@ -51,3 +51,4 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **43** | `InvalidMulticallArg` | A `multicall` argument is missing or fails to decode into the expected type. | Provide valid arguments that match the types expected by the target function. |
 | **44** | `PayeeBpsMismatch` | A `Payee` list's basis points do not sum to exactly 10,000 (100%). | Ensure the sum of all `bps` values across payees equals exactly 10,000. |
 | **45** | `TooManyMessages` | The maximum number of messages for an escrow has been reached. | No more messages can be attached to this escrow. |
+| **46** | `InvalidTtlExtension` | The requested TTL extension is below `MIN_TTL_EXTENSION` (1,000 ledgers). | Supply a TTL extension value of at least `MIN_TTL_EXTENSION`. |
