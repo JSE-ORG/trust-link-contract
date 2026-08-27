@@ -171,3 +171,57 @@ fn test_set_and_get_arbitration_fee() {
     client.set_arbitration_fee(&admin, &150_u32);
     assert_eq!(client.get_arbitration_fee(), 150);
 }
+
+#[test]
+fn test_arbitration_fee_is_charged_once_after_appeal() {
+    let env = Env::default();
+    let (admin, seller, buyer, resolver, fee_collector, token) = setup(&env);
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &500_u32);
+
+    let amount = 1_000_i128;
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let id = client.create_escrow_8(
+        &payees.into_val(&env),
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &amount,
+        &0_u32,
+        &3600_u64,
+    );
+
+    mint(&env, &token, &buyer, amount);
+    client.fund_escrow(&id, &buyer);
+    client.mark_shipped(
+        &seller,
+        &id,
+        &SorobanString::from_str(&env, "TRACK-ARB-APPEAL"),
+    );
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &Symbol::new(&env, "reason"),
+        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+    );
+
+    client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
+    assert_eq!(balance(&env, &token, &fee_collector), 0);
+
+    client.appeal_dispute(&buyer, &id);
+    client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &id);
+
+    assert_eq!(balance(&env, &token, &fee_collector), 50);
+    assert_eq!(client.get_total_arbitration_fees(&token), 50);
+    assert_eq!(balance(&env, &token, &seller), 950);
+}

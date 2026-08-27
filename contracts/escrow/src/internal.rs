@@ -821,30 +821,6 @@ pub(crate) fn execute_resolution_transition(
         .checked_sub(resolver_fee)
         .ok_or(ContractError::ArithmeticError)?;
 
-    // Update Accounting
-    let total_key = DataKey::TotalArbitrationFees(updated_escrow.token.clone());
-    let current_total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
-    env.storage().instance().set(
-        &total_key,
-        &current_total
-            .checked_add(arbitration_fee)
-            .ok_or(ContractError::ArithmeticError)?,
-    );
-
-    let fee_collector: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::FeeCollector)
-        .ok_or(ContractError::NotInitialized)?;
-
-    if arbitration_fee > 0 {
-        token::Client::new(env, &updated_escrow.token).transfer(
-            &env.current_contract_address(),
-            &fee_collector,
-            &arbitration_fee,
-        );
-    }
-
     // Pay resolver fee immediately
     if resolver_fee > 0 {
         token::Client::new(env, &updated_escrow.token).transfer(

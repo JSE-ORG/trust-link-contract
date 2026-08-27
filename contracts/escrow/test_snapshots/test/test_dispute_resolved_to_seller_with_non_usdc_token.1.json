@@ -577,6 +577,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "arbitration_fee"
+                    },
+                    "val": {
+                      "i128": "0"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "description"
                     },
                     "val": {
@@ -637,6 +645,14 @@
                     },
                     "val": {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "resolver_fee"
+                    },
+                    "val": {
+                      "i128": "0"
                     }
                   },
                   {
@@ -1148,21 +1164,6 @@
                       },
                       "val": {
                         "u32": 1
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "TotalArbitrationFees"
-                          },
-                          {
-                            "address": "CCFPZOCU33AWX2NKX47XD6W5JNYFP7MU57DTQFB5XOOQSJLSSC4PMX25"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "i128": "0"
                       }
                     },
                     {

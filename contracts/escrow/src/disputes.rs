@@ -174,6 +174,23 @@ impl Escrow {
             .get(&DataKey::FeeCollector)
             .ok_or(ContractError::NotInitialized)?;
 
+        let arbitration_fee = dispute_data.arbitration_fee;
+        if arbitration_fee > 0 {
+            let total_key = DataKey::TotalArbitrationFees(escrow.token.clone());
+            let current_total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
+            env.storage().instance().set(
+                &total_key,
+                &current_total
+                    .checked_add(arbitration_fee)
+                    .ok_or(ContractError::ArithmeticError)?,
+            );
+            token::Client::new(&env, &escrow.token).transfer(
+                &env.current_contract_address(),
+                &fee_collector,
+                &arbitration_fee,
+            );
+        }
+
         let platform_fee_bps = read_platform_fee_bps(&env);
         let platform_fee = if platform_fee_bps > 0 {
             crate::helpers::payout::calculate_fee(escrow.amount, platform_fee_bps)?
@@ -296,6 +313,10 @@ impl Escrow {
         }
 
         let prev_state = escrow.state.clone();
+        escrow.amount = escrow
+            .amount
+            .checked_add(dispute_data.arbitration_fee)
+            .ok_or(ContractError::ArithmeticError)?;
         escrow.state = EscrowState::Disputed;
 
         let mut updated_dispute = dispute_data;
