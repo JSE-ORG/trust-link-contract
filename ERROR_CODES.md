@@ -29,7 +29,7 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **21** | `InvalidTrackingId` | The tracking ID supplied is empty or improperly formatted. | Provide a non-empty, valid string for the tracking ID. |
 | **22** | `DeliveryNotRecorded` | `auto_release` was attempted but the admin has not yet recorded the delivery. | Ensure that delivery is recorded via `record_delivery` if required by the flow. |
 | **23** | `ConflictingRoles` | Multiple roles (Seller, Buyer, Resolver) were assigned the same address. | Ensure that the Seller, Buyer, and Resolver are all distinct accounts. |
-| **24** | `DisputeWindowStillOpen` | A buyer attempted to confirm delivery while the dispute window is still open. | Wait for the dispute window to close before confirming delivery. |
+| **24** | `DisputeWindowStillOpen` | The dispute window timing is violated: `raise_dispute` is called after `dispute_deadline` (too late to raise), or `confirm_delivery` is called before `dispute_deadline` (too early to confirm). Code 24 is reused for both to maintain ABI stability. | For `raise_dispute`: ensure it is called before `dispute_deadline`. For `confirm_delivery`: wait until `dispute_deadline` has passed. |
 | **25** | `UnauthorizedResolver` | A resolver is not in the approved registry and strict mode is enabled. | Use an authorized resolver from the approved registry. |
 | **26** | `ContractNotPaused` | `emergency_drain` was called but the contract is not paused. | Ensure the contract is paused before calling emergency drain operations. |
 | **27** | `TokenNotAllowed` | A token is not in the allowlist and the allowlist is enabled. | Use a token from the approved allowlist or contact the admin to add the token. |
@@ -52,3 +52,4 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **44** | `PayeeBpsMismatch` | A `Payee` list's basis points do not sum to exactly 10,000 (100%). | Ensure the sum of all `bps` values across payees equals exactly 10,000. |
 | **45** | `TooManyMessages` | The maximum number of messages for an escrow has been reached. | No more messages can be attached to this escrow. |
 | **46** | `InvalidTtlExtension` | The requested TTL extension is below `MIN_TTL_EXTENSION` (1,000 ledgers). | Supply a TTL extension value of at least `MIN_TTL_EXTENSION`. |
+| **47** | `InvalidResolverThreshold` | Multi-resolver threshold is invalid: zero, exceeds resolver count, or resolver list is empty. | Ensure threshold is > 0, ≤ resolver count, and resolver list is non-empty. |

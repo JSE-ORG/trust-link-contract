@@ -391,7 +391,7 @@ impl Escrow {
         }
 
         if amount < MIN_ESCROW_AMOUNT {
-            return Err(ContractError::InvalidAmount);
+            return Err(ContractError::AmountBelowMinimum);
         }
 
         validate_escrow_fee_bps(fee_bps)?;

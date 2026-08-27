@@ -244,7 +244,7 @@ pub(crate) fn read_treasury(env: &Env) -> Result<Address, ContractError> {
     env.storage()
         .instance()
         .get(&DataKey::Treasury)
-        .ok_or(ContractError::NotAuthorized)
+        .ok_or(ContractError::NotInitialized)
 }
 
 pub(crate) fn write_treasury(env: &Env, treasury: &Address) {
@@ -279,7 +279,7 @@ pub(crate) fn validate_resolvers(
     if let ResolverSet::Multi(m) = resolvers {
         let count = m.resolvers.len();
         if count == 0 || m.threshold == 0 || m.threshold > count {
-            return Err(ContractError::InvalidAmount); // Use as proxy for invalid threshold
+            return Err(ContractError::InvalidResolverThreshold);
         }
 
         // Ensure all resolvers are unique

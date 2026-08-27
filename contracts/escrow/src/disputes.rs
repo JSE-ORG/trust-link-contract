@@ -41,6 +41,9 @@ impl Escrow {
         }
 
         if env.ledger().timestamp() >= escrow.dispute_deadline {
+            // Code 24 (DisputeWindowStillOpen) is reused for both raise_dispute (window closed, too late)
+            // and confirm_delivery (window still open, too early) to maintain ABI stability.
+            // See ERROR_CODES.md for both use cases.
             return Err(ContractError::DisputeWindowStillOpen);
         }
 
