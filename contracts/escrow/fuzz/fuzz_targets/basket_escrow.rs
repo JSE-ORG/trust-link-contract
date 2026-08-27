@@ -57,7 +57,7 @@ fuzz_target!(|data: &[u8]| {
     };
 
     let funder = h.actor(r.u8());
-    let target_id = if r.bool() { escrow_id } else { r.u64() };
+    let target_id = r.target_id(escrow_id);
     let _ = h.client.try_fund_basket_escrow(&target_id, &funder);
 
     // Funding twice must not transfer the basket twice.

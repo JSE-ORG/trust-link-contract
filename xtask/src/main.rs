@@ -1,4 +1,4 @@
-//! Developer task runner for trust-link-contract.
+//! Developer task runner for trust-link-contract (Escrow CLI Tool).
 //!
 //! Wraps the longer cargo / stellar commands documented in CONTRIBUTING.md so
 //! contributors can run them by name. Invoke via the cargo alias:
@@ -9,6 +9,18 @@
 //! cargo xtask gas-profile
 //! cargo xtask gas-profile -- --out gas-report.json
 //! cargo xtask deploy -- --network testnet --source alice
+//! ```
+//!
+//! # Examples
+//!
+//! Deploy the contract to a local standalone network:
+//! ```bash
+//! cargo xtask deploy -- --network standalone --source default
+//! ```
+//!
+//! Run local CI checks:
+//! ```bash
+//! cargo xtask ci
 //! ```
 //!
 //! Extra arguments after the subcommand are forwarded to the underlying tool,

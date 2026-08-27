@@ -69,8 +69,8 @@ export interface SorobanTransportOptions {
  * @example
  * ```tsx
  * import { useSoroban } from "@soroban-react/core";
- * import { createSorobanTransport } from "trustlink-escrow-bindings/soroban-react";
- * import { useEscrow } from "trustlink-escrow-bindings/hooks";
+ * import { createSorobanTransport } from "@trustlink/contract-bindings/soroban-react";
+ * import { useEscrow } from "@trustlink/contract-bindings/hooks";
  *
  * const CONTRACT_ID = "C...YOUR_CONTRACT_ADDRESS";
  *
@@ -229,7 +229,7 @@ function sleep(ms: number): Promise<void> {
  *
  * @example
  * ```ts
- * import { createFreighterTransport } from "trustlink-escrow-bindings/soroban-react";
+ * import { createFreighterTransport } from "@trustlink/contract-bindings/soroban-react";
  *
  * const transport = await createFreighterTransport({
  *   contractId: "C...",

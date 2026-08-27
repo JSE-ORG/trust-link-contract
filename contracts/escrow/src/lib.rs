@@ -225,7 +225,7 @@ fn resolve_or_vote_internal(
         threshold,
     );
 
-    if let Some(final_resolution) = tally_votes(&votes, threshold) {
+    if let Some(final_resolution) = tally_votes(&votes, threshold)? {
         execute_resolution_transition(env, escrow_id, escrow, caller, final_resolution, votes)?;
     } else {
         save_resolver_votes(env, escrow_id, &votes);
@@ -260,7 +260,6 @@ mod test_dispute_window;
 mod test_edge_cases;
 mod test_emergency_drain;
 mod test_escrow_id;
-mod test_escrow_states;
 mod test_expiration;
 mod test_fallback_resolver;
 mod test_fee_calculation_accuracy;
@@ -278,6 +277,7 @@ mod test_initialize_twice;
 mod test_initialize_zero_admin;
 mod test_malicious_token;
 mod test_minimum_amount_guard;
+mod test_multi_asset;
 mod test_multi_resolver;
 mod test_multicall;
 mod test_mutual_cancel;
@@ -285,6 +285,7 @@ mod test_not_found;
 mod test_overflow;
 mod test_pause;
 mod test_pending_expiry;
+mod test_refund_override;
 mod test_resolution;
 mod test_resolver_registry;
 mod test_resolver_rotation;

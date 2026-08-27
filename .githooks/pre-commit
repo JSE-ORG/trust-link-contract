@@ -1,0 +1,34 @@
+#!/bin/sh
+
+# Pre-commit hook: runs cargo fmt and cargo clippy checks
+# Install via: make setup
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Check formatting
+echo "Checking code formatting..."
+
+if ! cargo fmt --all -- --check; then
+    echo ""
+    echo "ERROR: Code is not formatted correctly."
+    echo "Run 'cargo fmt --all' to fix formatting, then re-add your files."
+    exit 1
+fi
+
+echo "Formatting check passed."
+
+# Run clippy
+echo "Running clippy lints..."
+
+if ! cargo clippy --all-targets --all-features -- -D warnings; then
+    echo ""
+    echo "ERROR: Clippy found lint errors."
+    echo "Fix the clippy warnings above, then re-add your files."
+    exit 1
+fi
+
+echo "Clippy check passed."
+
+echo "Pre-commit checks complete. Proceeding with commit."

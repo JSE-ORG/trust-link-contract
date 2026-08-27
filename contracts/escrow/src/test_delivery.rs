@@ -207,6 +207,48 @@ fn test_confirm_delivery_after_mark_shipped() {
 }
 
 #[test]
+fn test_confirm_delivery_during_dispute_window_reverts() {
+    // Regression: confirming while the dispute window is still open must return
+    // `DisputeWindowStillOpen` (not `DeliveryBeforeDisputeWindow`, which means
+    // the window has not started — impossible for a Shipped escrow).
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
+    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-WIN"));
+
+    // Ledger time is still well before `dispute_deadline` (funded_at + 172_800).
+    let escrow = client.get_escrow(&id);
+    assert!(env.ledger().timestamp() < escrow.dispute_deadline);
+
+    assert_eq!(
+        client.try_confirm_delivery(&buyer, &id),
+        Err(Ok(ContractError::DisputeWindowStillOpen)),
+    );
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
+
+    // One second before the deadline still rejects; at the deadline it succeeds.
+    env.ledger().set_timestamp(escrow.dispute_deadline - 1);
+    assert_eq!(
+        client.try_confirm_delivery(&buyer, &id),
+        Err(Ok(ContractError::DisputeWindowStillOpen)),
+    );
+
+    env.ledger().set_timestamp(escrow.dispute_deadline);
+    client.confirm_delivery(&buyer, &id);
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Completed);
+}
+
+#[test]
 fn test_confirm_delivery_by_vendor_reverts() {
     let env = Env::default();
     env.mock_all_auths();

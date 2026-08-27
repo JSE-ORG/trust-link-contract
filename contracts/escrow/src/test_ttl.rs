@@ -31,7 +31,7 @@
 
 use crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS;
 use crate::test_helpers::{create_funded_escrow, setup_contract};
-use crate::{ContractError, DEFAULT_TTL_EXTENSION, TTL_THRESHOLD_DIVISOR};
+use crate::{DEFAULT_TTL_EXTENSION, MIN_TTL_EXTENSION};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     Address, Env,
@@ -144,8 +144,9 @@ fn test_custom_ttl_applied_to_persistent_entry() {
     let token = register_token(&env);
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
-    // Set TTL to a small value to ensure it's respected (still usable in tests).
-    client.set_ttl_extension(&admin, &200_u32);
+    // Set TTL to the smallest allowed value to ensure it's respected (still
+    // usable in tests) without tripping the `MIN_TTL_EXTENSION` floor.
+    client.set_ttl_extension(&admin, &MIN_TTL_EXTENSION);
 
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);

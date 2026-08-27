@@ -32,7 +32,7 @@ fuzz_target!(|data: &[u8]| {
     };
     h.env.ledger().set_timestamp(timestamp);
 
-    let target_id = if r.bool() { escrow_id } else { r.u64() };
+    let target_id = r.target_id(escrow_id);
 
     let _ = h.client.try_auto_release(&target_id);
 

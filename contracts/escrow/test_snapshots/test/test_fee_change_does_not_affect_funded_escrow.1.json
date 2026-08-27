@@ -792,7 +792,7 @@
                               "symbol": "protocol_fee_bps"
                             },
                             "val": {
-                              "u32": 300
+                              "u32": 0
                             }
                           }
                         ]
@@ -808,6 +808,18 @@
                       },
                       "val": {
                         "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "PlatformFeeBps"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 300
                       }
                     },
                     {

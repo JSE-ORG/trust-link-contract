@@ -137,8 +137,10 @@ To add a new fuzz target:
 | `stranger()` / `addresses(n)` | Fresh addresses with no role |
 | `extra_token()` | A second funded SAC, for basket escrows |
 
-`Reader` adds `len(max)` for collection sizes on top of the scalar readers, so
-targets cover the empty case and the documented cap without hand-rolled maths.
+`Reader` adds `len(max)` for collection sizes and `target_id(real_id)` for the
+common "real escrow or an arbitrary fuzzed id" choice, on top of the scalar
+readers — so targets cover the empty case, the documented cap, and the
+not-found path without hand-rolled maths.
 
 Without a real toolchain, `cargo check --manifest-path contracts/escrow/fuzz/Cargo.toml
 --all-targets` type-checks every harness on stable — a fast way to catch ABI

@@ -99,9 +99,12 @@ pub(crate) fn add_or_update_vote(
 /// carefully (e.g. avoid `threshold == N` for `N > 1`) and document the
 /// deadlock risk in user-facing material.  This is a known limitation of the
 /// current M-of-N voting system.
-pub(crate) fn tally_votes(votes: &Vec<ResolverVote>, threshold: u32) -> Option<ResolutionType> {
+pub(crate) fn tally_votes(
+    votes: &Vec<ResolverVote>,
+    threshold: u32,
+) -> Result<Option<ResolutionType>, ContractError> {
     if votes.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     let mut release_count = 0u32;
@@ -110,53 +113,26 @@ pub(crate) fn tally_votes(votes: &Vec<ResolverVote>, threshold: u32) -> Option<R
     for i in 0..votes.len() {
         if let Some(vote) = votes.get(i) {
             match vote.resolution {
-                ResolutionType::Release => release_count = release_count.saturating_add(1),
-                ResolutionType::Refund => refund_count = refund_count.saturating_add(1),
+                ResolutionType::Release => {
+                    release_count = release_count
+                        .checked_add(1)
+                        .ok_or(ContractError::ArithmeticError)?;
+                }
+                ResolutionType::Refund => {
+                    refund_count = refund_count
+                        .checked_add(1)
+                        .ok_or(ContractError::ArithmeticError)?;
+                }
             }
         }
     }
 
     if release_count >= threshold {
-        Some(ResolutionType::Release)
+        Ok(Some(ResolutionType::Release))
     } else if refund_count >= threshold {
-        Some(ResolutionType::Refund)
+        Ok(Some(ResolutionType::Refund))
     } else {
-        None
-    }
-}
-
-/// Validity matrix for escrow state transitions (#9).
-///
-/// Returns `Ok(())` if the move from `from` to `to` is legal under the
-/// escrow lifecycle, `Err(InvalidStateTransition)` otherwise. Provided as a
-/// pure helper alongside the existing inline guards so reviewers can audit
-/// every legal edge in one place.
-#[allow(dead_code)]
-pub fn transition_state(from: &EscrowState, to: &EscrowState) -> Result<(), ContractError> {
-    use EscrowState::*;
-    let allowed = matches!(
-        (from, to),
-        (Pending, Funded)
-            | (Pending, Canceled)
-            | (Funded, Shipped)
-            | (Funded, Disputed)
-            | (Funded, Refunded)
-            | (Funded, RefundRequested)
-            | (RefundRequested, Refunded)
-            | (Shipped, Completed)
-            | (Shipped, Disputed)
-            | (Shipped, Refunded)
-            | (Disputed, Completed)
-            | (Disputed, Refunded)
-            | (Disputed, PendingFinalization)
-            | (PendingFinalization, Completed)
-            | (PendingFinalization, Refunded)
-            | (PendingFinalization, Disputed)
-    );
-    if allowed {
-        Ok(())
-    } else {
-        Err(ContractError::InvalidStateTransition)
+        Ok(None)
     }
 }
 
@@ -989,55 +965,71 @@ pub(crate) fn execute_resolution_transition(
     final_resolution: ResolutionType,
     votes: Vec<ResolverVote>,
 ) -> Result<(), ContractError> {
-    let arbitration_fee_bps = read_fee_config(env).arbitration_fee_bps;
-    let arbitration_fee =
-        crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;
+    // Load the dispute record up front. After an appeal the escrow returns to
+    // `Disputed` and this transition runs again — but the arbitration and
+    // resolver fees are charged to the escrow **once per dispute**, not once
+    // per appeal round. A non-zero fee on the dispute record means a prior
+    // round already deducted and paid it out (`clear_resolution` deliberately
+    // preserves these two fields), so this round reuses the recorded amounts
+    // and skips the deduction, the accounting bump, and the transfers.
+    let mut dispute_data = load_dispute(env, escrow_id)?;
+    let fees_already_charged = dispute_data.arbitration_fee > 0 || dispute_data.resolver_fee > 0;
 
-    let resolver_fee =
-        crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?;
+    let (arbitration_fee, resolver_fee) = if fees_already_charged {
+        (dispute_data.arbitration_fee, dispute_data.resolver_fee)
+    } else {
+        let arbitration_fee_bps = read_fee_config(env).arbitration_fee_bps;
+        (
+            crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?,
+            crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?,
+        )
+    };
 
     let prev_state = escrow.state.clone();
     let mut updated_escrow = escrow;
-    updated_escrow.amount = updated_escrow
-        .amount
-        .checked_sub(arbitration_fee)
-        .ok_or(ContractError::ArithmeticError)?;
-    updated_escrow.amount = updated_escrow
-        .amount
-        .checked_sub(resolver_fee)
-        .ok_or(ContractError::ArithmeticError)?;
 
-    // Update Accounting
-    let total_key = DataKey::TotalArbitrationFees(updated_escrow.token.clone());
-    let current_total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
-    env.storage().instance().set(
-        &total_key,
-        &current_total
-            .checked_add(arbitration_fee)
-            .ok_or(ContractError::ArithmeticError)?,
-    );
+    if !fees_already_charged {
+        updated_escrow.amount = updated_escrow
+            .amount
+            .checked_sub(arbitration_fee)
+            .ok_or(ContractError::ArithmeticError)?;
+        updated_escrow.amount = updated_escrow
+            .amount
+            .checked_sub(resolver_fee)
+            .ok_or(ContractError::ArithmeticError)?;
 
-    let fee_collector: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::FeeCollector)
-        .expect("fee collector not set");
-
-    if arbitration_fee > 0 {
-        token::Client::new(env, &updated_escrow.token).transfer(
-            &env.current_contract_address(),
-            &fee_collector,
-            &arbitration_fee,
+        // Update Accounting
+        let total_key = DataKey::TotalArbitrationFees(updated_escrow.token.clone());
+        let current_total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
+        env.storage().instance().set(
+            &total_key,
+            &current_total
+                .checked_add(arbitration_fee)
+                .ok_or(ContractError::ArithmeticError)?,
         );
-    }
 
-    // Pay resolver fee immediately
-    if resolver_fee > 0 {
-        token::Client::new(env, &updated_escrow.token).transfer(
-            &env.current_contract_address(),
-            &caller,
-            &resolver_fee,
-        );
+        let fee_collector: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeCollector)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if arbitration_fee > 0 {
+            token::Client::new(env, &updated_escrow.token).transfer(
+                &env.current_contract_address(),
+                &fee_collector,
+                &arbitration_fee,
+            );
+        }
+
+        // Pay resolver fee immediately
+        if resolver_fee > 0 {
+            token::Client::new(env, &updated_escrow.token).transfer(
+                &env.current_contract_address(),
+                &caller,
+                &resolver_fee,
+            );
+        }
     }
 
     // Store resolution in dispute data and transition to PendingFinalization
@@ -1046,7 +1038,6 @@ pub(crate) fn execute_resolution_transition(
         .checked_add(APPEAL_WINDOW)
         .ok_or(ContractError::ArithmeticError)?;
 
-    let mut dispute_data = load_dispute(env, escrow_id)?;
     dispute_data.set_resolution(final_resolution.clone());
     dispute_data.resolved_by = Some(caller.clone());
     dispute_data.resolved_at = now;

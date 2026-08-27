@@ -43,6 +43,8 @@ pub enum DataKey {
     TotalDisputed,
     TotalCompleted,
     TotalRefunded,
+    /// Reserved for future use. Currently unused; may store per-escrow
+    /// evidence audit logs if on-chain verification is added later.
     EvidenceLog(u64),
     BasketTokens(u64),
     DeliveryProposal(u64),
@@ -86,16 +88,67 @@ pub struct MultiResolver {
     pub threshold: u32,
 }
 
+/// Primary/backup resolver pair with a time-based handover.
+///
+/// Used by `create_escrow_with_fallback` for the "my resolver went dark"
+/// case: the `primary` resolver is expected to handle disputes, and if they
+/// don't act in time the `backup` is allowed to step in and resolve instead.
+///
+/// The handover is governed by the `dispute_deadline` field and enforced in
+/// [`ResolverSet::can_resolve_now`]:
+///
+/// | Caller           | Before `dispute_deadline` | At / after `dispute_deadline` |
+/// |------------------|---------------------------|-------------------------------|
+/// | `primary`        | ✅ may resolve             | ✅ may resolve                 |
+/// | `backup`         | ❌ `NotAuthorized`         | ✅ may resolve                 |
+/// | anyone else      | ❌ `NotAuthorized`         | ❌ `NotAuthorized`             |
+///
+/// The primary is never time-gated — the deadline only *adds* the backup as
+/// an authorized resolver, it never removes the primary.
+///
+/// # Example
+///
+/// ```ignore
+/// // Backup may take over 3 days (259_200 s) after this escrow is created.
+/// let created_at = env.ledger().timestamp();
+/// let fallback = FallbackResolver {
+///     primary: primary_resolver,
+///     backup: backup_resolver,
+///     dispute_deadline: created_at + 259_200,
+/// };
+/// ```
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FallbackResolver {
+    /// Resolver expected to handle disputes. Always authorized to resolve,
+    /// regardless of the current ledger time.
     pub primary: Address,
+    /// Stand-in resolver. Only authorized once the ledger timestamp has
+    /// reached `dispute_deadline`.
     pub backup: Address,
+    /// Absolute ledger timestamp (Unix seconds) at which `backup` becomes an
+    /// authorized resolver. The comparison is `now >= dispute_deadline`, so
+    /// the backup is authorized *exactly* at this instant.
+    ///
+    /// This is **not** the same value as `EscrowData::dispute_deadline`,
+    /// which the contract computes at funding time (`funded_at +
+    /// DISPUTE_WINDOW`) to bound the *buyer's* window to raise a dispute.
+    /// This field is chosen by the caller of `create_escrow_with_fallback`
+    /// and only controls *which resolver* may act.
+    ///
+    /// Not range-checked on creation: a value in the past (including `0`)
+    /// simply means the backup is co-authorized with the primary from the
+    /// start.
     pub dispute_deadline: u64,
 }
 
-/// Resolver configuration: either a single resolver (backward compat)
-/// or multiple resolvers with a voting threshold.
+/// Resolver configuration for an escrow, chosen at creation time.
+///
+/// - `Single` — one resolver (the original, backward-compatible mode; every
+///   `create_escrow*` entry point except the multi/fallback ones produces this).
+/// - `Multi` — an M-of-N resolver committee that votes (`create_escrow_multi`).
+/// - `Fallback` — a primary resolver with a time-delayed backup
+///   (`create_escrow_with_fallback`); see [`FallbackResolver`].
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResolverSet {
@@ -103,12 +156,15 @@ pub enum ResolverSet {
     Single(Address),
     /// Multiple resolvers with M-of-N voting threshold
     Multi(MultiResolver),
-    /// Primary resolver with a backup that can resolve after a deadline
+    /// Primary resolver with a backup that becomes authorized once the
+    /// fallback's `dispute_deadline` (an absolute ledger timestamp) is
+    /// reached. The primary is never time-gated. See [`FallbackResolver`].
     Fallback(FallbackResolver),
 }
 
 impl ResolverSet {
-    /// Returns the number of resolvers in this set.
+    /// Returns the number of resolvers in this set (`Fallback` counts both the
+    /// primary and the backup, even though only one acts on any given dispute).
     pub fn count(&self) -> u32 {
         match self {
             ResolverSet::Single(_) => 1,
@@ -117,7 +173,11 @@ impl ResolverSet {
         }
     }
 
-    /// Checks if an address is in this resolver set.
+    /// Checks whether `addr` is one of this set's resolvers, ignoring any time
+    /// gating. For a `Fallback` set this is true for both the primary and the
+    /// backup regardless of `dispute_deadline` — it is the identity check used
+    /// at creation time for seller/buyer conflict detection. Use
+    /// [`Self::can_resolve_now`] to decide whether `addr` may resolve *now*.
     pub fn contains(&self, addr: &Address) -> bool {
         match self {
             ResolverSet::Single(resolver) => addr == resolver,
@@ -126,7 +186,9 @@ impl ResolverSet {
         }
     }
 
-    /// Returns the threshold required for voting (1 for single, M for multi).
+    /// Number of matching votes needed to resolve a dispute: `1` for `Single`,
+    /// `M` for an M-of-N `Multi` committee, and `1` for `Fallback` (whichever
+    /// of the primary or backup is currently authorized decides alone).
     pub fn threshold(&self) -> u32 {
         match self {
             ResolverSet::Single(_) => 1,
@@ -137,12 +199,16 @@ impl ResolverSet {
 
     /// Returns true if `addr` is authorized to act as a resolver *right now*.
     ///
-    /// Differs from `contains()` (identity membership only, used for
+    /// Differs from [`Self::contains`] (identity membership only, used for
     /// seller/buyer conflict checks at creation time) by additionally
-    /// enforcing `FallbackResolver.dispute_deadline`: the primary resolver
+    /// enforcing `FallbackResolver::dispute_deadline`: the primary resolver
     /// may always act, but the backup is only authorized once `now` has
-    /// reached the deadline, so the backup can't preempt the primary's
-    /// window to resolve.
+    /// reached the deadline (`now >= dispute_deadline`), so the backup can't
+    /// preempt the primary's window to resolve. For `Single` and `Multi` sets
+    /// there is no time gating and this is exactly `contains(addr)`.
+    ///
+    /// `now` is the current ledger timestamp in Unix seconds
+    /// (`env.ledger().timestamp()`).
     pub fn can_resolve_now(&self, addr: &Address, now: u64) -> bool {
         match self {
             ResolverSet::Fallback(f) => {
@@ -208,12 +274,26 @@ impl DisputeData {
         }
     }
 
+    /// Clears the recorded resolution so a fresh round of voting can begin
+    /// after an appeal.
+    ///
+    /// `arbitration_fee` and `resolver_fee` are intentionally left in place:
+    /// they record the amounts already deducted from the escrow for this
+    /// dispute. The resolution transition reads them to charge those fees
+    /// **once per dispute** rather than again for every appeal round (see
+    /// `execute_resolution_transition`).
+    /// Clears the recorded resolution so a fresh round of voting can begin
+    /// after an appeal.
+    ///
+    /// `arbitration_fee` and `resolver_fee` are intentionally left in place:
+    /// they record the amounts already deducted from the escrow for this
+    /// dispute. The resolution transition reads them to charge those fees
+    /// **once per dispute** rather than again for every appeal round (see
+    /// `execute_resolution_transition`).
     pub fn clear_resolution(&mut self) {
         self.resolution = 0;
         self.resolved_by = None;
         self.resolved_at = 0;
-        self.arbitration_fee = 0;
-        self.resolver_fee = 0;
     }
 }
 
@@ -237,6 +317,7 @@ pub struct FeeConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicContractConfig {
     pub fee_bps: u32,
+    pub arbitration_fee_bps: u32,
     pub paused: bool,
     pub escrow_count: u64,
 }
@@ -247,6 +328,7 @@ pub struct PublicContractConfig {
 pub struct ContractConfig {
     pub admin: Address,
     pub fee_bps: u32,
+    pub arbitration_fee_bps: u32,
     pub fee_collector: Address,
     pub escrow_count: u64,
 }

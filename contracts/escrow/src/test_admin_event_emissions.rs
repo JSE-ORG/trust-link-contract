@@ -81,14 +81,14 @@ where
 fn set_ttl_extension_emits_event_with_caller_and_new_value() {
     let (env, client, contract_id, admin) = setup();
 
-    client.set_ttl_extension(&admin, &500_u32);
+    client.set_ttl_extension(&admin, &2_000_u32);
 
     assert!(event_emitted::<TtlExtensionUpdated, _>(
         &env,
         &contract_id,
         symbol_short!("TtlExt"),
         symbol_short!("Updated"),
-        |ev| ev.new_ledgers == 500 && ev.caller == admin,
+        |ev| ev.new_ledgers == 2_000 && ev.caller == admin,
     ));
 }
 

@@ -36,7 +36,7 @@ fuzz_target!(|data: &[u8]| {
     h.env.ledger().set_timestamp(r.timestamp());
 
     let appellant = h.actor(r.u8());
-    let target_id = if r.bool() { escrow_id } else { r.u64() };
+    let target_id = r.target_id(escrow_id);
     let _ = h.client.try_appeal_dispute(&appellant, &target_id);
 
     // A second appeal must not reopen an already-appealed dispute.

@@ -28,7 +28,7 @@ fuzz_target!(|data: &[u8]| {
 
     h.env.ledger().set_timestamp(r.timestamp());
 
-    let target_id = if r.bool() { escrow_id } else { r.u64() };
+    let target_id = r.target_id(escrow_id);
 
     // Interleave the three settlement paths in a fuzz-chosen order; only one
     // of them may ever succeed for a given escrow.
