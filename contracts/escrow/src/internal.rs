@@ -379,6 +379,45 @@ pub(crate) fn validate_combined_fees(
     Ok(())
 }
 
+/// Validates a proposed new fee collector and returns the current one.
+///
+/// Applies the same invariants `initialize` enforces on the *initial*
+/// collector, so the immediate (`set_fee_collector`) and timelocked
+/// (`execute_set_fee_collector`) update paths cannot drift from them:
+/// - it may not be the all-zero address (`InvalidAddress`);
+/// - it may not equal the current admin (`InvalidAddress`) — the admin and
+///   fee-collector roles are kept separate so a single compromised key
+///   cannot both govern the contract and sweep its fees;
+/// - it may not be a no-op change (`SameAddress`).
+///
+/// Returns the current collector so the caller can emit
+/// `fee_collector_updated`.
+pub(crate) fn validate_fee_collector_change(
+    env: &Env,
+    new_collector: &Address,
+) -> Result<Address, ContractError> {
+    if *new_collector == crate::zero_address(env) {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    let admin = require_admin(env)?;
+    if *new_collector == admin {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    let old_collector: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::FeeCollector)
+        .ok_or(ContractError::NotAuthorized)?;
+
+    if *new_collector == old_collector {
+        return Err(ContractError::SameAddress);
+    }
+
+    Ok(old_collector)
+}
+
 /// Updates the arbitration fee. Requires admin auth.
 /// Validates that arbitration fee + current protocol fee doesn't exceed combined cap.
 pub(crate) fn update_arbitration_fee(
