@@ -359,7 +359,14 @@ impl Escrow {
 
     pub fn execute_set_admin(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetAdmin)?;
-        let new_admin = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let new_admin = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let old_admin = require_admin(&env)?;
         if new_admin == old_admin {
@@ -383,8 +390,14 @@ impl Escrow {
 
     pub fn execute_upgrade(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::Upgrade)?;
-        let new_wasm_hash =
-            BytesN::<32>::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let new_wasm_hash = BytesN::<32>::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let admin = require_admin(&env)?;
         env.deployer()
@@ -406,7 +419,14 @@ impl Escrow {
 
     pub fn execute_set_arbitration_fee(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetArbitrationFee)?;
-        let fee_bps = u32::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let fee_bps = u32::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let old_fee_bps = update_arbitration_fee(&env, &caller, fee_bps)?;
         emit_arbitration_fee_updated(&env, old_fee_bps, fee_bps);
@@ -426,7 +446,14 @@ impl Escrow {
 
     pub fn execute_set_platform_fee(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetPlatformFee)?;
-        let fee_bps = u32::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let fee_bps = u32::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         if fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::PlatformFeeExceedsMax);
@@ -450,7 +477,14 @@ impl Escrow {
 
     pub fn execute_set_treasury(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTreasury)?;
-        let treasury = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let treasury = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let zero = crate::zero_address(&env);
         if treasury == zero {
@@ -481,7 +515,14 @@ impl Escrow {
 
     pub fn execute_set_fee_collector(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetFeeCollector)?;
-        let new_collector = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let new_collector = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let zero = crate::zero_address(&env);
         if new_collector == zero {
@@ -517,7 +558,14 @@ impl Escrow {
 
     pub fn execute_set_ttl_extension(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTtlExtension)?;
-        let ledgers = u32::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let ledgers = u32::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let old_ledgers = storage::get_ttl_extension(&env);
         env.storage()
@@ -542,8 +590,22 @@ impl Escrow {
 
     pub fn execute_set_amount_limits(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetAmountLimits)?;
-        let min_amount = i128::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
-        let max_amount = i128::try_from_val(&env, &proposal.params.get(1).unwrap()).unwrap();
+        let min_amount = i128::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
+        let max_amount = i128::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(1)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         if min_amount <= 0 || max_amount < min_amount {
             return Err(ContractError::InvalidAmount);
@@ -594,7 +656,14 @@ impl Escrow {
 
     pub fn execute_add_approved_resolver(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::AddApprovedResolver)?;
-        let resolver = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let resolver = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let mut approved: soroban_sdk::Vec<Address> = env
             .storage()
@@ -634,7 +703,14 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::RemoveApprovedResolver)?;
-        let resolver = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let resolver = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let approved: soroban_sdk::Vec<Address> = env
             .storage()
@@ -670,7 +746,14 @@ impl Escrow {
 
     pub fn execute_set_resolver_strict(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetResolverStrict)?;
-        let strict = bool::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let strict = bool::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let old_strict = env
             .storage()
@@ -703,7 +786,14 @@ impl Escrow {
     pub fn execute_set_allowlist_enabled(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetTokenAllowlistEnabled)?;
-        let enabled = bool::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let enabled = bool::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         env.storage()
             .instance()
@@ -725,7 +815,14 @@ impl Escrow {
 
     pub fn execute_add_allowed_token(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::AddAllowedToken)?;
-        let token = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let token = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let mut allowlist: soroban_sdk::Vec<Address> = env
             .storage()
@@ -756,7 +853,14 @@ impl Escrow {
 
     pub fn execute_remove_allowed_token(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::RemoveAllowedToken)?;
-        let token = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let token = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let allowlist: soroban_sdk::Vec<Address> = env
             .storage()

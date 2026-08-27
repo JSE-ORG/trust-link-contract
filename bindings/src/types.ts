@@ -209,6 +209,7 @@ export interface ContractStats {
 /** Public, read-only contract configuration from `get_public_config`. */
 export interface PublicContractConfig {
   fee_bps: number;
+  arbitration_fee_bps: number;
   paused: boolean;
   escrow_count: bigint;
 }
@@ -217,6 +218,7 @@ export interface PublicContractConfig {
 export interface ContractConfig {
   admin: AddressLike;
   fee_bps: number;
+  arbitration_fee_bps: number;
   fee_collector: AddressLike;
   escrow_count: bigint;
 }

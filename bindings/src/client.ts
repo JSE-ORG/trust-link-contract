@@ -15,6 +15,7 @@ import {
   type ResolutionType,
   type TokenEntry,
 } from "./types.js";
+import { EscrowBatch } from "./batch.js";
 
 /**
  * Transport abstraction the client delegates every entry-point call to.
