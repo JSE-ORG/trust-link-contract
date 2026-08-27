@@ -421,6 +421,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "arbitration_fee"
+                    },
+                    "val": {
+                      "i128": "0"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "description"
                     },
                     "val": {
@@ -480,6 +488,14 @@
                       "symbol": "resolved_by"
                     },
                     "val": "void"
+                  },
+                  {
+                    "key": {
+                      "symbol": "resolver_fee"
+                    },
+                    "val": {
+                      "i128": "0"
+                    }
                   },
                   {
                     "key": {
@@ -1250,7 +1266,7 @@
                     "symbol": "schema_version"
                   },
                   "val": {
-                    "u32": 2
+                    "u32": 3
                   }
                 },
                 {

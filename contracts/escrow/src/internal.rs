@@ -844,24 +844,13 @@ pub(crate) fn execute_resolution_transition(
             &current_total
                 .checked_add(arbitration_fee)
                 .ok_or(ContractError::ArithmeticError)?,
-    let fee_collector: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::FeeCollector)
-        .ok_or(ContractError::NotInitialized)?;
-
-    if arbitration_fee > 0 {
-        token::Client::new(env, &updated_escrow.token).transfer(
-            &env.current_contract_address(),
-            &fee_collector,
-            &arbitration_fee,
         );
 
         let fee_collector: Address = env
             .storage()
             .instance()
             .get(&DataKey::FeeCollector)
-            .expect("fee collector not set");
+            .ok_or(ContractError::NotInitialized)?;
 
         if arbitration_fee > 0 {
             token::Client::new(env, &updated_escrow.token).transfer(

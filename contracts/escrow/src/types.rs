@@ -218,6 +218,14 @@ impl DisputeData {
     /// dispute. The resolution transition reads them to charge those fees
     /// **once per dispute** rather than again for every appeal round (see
     /// `execute_resolution_transition`).
+    /// Clears the recorded resolution so a fresh round of voting can begin
+    /// after an appeal.
+    ///
+    /// `arbitration_fee` and `resolver_fee` are intentionally left in place:
+    /// they record the amounts already deducted from the escrow for this
+    /// dispute. The resolution transition reads them to charge those fees
+    /// **once per dispute** rather than again for every appeal round (see
+    /// `execute_resolution_transition`).
     pub fn clear_resolution(&mut self) {
         self.resolution = 0;
         self.resolved_by = None;
