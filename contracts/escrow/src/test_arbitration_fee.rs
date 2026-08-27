@@ -157,6 +157,82 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
     assert_eq!(client.get_total_arbitration_fees(&token), 50);
 }
 
+/// A dispute that is resolved, appealed, and resolved again must be charged
+/// the arbitration fee only once — the appeal round reuses the fee already
+/// deducted instead of taking a second cut out of the escrow.
+#[test]
+fn test_arbitration_fee_charged_once_across_appeal() {
+    let env = Env::default();
+    let (admin, seller, buyer, resolver, fee_collector, token) = setup(&env);
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let arb_fee_bps = 500_u32; // 5% of 1000 = 50
+    client.initialize(&admin, &fee_collector, &arb_fee_bps);
+
+    let amount = 1000_i128;
+    let fee_bps = 0_u32; // no protocol fee, keep the arithmetic obvious
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let id = client.create_escrow_8(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &fee_bps,
+        &3600_u64,
+    );
+
+    mint(&env, &token, &buyer, amount);
+    client.fund_escrow(&id, &buyer);
+    client.mark_shipped(
+        &seller,
+        &id,
+        &SorobanString::from_str(&env, "TRACK-ARB-APPEAL"),
+    );
+
+    env.ledger().set_timestamp(env.ledger().timestamp() + 10);
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &Symbol::new(&env, "reason"),
+        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+    );
+
+    // First resolution: arbitration fee of 50 is deducted and forwarded.
+    client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
+    assert_eq!(client.get_total_arbitration_fees(&token), 50);
+    assert_eq!(balance(&env, &token, &fee_collector), 50);
+    assert_eq!(client.get_dispute(&id).unwrap().arbitration_fee, 50);
+
+    // Appeal within the appeal window, then resolve again.
+    client.appeal_dispute(&buyer, &id);
+    client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
+
+    // No second arbitration fee: totals and the fee collector are unchanged.
+    assert_eq!(client.get_total_arbitration_fees(&token), 50);
+    assert_eq!(balance(&env, &token, &fee_collector), 50);
+    assert_eq!(client.get_dispute(&id).unwrap().arbitration_fee, 50);
+
+    // Finalize once the appeal window has elapsed.
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &id);
+
+    // Seller receives amount minus the single arbitration fee; nothing stranded.
+    assert_eq!(balance(&env, &token, &seller), 950);
+    assert_eq!(balance(&env, &token, &fee_collector), 50);
+    assert_eq!(balance(&env, &token, &contract_id), 0);
+    assert_eq!(client.get_total_arbitration_fees(&token), 50);
+}
+
 #[test]
 fn test_set_and_get_arbitration_fee() {
     let env = Env::default();
