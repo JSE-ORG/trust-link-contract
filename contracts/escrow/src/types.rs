@@ -43,6 +43,8 @@ pub enum DataKey {
     TotalDisputed,
     TotalCompleted,
     TotalRefunded,
+    /// Reserved for future use. Currently unused; may store per-escrow
+    /// evidence audit logs if on-chain verification is added later.
     EvidenceLog(u64),
     BasketTokens(u64),
     DeliveryProposal(u64),
@@ -243,6 +245,7 @@ pub struct FeeConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicContractConfig {
     pub fee_bps: u32,
+    pub arbitration_fee_bps: u32,
     pub paused: bool,
     pub escrow_count: u64,
 }
@@ -253,6 +256,7 @@ pub struct PublicContractConfig {
 pub struct ContractConfig {
     pub admin: Address,
     pub fee_bps: u32,
+    pub arbitration_fee_bps: u32,
     pub fee_collector: Address,
     pub escrow_count: u64,
 }

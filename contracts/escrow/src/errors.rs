@@ -25,7 +25,10 @@ pub enum ContractError {
     EscrowHasNoBuyer = 8,
     /// Returned when auto-release is attempted before the configured shipping window has elapsed.
     ShippingWindowNotElapsed = 9,
-    /// Returned when dispute evidence fails validation.
+    /// Reserved. The `evidence_hash` parameter is typed `BytesN<32>`, so a
+    /// wrong-length digest is rejected by the host before `raise_dispute` runs
+    /// and this code is never returned today. Kept for future use if content
+    /// validation is added.
     InvalidEvidenceHash = 10,
     /// Returned when a dispute record is missing for the requested escrow.
     DisputeNotFound = 11,

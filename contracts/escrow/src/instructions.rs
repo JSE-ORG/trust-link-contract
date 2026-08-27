@@ -763,7 +763,9 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        if escrow.state != EscrowState::Funded {
+        // The seller may mark shipped from `Funded`, or from `RefundRequested`
+        // to override an outstanding buyer refund request (issue #730).
+        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::RefundRequested {
             return Err(ContractError::InvalidState);
         }
 

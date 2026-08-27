@@ -99,9 +99,12 @@ pub(crate) fn add_or_update_vote(
 /// carefully (e.g. avoid `threshold == N` for `N > 1`) and document the
 /// deadlock risk in user-facing material.  This is a known limitation of the
 /// current M-of-N voting system.
-pub(crate) fn tally_votes(votes: &Vec<ResolverVote>, threshold: u32) -> Option<ResolutionType> {
+pub(crate) fn tally_votes(
+    votes: &Vec<ResolverVote>,
+    threshold: u32,
+) -> Result<Option<ResolutionType>, ContractError> {
     if votes.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     let mut release_count = 0u32;
@@ -110,53 +113,26 @@ pub(crate) fn tally_votes(votes: &Vec<ResolverVote>, threshold: u32) -> Option<R
     for i in 0..votes.len() {
         if let Some(vote) = votes.get(i) {
             match vote.resolution {
-                ResolutionType::Release => release_count = release_count.saturating_add(1),
-                ResolutionType::Refund => refund_count = refund_count.saturating_add(1),
+                ResolutionType::Release => {
+                    release_count = release_count
+                        .checked_add(1)
+                        .ok_or(ContractError::ArithmeticError)?;
+                }
+                ResolutionType::Refund => {
+                    refund_count = refund_count
+                        .checked_add(1)
+                        .ok_or(ContractError::ArithmeticError)?;
+                }
             }
         }
     }
 
     if release_count >= threshold {
-        Some(ResolutionType::Release)
+        Ok(Some(ResolutionType::Release))
     } else if refund_count >= threshold {
-        Some(ResolutionType::Refund)
+        Ok(Some(ResolutionType::Refund))
     } else {
-        None
-    }
-}
-
-/// Validity matrix for escrow state transitions (#9).
-///
-/// Returns `Ok(())` if the move from `from` to `to` is legal under the
-/// escrow lifecycle, `Err(InvalidStateTransition)` otherwise. Provided as a
-/// pure helper alongside the existing inline guards so reviewers can audit
-/// every legal edge in one place.
-#[allow(dead_code)]
-pub fn transition_state(from: &EscrowState, to: &EscrowState) -> Result<(), ContractError> {
-    use EscrowState::*;
-    let allowed = matches!(
-        (from, to),
-        (Pending, Funded)
-            | (Pending, Canceled)
-            | (Funded, Shipped)
-            | (Funded, Disputed)
-            | (Funded, Refunded)
-            | (Funded, RefundRequested)
-            | (RefundRequested, Refunded)
-            | (Shipped, Completed)
-            | (Shipped, Disputed)
-            | (Shipped, Refunded)
-            | (Disputed, Completed)
-            | (Disputed, Refunded)
-            | (Disputed, PendingFinalization)
-            | (PendingFinalization, Completed)
-            | (PendingFinalization, Refunded)
-            | (PendingFinalization, Disputed)
-    );
-    if allowed {
-        Ok(())
-    } else {
-        Err(ContractError::InvalidStateTransition)
+        Ok(None)
     }
 }
 
@@ -868,6 +844,17 @@ pub(crate) fn execute_resolution_transition(
             &current_total
                 .checked_add(arbitration_fee)
                 .ok_or(ContractError::ArithmeticError)?,
+    let fee_collector: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::FeeCollector)
+        .ok_or(ContractError::NotInitialized)?;
+
+    if arbitration_fee > 0 {
+        token::Client::new(env, &updated_escrow.token).transfer(
+            &env.current_contract_address(),
+            &fee_collector,
+            &arbitration_fee,
         );
 
         let fee_collector: Address = env

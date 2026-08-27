@@ -98,21 +98,21 @@ fn test_happy_path_escrow_lifecycle() {
         |e| { e.escrow_id == escrow_id && e.seller == seller && e.amount == amount }
     ));
 
-    let escrow_before = fx.client.get_escrow(&escrow_id);
+    let escrow_before = client.get_escrow(&escrow_id);
     assert_eq!(escrow_before.state, EscrowState::Pending);
     assert_eq!(escrow_before.amount, amount);
 
     // 2. Fund Escrow
-    fx.client.fund_escrow(&escrow_id, &fx.buyer);
+    client.fund_escrow(&escrow_id, &buyer);
 
     assert!(has_event::<EscrowFunded, _>(
-        &fx.env,
-        &fx.contract_id,
+        &env,
+        &contract_id,
         "escrow_funded",
-        |e| { e.escrow_id == escrow_id && e.buyer == fx.buyer && e.amount == amount }
+        |e| { e.escrow_id == escrow_id && e.buyer == buyer && e.amount == amount }
     ));
 
-    let escrow_funded = fx.client.get_escrow(&escrow_id);
+    let escrow_funded = client.get_escrow(&escrow_id);
     assert_eq!(escrow_funded.state, EscrowState::Funded);
     assert_eq!(token::Client::new(&env, &token_addr).balance(&buyer), 0);
     assert_eq!(
@@ -121,8 +121,8 @@ fn test_happy_path_escrow_lifecycle() {
     );
 
     // 3. Mark Shipped
-    let tracking = SorobanString::from_str(&fx.env, "TRK-HAPPY-001");
-    fx.client.mark_shipped(&fx.seller, &escrow_id, &tracking);
+    let tracking = SorobanString::from_str(&env, "TRK-HAPPY-001");
+    client.mark_shipped(&seller, &escrow_id, &tracking);
 
     assert!(has_event::<EscrowShipped, _>(
         &env,
@@ -131,21 +131,21 @@ fn test_happy_path_escrow_lifecycle() {
         |e| { e.escrow_id == escrow_id && e.seller == seller && e.tracking_id == tracking }
     ));
 
-    let escrow_shipped = fx.client.get_escrow(&escrow_id);
+    let escrow_shipped = client.get_escrow(&escrow_id);
     assert_eq!(escrow_shipped.state, EscrowState::Shipped);
 
     // 4. Confirm Delivery — must advance past dispute_deadline (funded_at + 172_800s).
-    fx.env.ledger().set_timestamp(172_801);
-    fx.client.confirm_delivery(&fx.buyer, &escrow_id);
+    env.ledger().set_timestamp(172_801);
+    client.confirm_delivery(&buyer, &escrow_id);
 
     assert!(has_event::<EscrowCompleted, _>(
-        &fx.env,
-        &fx.contract_id,
+        &env,
+        &contract_id,
         "escrow_completed",
-        |e| { e.escrow_id == escrow_id && e.recipient == fx.seller && e.amount == amount }
+        |e| { e.escrow_id == escrow_id && e.recipient == seller && e.amount == amount }
     ));
 
-    let escrow_completed = fx.client.get_escrow(&escrow_id);
+    let escrow_completed = client.get_escrow(&escrow_id);
     assert_eq!(escrow_completed.state, EscrowState::Completed);
 
     // 5. Assert Payout and Fee Allocation

@@ -5,9 +5,14 @@
   "description": "TypeScript bindings, React hooks, and Soroban adapter for the TrustLink escrow contract.",
   "exports": {
     ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./types": "./src/types.ts",
+    "./abi": "./src/abi.ts",
+    "./errors": "./src/errors.ts",
+    "./evidence": "./src/evidence.ts",
+    "./simulation": "./src/simulation.ts",
     "./hooks": "./src/hooks.ts",
-    "./soroban-react": "./src/soroban-react.ts",
-    "./errors": "./src/errors.ts"
+    "./soroban-react": "./src/soroban-react.ts"
   },
   "files": [
     "src"
@@ -47,9 +52,13 @@
     "@soroban-react/core": "^9.3.0",
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^16.0.1",
+    "@types/crypto-js": "^4.2.2",
     "@types/node": "^26.0.1",
     "@types/react": "^19.2.17",
     "react": "^19.2.7",
     "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "crypto-js": "^4.2.0"
   }
 }
