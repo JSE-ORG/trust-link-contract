@@ -29,7 +29,7 @@ fuzz_target!(|data: &[u8]| {
 
     h.env.ledger().set_timestamp(r.timestamp());
 
-    let target_id = if r.bool() { escrow_id } else { r.u64() };
+    let target_id = r.target_id(escrow_id);
 
     // Several signatures in a fuzz-chosen order: the release may only settle
     // once, no matter how the co-signatures arrive.

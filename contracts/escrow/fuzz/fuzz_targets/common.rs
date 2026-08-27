@@ -257,6 +257,18 @@ impl<'d> Reader<'d> {
         (self.u8() as usize) % (max + 1)
     }
 
+    /// Roughly half the time returns `real_id` (the escrow the target already
+    /// set up); the rest of the time returns an arbitrary fuzzed id. Nearly
+    /// every target uses this to choose between exercising the real escrow
+    /// and probing the not-found / wrong-id path.
+    pub fn target_id(&mut self, real_id: u64) -> u64 {
+        if self.bool() {
+            real_id
+        } else {
+            self.u64()
+        }
+    }
+
     /// An ASCII string of up to `max` characters, exercising the contract's
     /// length validation from empty through over-long.
     pub fn ascii_string(&mut self, env: &Env, max: usize) -> SorobanString {

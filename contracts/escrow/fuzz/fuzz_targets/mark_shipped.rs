@@ -18,7 +18,7 @@ fuzz_target!(|data: &[u8]| {
     let caller = h.actor(r.u8());
     // 96 straddles MAX_TRACKING_ID_LEN (64), so both sides of the bound run.
     let tracking_id = r.ascii_string(&h.env, 96);
-    let target_id = if r.bool() { escrow_id } else { r.u64() };
+    let target_id = r.target_id(escrow_id);
 
     let _ = h.client.try_mark_shipped(&caller, &target_id, &tracking_id);
 
