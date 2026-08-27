@@ -519,6 +519,10 @@ impl Escrow {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTtlExtension)?;
         let ledgers = u32::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
 
+        if ledgers < MIN_TTL_EXTENSION {
+            return Err(ContractError::InvalidTtlExtension);
+        }
+
         let old_ledgers = storage::get_ttl_extension(&env);
         env.storage()
             .instance()
@@ -942,6 +946,9 @@ impl Escrow {
         caller.require_auth();
         if caller != admin {
             return Err(ContractError::NotAuthorized);
+        }
+        if extension_seconds < MIN_TTL_EXTENSION {
+            return Err(ContractError::InvalidTtlExtension);
         }
         env.storage()
             .instance()
