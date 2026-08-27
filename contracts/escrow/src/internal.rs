@@ -440,11 +440,16 @@ pub(crate) fn update_arbitration_fee(
     Ok(old_fee)
 }
 
+/// Effective TTL extension (in ledgers) applied to every `extend_ttl` call:
+/// the admin-configured `TtlExtensionLedgers` value, or `DEFAULT_TTL_EXTENSION`
+/// when none has been set.
+///
+/// Thin re-export of [`crate::storage::get_ttl_extension`] so the instructions,
+/// admin, and disputes modules — which reach for helpers through `internal` —
+/// resolve the value through the exact same code path as the `storage` layer,
+/// leaving one implementation to keep correct.
 pub(crate) fn get_ttl_extension(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::TtlExtensionLedgers)
-        .unwrap_or(DEFAULT_TTL_EXTENSION)
+    crate::storage::get_ttl_extension(env)
 }
 
 /// Saves the escrow and records a state-history entry if the state changed.
