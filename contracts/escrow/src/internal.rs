@@ -638,6 +638,124 @@ pub(crate) fn payout_basket_tokens(
     Ok(())
 }
 
+/// State and timing gate for [`Escrow::auto_release`](crate::Escrow::auto_release).
+///
+/// `auto_release` is permissionless — anyone may call it — so the safety of the
+/// flow rests entirely on these checks. They live here, separate from the
+/// payout, so the release-eligibility rules are in one place and can be
+/// reasoned about (and tested) on their own.
+///
+/// Returns `Ok(())` only when every condition holds:
+/// - the escrow is `Funded` or `Shipped` (`InvalidState` otherwise);
+/// - no dispute has been raised (`InvalidState`);
+/// - the applicable no-dispute window has fully elapsed:
+///   - delivery recorded: `now >= delivered_at + DELIVERY_RELEASE_WINDOW`,
+///     else `ShippingWindowNotElapsed`;
+///   - `Shipped` but no recorded delivery: `DeliveryNotRecorded` (delivery must
+///     be recorded first);
+///   - otherwise the buyer's dispute window must have opened
+///     (`DeliveryBeforeDisputeWindow`) and the shipping window measured from
+///     `shipped_at` — or `funded_at` if the escrow was never shipped — must
+///     have elapsed (`ShippingWindowNotElapsed`).
+pub(crate) fn ensure_auto_release_eligible(
+    env: &Env,
+    escrow: &EscrowData,
+    escrow_id: u64,
+) -> Result<(), ContractError> {
+    if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+        return Err(ContractError::InvalidState);
+    }
+
+    if load_dispute(env, escrow_id).is_ok() {
+        return Err(ContractError::InvalidState);
+    }
+
+    let now = env.ledger().timestamp();
+
+    if let Some(delivered_at) = escrow.delivered_at {
+        let eligible_at = delivered_at
+            .checked_add(DELIVERY_RELEASE_WINDOW)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if now < eligible_at {
+            return Err(ContractError::ShippingWindowNotElapsed);
+        }
+    } else if escrow.state == EscrowState::Shipped {
+        return Err(ContractError::DeliveryNotRecorded);
+    } else {
+        if now < escrow.dispute_deadline {
+            return Err(ContractError::DeliveryBeforeDisputeWindow);
+        }
+        let shipped_or_funded_at = if escrow.shipped_at > 0 {
+            escrow.shipped_at
+        } else {
+            escrow.funded_at
+        };
+        let window_elapsed_at = shipped_or_funded_at
+            .checked_add(escrow.shipping_window)
+            .ok_or(ContractError::ArithmeticError)?;
+        if now < window_elapsed_at {
+            return Err(ContractError::ShippingWindowNotElapsed);
+        }
+    }
+
+    Ok(())
+}
+
+/// Shared settlement path for the two "pay the payees and close the escrow"
+/// flows: [`Escrow::auto_release`](crate::Escrow::auto_release) and
+/// [`Escrow::confirm_delivery`](crate::Escrow::confirm_delivery).
+///
+/// Takes the protocol fee off the top (paid to the fee collector), splits the
+/// remainder across `escrow.payees`, forwards any non-primary basket tokens to
+/// the primary payee, then flips the escrow to `Completed` and bumps the
+/// completed-escrow counter.
+///
+/// `fee_bps` is passed in rather than read here because the callers source it
+/// differently — `auto_release` uses the current global protocol fee,
+/// `confirm_delivery` uses the rate snapshotted on the escrow — and that
+/// difference is preserved deliberately.
+///
+/// Returns `(prev_state, first_payee)` so the caller can emit its own
+/// completion event.
+pub(crate) fn settle_escrow_to_payees(
+    env: &Env,
+    escrow: &mut EscrowData,
+    escrow_id: u64,
+    fee_bps: u32,
+) -> Result<(EscrowState, Address), ContractError> {
+    let fee_collector: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::FeeCollector)
+        .ok_or(ContractError::NotInitialized)?;
+
+    let first_payee_addr = escrow
+        .payees
+        .get(0)
+        .ok_or(ContractError::IndexOutOfBounds)?
+        .address
+        .clone();
+
+    let (protocol_fee, net_amount) =
+        crate::helpers::payout::calculate_protocol_fee(escrow.amount, fee_bps)?;
+    if protocol_fee > 0 {
+        token::Client::new(env, &escrow.token).transfer(
+            &env.current_contract_address(),
+            &fee_collector,
+            &protocol_fee,
+        );
+    }
+    distribute_to_payees(env, &escrow.token, &escrow.payees, net_amount)?;
+    payout_basket_tokens(env, escrow_id, &first_payee_addr)?;
+
+    let prev_state = escrow.state.clone();
+    escrow.state = EscrowState::Completed;
+    save_escrow(env, escrow_id, escrow, Some(&prev_state));
+    increment_counter(env, &DataKey::TotalCompleted)?;
+
+    Ok((prev_state, first_payee_addr))
+}
+
 pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
     if let Some(schedule) = env
         .storage()

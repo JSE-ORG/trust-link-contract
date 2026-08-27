@@ -938,34 +938,9 @@ impl Escrow {
             return Err(ContractError::DeliveryBeforeDisputeWindow);
         }
 
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotInitialized)?;
-
-        let first_payee_addr = escrow
-            .payees
-            .get(0)
-            .ok_or(ContractError::IndexOutOfBounds)?
-            .address
-            .clone();
-        let (protocol_fee, net_amount) =
-            crate::helpers::payout::calculate_protocol_fee(escrow.amount, escrow.fee_bps)?;
-        if protocol_fee > 0 {
-            token::Client::new(&env, &escrow.token).transfer(
-                &env.current_contract_address(),
-                &fee_collector,
-                &protocol_fee,
-            );
-        }
-        distribute_to_payees(&env, &escrow.token, &escrow.payees, net_amount)?;
-        payout_basket_tokens(&env, escrow_id, &first_payee_addr)?;
-
-        let prev_state = escrow.state.clone();
-        escrow.state = EscrowState::Completed;
-        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-        increment_counter(&env, &DataKey::TotalCompleted)?;
+        let snapshot_fee_bps = escrow.fee_bps;
+        let (prev_state, first_payee_addr) =
+            settle_escrow_to_payees(&env, &mut escrow, escrow_id, snapshot_fee_bps)?;
 
         emit_escrow_completed(
             &env,
@@ -1065,73 +1040,13 @@ impl Escrow {
         crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
-        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-            return Err(ContractError::InvalidState);
-        }
+        ensure_auto_release_eligible(&env, &escrow, escrow_id)?;
 
-        if load_dispute(&env, escrow_id).is_ok() {
-            return Err(ContractError::InvalidState);
-        }
-
-        let now = env.ledger().timestamp();
-
-        if let Some(delivered_at) = escrow.delivered_at {
-            let eligible_at = delivered_at
-                .checked_add(DELIVERY_RELEASE_WINDOW)
-                .ok_or(ContractError::ArithmeticOverflow)?;
-            if now < eligible_at {
-                return Err(ContractError::ShippingWindowNotElapsed);
-            }
-        } else if escrow.state == EscrowState::Shipped {
-            return Err(ContractError::DeliveryNotRecorded);
-        } else {
-            if now < escrow.dispute_deadline {
-                return Err(ContractError::DeliveryBeforeDisputeWindow);
-            }
-            let shipped_or_funded_at = if escrow.shipped_at > 0 {
-                escrow.shipped_at
-            } else {
-                escrow.funded_at
-            };
-            let window_elapsed_at = shipped_or_funded_at
-                .checked_add(escrow.shipping_window)
-                .ok_or(ContractError::ArithmeticError)?;
-            if now < window_elapsed_at {
-                return Err(ContractError::ShippingWindowNotElapsed);
-            }
-        }
-
-        let fee_config = read_fee_config(&env);
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotInitialized)?;
-
-        let first_payee_addr = escrow
-            .payees
-            .get(0)
-            .ok_or(ContractError::IndexOutOfBounds)?
-            .address
-            .clone();
-        let (protocol_fee, net_amount) = crate::helpers::payout::calculate_protocol_fee(
-            escrow.amount,
-            fee_config.protocol_fee_bps,
-        )?;
-        if protocol_fee > 0 {
-            token::Client::new(&env, &escrow.token).transfer(
-                &env.current_contract_address(),
-                &fee_collector,
-                &protocol_fee,
-            );
-        }
-        distribute_to_payees(&env, &escrow.token, &escrow.payees, net_amount)?;
-        payout_basket_tokens(&env, escrow_id, &first_payee_addr)?;
-
-        let prev_state = escrow.state.clone();
-        escrow.state = EscrowState::Completed;
-        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-        increment_counter(&env, &DataKey::TotalCompleted)?;
+        // `auto_release` settles at the *current* global protocol fee, unlike
+        // `confirm_delivery` which uses the rate snapshotted on the escrow.
+        let protocol_fee_bps = read_fee_config(&env).protocol_fee_bps;
+        let (prev_state, first_payee_addr) =
+            settle_escrow_to_payees(&env, &mut escrow, escrow_id, protocol_fee_bps)?;
 
         emit_auto_released(
             &env,
