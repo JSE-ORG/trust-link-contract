@@ -214,7 +214,8 @@ indexer/
 │   ├── db.ts                                      # pg Pool + withTx
 │   ├── cursor.ts                                  # read/write indexer_cursor
 │   ├── apply.ts                                   # event → SQL state machine
-│   ├── ingest.ts                                  # polling loop + ingestBatch
+│   ├── soroban-event-source.ts                    # getEvents polling + XDR decoding
+│   ├── ingest.ts                                  # ingestBatch + live polling loop (CLI)
 │   ├── replay.ts                                  # deterministic fixture replay (CLI + API)
 │   └── *.test.ts                                  # node:test unit tests
 ├── mercury/
