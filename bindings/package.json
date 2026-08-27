@@ -5,9 +5,14 @@
   "description": "TypeScript bindings, React hooks, and Soroban adapter for the TrustLink escrow contract.",
   "exports": {
     ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./types": "./src/types.ts",
+    "./abi": "./src/abi.ts",
+    "./errors": "./src/errors.ts",
+    "./evidence": "./src/evidence.ts",
+    "./simulation": "./src/simulation.ts",
     "./hooks": "./src/hooks.ts",
-    "./soroban-react": "./src/soroban-react.ts",
-    "./errors": "./src/errors.ts"
+    "./soroban-react": "./src/soroban-react.ts"
   },
   "files": [
     "src"
