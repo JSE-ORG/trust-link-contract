@@ -911,7 +911,20 @@ impl Escrow {
         Ok(())
     }
 
-    /// Confirms delivery and completes the escrow. Callable by the buyer.
+    /// Buyer confirms delivery and releases the escrowed funds to the payees.
+    ///
+    /// Only the escrow's `buyer` may call this, and only while the escrow is
+    /// `Shipped` (`InvalidStateTransition` otherwise). The buyer's dispute
+    /// window (`funded_at + DISPUTE_WINDOW`, stored as `dispute_deadline`) must
+    /// have elapsed first: calling during the window returns
+    /// `DisputeWindowStillOpen`, mirroring `raise_dispute`'s complementary
+    /// `now < dispute_deadline` guard so the two entry points never overlap on
+    /// the same ledger second.
+    ///
+    /// On success the protocol fee (using the escrow's snapshotted `fee_bps`)
+    /// goes to the fee collector, the remainder is split across `payees`, any
+    /// basket tokens are paid to the primary payee, and the escrow moves to
+    /// `Completed`. Emits `escrow_completed`.
     pub fn confirm_delivery(
         env: Env,
         caller: Address,
@@ -934,8 +947,13 @@ impl Escrow {
             return Err(ContractError::InvalidStateTransition);
         }
 
+        // The dispute window is still open until `dispute_deadline`; the buyer
+        // can only confirm once it has closed. `DisputeWindowStillOpen` is the
+        // error defined for exactly this case (`DeliveryBeforeDisputeWindow`
+        // means the window has not *started*, which cannot happen for a
+        // `Shipped` escrow — it is always funded).
         if env.ledger().timestamp() < escrow.dispute_deadline {
-            return Err(ContractError::DeliveryBeforeDisputeWindow);
+            return Err(ContractError::DisputeWindowStillOpen);
         }
 
         let fee_collector: Address = env
