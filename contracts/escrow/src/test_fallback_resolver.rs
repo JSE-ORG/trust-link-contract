@@ -160,6 +160,27 @@ fn backup_resolver_can_resolve_dispute_after_deadline() {
 }
 
 #[test]
+fn backup_resolver_authorized_exactly_at_deadline() {
+    // #661 boundary: `can_resolve_now` gates the backup with
+    // `now >= dispute_deadline`, so the backup is authorized *at* the deadline
+    // instant, not one second later. `create_funded_shipped_disputed` sets the
+    // deadline to `now + 100` and the default test ledger starts at t = 0.
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    setup.env.ledger().set_timestamp(100);
+
+    let result = client.try_resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Refund);
+    assert!(result.is_ok());
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization,
+    );
+}
+
+#[test]
 fn backup_resolver_cannot_resolve_dispute_before_deadline() {
     let setup = setup();
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
