@@ -43,6 +43,8 @@ pub enum DataKey {
     TotalDisputed,
     TotalCompleted,
     TotalRefunded,
+    /// Reserved for future use. Currently unused; may store per-escrow
+    /// evidence audit logs if on-chain verification is added later.
     EvidenceLog(u64),
     BasketTokens(u64),
     DeliveryProposal(u64),

@@ -70,11 +70,7 @@ export async function hashEvidenceHex(input: EvidenceInput): Promise<string> {
 
 /** Lowercase hex encoding of a digest, without a `0x` prefix. */
 export function toHex(hash: Uint8Array): string {
-  let out = "";
-  for (const byte of hash) {
-    out += byte.toString(16).padStart(2, "0");
-  }
-  return out;
+  return Array.from(hash, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -130,6 +126,22 @@ export async function verifyEvidence(
 ): Promise<boolean> {
   if (!isValidEvidenceHash(committed)) return false;
   const actual = await hashEvidence(input);
-  // Length is fixed and both values are public, so a plain compare is fine.
-  return actual.every((byte, i) => byte === committed[i]);
+  // Fixed-length, public values — plain compare is correct here.
+  return toHex(actual) === toHex(committed);
+}
+
+/**
+ * Hash a `File` or `Blob` (browser) or a `ReadableStream` (Node 18+).
+ *
+ * Convenience wrapper that reads the entire content via `.arrayBuffer()` and
+ * passes it to {@link hashEvidence}. Works in browsers and Node 20+.
+ *
+ * @example
+ * ```ts
+ * const fileInput = document.querySelector<HTMLInputElement>("#file")!;
+ * const hash = await hashFile(fileInput.files![0]);
+ * ```
+ */
+export async function hashFile(file: File | Blob): Promise<Bytes32> {
+  return hashEvidence(await file.arrayBuffer());
 }
