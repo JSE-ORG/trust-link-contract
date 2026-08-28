@@ -20,3 +20,14 @@ else
 fi
 
 echo "Build complete: ${WASM_FILE}"
+
+
+
+
+
+
+
+
+
+
+
