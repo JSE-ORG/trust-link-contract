@@ -155,26 +155,14 @@ impl Escrow {
     /// Sets the fee collector address immediately (not timelocked). Only
     /// callable by the current admin, gated at the host level via
     /// `admin.require_auth()`. Reverts with `InvalidAddress` if
-    /// `new_collector` is the all-zero address. Emits
+    /// `new_collector` is the all-zero address or the current admin, or with
+    /// `SameAddress` if it already is the collector. Emits
     /// `emit_fee_collector_updated`.
     pub fn set_fee_collector(env: Env, new_collector: Address) -> Result<(), ContractError> {
         let admin = require_admin(&env)?;
         admin.require_auth();
 
-        let zero = crate::zero_address(&env);
-        if new_collector == zero {
-            return Err(ContractError::InvalidAddress);
-        }
-
-        let old_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotAuthorized)?;
-
-        if new_collector == old_collector {
-            return Err(ContractError::SameAddress);
-        }
+        let old_collector = validate_fee_collector_change(&env, &new_collector)?;
 
         env.storage()
             .instance()
@@ -524,19 +512,7 @@ impl Escrow {
         )
         .map_err(|_| ContractError::IndexOutOfBounds)?;
 
-        let zero = crate::zero_address(&env);
-        if new_collector == zero {
-            return Err(ContractError::InvalidAddress);
-        }
-        let old_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotAuthorized)?;
-
-        if new_collector == old_collector {
-            return Err(ContractError::SameAddress);
-        }
+        let old_collector = validate_fee_collector_change(&env, &new_collector)?;
 
         env.storage()
             .instance()

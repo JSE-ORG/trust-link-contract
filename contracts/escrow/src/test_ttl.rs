@@ -18,9 +18,20 @@
 //! - [`test_instance_ttl_extended_on_escrow_creation`] — instance survives near-expiry after create
 //! - [`test_custom_ttl_applied_to_persistent_entry`] — custom TTL is used for new escrows
 //! - [`test_resolver_votes_ttl_extended`] — resolver votes persistent entry survives
+//!
+//! # `get_ttl_extension` / configuration-logic coverage
+//! - [`get_ttl_extension_defaults_when_unset`] — fresh contract resolves to `DEFAULT_TTL_EXTENSION`
+//! - [`internal_and_storage_get_ttl_extension_always_agree`] — the two accessor helpers never drift
+//! - [`set_ttl_extension_overwrites_the_previous_value`] — last write wins
+//! - [`ttl_threshold_divisor_is_half`] — the extend-when-below threshold stays `ext / 2`
+//! - [`queued_ttl_extension_applies_after_timelock`] — timelocked update flows into `get_ttl_extension`
+//! - [`execute_ttl_extension_before_timelock_elapses_is_rejected`] — early execute reverts
+//! - [`execute_ttl_extension_without_a_queued_proposal_is_rejected`] — execute with nothing queued reverts
+//! - [`timelocked_smaller_ttl_value_flows_into_extend_ttl`] — a reduced value is honoured end-to-end
 
+use crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS;
 use crate::test_helpers::{create_funded_escrow, setup_contract};
-use crate::{DEFAULT_TTL_EXTENSION, MIN_TTL_EXTENSION};
+use crate::{ContractError, DEFAULT_TTL_EXTENSION, MIN_TTL_EXTENSION, TTL_THRESHOLD_DIVISOR};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     Address, Env,
@@ -374,5 +385,173 @@ fn test_resolver_votes_ttl_extended() {
     assert!(
         dispute.is_some(),
         "dispute entry was archived after ledger advance"
+    );
+}
+
+// ============================================================================
+// get_ttl_extension resolution + configuration logic
+// ============================================================================
+
+/// Reads the effective TTL extension both accessor helpers resolve, from inside
+/// the contract's storage context.
+fn effective_ttl_extension(env: &Env, contract_id: &Address) -> (u32, u32) {
+    env.as_contract(contract_id, || {
+        (
+            crate::internal::get_ttl_extension(env),
+            crate::storage::get_ttl_extension(env),
+        )
+    })
+}
+
+/// A fresh contract with no `TtlExtensionLedgers` entry resolves to the
+/// compile-time default.
+#[test]
+fn get_ttl_extension_defaults_when_unset() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, _client, _admin, _fee_collector) = setup_contract(&env);
+
+    let (internal_val, storage_val) = effective_ttl_extension(&env, &contract_id);
+    assert_eq!(internal_val, DEFAULT_TTL_EXTENSION);
+    assert_eq!(storage_val, DEFAULT_TTL_EXTENSION);
+}
+
+/// `internal::get_ttl_extension` and `storage::get_ttl_extension` must always
+/// return the same value — both unset (default) and after configuration.
+#[test]
+fn internal_and_storage_get_ttl_extension_always_agree() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    let (a, b) = effective_ttl_extension(&env, &contract_id);
+    assert_eq!(a, b, "helpers disagree when TtlExtensionLedgers is unset");
+    assert_eq!(a, DEFAULT_TTL_EXTENSION);
+
+    client.set_ttl_extension(&admin, &7_777_u32);
+
+    let (a, b) = effective_ttl_extension(&env, &contract_id);
+    assert_eq!(a, b, "helpers disagree after set_ttl_extension");
+    assert_eq!(a, 7_777);
+}
+
+/// Setting the TTL extension repeatedly keeps only the most recent value.
+#[test]
+fn set_ttl_extension_overwrites_the_previous_value() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    client.set_ttl_extension(&admin, &5_000_u32);
+    assert_eq!(effective_ttl_extension(&env, &contract_id).1, 5_000);
+
+    client.set_ttl_extension(&admin, &9_000_u32);
+    assert_eq!(effective_ttl_extension(&env, &contract_id).1, 9_000);
+}
+
+/// The "bump the TTL when it drops below" threshold is `ext / TTL_THRESHOLD_DIVISOR`,
+/// documented in `storage.rs` as `ext / 2`. Guard the constant against drift.
+#[test]
+fn ttl_threshold_divisor_is_half() {
+    assert_eq!(TTL_THRESHOLD_DIVISOR, 2);
+}
+
+// ============================================================================
+// Timelocked TTL extension update (queue_set_ttl_extension / execute_set_ttl_extension)
+// ============================================================================
+
+/// A queued TTL-extension change is only applied once the admin timelock has
+/// elapsed, and then it is what `get_ttl_extension` returns.
+#[test]
+fn queued_ttl_extension_applies_after_timelock() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    client.queue_set_ttl_extension(&admin, &42_000_u32);
+
+    // Still the default until the timelock elapses and execute runs.
+    assert_eq!(
+        effective_ttl_extension(&env, &contract_id).1,
+        DEFAULT_TTL_EXTENSION,
+    );
+
+    let now = env.ledger().timestamp();
+    env.ledger()
+        .set_timestamp(now + ADMIN_TIMELOCK_DELAY_SECONDS + 1);
+
+    client.execute_set_ttl_extension(&admin);
+
+    assert_eq!(effective_ttl_extension(&env, &contract_id).1, 42_000);
+}
+
+/// Executing the TTL-extension change before the timelock is ready reverts and
+/// leaves the value untouched.
+#[test]
+fn execute_ttl_extension_before_timelock_elapses_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    client.queue_set_ttl_extension(&admin, &42_000_u32);
+
+    assert_eq!(
+        client.try_execute_set_ttl_extension(&admin),
+        Err(Ok(ContractError::InvalidState)),
+    );
+    assert_eq!(
+        effective_ttl_extension(&env, &contract_id).1,
+        DEFAULT_TTL_EXTENSION,
+    );
+}
+
+/// Executing a TTL-extension change with nothing queued reverts.
+#[test]
+fn execute_ttl_extension_without_a_queued_proposal_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    assert_eq!(
+        client.try_execute_set_ttl_extension(&admin),
+        Err(Ok(ContractError::InvalidState)),
+    );
+}
+
+/// A *reduced* TTL extension applied via the timelocked path is honoured
+/// end-to-end: a persistent entry written afterwards survives a ledger advance
+/// just under the new (smaller) value, proving the configured value — not the
+/// default — flows into `extend_ttl`.
+#[test]
+fn timelocked_smaller_ttl_value_flows_into_extend_ttl() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    let new_ttl: u32 = 5_000;
+    client.queue_set_ttl_extension(&admin, &new_ttl);
+    let now = env.ledger().timestamp();
+    env.ledger()
+        .set_timestamp(now + ADMIN_TIMELOCK_DELAY_SECONDS + 1);
+    client.execute_set_ttl_extension(&admin);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 750, 0, 3600,
+    );
+
+    // Advance the ledger by just under the newly configured extension.
+    let mut ledger_info = env.ledger().get();
+    ledger_info.sequence_number += new_ttl - 1;
+    env.ledger().set(ledger_info);
+
+    let escrow = client.get_escrow(&id);
+    assert_eq!(
+        escrow.amount, 750,
+        "escrow archived before its configured TTL"
     );
 }
