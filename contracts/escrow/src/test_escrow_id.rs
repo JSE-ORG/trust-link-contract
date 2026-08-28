@@ -1,9 +1,10 @@
 #![cfg(test)]
 
-use crate::{Escrow, EscrowCancelled, EscrowClient};
+use crate::{Escrow, EscrowCanceled, EscrowClient, Payee};
 use soroban_sdk::{
+    symbol_short,
     testutils::{Address as _, Events as _},
-    Address, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
+    Address, Env, IntoVal, String, Symbol, TryFromVal, Val, Vec,
 };
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address) {
@@ -20,7 +21,8 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address) {
 }
 
 fn has_cancel_event(env: &Env, contract_id: &Address, escrow_id: u64, seller: &Address) -> bool {
-    let expected_topic = Symbol::new(env, "escrow_cancelled");
+    let expected_t1 = symbol_short!("Escrow");
+    let expected_t2 = symbol_short!("Canceled");
     env.events()
         .all()
         .filter_by_contract(contract_id)
@@ -28,13 +30,20 @@ fn has_cancel_event(env: &Env, contract_id: &Address, escrow_id: u64, seller: &A
         .iter()
         .any(|event| match &event.body {
             soroban_sdk::xdr::ContractEventBody::V0(v0) => {
-                let Some(topic) = v0.topics.iter().next() else {
+                let mut topics = v0.topics.iter();
+                let Some(t1) = topics.next() else {
                     return false;
                 };
-                let Ok(topic) = Symbol::try_from_val(env, topic) else {
+                let Some(t2) = topics.next() else {
                     return false;
                 };
-                if topic != expected_topic {
+                let Ok(sym1) = Symbol::try_from_val(env, t1) else {
+                    return false;
+                };
+                let Ok(sym2) = Symbol::try_from_val(env, t2) else {
+                    return false;
+                };
+                if sym1 != expected_t1 || sym2 != expected_t2 {
                     return false;
                 }
 
@@ -42,11 +51,10 @@ fn has_cancel_event(env: &Env, contract_id: &Address, escrow_id: u64, seller: &A
                     return false;
                 };
 
-                EscrowCancelled::try_from_val(env, &data)
+                EscrowCanceled::try_from_val(env, &data)
                     .map(|event| event.escrow_id == escrow_id && &event.seller == seller)
                     .unwrap_or(false)
             }
-            _ => false,
         })
 }
 
@@ -60,14 +68,44 @@ fn test_escrow_ids_monotonic_and_unique() {
 
     let mut ids = Vec::new(&env);
     for i in 1..=10 {
-        let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
+        let mut payees_41 = Vec::new(&env);
+        payees_41.push_back(Payee {
+            address: seller.clone(),
+            bps: 10_000,
+        });
+        let payees_val = payees_41.into_val(&env);
+        let id = client.create_escrow_8(
+            &payees_val,
+            &None::<Address>,
+            &resolver,
+            &token,
+            &100_i128,
+            &0_u32,
+            &3600_u64,
+        );
         assert_eq!(id, i as u64);
         ids.push_back(id);
     }
 
     // Verify persistence: new client instance sees counter at 11
     let client2 = EscrowClient::new(&env, &contract_id);
-    let next_id = client2.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
+    let mut payees_40 = Vec::new(&env);
+    payees_40.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees_40.into_val(&env);
+    let next_id = client2.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
     assert_eq!(next_id, 11);
 }
 
@@ -79,9 +117,51 @@ fn test_escrow_ids_increment_sequentially() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    let id1 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
-    let id2 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
-    let id3 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
+    let mut payees_39 = Vec::new(&env);
+    payees_39.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_39_val = payees_39.into_val(&env);
+    let id1 = client.create_escrow_8(
+        &payees_39_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    let mut payees_38 = Vec::new(&env);
+    payees_38.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_38_val = payees_38.into_val(&env);
+    let id2 = client.create_escrow_8(
+        &payees_38_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    let mut payees_37 = Vec::new(&env);
+    payees_37.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_37_val = payees_37.into_val(&env);
+    let id3 = client.create_escrow_8(
+        &payees_37_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
 
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
@@ -96,15 +176,57 @@ fn test_cancelled_escrow_does_not_reset_counter() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    let id1 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
-    let id2 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
-    
+    let mut payees_36 = Vec::new(&env);
+    payees_36.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_36_val = payees_36.into_val(&env);
+    let id1 = client.create_escrow_8(
+        &payees_36_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    let mut payees_35 = Vec::new(&env);
+    payees_35.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_35_val = payees_35.into_val(&env);
+    let _id2 = client.create_escrow_8(
+        &payees_35_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+
     // Ensure cancellation of #1 doesn't reset counter to 1 or 2
     client.cancel_escrow(&seller, &id1);
     assert!(has_cancel_event(&env, &contract_id, id1, &seller));
 
     // Create a new escrow after cancellation
-    let next_id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
+    let mut payees_34 = Vec::new(&env);
+    payees_34.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_34_val = payees_34.into_val(&env);
+    let next_id = client.create_escrow_8(
+        &payees_34_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
     assert_eq!(next_id, 3);
 }
 
@@ -116,19 +238,75 @@ fn test_escrow_counter_does_not_skip_after_cancellation() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    let id1 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
-    let id2 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
-    
+    let mut payees_33 = Vec::new(&env);
+    payees_33.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_33_val = payees_33.into_val(&env);
+    let id1 = client.create_escrow_8(
+        &payees_33_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    let mut payees_32 = Vec::new(&env);
+    payees_32.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_32_val = payees_32.into_val(&env);
+    let id2 = client.create_escrow_8(
+        &payees_32_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+
     client.cancel_escrow(&seller, &id1);
-    
-    let id3 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
-    let id4 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
+
+    let mut payees_31 = Vec::new(&env);
+    payees_31.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_31_val = payees_31.into_val(&env);
+    let id3 = client.create_escrow_8(
+        &payees_31_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    let mut payees_30 = Vec::new(&env);
+    payees_30.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_30_val = payees_30.into_val(&env);
+    let id4 = client.create_escrow_8(
+        &payees_30_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
 
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
     assert_eq!(id3, 3);
     assert_eq!(id4, 4);
-    
+
     // Verify cancelled state is correctly kept in storage
     let cancelled_escrow = client.get_escrow(&id1);
     assert_eq!(cancelled_escrow.state, crate::EscrowState::Canceled);
@@ -142,13 +320,69 @@ fn test_multiple_cancellations() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    let id1 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
-    let id2 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
-    let id3 = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
-    
+    let mut payees_29 = Vec::new(&env);
+    payees_29.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_29_val = payees_29.into_val(&env);
+    let id1 = client.create_escrow_8(
+        &payees_29_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    let mut payees_28 = Vec::new(&env);
+    payees_28.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_28_val = payees_28.into_val(&env);
+    let id2 = client.create_escrow_8(
+        &payees_28_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    let mut payees_27 = Vec::new(&env);
+    payees_27.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_27_val = payees_27.into_val(&env);
+    let _id3 = client.create_escrow_8(
+        &payees_27_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+
     client.cancel_escrow(&seller, &id1);
     client.cancel_escrow(&seller, &id2);
-    
-    let next_id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &100_i128, &0_u32, &3600_u64);
+
+    let mut payees_26 = Vec::new(&env);
+    payees_26.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_26_val = payees_26.into_val(&env);
+    let next_id = client.create_escrow_8(
+        &payees_26_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
     assert_eq!(next_id, 4);
 }

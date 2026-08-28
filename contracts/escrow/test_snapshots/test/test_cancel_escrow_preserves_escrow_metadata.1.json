@@ -75,8 +75,12 @@
                   "u32": 250
                 },
                 {
+                  "u32": 0
+                },
+                {
                   "u64": "86400"
-                }
+                },
+                "void"
               ]
             }
           },
@@ -129,7 +133,7 @@
     ],
     [
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
         {
           "function": {
             "contract_fn": {
@@ -228,7 +232,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "2032731177588607455"
@@ -544,7 +548,13 @@
                             "val": {
                               "u32": 0
                             }
-                          },
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
                           {
                             "key": {
                               "symbol": "protocol_fee_bps"
@@ -554,6 +564,9 @@
                             }
                           }
                         ]
+                      },
+                      "val": {
+                        "bool": false
                       }
                     },
                     {

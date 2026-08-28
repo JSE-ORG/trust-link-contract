@@ -1,0 +1,25 @@
+### Stellar Expert REST API — Resolver Votes by Contract
+###
+### Reference: https://stellar.expert/openapi.html#tag/Contract-Events
+
+@network     = testnet
+@base        = https://api.stellar.expert/explorer/{{network}}
+@contract_id = CESCROW1111111111111111111111111111111111111111111111111111
+@page_size   = 100
+
+### ─────────────────────────────────────────────────────────────────────────
+### 1. All resolver_vote_recorded events for the contract
+###    topic[0] = Symbol("resolver_vote_recorded")
+###
+### curl:
+###   curl -s "https://api.stellar.expert/explorer/testnet/contract-events
+###     ?contract=$CONTRACT_ID
+###     &topic0=0000000f000000167265736f6c7665725f766f74655f7265636f726465640000
+###     &order=asc&limit=100" | jq '.'
+### ─────────────────────────────────────────────────────────────────────────
+GET {{base}}/contract-events
+  ?contract={{contract_id}}
+  &topic0=0000000f000000167265736f6c7665725f766f74655f7265636f726465640000
+  &order=asc
+  &limit={{page_size}}
+Accept: application/json

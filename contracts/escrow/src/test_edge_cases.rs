@@ -2,8 +2,11 @@
 
 use crate::helpers::payout::calculate_protocol_fee;
 use crate::test_helpers::{advance_time, create_funded_escrow, setup_contract};
-use crate::{ContractError, Escrow, EscrowClient, MIN_ESCROW_AMOUNT};
-use soroban_sdk::{testutils::{Address as _, Ledger as _}, token, Address, BytesN, Env, String as SorobanString, Symbol};
+use crate::{ContractError, Escrow, EscrowClient, Payee};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    Address, BytesN, Env, IntoVal, String as SorobanString, Symbol, Vec,
+};
 
 /// Seconds the dispute window stays open after funding (mirrors the private
 /// `DISPUTE_WINDOW` constant in `lib.rs`). `confirm_delivery` is only permitted
@@ -73,7 +76,8 @@ fn test_buyer_index_populated_on_cancel_by_buyer() {
 
     let token = {
         let token_admin = Address::generate(&env);
-        env.register_stellar_asset_contract_v2(token_admin).address()
+        env.register_stellar_asset_contract_v2(token_admin)
+            .address()
     };
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
 
@@ -82,14 +86,22 @@ fn test_buyer_index_populated_on_cancel_by_buyer() {
     let resolver = Address::generate(&env);
 
     // Create a Pending escrow that names the buyer up front.
+    let mut payees_25 = Vec::new(&env);
+    payees_25.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees_25.into_val(&env);
     let id = client.create_escrow(
-        &seller,
+        &payees_val,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &1000_i128,
         &100_u32,
+        &0_u32,
         &3600_u64,
+        &None::<SorobanString>,
     );
 
     // The buyer cancels the still-Pending escrow.
@@ -108,8 +120,8 @@ fn test_buyer_index_populated_on_cancel_by_buyer() {
 // (`fee = floor(amount * fee_bps / 10_000)`) and the payout is derived as
 // `net = amount - fee`. The truncated sub-stroop remainder therefore accrues to
 // the payout recipient rather than being stranded, so `net + fee == amount`
-// holds for every amount — divisible or not. The contract vault only ever
-// retains exactly `fee`, which the admin later sweeps via `withdraw_fees`.
+// holds for every amount — divisible or not. The fee is forwarded directly to
+// the configured fee collector at payout time; the contract never retains it.
 // ---------------------------------------------------------------------------
 
 /// Amounts where `amount * fee_bps` is NOT divisible by 10_000, so naive
@@ -164,16 +176,28 @@ fn test_min_escrow_amount_rejects_dust_prone_amount() {
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
     let seller = Address::generate(&env);
     let resolver = Address::generate(&env);
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
 
     // 99 stroops, 1% fee — the exact case from the bug report.
     // MIN_ESCROW_AMOUNT = 1, so 99 is above the minimum and should succeed for creation.
-    let result = client.try_create_escrow(&seller, &None::<Address>, &resolver, &token, &99_i128, &100_u32, &3600_u64);
+    let seller_val = seller.clone().into_val(&env);
+    let result = client.try_create_escrow_8(
+        &seller_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &99_i128,
+        &100_u32,
+        &3600_u64,
+    );
     assert!(result.is_ok());
 
     // One stroop below the minimum is still rejected.
-    let result = client.try_create_escrow(
-        &seller,
+    let seller_val = seller.clone().into_val(&env);
+    let result = client.try_create_escrow_8(
+        &seller_val,
         &None::<Address>,
         &resolver,
         &token,
@@ -184,15 +208,15 @@ fn test_min_escrow_amount_rejects_dust_prone_amount() {
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
 
-/// End-to-end: for non-divisible amounts, the seller's payout plus the fee left
-/// in the vault sum to exactly the original amount — no stroop is stranded. The
-/// vault retains precisely the floored fee (recoverable via `withdraw_fees`).
+/// End-to-end: for non-divisible amounts, the seller's payout plus the fee sent
+/// to the fee collector sum to exactly the original amount — no stroop is
+/// stranded. The fee collector receives precisely the floored fee.
 #[test]
 fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
     for (amount, fee_bps) in non_divisible_fee_cases() {
         let env = Env::default();
         env.mock_all_auths();
-        let (contract_id, client, admin, fee_collector) = setup_contract(&env);
+        let (_contract_id, client, admin, fee_collector) = setup_contract(&env);
 
         // Set protocol fee to match the per-escrow fee_bps used for testing
         client.set_protocol_fee(&admin, &fee_bps);
@@ -200,11 +224,17 @@ fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
         let seller = Address::generate(&env);
         let buyer = Address::generate(&env);
         let resolver = Address::generate(&env);
-        let token = env.register_stellar_asset_contract(Address::generate(&env));
+        let token = env
+            .register_stellar_asset_contract_v2(Address::generate(&env))
+            .address();
 
         let id = create_funded_escrow(
             &env, &client, &seller, &buyer, &resolver, &token, amount, fee_bps, 3600,
         );
+
+        // Ship the order so the escrow reaches the Shipped state required by
+        // confirm_delivery.
+        client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DUST"));
 
         // Move past the dispute window so the buyer can confirm delivery.
         advance_time(&env, DISPUTE_WINDOW_SECS + 1);
@@ -242,24 +272,24 @@ fn test_mark_shipped_twice_reverts() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
 
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
 
-    let id = create_funded_escrow(&env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+    );
 
     // First mark_shipped: Funded → Shipped, tracking_id recorded.
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-001"));
 
     // Second call on an already-Shipped escrow must revert.
-    let result = client.try_mark_shipped(
-        &seller,
-        &id,
-        &SorobanString::from_str(&env, "FAKE-999"),
-    );
+    let result = client.try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, "FAKE-999"));
     assert!(
         matches!(result, Err(Ok(ContractError::InvalidState))),
         "expected InvalidState, got {result:?}"
@@ -281,14 +311,18 @@ fn test_record_delivery_on_disputed_escrow_reverts() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
 
-    let id = create_funded_escrow(&env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+    );
 
     // Ship the escrow so the buyer can raise a dispute.
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DISP"));
@@ -319,15 +353,21 @@ fn test_counter_survives_near_ttl_expiry() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let token = env.register_stellar_asset_contract(Address::generate(&env));
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
 
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
 
-    let id1 = create_funded_escrow(&env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600);
-    let id2 = create_funded_escrow(&env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600);
+    let id1 = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
+    let id2 = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
 
@@ -338,10 +378,15 @@ fn test_counter_survives_near_ttl_expiry() {
     ledger_info.sequence_number += 120_000;
     env.ledger().set(ledger_info);
 
-    let id3 = create_funded_escrow(&env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600);
+    let id3 = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
 
     // Counter must not have reset — id3 must follow id2 monotonically.
-    assert_eq!(id3, 3, "counter reset after ledger advancement: got id={id3}");
+    assert_eq!(
+        id3, 3,
+        "counter reset after ledger advancement: got id={id3}"
+    );
 
     // Verify old escrows are still accessible.
     assert_eq!(client.get_escrow(&id1).amount, 1000);

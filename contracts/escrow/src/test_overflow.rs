@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    Address, Env,
+    Address, Env, IntoVal, String, Vec,
 };
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
@@ -16,7 +16,9 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
 
     (
         env,
@@ -47,22 +49,43 @@ fn test_fee_calculation_max_escrow_amount() {
     let amount = MAX_ESCROW_AMOUNT;
     let fee_bps = 300; // 3%
 
-    let id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &fee_bps, &3600_u64);
+    let mut payees_54 = Vec::new(&env);
+    payees_54.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+
+    let payees_val = payees_54.into_val(&env);
+    let id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &fee_bps,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
 
     mint_tokens(&env, &token, &buyer, amount);
     client.fund_escrow(&id, &buyer);
 
-    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "TRACK-MAX"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-MAX"),
+    );
 
     let escrow = client.get_escrow(&id);
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    // This should not panic because of split calculation
     client.confirm_delivery(&buyer, &id);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Completed);
 
-    let expected_fee = (MAX_ESCROW_AMOUNT / 10_000) * 300 + (MAX_ESCROW_AMOUNT % 10_000) * 300 / 10_000;
+    let expected_fee =
+        (MAX_ESCROW_AMOUNT / 10_000) * 300 + (MAX_ESCROW_AMOUNT % 10_000) * 300 / 10_000;
     let expected_net = MAX_ESCROW_AMOUNT - expected_fee;
 
     let tc = soroban_sdk::token::Client::new(&env, &token);
@@ -80,11 +103,40 @@ fn test_create_escrow_amount_exceeds_maximum() {
     let admin = Address::generate(&env);
     client.initialize(&admin, &fee_collector, &0_u32);
 
+    // Wrapped seller address inside a single-payee vector matching source interface logic
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+
     let amount = MAX_ESCROW_AMOUNT + 1;
-    let res = client.try_create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &300, &3600_u64);
+    let payees_val = payees.clone().into_val(&env);
+    let res = client.try_create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &300,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
     assert_eq!(res, Err(Ok(ContractError::AmountExceedsMaximum)));
 
-    let res2 = client.try_create_escrow(&seller, &None::<Address>, &resolver, &token, &i128::MAX, &300, &3600_u64);
+    let payees_val = payees.into_val(&env);
+    let res2 = client.try_create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &i128::MAX,
+        &300,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
     assert_eq!(res2, Err(Ok(ContractError::AmountExceedsMaximum)));
 }
 
@@ -97,10 +149,38 @@ fn test_create_escrow_invalid_amount() {
     let admin = Address::generate(&env);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    let res = client.try_create_escrow(&seller, &None::<Address>, &resolver, &token, &0, &200, &3600);
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+
+    let payees_val = payees.clone().into_val(&env);
+    let res = client.try_create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &0,
+        &200,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
     assert!(matches!(res, Err(Ok(ContractError::InvalidAmount))));
 
-    let res2 = client.try_create_escrow(&seller, &None::<Address>, &resolver, &token, &-1, &200, &3600);
+    let payees_val = payees.into_val(&env);
+    let res2 = client.try_create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &-1,
+        &200,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
     assert!(matches!(res2, Err(Ok(ContractError::InvalidAmount))));
 }
 
@@ -113,8 +193,37 @@ fn test_fee_exceeds_max_clean_error() {
     let admin = Address::generate(&env);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    let res = client.try_create_escrow(&seller, &None::<Address>, &resolver, &token, &1000, &301, &3600);
-    let res = client.try_create_escrow(&seller, &None::<Address>, &resolver, &token, &1000, &10_001, &3600);
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+
+    let payees_val = payees.clone().into_val(&env);
+    let _res_ignored = client.try_create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000,
+        &301,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
+
+    let payees_val = payees.into_val(&env);
+    let res = client.try_create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000,
+        &10_001,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
     assert!(matches!(res, Err(Ok(ContractError::FeeExceedsMax))));
 }
 
@@ -125,14 +234,31 @@ fn test_addition_overflow_escrow_counter() {
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     client.initialize(&admin, &fee_collector, &0_u32);
-    
-    env.as_contract(&contract_id, || {
-        env.storage().instance().set(&DataKey::EscrowCounter, &u64::MAX);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
     });
-    
-    let res = client.try_create_escrow(&seller, &None::<Address>, &resolver, &token, &1000, &300, &3600);
-    assert_eq!(res, Err(Ok(ContractError::ArithmeticError)));
-    let res = client.try_create_escrow(&seller, &None::<Address>, &resolver, &token, &1000, &300, &3600);
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::EscrowCounter, &u64::MAX);
+    });
+
+    let payees_val = payees.into_val(&env);
+    let res = client.try_create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000,
+        &300,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
     assert_eq!(res, Err(Ok(ContractError::ArithmeticError)));
 }
 
@@ -143,44 +269,77 @@ fn test_addition_overflow_shipping_window() {
     let client = super::EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     client.initialize(&admin, &fee_collector, &0_u32);
-    
+
     let amount = 1000;
     mint_tokens(&env, &token, &buyer, amount);
-    
-    let escrow_id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &300, &u64::MAX);
+
+    let mut payees_53 = Vec::new(&env);
+    payees_53.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+
+    let payees_val = payees_53.into_val(&env);
+    let _escrow_id_1 = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &300,
+        &0_u32,
+        &MAX_SHIPPING_WINDOW,
+        &None::<String>,
+    );
     env.ledger().set_timestamp(1000);
-    let escrow_id = client.create_escrow(&seller, &None::<Address>, &resolver, &token, &amount, &300, &u64::MAX);
-    client.fund_escrow(&escrow_id, &buyer);
-    client.mark_shipped(&seller, &escrow_id, &soroban_sdk::String::from_str(&env, "TRACK-OVERFLOW"));
+
+    let mut payees_52 = Vec::new(&env);
+    payees_52.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+
+    let payees_val = payees_52.into_val(&env);
+    let escrow_id_2 = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &300,
+        &0_u32,
+        &MAX_SHIPPING_WINDOW,
+        &None::<String>,
+    );
+    client.fund_escrow(&escrow_id_2, &buyer);
+    client.mark_shipped(
+        &seller,
+        &escrow_id_2,
+        &soroban_sdk::String::from_str(&env, "TRACK-OVERFLOW"),
+    );
+    env.ledger().set_timestamp(u64::MAX - 100_000);
+    client.propose_record_delivery(&admin, &escrow_id_2);
     env.ledger().set_timestamp(u64::MAX - 10);
-    client.record_delivery(&admin, &escrow_id);
+    client.record_delivery(&admin, &escrow_id_2);
 
     env.ledger().set_timestamp(u64::MAX - 1);
-    let res = client.try_auto_release(&escrow_id);
+    let res = client.try_auto_release(&escrow_id_2);
     assert_eq!(res, Err(Ok(ContractError::ArithmeticOverflow)));
 }
 
 #[test]
-fn test_subtraction_underflow_safety() {
-    let env = Env::default();
-    let token = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    
-    let res = super::deduct_and_transfer(&env, &token, &recipient, -1, 300);
-    assert_eq!(res, Err(ContractError::InvalidAmount));
-}
-
-#[test]
-fn test_multiplication_overflow() {
-    let env = Env::default();
-    let token = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    
+fn test_calculate_protocol_fee_i128_max_does_not_overflow() {
     let amount = i128::MAX;
-    let fee_bps = u32::MAX;
-    
-    let res = super::deduct_and_transfer(&env, &token, &recipient, amount, fee_bps);
-    assert_eq!(res, Err(ContractError::ArithmeticError));
+    let fee_bps = 300_u32;
+
+    let result = crate::helpers::payout::calculate_protocol_fee(amount, fee_bps);
+    assert!(result.is_ok());
+
+    let (fee, net) = result.unwrap();
+    let expected_fee =
+        (amount / 10_000) * fee_bps as i128 + (amount % 10_000) * fee_bps as i128 / 10_000;
+    assert_eq!(fee, expected_fee);
+    assert_eq!(net + fee, amount);
 }
 
 #[test]

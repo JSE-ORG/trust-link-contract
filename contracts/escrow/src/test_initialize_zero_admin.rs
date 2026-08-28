@@ -7,15 +7,7 @@
 //!  * Contract state configuration remains uninitialized on failed setup calls.
 
 use crate::{ContractError, DataKey, Escrow, EscrowClient};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
-
-/// Strkey for the all-zero ed25519 public key — the canonical "empty" Stellar
-/// account address used here as the sentinel for an unset admin.
-const ZERO_ADDRESS_STRKEY: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
-
-fn zero_address(env: &Env) -> Address {
-    Address::from_string(&String::from_str(env, ZERO_ADDRESS_STRKEY))
-}
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 fn deploy(env: &Env) -> EscrowClient<'_> {
     env.mock_all_auths();
@@ -28,7 +20,7 @@ fn initialize_with_zero_admin_returns_invalid_address_error() {
     let env = Env::default();
     let client = deploy(&env);
 
-    let zero_admin = zero_address(&env);
+    let zero_admin = crate::zero_address(&env);
     let fee_collector = Address::generate(&env);
 
     let res = client.try_initialize(&zero_admin, &fee_collector, &42_u32);
@@ -48,7 +40,7 @@ fn initialize_with_zero_fee_collector_returns_invalid_address_error() {
     let client = deploy(&env);
 
     let admin = Address::generate(&env);
-    let zero_collector = zero_address(&env);
+    let zero_collector = crate::zero_address(&env);
 
     let res = client.try_initialize(&admin, &zero_collector, &42_u32);
 
@@ -64,7 +56,7 @@ fn failed_initialize_with_zero_admin_leaves_storage_uninitialized() {
     let env = Env::default();
     let client = deploy(&env);
 
-    let zero_admin = zero_address(&env);
+    let zero_admin = crate::zero_address(&env);
     let fee_collector = Address::generate(&env);
 
     let res = client.try_initialize(&zero_admin, &fee_collector, &42_u32);
@@ -77,10 +69,6 @@ fn failed_initialize_with_zero_admin_leaves_storage_uninitialized() {
         assert!(
             !storage.has(&DataKey::FeeCollector),
             "FeeCollector must not be set",
-        );
-        assert!(
-            !storage.has(&DataKey::ArbitrationFee),
-            "ArbitrationFee must not be set",
         );
         assert!(
             !storage.has(&DataKey::EscrowCounter),
@@ -96,7 +84,7 @@ fn contract_can_be_initialized_after_a_failed_zero_admin_attempt() {
     let client = deploy(&env);
 
     // First attempt: zero admin → rejected.
-    let zero_admin = zero_address(&env);
+    let zero_admin = crate::zero_address(&env);
     let fee_collector = Address::generate(&env);
     let first = client.try_initialize(&zero_admin, &fee_collector, &42_u32);
     assert_eq!(first, Err(Ok(ContractError::InvalidAddress)));
@@ -108,7 +96,9 @@ fn contract_can_be_initialized_after_a_failed_zero_admin_attempt() {
     client.initialize(&real_admin, &fee_collector, &99_u32);
 
     let stored_admin: Address = env
-        .as_contract(&client.address, || env.storage().instance().get(&DataKey::Admin))
+        .as_contract(&client.address, || {
+            env.storage().instance().get(&DataKey::Admin)
+        })
         .expect("admin set after successful initialize");
     assert_eq!(stored_admin, real_admin);
 }

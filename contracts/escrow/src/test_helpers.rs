@@ -1,9 +1,9 @@
 #![cfg(test)]
 
-use crate::{Escrow, EscrowClient};
+use crate::{Escrow, EscrowClient, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    token, Address, Env,
+    token, Address, Env, IntoVal, Vec,
 };
 
 pub fn setup_contract(env: &Env) -> (Address, EscrowClient, Address, Address) {
@@ -33,10 +33,34 @@ pub fn create_funded_escrow(
     token: &Address,
     amount: i128,
     fee_bps: u32,
-    shipping_window: u64,
+    _shipping_window: u64,
 ) -> u64 {
     mint_token(env, token, buyer, amount);
-    let id = client.create_escrow(seller, &None::<Address>, resolver, token, &amount, &fee_bps, &shipping_window);
+    let mut payees = Vec::new(env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(env);
+    let id = client.create_escrow_7(
+        &payees_val,
+        &None::<Address>,
+        resolver,
+        token,
+        &amount,
+        &fee_bps,
+    );
     client.fund_escrow(&id, buyer);
     id
+}
+
+pub fn record_delivery_timelocked(
+    env: &Env,
+    client: &EscrowClient,
+    admin: &Address,
+    escrow_id: u64,
+) {
+    client.propose_record_delivery(admin, &escrow_id);
+    advance_time(env, crate::DELIVERY_TIMELOCK);
+    client.record_delivery(admin, &escrow_id);
 }

@@ -1,5 +1,5 @@
+use crate::{ContractError, EscrowData, ResolutionType, BASIS_POINTS};
 use soroban_sdk::{contracttype, token, Address, Env, Vec};
-use crate::{ContractError, EscrowData, ResolutionType};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -15,7 +15,7 @@ pub fn execute_payout_transfers(
 ) -> Result<(), ContractError> {
     let client = token::Client::new(env, token_addr);
     let contract_addr = env.current_contract_address();
-    
+
     for instruction in transfers.iter() {
         if instruction.amount > 0 {
             client.transfer(&contract_addr, &instruction.recipient, &instruction.amount);
@@ -32,10 +32,10 @@ pub fn execute_payout_transfers(
 /// so any sub-stroop remainder is dropped from the fee. Crucially, callers
 /// derive the payout as `net = amount - fee` (see [`calculate_protocol_fee`]),
 /// which means the truncated remainder is **not** lost — it stays in `net` and
-/// is paid to the recipient (seller on release, buyer on refund). The contract
-/// only ever retains exactly `fee`, which is later swept by the admin via
-/// `withdraw_fees`. The invariant `net + fee == amount` therefore always holds
-/// and no stroop is ever stranded in the vault.
+/// is paid to the recipient (seller on release, buyer on refund). The `fee` is
+/// forwarded directly to the configured fee collector rather than retained by
+/// the contract. The invariant `net + fee == amount` therefore always holds
+/// and no stroop is ever stranded.
 ///
 /// Consequence of flooring: for amounts where `amount * fee_bps < 10_000` the
 /// fee rounds down to `0` and is effectively waived. The `MIN_ESCROW_AMOUNT`
@@ -54,23 +54,27 @@ pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, ContractError> 
     }
 
     let part1 = amount
-        .checked_div(10_000)
+        .checked_div(BASIS_POINTS as i128)
         .ok_or(ContractError::ArithmeticOverflow)?
         .checked_mul(fee_bps as i128)
         .ok_or(ContractError::ArithmeticOverflow)?;
 
-    let part2 = (amount % 10_000)
+    let part2 = (amount % BASIS_POINTS as i128)
         .checked_mul(fee_bps as i128)
         .ok_or(ContractError::ArithmeticOverflow)?
-        .checked_div(10_000)
+        .checked_div(BASIS_POINTS as i128)
         .ok_or(ContractError::ArithmeticOverflow)?;
 
-    part1.checked_add(part2).ok_or(ContractError::ArithmeticOverflow)
+    part1
+        .checked_add(part2)
+        .ok_or(ContractError::ArithmeticOverflow)
 }
 
 pub fn calculate_protocol_fee(amount: i128, fee_bps: u32) -> Result<(i128, i128), ContractError> {
     let fee = calculate_fee(amount, fee_bps)?;
-    let net = amount.checked_sub(fee).ok_or(ContractError::ArithmeticOverflow)?;
+    let net = amount
+        .checked_sub(fee)
+        .ok_or(ContractError::ArithmeticOverflow)?;
     Ok((fee, net))
 }
 
@@ -85,23 +89,34 @@ pub fn calculate_dispute_allocations(
         return Err(ContractError::InsufficientBalance);
     }
 
-    let remaining_amount = escrow.amount.checked_sub(arbitration_fee).ok_or(ContractError::ArithmeticOverflow)?;
+    let remaining_amount = escrow
+        .amount
+        .checked_sub(arbitration_fee)
+        .ok_or(ContractError::ArithmeticOverflow)?;
 
     let (fee, net_amount) = calculate_protocol_fee(remaining_amount, escrow.fee_bps)?;
 
     let recipient = match resolution {
-        ResolutionType::Release => escrow.seller.clone(),
-        ResolutionType::Refund => escrow.buyer.clone().ok_or(ContractError::EscrowHasNoBuyer)?,
+        ResolutionType::Release => escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .clone(),
+        ResolutionType::Refund => escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?,
     };
 
     let mut transfers = Vec::new(env);
-    
+
     // Transfer net amount to the winning party
     transfers.push_back(TransferInstruction {
         recipient,
         amount: net_amount,
     });
-    
+
     // Transfer protocol fee to fee collector (if non-zero)
     if fee > 0 {
         transfers.push_back(TransferInstruction {

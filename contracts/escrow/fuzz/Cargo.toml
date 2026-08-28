@@ -1,0 +1,145 @@
+[package]
+name = "trustlink-escrow-fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+# The vendored `paste` replacement lives at the repository root, three levels up
+# from this manifest (contracts/escrow/fuzz).
+[patch.crates-io]
+paste = { path = "../../../vendor/pastey" }
+
+[[bin]]
+name = "create_escrow"
+path = "fuzz_targets/create_escrow.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fund_escrow"
+path = "fuzz_targets/fund_escrow.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mark_shipped"
+path = "fuzz_targets/mark_shipped.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "confirm_delivery"
+path = "fuzz_targets/confirm_delivery.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "raise_dispute"
+path = "fuzz_targets/raise_dispute.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "resolve_dispute"
+path = "fuzz_targets/resolve_dispute.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cancel_escrow"
+path = "fuzz_targets/cancel_escrow.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "auto_release"
+path = "fuzz_targets/auto_release.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dispute_appeal"
+path = "fuzz_targets/dispute_appeal.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vote"
+path = "fuzz_targets/vote.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "co_signed_release"
+path = "fuzz_targets/co_signed_release.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "refund_flow"
+path = "fuzz_targets/refund_flow.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "basket_escrow"
+path = "fuzz_targets/basket_escrow.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "batch_create_escrow"
+path = "fuzz_targets/batch_create_escrow.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "post_message"
+path = "fuzz_targets/post_message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "expiration"
+path = "fuzz_targets/expiration.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "admin_timelock"
+path = "fuzz_targets/admin_timelock.rs"
+test = false
+doc = false
+bench = false
+
+[dependencies]
+trustlink-escrow = { path = "..", features = ["testutils"] }
+soroban-sdk = { version = "26", features = ["testutils"] }
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = "0.4"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 1

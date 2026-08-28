@@ -6,6 +6,29 @@ We welcome contributions of all kinds: bug fixes, new features, tests, documenta
 
 ---
 
+## ⚡ Quick Start (≈ 10 minutes)
+
+If you already have Rust installed, you can go from zero to a passing test run with the commands below. The detailed explanation of each step follows in the sections later.
+
+```bash
+# 1. Fork this repo on GitHub, then clone YOUR fork
+git clone https://github.com/YOUR_USERNAME/trust-link-contract.git
+cd trust-link-contract
+
+# 2. Add the original repo as "upstream" so you can pull updates later
+git remote add upstream https://github.com/JSE-ORG/trust-link-contract.git
+
+# 3. Use make to build and test (cross-platform)
+make build
+make test
+```
+
+If `make test` ends with `test result: ok`, your environment is ready. Total time for a first-time contributor with Rust already installed is well under 30 minutes (the first build downloads and compiles dependencies, which takes a few minutes).
+
+> **Windows users:** If you see a DLL link error with `cdylib`, switch to a stable MSVC toolchain via `rustup default stable-x86_64-pc-windows-msvc`. The Makefile uses `--lib` flags to avoid this, but bare `cargo build` or `cargo test` without `--lib` may trigger it on GNU/MinGW setups.
+
+---
+
 ## 📋 Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
@@ -14,6 +37,7 @@ We welcome contributions of all kinds: bug fixes, new features, tests, documenta
 - [Development Setup](#development-setup)
 - [Project Structure](#project-structure)
 - [Making Changes](#making-changes)
+- [Building & Testing](#building--testing)
 - [Commit Convention](#commit-convention)
 - [Pull Request Process](#pull-request-process)
 - [Writing Tests](#writing-tests)
@@ -73,34 +97,92 @@ This repository participates in the **[Stellar Wave Program](https://www.drips.n
 
 ## Development Setup
 
-### Prerequisites
+Run the following after cloning to install git hooks:
 
-| Tool | Version | Install |
+```bash
+make setup
+```
+
+This installs a pre-commit hook that automatically checks:
+
+- **Formatting**: `cargo fmt --all -- --check`
+- **Lints**: `cargo clippy --all-targets --all-features -- -D warnings`
+
+Commits will be rejected if either check fails.
+
+Run `cargo fmt --all` to fix formatting issues.
+
+### Option A — Dev Container (recommended, zero manual setup)
+
+The repo ships a [`.devcontainer/`](.devcontainer/) definition, so you can get a fully provisioned environment without installing Rust, Node, PostgreSQL or the Stellar CLI on your machine.
+
+**Requirements:** [Docker](https://docs.docker.com/get-docker/) plus either VS Code with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) or the [`devcontainer` CLI](https://github.com/devcontainers/cli).
+
+```bash
+git clone https://github.com/YOUR_USERNAME/trust-link-contract.git
+cd trust-link-contract
+code .          # then: "Reopen in Container" when VS Code prompts
+```
+
+Or from the terminal:
+
+```bash
+devcontainer up --workspace-folder .
+```
+
+What you get:
+
+| Component | Provided by | Notes |
 |---|---|---|
-| Rust | `1.75+` | [rustup.rs](https://rustup.rs) |
-| Stellar CLI | `21+` | [Stellar Docs](https://developers.stellar.org/docs/tools/stellar-cli) |
-| wasm32 target | latest | `rustup target add wasm32-unknown-unknown` |
+| Rust stable + `rustfmt` + `clippy` | `.devcontainer/Dockerfile` | Channel and components pinned by `rust-toolchain.toml` |
+| `wasm32v1-none` target | `.devcontainer/Dockerfile` | Pre-installed so the first build is fast |
+| `binaryen` (`wasm-opt`) | `.devcontainer/Dockerfile` | Needed by `build.sh` for optimized release builds |
+| Stellar CLI | `.devcontainer/Dockerfile` | Pinned via the `STELLAR_CLI_VERSION` build arg |
+| Node.js 20 + npm | `node` devcontainer feature | For `bindings/`, `indexer/` and `e2e/` |
+| PostgreSQL 15 | `.devcontainer/Dockerfile` | Started by the post-create script; `DATABASE_URL` is pre-set |
 
-### First-Time Setup
+[`.devcontainer/post-create.sh`](.devcontainer/post-create.sh) runs automatically on first creation and:
+
+1. starts PostgreSQL, creates the `trustlink` role/database and applies `indexer/schema.sql`;
+2. runs `cargo build --lib` to warm the build cache;
+3. runs `npm install` in `bindings/`, `indexer/` and `e2e/`.
+
+It is idempotent — re-run it any time with `bash .devcontainer/post-create.sh`. When it finishes, `make check` should pass.
+
+> The dev container runs a single local PostgreSQL for the indexer. If you also need a local Stellar network (Horizon + Core), use the separate `docker-compose.yml` at the repo root.
+
+### Option B — Local toolchain
+
+#### Prerequisites
+
+| Tool | Version | Install | Required? |
+|---|---|---|---|
+| Rust (via rustup) | `1.75+` (stable) | [rustup.rs](https://rustup.rs) | ✅ Required |
+| `wasm32v1-none` target | latest | Auto-installed from `rust-toolchain.toml` | ✅ Required |
+| Stellar CLI | `21+` | [Stellar Docs](https://developers.stellar.org/docs/tools/stellar-cli) | Optional — only for deploying/invoking on a network |
+| `binaryen` (`wasm-opt`) | latest | `apt install binaryen` / `brew install binaryen` | Optional — only for optimized release builds via `build.sh` |
+
+> **Note on the wasm target:** This project targets `wasm32v1-none` (the modern Soroban target), pinned in [`rust-toolchain.toml`](rust-toolchain.toml). When you use `rustup`, the correct toolchain and target are installed automatically the first time you run a `cargo` command in this repo — you do **not** need to add the target manually.
+
+#### First-Time Setup
 
 ```bash
 # 1. Fork this repo on GitHub, then clone your fork
-git clone https://github.com/YOUR_USERNAME/trustlink-contract
-cd trustlink-contract
+git clone https://github.com/YOUR_USERNAME/trust-link-contract.git
+cd trust-link-contract
 
 # 2. Add the upstream remote
-git remote add upstream https://github.com/your-org/trustlink-contract
+git remote add upstream https://github.com/JSE-ORG/trust-link-contract.git
 
-# 3. Install Rust and the wasm target
+# 3. Make sure your stable toolchain is up to date
 rustup update stable
-rustup target add wasm32-unknown-unknown
 
-# 4. Verify everything builds cleanly
-cargo build --target wasm32-unknown-unknown --release
-
-# 5. Run the full test suite — all tests must pass on a clean checkout
-cargo test
+# 4. Verify everything builds and tests pass on a clean checkout
+make build
+make test
 ```
+
+All commands use `--lib` targets, so they work on any platform (Windows, Linux, macOS). The full CI pipeline is also available via `make check` (fmt → clippy → test).
 
 ### Staying Up to Date
 
@@ -115,29 +197,38 @@ Always rebase onto `main` before opening a PR.
 
 ## Project Structure
 
+This is a Cargo **workspace**. The escrow contract lives under `contracts/escrow/`.
+
 ```
-trustlink-contract/
-├── src/
-│   ├── lib.rs          # Contract entry point — public-facing interface only
-│   ├── escrow.rs       # State machine logic — the heart of the contract
-│   ├── storage.rs      # Persistent storage read/write helpers
-│   ├── events.rs       # On-chain event definitions and emitters
-│   ├── errors.rs       # All custom ContractError codes live here
-│   └── types.rs        # Shared structs (EscrowData, EscrowState, etc.)
-├── tests/
-│   ├── happy_path.rs   # Full end-to-end flow tests
-│   ├── dispute_flow.rs # Dispute and resolution scenario tests
-│   ├── edge_cases.rs   # Boundary conditions and attack vectors
-│   └── helpers.rs      # Reusable test fixtures and mock setup
-└── Cargo.toml
+trust-link-contract/
+├── Cargo.toml                  # Workspace manifest (members = contracts/*)
+├── rust-toolchain.toml         # Pins stable + wasm32v1-none + clippy/rustfmt
+├── build.sh                    # Optional optimized wasm build helper (wasm-opt)
+├── bindings/                   # TypeScript client bindings
+├── docs/                       # Architecture & protocol documentation
+└── contracts/
+    └── escrow/
+        ├── Cargo.toml          # The trustlink-escrow package
+        └── src/
+            ├── lib.rs          # Contract entry point, public interface, and the
+            │                   #   Escrow state-machine logic (transition_state, impl Escrow)
+            ├── types.rs        # Shared structs & enums (EscrowData, EscrowState, …)
+            ├── errors.rs       # All ContractError codes
+            ├── events.rs       # On-chain event definitions and emitters
+            ├── storage.rs      # Persistent storage helpers and storage-key constants
+            ├── helpers/        # Internal helpers (e.g. payout calculation)
+            ├── test.rs         # Core test module
+            └── test_*.rs       # Focused test modules, declared as `mod test_*` in lib.rs
+        └── tests/              # Integration tests (happy_path, edge_cases, auth_audit)
 ```
 
 **Where to make changes:**
 
-- New contract features → `escrow.rs` + `lib.rs` (expose the function) + `events.rs` (emit an event)
-- New error codes → `errors.rs` only — never use raw `panic!()` in contract code
-- New data fields → `types.rs` — be mindful of storage cost on Stellar
-- New tests → add to the appropriate file in `tests/`, or create a new file for a new scenario group
+- **New contract feature** → add the logic and public function in `lib.rs`, plus an event in `events.rs` if it represents a meaningful state change.
+- **New error code** → `errors.rs` only — never use raw `panic!()` in contract code.
+- **New data fields** → `types.rs` — be mindful of storage cost on Stellar.
+- **Storage changes** → `storage.rs` — keys must be defined as constants, never raw strings inline.
+- **New tests** → add a focused module under `contracts/escrow/src/` and register it with `mod your_test;` in `lib.rs`, or add a scenario to the integration tests in `contracts/escrow/tests/`.
 
 ---
 
@@ -166,17 +257,17 @@ Branch naming conventions:
 ### Coding Standards
 
 **General Rust**
-- Run `cargo fmt` before every commit — the CI will reject unformatted code
-- Run `cargo clippy -- -D warnings` — fix all warnings, never suppress them without a comment
-- Prefer explicit error returns over `unwrap()` — use `ContractError` variants from `errors.rs`
-- Comment non-obvious logic. If you had to think about it for more than 30 seconds, leave a comment
+- Run `cargo fmt --all` before every commit — CI rejects unformatted code.
+- Run `cargo clippy --lib -- -D warnings` — fix all warnings, never suppress them without a comment.
+- Prefer explicit error returns over `unwrap()` — use `ContractError` variants from `errors.rs`.
+- Comment non-obvious logic. If you had to think about it for more than 30 seconds, leave a comment.
 
 **Soroban-specific**
-- Every state-mutating function must call `require_auth()` on the appropriate address before any logic
-- Use `env.storage().instance()` for contract-level data and `env.storage().persistent()` for per-escrow data — understand the cost difference
-- Emit an event in `events.rs` for every meaningful state transition — the backend oracle depends on these
-- Never use `env.storage().temporary()` for data that must survive ledger expiry
-- Storage keys must be defined as constants in `storage.rs` — no raw strings inline
+- Every state-mutating function must call `require_auth()` on the appropriate address before any logic.
+- Use `env.storage().instance()` for contract-level data and `env.storage().persistent()` for per-escrow data — understand the cost difference.
+- Emit an event in `events.rs` for every meaningful state transition — the backend oracle depends on these.
+- Never use `env.storage().temporary()` for data that must survive ledger expiry.
+- Storage keys must be defined as constants in `storage.rs` — no raw strings inline.
 
 **Error Handling**
 ```rust
@@ -190,6 +281,48 @@ if escrow.state != EscrowState::Funded {
     panic!("wrong state");
 }
 ```
+
+---
+
+## Building & Testing
+
+All commands are run from the repository root. Use the `make` shortcuts or the raw `cargo` commands below.
+
+```bash
+# Format (check only — no changes)
+make fmt-check
+
+# Lint — zero warnings allowed
+make clippy
+
+# Standard (lib) build — cross-platform
+make build
+
+# WASM build (the deployable artifact)
+make build-wasm
+
+# Run the full test suite — all must pass
+make test
+
+# Or use raw cargo commands:
+cargo fmt --all
+cargo clippy --lib -- -D warnings
+cargo build --lib --release
+cargo build --target wasm32v1-none --release
+cargo test --lib
+
+# Run a single test or a module
+cargo test --lib test_full_escrow_flow
+cargo test --lib -- --nocapture   # show println! output
+
+# Run all CI checks in sequence
+make check
+
+# Optional: optimized wasm via wasm-opt (requires binaryen)
+./build.sh
+```
+
+These checks — `fmt`, `clippy`, `test`, and `build-wasm` — are exactly what the CI pipeline runs, so running them locally before pushing means no CI surprises. All commands use `--lib` targets for cross-platform compatibility.
 
 ---
 
@@ -232,21 +365,16 @@ git commit -m "docs(storage): clarify TTL behaviour for instance storage keys"
 
 ### Before Opening a PR
 
+Run the same checks CI runs:
+
 ```bash
-# Format
-cargo fmt
+cargo fmt --all --check
+cargo clippy --lib -- -D warnings
+cargo build --target wasm32v1-none --release
+cargo test --lib
 
-# Lint — zero warnings allowed
-cargo clippy -- -D warnings
-
-# Build
-cargo build --target wasm32-unknown-unknown --release
-
-# Test — all must pass
-cargo test
-
-# Check WASM binary size hasn't ballooned unexpectedly
-ls -lh target/wasm32-unknown-unknown/release/trustlink_escrow.wasm
+# Sanity-check the WASM binary size hasn't ballooned unexpectedly
+ls -lh target/wasm32v1-none/release/trustlink_escrow.wasm
 ```
 
 ### PR Checklist
@@ -270,11 +398,11 @@ When you open a PR, the description must include:
 
 ## Changes
 <!-- List the key changes -->
-- 
+-
 
 ## Test Coverage
 <!-- What tests were added/modified? -->
-- 
+-
 
 ## Notes for Reviewers
 <!-- Anything the reviewer should pay special attention to? -->
@@ -284,11 +412,11 @@ Closes #
 
 ### Review Process
 
-- A maintainer will review your PR within **48 hours** during active Wave cycles, and within **5 business days** otherwise
-- At least **1 approving review** is required to merge
-- For changes touching the release logic, dispute resolution, or fee calculation — **2 approving reviews** are required
-- The CI pipeline must be green (build + tests + clippy + fmt) before merge
-- Maintainers may request changes — please respond within 5 days or the PR may be closed
+- A maintainer will review your PR within **48 hours** during active Wave cycles, and within **5 business days** otherwise.
+- At least **1 approving review** is required to merge.
+- For changes touching the release logic, dispute resolution, or fee calculation — **2 approving reviews** are required.
+- The CI pipeline must be green (build + tests + clippy + fmt) before merge.
+- Maintainers may request changes — please respond within 5 days or the PR may be closed.
 
 ### What Maintainers Look For
 
@@ -303,28 +431,27 @@ Closes #
 
 ## Writing Tests
 
-All Soroban contract tests live in the `tests/` directory and use the `soroban_sdk::testutils` environment.
+Tests use the `soroban_sdk::testutils` environment. There are two places tests live:
+
+- **Unit / focused tests** — files named `test_*.rs` in `contracts/escrow/src/`, each registered with `mod test_*;` in `lib.rs`. Most tests live here, grouped by feature (fees, disputes, auth, TTL, …).
+- **Integration tests** — files in `contracts/escrow/tests/` (`happy_path.rs`, `edge_cases.rs`, `auth_audit.rs`) that exercise full end-to-end flows.
 
 ### Test Structure
 
 ```rust
-// tests/happy_path.rs
-
 #[cfg(test)]
 mod tests {
-    use soroban_sdk::{testutils::Address as _, Address, Env};
-    use crate::helpers::{setup_contract, mint_usdc};
+    use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
     #[test]
     fn test_full_escrow_flow() {
         let env = Env::default();
-        let (contract_id, vendor, buyer) = setup_contract(&env);
+        // ... set up contract, vendor, buyer, token ...
 
         // 1. Create escrow
         let escrow_id = client.create_escrow(&vendor, &buyer, &token, &amount, &window);
 
         // 2. Buyer funds
-        mint_usdc(&env, &buyer, amount);
         client.fund_escrow(&escrow_id);
 
         // 3. Vendor ships
@@ -347,28 +474,15 @@ New features must include tests for:
 3. Invalid state transitions (calling a function out of sequence)
 4. Edge case inputs (zero amounts, expired windows, etc.)
 
-### Running Specific Tests
-
-```bash
-# Run a single test
-cargo test test_full_escrow_flow
-
-# Run all tests in a module
-cargo test dispute_flow
-
-# Run with output (useful for debugging)
-cargo test -- --nocapture
-```
-
 ---
 
 ## Security Vulnerabilities
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-If you discover a security issue in the contract — especially anything related to fund drainage, unauthorized release, or state manipulation — please report it privately:
+If you discover a security issue in the contract — especially anything related to fund drainage, unauthorized release, or state manipulation — please report it privately to the maintainers:
 
-📧 **security@trustlink.xyz** (or the contact listed in [SECURITY.md](SECURITY.md))
+📧 **security@trustlink.xyz**
 
 Include:
 - A description of the vulnerability
@@ -389,7 +503,6 @@ Stuck on the codebase? Have a question before diving in?
 
 If you're new to Soroban, these resources will get you up to speed quickly:
 - [Soroban Documentation](https://developers.stellar.org/docs/build/smart-contracts/overview)
-- [Soroban by Example](https://soroban.stellar.org/docs/learn/getting-started)
 - [Stellar Developers Discord](https://discord.gg/stellardev)
 
 ---

@@ -1,0 +1,98 @@
+name: Error Codes Sync Check
+
+on:
+  pull_request:
+    paths:
+      - 'contracts/escrow/src/errors.rs'
+      - 'ERROR_CODES.md'
+  push:
+    branches:
+      - main
+    paths:
+      - 'contracts/escrow/src/errors.rs'
+      - 'ERROR_CODES.md'
+
+jobs:
+  verify-error-codes-sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Extract error codes from errors.rs
+        id: extract_rust
+        run: |
+          # Extract all error variant names and their numeric values from the Rust enum
+          grep -E '^\s+[A-Z][a-zA-Z]+\s*=\s*[0-9]+,' contracts/escrow/src/errors.rs \
+            | sed -E 's/^\s+([A-Z][a-zA-Z]+)\s*=\s*([0-9]+),/\1=\2/' \
+            | sort > /tmp/rust_errors.txt
+          
+          echo "Extracted $(wc -l < /tmp/rust_errors.txt) error codes from errors.rs"
+          cat /tmp/rust_errors.txt
+      
+      - name: Extract error codes from ERROR_CODES.md
+        id: extract_md
+        run: |
+          # Extract all error codes from the markdown table (skip header rows)
+          # Format: | **1** | `InvalidAmount` | ... |
+          grep -E '^\|\s*\*\*[0-9]+\*\*' ERROR_CODES.md \
+            | sed -E 's/^\|\s*\*\*([0-9]+)\*\*\s*\|\s*`([A-Z][a-zA-Z]+)`\s*\|.*/\2=\1/' \
+            | sort > /tmp/md_errors.txt
+          
+          echo "Extracted $(wc -l < /tmp/md_errors.txt) error codes from ERROR_CODES.md"
+          cat /tmp/md_errors.txt
+      
+      - name: Compare error codes
+        run: |
+          echo "=== Comparing errors.rs with ERROR_CODES.md ==="
+          
+          RUST_COUNT=$(wc -l < /tmp/rust_errors.txt)
+          MD_COUNT=$(wc -l < /tmp/md_errors.txt)
+          
+          echo "errors.rs has ${RUST_COUNT} error codes"
+          echo "ERROR_CODES.md has ${MD_COUNT} error codes"
+          
+          if [ "$RUST_COUNT" -ne "$MD_COUNT" ]; then
+            echo "❌ ERROR: Count mismatch! errors.rs has ${RUST_COUNT} but ERROR_CODES.md has ${MD_COUNT}"
+            exit 1
+          fi
+          
+          # Compare line-by-line
+          DIFF_OUTPUT=$(diff /tmp/rust_errors.txt /tmp/md_errors.txt || true)
+          
+          if [ -n "$DIFF_OUTPUT" ]; then
+            echo "❌ ERROR: Error codes do not match!"
+            echo ""
+            echo "Differences found:"
+            echo "$DIFF_OUTPUT"
+            echo ""
+            echo "In errors.rs but missing from ERROR_CODES.md:"
+            comm -23 /tmp/rust_errors.txt /tmp/md_errors.txt
+            echo ""
+            echo "In ERROR_CODES.md but missing from errors.rs:"
+            comm -13 /tmp/rust_errors.txt /tmp/md_errors.txt
+            exit 1
+          fi
+          
+          echo "✅ SUCCESS: All error codes are in sync!"
+          echo "Both files contain ${RUST_COUNT} matching error codes."
+      
+      - name: Verify sequential numbering
+        run: |
+          echo "=== Verifying sequential error code numbering ==="
+          
+          # Extract just the numeric codes and verify they are sequential starting from 1
+          cut -d'=' -f2 /tmp/rust_errors.txt | sort -n > /tmp/codes_only.txt
+          
+          EXPECTED_SEQ=$(seq 1 $(wc -l < /tmp/codes_only.txt))
+          ACTUAL_SEQ=$(cat /tmp/codes_only.txt | tr '\n' ' ')
+          
+          if [ "$EXPECTED_SEQ" != "$(echo $ACTUAL_SEQ | tr ' ' '\n')" ]; then
+            echo "❌ ERROR: Error codes are not sequential!"
+            echo "Expected: 1, 2, 3, ..., $(wc -l < /tmp/codes_only.txt)"
+            echo "Found: $ACTUAL_SEQ"
+            exit 1
+          fi
+          
+          echo "✅ Error codes are properly sequential from 1 to $(wc -l < /tmp/codes_only.txt)"

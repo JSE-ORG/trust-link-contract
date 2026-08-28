@@ -1,34 +1,46 @@
-name: Security Audit
+name: Security
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+  schedule:
+    # Weekly, Mondays 06:00 UTC — surfaces newly published advisories even when
+    # the dependency tree hasn't changed.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  security-audit:
+  # cargo-deny enforces the supply-chain policy in deny.toml: advisories
+  # (vulnerabilities), banned/duplicate crates, license allow-list, and crate
+  # sources. A known vulnerability fails this job — so pull requests fail on
+  # critical issues before they merge.
+  cargo-deny:
+    name: cargo-deny
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-deny
+      - run: cargo deny check
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry and git
-        uses: actions/cache@v5
+  # cargo-audit cross-checks the RustSec advisory DB. On the weekly schedule (and
+  # pushes to main) rustsec/audit-check opens a GitHub issue for each advisory it
+  # finds; on pull requests it reports findings as checks and fails on
+  # vulnerabilities.
+  cargo-audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # open an issue when advisories are found (scheduled runs)
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Run cargo audit
-        run: cargo audit
+          token: ${{ secrets.GITHUB_TOKEN }}
