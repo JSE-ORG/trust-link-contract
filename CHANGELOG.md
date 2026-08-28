@@ -12,18 +12,6 @@ non-user-facing repository maintenance.
 
 ### Added
 
-- Added `EVENT_SCHEMA_VERSION` constant (`u32 = 1`) to `contracts/escrow/src/events.rs`
-  and stamped it as the `schema_version` field on every event payload struct.
-  Indexers can use this field to detect breaking schema changes without inspecting
-  topics.  The versioning policy and a per-version changelog table are documented
-  in `docs/events.md`.
-- Added a complete storage layout reference in `docs/storage.md` documenting
-  every `DataKey`/`StorageKey` entry with its type, storage tier, and TTL
-  strategy.
-- Added README status badges for CI, test count, code coverage, and crate
-  version.
-- Added a `coverage` job to the CI workflow that uploads `cargo-llvm-cov`
-  results to Codecov.
 - Added event schema reference for indexer developers in `docs/events.md`.
 - Added Soroban SDK and environment compatibility matrix in
   `docs/soroban-compatibility.md`.
@@ -33,10 +21,7 @@ non-user-facing repository maintenance.
 
 ### Changed
 
-- Rewrote `CONTRIBUTING.md`: corrected the project structure, build/test
-  commands, and wasm target (`wasm32v1-none`) to match the current workspace
-  layout, and added a Quick Start section so new contributors can set up in
-  under 30 minutes.
+- Nothing yet.
 
 ### Deprecated
 

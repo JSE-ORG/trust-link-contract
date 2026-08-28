@@ -26,7 +26,7 @@ stateDiagram-v2
 
     Funded --> Shipped: mark_shipped
     Funded --> Disputed: raise_dispute
-    Funded --> Completed: auto_release
+    Funded --> Completed: confirm_delivery or auto_release
 
     Shipped --> Disputed: raise_dispute
     Shipped --> Completed: confirm_delivery or auto_release
@@ -47,7 +47,7 @@ stateDiagram-v2
 | `Pending` | `Canceled` | Seller cancels before funds are locked. |
 | `Funded` | `Shipped` | Seller calls `mark_shipped`. |
 | `Funded` | `Disputed` | Buyer raises a dispute before `dispute_deadline`. |
-| `Funded` | `Completed` | Auto-release conditions pass (`confirm_delivery` requires `Shipped`). |
+| `Funded` | `Completed` | Buyer confirms after the dispute deadline, or auto-release conditions pass. |
 | `Shipped` | `Disputed` | Buyer raises a dispute before `dispute_deadline`. |
 | `Shipped` | `Completed` | Buyer confirms after the dispute deadline, or auto-release conditions pass. |
 | `Disputed` | `Completed` | Resolver or admin calls `resolve_dispute` with `ResolutionType::Release`. |
@@ -87,13 +87,10 @@ stateDiagram-v2
 
 ### `Funded -> Completed` and `Shipped -> Completed`
 
-- `confirm_delivery` requires buyer authorization, the escrow to be `Shipped`,
-  and `ledger.timestamp >= dispute_deadline`. Calling it while the dispute
-  window is still open returns `DisputeWindowStillOpen`; calling it from
-  `Funded` returns `InvalidStateTransition`.
+- `confirm_delivery` requires buyer authorization and
+  `ledger.timestamp >= dispute_deadline`.
 - `auto_release` requires no signer, rejects escrows with an active dispute, and
-  requires the configured release windows to have elapsed. It accepts both
-  `Funded` (seller never shipped) and `Shipped` escrows.
+  requires the configured release windows to have elapsed.
 - Completion transfers the payout to the seller using protocol fee logic.
 
 ### `Disputed -> Completed` and `Disputed -> Refunded`
