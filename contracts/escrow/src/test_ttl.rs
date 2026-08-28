@@ -31,7 +31,7 @@
 
 use crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS;
 use crate::test_helpers::{create_funded_escrow, setup_contract};
-use crate::{DEFAULT_TTL_EXTENSION, MIN_TTL_EXTENSION};
+use crate::{ContractError, DEFAULT_TTL_EXTENSION, MIN_TTL_EXTENSION, TTL_THRESHOLD_DIVISOR};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     Address, Env,
