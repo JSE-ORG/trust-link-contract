@@ -464,7 +464,6 @@ fn create_basket_escrow_rejects_secondary_amount_below_minimum() {
     // When the admin configures a MinAmount, every basket entry must meet it.
     // Here the primary passes but the secondary is below the floor.
     let fx = setup();
-    let client = EscrowClient::new(&fx.env, &fx.contract_id);
     let admin = Address::generate(&fx.env);
     // Re-initialize with a known admin so we can call set_amount_limits.
     let fee_collector = Address::generate(&fx.env);
@@ -529,7 +528,7 @@ fn create_basket_escrow_with_all_valid_amounts_succeeds() {
     let b = make_token(&fx.env);
     let c = make_token(&fx.env);
 
-    let result = client.try_create_basket_escrow(
+    let escrow_id = client.create_basket_escrow(
         &fx.seller,
         &None::<Address>,
         &fx.resolver,
@@ -538,8 +537,6 @@ fn create_basket_escrow_with_all_valid_amounts_succeeds() {
         &0_u32,
         &SHIPPING_WINDOW,
     );
-    assert!(result.is_ok(), "expected success, got: {result:?}");
-    let escrow_id = result.unwrap();
 
     let entries = client.get_basket_tokens(&escrow_id);
     assert_eq!(entries.len(), 3);
