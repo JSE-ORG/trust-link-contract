@@ -558,6 +558,65 @@ impl Escrow {
     ///     &100_u32, // 1%
     ///     &86_400_u64, // 24h shipping window
     /// );
+    /// Creates an escrow whose dispute resolver is a **primary/backup pair**:
+    /// the `primary_resolver` handles disputes, and if they go unresponsive the
+    /// `backup_resolver` may step in once `dispute_deadline` is reached.
+    ///
+    /// This produces a [`ResolverSet::Fallback`] escrow. The gating is enforced
+    /// by [`ResolverSet::can_resolve_now`] every time `resolve_dispute` / `vote`
+    /// is called:
+    ///
+    /// - `primary_resolver` may resolve at any time.
+    /// - `backup_resolver` is rejected with `NotAuthorized` while
+    ///   `env.ledger().timestamp() < dispute_deadline`, and may resolve once
+    ///   `timestamp() >= dispute_deadline`.
+    /// - The deadline never revokes the primary; it only *adds* the backup.
+    ///
+    /// # Parameters
+    ///
+    /// - `seller` — sole payee (100% of the payout); must authorize the call.
+    /// - `buyer` — `Some(addr)` to lock the escrow to one buyer, or `None` for
+    ///   an open escrow that anyone may fund.
+    /// - `primary_resolver` / `backup_resolver` — the resolver pair. Neither
+    ///   may equal `seller` or `buyer` (`ConflictingRoles`).
+    /// - `dispute_deadline` — **absolute ledger timestamp in Unix seconds** at
+    ///   which `backup_resolver` becomes authorized. This is unrelated to
+    ///   `EscrowData::dispute_deadline` (the buyer's dispute window, computed at
+    ///   funding). It is **not** range-checked: a past value (or `0`) simply
+    ///   co-authorizes the backup from the start; callers normally pass
+    ///   `env.ledger().timestamp() + grace_seconds`.
+    /// - `token`, `amount`, `fee_bps`, `shipping_window` — as for
+    ///   `create_escrow` (`amount` within `[MIN_ESCROW_AMOUNT,
+    ///   MAX_ESCROW_AMOUNT]`, `fee_bps <= MAX_ESCROW_FEE_BPS`).
+    ///
+    /// Returns the new escrow id. Emits `escrow_created` with
+    /// `primary_resolver` as the resolver.
+    ///
+    /// # Backward compatibility
+    ///
+    /// This is an additive entry point. The resulting escrow always has
+    /// `resolver_fee_bps = 0` and no `notes` / expiration schedule; use
+    /// `create_escrow` if you need those. Existing single-resolver escrows are
+    /// unaffected — `can_resolve_now` collapses to the old membership check for
+    /// [`ResolverSet::Single`].
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Backup resolver may take over 72 hours after creation.
+    /// let deadline = env.ledger().timestamp() + 72 * 60 * 60;
+    /// let id = Escrow::create_escrow_with_fallback(
+    ///     env.clone(),
+    ///     seller,
+    ///     Some(buyer),
+    ///     primary_resolver,
+    ///     backup_resolver,
+    ///     deadline,
+    ///     token,
+    ///     10_000_000,        // amount
+    ///     100,               // 1% fee
+    ///     7 * 24 * 60 * 60,  // 7-day shipping window
+    /// )?;
     /// ```
     pub fn create_escrow_with_fallback(
         env: Env,
@@ -806,7 +865,9 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        if escrow.state != EscrowState::Funded {
+        // The seller may mark shipped from `Funded`, or from `RefundRequested`
+        // to override an outstanding buyer refund request (issue #730).
+        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::RefundRequested {
             return Err(ContractError::InvalidState);
         }
 
@@ -954,7 +1015,20 @@ impl Escrow {
         Ok(())
     }
 
-    /// Confirms delivery and completes the escrow. Callable by the buyer.
+    /// Buyer confirms delivery and releases the escrowed funds to the payees.
+    ///
+    /// Only the escrow's `buyer` may call this, and only while the escrow is
+    /// `Shipped` (`InvalidStateTransition` otherwise). The buyer's dispute
+    /// window (`funded_at + DISPUTE_WINDOW`, stored as `dispute_deadline`) must
+    /// have elapsed first: calling during the window returns
+    /// `DisputeWindowStillOpen`, mirroring `raise_dispute`'s complementary
+    /// `now < dispute_deadline` guard so the two entry points never overlap on
+    /// the same ledger second.
+    ///
+    /// On success the protocol fee (using the escrow's snapshotted `fee_bps`)
+    /// goes to the fee collector, the remainder is split across `payees`, any
+    /// basket tokens are paid to the primary payee, and the escrow moves to
+    /// `Completed`. Emits `escrow_completed`.
     pub fn confirm_delivery(
         env: Env,
         caller: Address,
@@ -977,8 +1051,13 @@ impl Escrow {
             return Err(ContractError::InvalidStateTransition);
         }
 
+        // The dispute window is still open until `dispute_deadline`; the buyer
+        // can only confirm once it has closed. `DisputeWindowStillOpen` is the
+        // error defined for exactly this case (`DeliveryBeforeDisputeWindow`
+        // means the window has not *started*, which cannot happen for a
+        // `Shipped` escrow — it is always funded).
         if env.ledger().timestamp() < escrow.dispute_deadline {
-            return Err(ContractError::DeliveryBeforeDisputeWindow);
+            return Err(ContractError::DisputeWindowStillOpen);
         }
 
         let fee_collector: Address = env

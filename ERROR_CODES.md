@@ -15,10 +15,10 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **7** | `FeeExceedsMax` | A fee basis-point value exceeds the configured protocol hard cap. | Supply a fee value within the permitted limits (e.g., <= 3% for escrow fees). |
 | **8** | `EscrowHasNoBuyer` | The operation requires an assigned buyer, but the escrow is still in `Pending` state. | The buyer must call `fund_escrow` before this operation can proceed. |
 | **9** | `ShippingWindowNotElapsed` | `auto_release` was triggered before the mandatory shipping window elapsed. | Wait until `funded_at + shipping_window` has passed before re-triggering. |
-| **10** | `InvalidEvidenceHash` | The supplied dispute evidence hash failed validation (e.g., incorrect length). | Provide a valid 32-byte SHA-256 digest of the evidence. |
+| **10** | `InvalidEvidenceHash` | Reserved. The `evidence_hash` parameter is typed `BytesN<32>`, so a wrong-length digest is rejected by the host before `raise_dispute` runs and this code is never returned today. | Provide a 32-byte SHA-256 digest of the evidence — `hashEvidence()` in `@trustlink/contract-bindings` produces one. |
 | **11** | `DisputeNotFound` | No dispute record exists for the requested escrow ID. | Ensure that `raise_dispute` was successfully called before attempting resolution. |
 | **12** | `ArithmeticError` | An internal checked arithmetic operation failed (division by zero or general failure). | Review input amounts or contract state for edge-case values. |
-| **13** | `DeliveryBeforeDisputeWindow` | Attempted to confirm delivery while the dispute window was still open. | Wait for the `dispute_deadline` to pass before confirming delivery. |
+| **13** | `DeliveryBeforeDisputeWindow` | `auto_release` was triggered on a `Funded` (never-shipped) escrow before its `dispute_deadline`. (`confirm_delivery` returns `DisputeWindowStillOpen` (24) for the same timing condition.) | Wait for the `dispute_deadline` to pass before re-triggering. |
 | **14** | `ContractPaused` | The contract is currently paused by the admin for maintenance or emergency. | Wait for the admin to call `unpause_contract` before attempting the operation again. |
 | **15** | `ArithmeticOverflow` | A calculation resulted in a value larger than the supported integer type (i128). | Check if the escrow amount exceeds safety limits; use smaller amounts if possible. |
 | **16** | `InvalidStateTransition` | The requested state change is not allowed by the escrow lifecycle rules. | Ensure the action follows the allowed sequence (e.g., Pending -> Funded -> Shipped). |
@@ -51,3 +51,4 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **43** | `InvalidMulticallArg` | A `multicall` argument is missing or fails to decode into the expected type. | Provide valid arguments that match the types expected by the target function. |
 | **44** | `PayeeBpsMismatch` | A `Payee` list's basis points do not sum to exactly 10,000 (100%). | Ensure the sum of all `bps` values across payees equals exactly 10,000. |
 | **45** | `TooManyMessages` | The maximum number of messages for an escrow has been reached. | No more messages can be attached to this escrow. |
+| **46** | `InvalidTtlExtension` | The requested TTL extension is below `MIN_TTL_EXTENSION` (1,000 ledgers). | Supply a TTL extension value of at least `MIN_TTL_EXTENSION`. |

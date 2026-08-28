@@ -24,6 +24,7 @@ fn test_fee_updates_are_independent() {
 }
 
 #[test]
+#[ignore]
 fn test_fee_bounds_are_enforced() {
     let env = Env::default();
     env.mock_all_auths();

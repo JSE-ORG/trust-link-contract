@@ -32,7 +32,7 @@ fn queue_timelock_op(
     let ready_at = now + ADMIN_TIMELOCK_DELAY_SECONDS;
 
     let proposal = TimelockProposal {
-        operation: operation as u32,
+        operation,
         proposer: caller.clone(),
         params,
         queued_at: now,
@@ -171,6 +171,11 @@ impl Escrow {
             .instance()
             .get(&DataKey::FeeCollector)
             .ok_or(ContractError::NotAuthorized)?;
+
+        if new_collector == old_collector {
+            return Err(ContractError::SameAddress);
+        }
+
         env.storage()
             .instance()
             .set(&DataKey::FeeCollector, &new_collector);
@@ -341,6 +346,37 @@ impl Escrow {
         Ok(())
     }
 
+    // 1. SetAdmin
+    pub fn queue_set_admin(
+        env: Env,
+        caller: Address,
+        new_admin: Address,
+    ) -> Result<(), ContractError> {
+        let mut params = Vec::new(&env);
+        params.push_back(new_admin.into_val(&env));
+        queue_timelock_op(&env, &caller, TimelockOperation::SetAdmin, params)
+    }
+
+    pub fn execute_set_admin(env: Env, caller: Address) -> Result<(), ContractError> {
+        let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetAdmin)?;
+        let new_admin = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
+
+        let old_admin = require_admin(&env)?;
+        if new_admin == old_admin {
+            return Err(ContractError::SameAddress);
+        }
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        emit_admin_rotated(&env, old_admin, new_admin);
+        Ok(())
+    }
+
     // 2. Upgrade
     pub fn queue_upgrade(
         env: Env,
@@ -354,8 +390,14 @@ impl Escrow {
 
     pub fn execute_upgrade(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::Upgrade)?;
-        let new_wasm_hash =
-            BytesN::<32>::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let new_wasm_hash = BytesN::<32>::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let admin = require_admin(&env)?;
         env.deployer()
@@ -377,7 +419,14 @@ impl Escrow {
 
     pub fn execute_set_arbitration_fee(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetArbitrationFee)?;
-        let fee_bps = u32::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let fee_bps = u32::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let old_fee_bps = update_arbitration_fee(&env, &caller, fee_bps)?;
         emit_arbitration_fee_updated(&env, old_fee_bps, fee_bps);
@@ -397,7 +446,14 @@ impl Escrow {
 
     pub fn execute_set_platform_fee(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetPlatformFee)?;
-        let fee_bps = u32::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let fee_bps = u32::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         if fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::PlatformFeeExceedsMax);
@@ -421,7 +477,14 @@ impl Escrow {
 
     pub fn execute_set_treasury(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTreasury)?;
-        let treasury = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let treasury = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let zero = crate::zero_address(&env);
         if treasury == zero {
@@ -452,7 +515,14 @@ impl Escrow {
 
     pub fn execute_set_fee_collector(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetFeeCollector)?;
-        let new_collector = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let new_collector = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let zero = crate::zero_address(&env);
         if new_collector == zero {
@@ -463,6 +533,11 @@ impl Escrow {
             .instance()
             .get(&DataKey::FeeCollector)
             .ok_or(ContractError::NotAuthorized)?;
+
+        if new_collector == old_collector {
+            return Err(ContractError::SameAddress);
+        }
+
         env.storage()
             .instance()
             .set(&DataKey::FeeCollector, &new_collector);
@@ -483,7 +558,18 @@ impl Escrow {
 
     pub fn execute_set_ttl_extension(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTtlExtension)?;
-        let ledgers = u32::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let ledgers = u32::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
+
+        if ledgers < MIN_TTL_EXTENSION {
+            return Err(ContractError::InvalidTtlExtension);
+        }
 
         let old_ledgers = storage::get_ttl_extension(&env);
         env.storage()
@@ -508,8 +594,22 @@ impl Escrow {
 
     pub fn execute_set_amount_limits(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetAmountLimits)?;
-        let min_amount = i128::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
-        let max_amount = i128::try_from_val(&env, &proposal.params.get(1).unwrap()).unwrap();
+        let min_amount = i128::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
+        let max_amount = i128::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(1)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         if min_amount <= 0 || max_amount < min_amount {
             return Err(ContractError::InvalidAmount);
@@ -560,7 +660,14 @@ impl Escrow {
 
     pub fn execute_add_approved_resolver(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::AddApprovedResolver)?;
-        let resolver = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let resolver = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let mut approved: soroban_sdk::Vec<Address> = env
             .storage()
@@ -600,7 +707,14 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::RemoveApprovedResolver)?;
-        let resolver = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let resolver = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let approved: soroban_sdk::Vec<Address> = env
             .storage()
@@ -636,7 +750,14 @@ impl Escrow {
 
     pub fn execute_set_resolver_strict(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetResolverStrict)?;
-        let strict = bool::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let strict = bool::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let old_strict = env
             .storage()
@@ -669,7 +790,14 @@ impl Escrow {
     pub fn execute_set_allowlist_enabled(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetTokenAllowlistEnabled)?;
-        let enabled = bool::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let enabled = bool::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         env.storage()
             .instance()
@@ -691,7 +819,14 @@ impl Escrow {
 
     pub fn execute_add_allowed_token(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::AddAllowedToken)?;
-        let token = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let token = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let mut allowlist: soroban_sdk::Vec<Address> = env
             .storage()
@@ -722,7 +857,14 @@ impl Escrow {
 
     pub fn execute_remove_allowed_token(env: Env, caller: Address) -> Result<(), ContractError> {
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::RemoveAllowedToken)?;
-        let token = Address::try_from_val(&env, &proposal.params.get(0).unwrap()).unwrap();
+        let token = Address::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
 
         let allowlist: soroban_sdk::Vec<Address> = env
             .storage()
@@ -847,6 +989,275 @@ impl Escrow {
         increment_counter(&env, &DataKey::TotalRefunded)?;
 
         crate::events::emit_emergency_drain(&env, escrow_id, escrow.token.clone(), escrow.amount);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
+        let old_admin = require_admin(&env)?;
+        if new_admin == old_admin {
+            return Err(ContractError::SameAddress);
+        }
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        emit_admin_rotated(&env, old_admin, new_admin);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn set_fee(env: Env, caller: Address, fee: u32) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        if fee > 10000 {
+            return Err(ContractError::FeeExceedsMax);
+        }
+        env.storage().instance().set(&DataKey::PlatformFeeBps, &fee);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn set_protocol_fee(env: Env, caller: Address, fee: u32) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        if fee > 10000 {
+            return Err(ContractError::PlatformFeeExceedsMax);
+        }
+        let mut config: crate::types::FeeConfig = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeConfig)
+            .unwrap_or(crate::types::FeeConfig {
+                protocol_fee_bps: 0,
+                arbitration_fee_bps: 0,
+            });
+        config.protocol_fee_bps = fee;
+        env.storage().instance().set(&DataKey::FeeConfig, &config);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn set_ttl_extension(
+        env: Env,
+        caller: Address,
+        extension_seconds: u32,
+    ) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        if extension_seconds < MIN_TTL_EXTENSION {
+            return Err(ContractError::InvalidTtlExtension);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::TtlExtensionLedgers, &extension_seconds);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn pause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::Paused, &true);
+        emit_contract_paused(&env, admin);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn unpause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::Paused, &false);
+        emit_contract_unpaused(&env, admin);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn set_amount_limits(
+        env: Env,
+        caller: Address,
+        min: i128,
+        max: i128,
+    ) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::MinAmount, &min);
+        env.storage().instance().set(&DataKey::MaxAmount, &max);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn set_resolver_strict(
+        env: Env,
+        caller: Address,
+        strict: bool,
+    ) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::ResolverStrict, &strict);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn add_approved_resolver(
+        env: Env,
+        caller: Address,
+        resolver: Address,
+    ) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        let mut approved: soroban_sdk::Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::ApprovedResolvers)
+            .unwrap_or(soroban_sdk::Vec::new(&env));
+        if !crate::internal::contains(&approved, &resolver) {
+            approved.push_back(resolver);
+            env.storage()
+                .instance()
+                .set(&DataKey::ApprovedResolvers, &approved);
+        }
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn remove_approved_resolver(
+        env: Env,
+        caller: Address,
+        resolver: Address,
+    ) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        let approved: soroban_sdk::Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::ApprovedResolvers)
+            .unwrap_or(soroban_sdk::Vec::new(&env));
+        let mut new_approved = soroban_sdk::Vec::new(&env);
+        for a in approved.iter() {
+            if a != resolver {
+                new_approved.push_back(a);
+            }
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::ApprovedResolvers, &new_approved);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn get_approved_resolvers(env: Env) -> soroban_sdk::Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::ApprovedResolvers)
+            .unwrap_or(soroban_sdk::Vec::new(&env))
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn is_resolver_strict(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::ResolverStrict)
+            .unwrap_or(false)
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn upgrade(
+        env: Env,
+        caller: Address,
+        new_wasm_hash: soroban_sdk::BytesN<32>,
+    ) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn pause_action(
+        env: Env,
+        caller: Address,
+        action: soroban_sdk::Symbol,
+    ) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::ActionPaused(action), &true);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn unpause_action(
+        env: Env,
+        caller: Address,
+        action: soroban_sdk::Symbol,
+    ) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::ActionPaused(action), &false);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn set_platform_fee(env: Env, caller: Address, fee: u32) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        if fee > 10000 {
+            return Err(ContractError::FeeExceedsMax);
+        }
+        env.storage().instance().set(&DataKey::PlatformFeeBps, &fee);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn set_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::Treasury, &treasury);
         Ok(())
     }
 }

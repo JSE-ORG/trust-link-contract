@@ -150,9 +150,9 @@ impl Escrow {
     }
 
     /// Returns publicly-readable contract configuration: protocol fee,
-    /// pause state, and total escrow count. Callable by anyone.
+    /// arbitration fee, pause state, and total escrow count. Callable by anyone.
     pub fn get_public_config(env: Env) -> PublicContractConfig {
-        let fee_bps: u32 = read_fee_config(&env).protocol_fee_bps;
+        let fee_config = read_fee_config(&env);
         let paused: bool = env
             .storage()
             .instance()
@@ -167,21 +167,22 @@ impl Escrow {
         let escrow_count = current_counter.saturating_sub(1);
 
         PublicContractConfig {
-            fee_bps,
+            fee_bps: fee_config.protocol_fee_bps,
+            arbitration_fee_bps: fee_config.arbitration_fee_bps,
             paused,
             escrow_count,
         }
     }
 
     /// Returns admin-only contract configuration: admin address, protocol
-    /// fee, fee collector, and total escrow count. Requires the caller to
-    /// authenticate as the current admin. Reverts with `NotInitialized` if
-    /// the contract has not been initialized.
+    /// fee, arbitration fee, fee collector, and total escrow count. Requires
+    /// the caller to authenticate as the current admin. Reverts with
+    /// `NotInitialized` if the contract has not been initialized.
     pub fn get_contract_config(env: Env) -> Result<ContractConfig, ContractError> {
         let admin = require_admin(&env)?;
         admin.require_auth();
 
-        let fee_bps: u32 = read_fee_config(&env).protocol_fee_bps;
+        let fee_config = read_fee_config(&env);
         let fee_collector: Address = env
             .storage()
             .instance()
@@ -195,7 +196,8 @@ impl Escrow {
             .saturating_sub(1);
         Ok(ContractConfig {
             admin,
-            fee_bps,
+            fee_bps: fee_config.protocol_fee_bps,
+            arbitration_fee_bps: fee_config.arbitration_fee_bps,
             fee_collector,
             escrow_count,
         })

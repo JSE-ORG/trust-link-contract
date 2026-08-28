@@ -8,6 +8,14 @@ use soroban_sdk::{contractimpl, token, Address, BytesN, Env, String, Symbol, Vec
 #[contractimpl]
 impl Escrow {
     /// Buyer raises a dispute on a funded or shipped escrow.
+    ///
+    /// `evidence_hash` is a commitment to evidence that stays off chain —
+    /// conventionally the SHA-256 digest of the evidence file. `BytesN<32>`
+    /// means the host rejects any other length while decoding the arguments,
+    /// so no length check is needed here; the contract cannot verify the
+    /// *content*, so consumers must re-hash the evidence and compare it against
+    /// the stored digest before treating it as proof. The all-zero digest is
+    /// accepted and conventionally means "no evidence attached".
     pub fn raise_dispute(
         env: Env,
         caller: Address,

@@ -9,8 +9,8 @@
  *
  * @example
  * ```ts
- * import { EscrowClient } from "trustlink-escrow-bindings";
- * import { simulateAndCatch, createEscrowSimulator } from "trustlink-escrow-bindings";
+ * import { EscrowClient } from "@trustlink/contract-bindings";
+ * import { simulateAndCatch, createEscrowSimulator } from "@trustlink/contract-bindings";
  *
  * const client = new EscrowClient(transport);
  *

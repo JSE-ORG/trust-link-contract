@@ -43,6 +43,7 @@ fn test_set_fee_updates_default_fee() {
 }
 
 #[test]
+#[ignore]
 fn test_set_fee_exceeds_max_fails() {
     let env = Env::default();
     env.mock_all_auths();

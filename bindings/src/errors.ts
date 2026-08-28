@@ -49,6 +49,10 @@ export const enum ErrorCode {
   TimelockNotElapsed = 39,
   GracePeriodNotElapsed = 40,
   MaxAppealsReached = 41,
+  BasketTokenMismatch = 42,
+  InvalidMulticallArg = 43,
+  PayeeBpsMismatch = 44,
+  TooManyMessages = 45,
 }
 
 /** Human-readable message for every contract error code. */
@@ -123,6 +127,10 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "The grace period has not elapsed yet.",
   [ErrorCode.MaxAppealsReached]:
     "The maximum number of appeals has been reached.",
+  [ErrorCode.BasketTokenMismatch]: "Basket token mismatch.",
+  [ErrorCode.InvalidMulticallArg]: "Invalid multicall argument.",
+  [ErrorCode.PayeeBpsMismatch]: "Payee bps mismatch.",
+  [ErrorCode.TooManyMessages]: "Too many messages.",
 };
 
 /**

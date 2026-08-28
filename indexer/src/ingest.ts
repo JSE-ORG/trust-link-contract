@@ -10,26 +10,50 @@
  *
  * The loop resumes from the persisted cursor on every restart, so no event is
  * processed twice and no event is skipped.
+ *
+ * Environment variables:
+ *   - `DATABASE_URL`      (required, read by `db.ts`) — Postgres connection string.
+ *   - `CONTRACT_ID`       (required) — the escrow contract to poll events for.
+ *   - `SOROBAN_RPC_URL`   (required) — RPC endpoint passed to `SorobanRpcSource`.
+ *   - `POLL_INTERVAL_MS`  (optional, default `6000`) — delay between poll cycles.
+ *   - `EVENTS_PAGE_SIZE`  (optional, default `1000`) — `getEvents` page size per poll,
+ *     read by `SorobanRpcSource` in `soroban-event-source.ts`.
+ *
+ * Architecture: this module owns two concerns that `replay.ts` (fixture-driven
+ * replay) also depends on:
+ *   1. `EventSource` / `SorobanRpcSource` (`soroban-event-source.ts`) — fetch
+ *      events from the chain. Only used in live mode; `replay.ts` reads
+ *      events straight from a JSON file instead.
+ *   2. `ingestBatch` (below) — apply a batch of events to Postgres. Shared
+ *      verbatim by both live ingestion and replay, so materialization logic
+ *      only lives in one place and behaves identically in both modes.
+ *
+ * Minimal example wiring a custom source into the shared batch-apply logic
+ * (this is essentially what `runLive` below does):
+ * ```ts
+ * import { getPool } from "./db.js";
+ * import { readCursor } from "./cursor.js";
+ * import { ingestBatch, SorobanRpcSource } from "./ingest.js";
+ *
+ * const pool = getPool();
+ * const source = new SorobanRpcSource(process.env.SOROBAN_RPC_URL!);
+ * const cursor = await readCursor(pool);
+ * const events = await source.fetchEvents(cursor, process.env.CONTRACT_ID!);
+ * const applied = await ingestBatch(pool, events);
+ * console.log(`applied ${applied} events`);
+ * ```
  */
-
-import { rpc, scValToNative } from "@stellar/stellar-sdk";
 
 import { getPool, withTx, closePool } from "./db.js";
 import { readCursor, writeCursor } from "./cursor.js";
 import { processEvent } from "./apply.js";
-import { topicKey, cursorAfter, type RawEvent, type Cursor } from "./types.js";
-
-// ---------------------------------------------------------------------------
-// EventSource abstraction
-// ---------------------------------------------------------------------------
-
-/**
- * Anything that can deliver a batch of RawEvents after the given cursor.
- * Swap this for the Soroban RPC adapter (stellar-sdk GetEvents) in production.
- */
-export interface EventSource {
-  fetchEvents(afterCursor: Cursor, contractId: string): Promise<RawEvent[]>;
-}
+import { topicKey, cursorAfter, type RawEvent } from "./types.js";
+import {
+  type EventSource,
+  SorobanRpcSource,
+  toJsonSafe,
+  decodeTopics,
+} from "./soroban-event-source.js";
 
 // ---------------------------------------------------------------------------
 // Main ingestion logic (shared by live and replay modes)
@@ -42,6 +66,27 @@ export interface EventSource {
  * materialized tables inside a single transaction.  The cursor advances only
  * after the transaction commits, so a crash mid-batch leaves the cursor at
  * the last committed event and the next run resumes correctly.
+ *
+ * `events` must already be in ascending `(ledger_sequence, tx_index,
+ * event_index)` order — both `SorobanRpcSource.fetchEvents` and the replay
+ * fixture loader guarantee this. Individual events are idempotent (the raw
+ * insert is `ON CONFLICT DO NOTHING` and `writeCursor` is an upsert), so
+ * re-passing an already-applied event is harmless — it just re-derives the
+ * same materialized state and re-writes the same cursor value.
+ *
+ * @param pool - Postgres pool from `getPool()`.
+ * @param events - events to apply, oldest first.
+ * @returns the number of events processed (equal to `events.length` on success).
+ *
+ * @example
+ * ```ts
+ * const pool = getPool();
+ * const applied = await ingestBatch(pool, [
+ *   { ledger_sequence: 101, tx_index: 0, event_index: 0, contract_id: "C...",
+ *     topics: ["Escrow", "Created"], payload: { schema_version: 1, escrow_id: 1, ... } },
+ * ]);
+ * // applied === 1; the cursor now points at (101, 0, 0).
+ * ```
  */
 export async function ingestBatch(
   pool: ReturnType<typeof getPool>,
@@ -89,97 +134,25 @@ export async function ingestBatch(
 // Live polling loop
 // ---------------------------------------------------------------------------
 
+/** Delay between `runLive` poll cycles, in ms. Env: `POLL_INTERVAL_MS` (default 6000). */
 const POLL_INTERVAL_MS = parseInt(process.env["POLL_INTERVAL_MS"] ?? "6000", 10);
-const EVENTS_PAGE_SIZE = parseInt(process.env["EVENTS_PAGE_SIZE"] ?? "1000", 10);
+/** Contract to poll events for in live mode. Env: `CONTRACT_ID` (required, see `runLive`). */
 const CONTRACT_ID = process.env["CONTRACT_ID"] ?? "";
 
 /**
- * Recursively converts a `scValToNative()` result into a JSON-safe value:
- * bigints (u64/i64/u128/i128/...) become decimal strings and raw byte
- * buffers (e.g. `BytesN<32>` evidence hashes) become hex strings, matching
- * the shapes of the `*Payload` interfaces in types.ts and the fixture data
- * in fixtures/events.json.
- */
-function toJsonSafe(value: unknown): unknown {
-  if (typeof value === "bigint") return value.toString();
-  if (value instanceof Uint8Array) return Buffer.from(value).toString("hex");
-  if (Array.isArray(value)) return value.map(toJsonSafe);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, toJsonSafe(v)]),
-    );
-  }
-  return value;
-}
-
-/** Decodes a single event's topic list into the plain strings RawEvent expects. */
-function decodeTopics(topic: ReturnType<typeof scValToNative>[]): string[] {
-  return topic.map((t) => String(toJsonSafe(scValToNative(t))));
-}
-
-/**
- * Soroban RPC event source — polls `getEvents` for the configured contract
- * and maps the results to `RawEvent[]`.
+ * Runs the live polling loop until the process receives `SIGINT`.
  *
- * `getEvents` only accepts a ledger-granular `startLedger`, finer than our
- * persisted (ledger, tx, event) cursor, so we always re-request from
- * `afterCursor.ledger_sequence` (not `+ 1`) and rely on `cursorAfter` to
- * drop anything at or before the cursor — this covers resuming mid-ledger
- * without skipping or reprocessing events (the latter is harmless anyway,
- * since `ingestBatch` upserts are idempotent).
+ * Each cycle: read the persisted cursor, fetch anything newer from `source`,
+ * apply it via `ingestBatch`, then sleep `POLL_INTERVAL_MS` and repeat. A
+ * fetch/apply error is logged and swallowed rather than crashing the loop —
+ * the next cycle simply re-reads the same cursor and retries, so a transient
+ * RPC or DB outage self-heals without operator intervention.
  *
- * The RPC response has no explicit per-ledger event index, so `event_index`
- * is derived by counting events per `(ledger, transactionIndex)` in the
- * order the server returns them — stable and deterministic since Soroban
- * RPC always returns events in ledger/tx/operation order.
+ * @example
+ * ```ts
+ * await runLive(new SorobanRpcSource(process.env.SOROBAN_RPC_URL!));
+ * ```
  */
-export class SorobanRpcSource implements EventSource {
-  private readonly server: Pick<rpc.Server, "getEvents">;
-
-  /** Accepts either an RPC URL or a pre-built server (e.g. a test double). */
-  constructor(rpcUrlOrServer: string | Pick<rpc.Server, "getEvents">) {
-    this.server =
-      typeof rpcUrlOrServer === "string" ? new rpc.Server(rpcUrlOrServer) : rpcUrlOrServer;
-  }
-
-  async fetchEvents(afterCursor: Cursor, contractId: string): Promise<RawEvent[]> {
-    const startLedger = Math.max(afterCursor.ledger_sequence, 1);
-
-    const response = await this.server.getEvents({
-      startLedger,
-      filters: [{ type: "contract", contractIds: [contractId] }],
-      limit: EVENTS_PAGE_SIZE,
-    });
-
-    const perTxEventCount = new Map<string, number>();
-    const events: RawEvent[] = [];
-
-    for (const event of response.events) {
-      const key = `${event.ledger}:${event.transactionIndex}`;
-      const eventIndex = perTxEventCount.get(key) ?? 0;
-      perTxEventCount.set(key, eventIndex + 1);
-
-      const candidate: Cursor = {
-        ledger_sequence: event.ledger,
-        tx_index: event.transactionIndex,
-        event_index: eventIndex,
-      };
-      if (!cursorAfter(candidate, afterCursor)) continue;
-
-      events.push({
-        ledger_sequence: event.ledger,
-        tx_index: event.transactionIndex,
-        event_index: eventIndex,
-        contract_id: event.contractId?.toString() ?? contractId,
-        topics: decodeTopics(event.topic),
-        payload: toJsonSafe(scValToNative(event.value)) as Record<string, unknown>,
-      });
-    }
-
-    return events;
-  }
-}
-
 async function runLive(source: EventSource): Promise<void> {
   if (!CONTRACT_ID) throw new Error("CONTRACT_ID environment variable is required");
 
@@ -228,4 +201,7 @@ if (isMain) {
   });
 }
 
-export { cursorAfter, toJsonSafe, decodeTopics };
+// Re-exported for backward compatibility — these used to be defined directly
+// in this file; they now live in `soroban-event-source.ts`.
+export { cursorAfter, SorobanRpcSource, toJsonSafe, decodeTopics };
+export type { EventSource };

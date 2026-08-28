@@ -16,7 +16,7 @@ fuzz_target!(|data: &[u8]| {
     };
 
     // Roughly half the runs target the real escrow, the rest a fuzzed id.
-    let target_id = if r.bool() { escrow_id } else { r.u64() };
+    let target_id = r.target_id(escrow_id);
     let funder = h.actor(r.u8());
 
     let _ = h.client.try_fund_escrow(&target_id, &funder);

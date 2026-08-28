@@ -385,3 +385,92 @@ fn fund_basket_escrow_transfers_only_the_configured_amounts() {
     assert_eq!(primary.token.balance(&fx.buyer), 50);
     assert_eq!(additional.token.balance(&fx.buyer), 25);
 }
+
+#[test]
+fn cancel_escrow_refunds_basket_tokens_to_the_buyer() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    a.admin.mint(&fx.buyer, &1_000);
+    b.admin.mint(&fx.buyer, &500);
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    // Buyer cancels the funded (but not yet shipped) escrow.
+    client.cancel_escrow(&fx.buyer, &escrow_id);
+
+    assert_eq!(a.token.balance(&fx.buyer), 1_000);
+    assert_eq!(b.token.balance(&fx.buyer), 500);
+    assert_eq!(a.token.balance(&fx.contract_id), 0);
+    assert_eq!(b.token.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Refunded);
+}
+
+#[test]
+fn mutual_cancel_refunds_basket_tokens_to_the_buyer() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    a.admin.mint(&fx.buyer, &1_000);
+    b.admin.mint(&fx.buyer, &500);
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    client.mutual_cancel(&escrow_id);
+
+    assert_eq!(a.token.balance(&fx.buyer), 1_000);
+    assert_eq!(b.token.balance(&fx.buyer), 500);
+    assert_eq!(a.token.balance(&fx.contract_id), 0);
+    assert_eq!(b.token.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Canceled);
+}
+
+#[test]
+fn co_signed_release_pays_out_basket_tokens_to_the_seller() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    a.admin.mint(&fx.buyer, &1_000);
+    b.admin.mint(&fx.buyer, &500);
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    // Early release by mutual consent, before the shipping/dispute windows elapse.
+    client.co_signed_release(&fx.seller, &escrow_id);
+
+    assert_eq!(a.token.balance(&fx.seller), 1_000);
+    assert_eq!(b.token.balance(&fx.seller), 500);
+    assert_eq!(a.token.balance(&fx.contract_id), 0);
+    assert_eq!(b.token.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Completed);
+}

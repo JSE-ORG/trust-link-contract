@@ -8,16 +8,34 @@ Fuzz testing is a security testing technique that automatically generates random
 
 ## Fuzz Targets
 
-The following fuzz targets have been created for each public entry point:
+### Core lifecycle
 
 - **create_escrow.rs**: Fuzzes the `create_escrow` function with random amounts, fees, and shipping windows
 - **fund_escrow.rs**: Fuzzes the `fund_escrow` function with random buyer addresses
 - **mark_shipped.rs**: Fuzzes the `mark_shipped` function with random tracking IDs
 - **confirm_delivery.rs**: Fuzzes the `confirm_delivery` function with random ledger timestamps
-- **raise_dispute.rs**: Fuzzes the `raise_dispute` function with random dispute metadata
-- **resolve_dispute.rs**: Fuzzes the `resolve_dispute` function with random resolution types
 - **cancel_escrow.rs**: Fuzzes the `cancel_escrow` function
 - **auto_release.rs**: Fuzzes the `auto_release` function with random time values
+- **co_signed_release.rs**: Fuzzes `co_signed_release` with co-signatures arriving in any order, from any role, including on a disputed escrow
+- **refund_flow.rs**: Interleaves `request_refund`, `approve_refund` and `mutual_cancel`, checking no ordering lets one escrow settle twice
+- **expiration.rs**: Fuzzes `create_escrow_with_expiration` plus `reclaim_expired` and `auto_cancel_pending`, probing the `expires_at + grace_period` arithmetic for overflow
+
+### Disputes
+
+- **raise_dispute.rs**: Fuzzes the `raise_dispute` function with random dispute metadata
+- **resolve_dispute.rs**: Fuzzes the `resolve_dispute` function with random resolution types
+- **dispute_appeal.rs**: Drives `resolve_dispute` → `appeal_dispute` → `finalize_dispute` across arbitrary timestamps, probing both sides of the appeal deadline
+- **vote.rs**: Fuzzes multi-resolver voting via `create_escrow_multi`, with resolver-set sizes and thresholds drawn from the input (including threshold 0 and thresholds above the set size)
+
+### Batching and multi-asset
+
+- **basket_escrow.rs**: Fuzzes `create_basket_escrow` with independently drawn `tokens` and `amounts` lengths, so mismatched vectors are exercised, then funds the basket
+- **batch_create_escrow.rs**: Fuzzes `batch_create_escrow` over batch sizes and per-entry fields, asserting a successful batch returns exactly one readable escrow id per input
+
+### Governance and messaging
+
+- **admin_timelock.rs**: Fuzzes the queue → wait → execute cycle (and `cancel_timelock_op`) around the 24h admin delay, covering early execution, cancellation races and re-queuing
+- **post_message.rs**: Fuzzes `post_message` content lengths and `get_messages` pagination, including `start`/`limit` pairs large enough to overflow a naive `start + limit`
 
 ## Running Fuzz Tests Locally
 
@@ -69,6 +87,10 @@ FUZZ_TIME=30 make fuzz
 
 Crash inputs are uploaded as a `fuzz-artifacts` artifact when a run fails.
 
+Targets run sequentially, so the smoke run costs roughly
+`60s x <number of targets>`. Keep that in mind when adding targets — the job's
+timeout is 180 minutes.
+
 ## Fuzz Target Design
 
 `fuzz_targets/common.rs` holds the shared harness. Each target follows the same
@@ -103,6 +125,26 @@ To add a new fuzz target:
 3. Follow the pattern of existing targets
 4. Update this README — the CI workflow picks up new targets automatically via
    `cargo fuzz list`
+
+`Harness` provides the setup most targets need:
+
+| Helper | Use |
+|---|---|
+| `create_valid_escrow()` / `create_funded_escrow()` | Reach `Created` / `Funded` |
+| `create_disputed_escrow(&mut r)` | Reach `Disputed` in one call |
+| `dispute_reason(&mut r)` | A valid reason symbol from `DISPUTE_REASONS` |
+| `actor(byte)` | One of the five known roles, authorized or not |
+| `stranger()` / `addresses(n)` | Fresh addresses with no role |
+| `extra_token()` | A second funded SAC, for basket escrows |
+
+`Reader` adds `len(max)` for collection sizes and `target_id(real_id)` for the
+common "real escrow or an arbitrary fuzzed id" choice, on top of the scalar
+readers — so targets cover the empty case, the documented cap, and the
+not-found path without hand-rolled maths.
+
+Without a real toolchain, `cargo check --manifest-path contracts/escrow/fuzz/Cargo.toml
+--all-targets` type-checks every harness on stable — a fast way to catch ABI
+drift before pushing.
 
 ## Limitations
 

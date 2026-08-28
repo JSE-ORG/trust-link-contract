@@ -1,4 +1,4 @@
-//! Developer task runner for trust-link-contract.
+//! Developer task runner for trust-link-contract (Escrow CLI Tool).
 //!
 //! Wraps the longer cargo / stellar commands documented in CONTRIBUTING.md so
 //! contributors can run them by name. Invoke via the cargo alias:
@@ -11,8 +11,26 @@
 //! cargo xtask deploy -- --network testnet --source alice
 //! ```
 //!
+//! # Examples
+//!
+//! Deploy the contract to a local standalone network:
+//! ```bash
+//! cargo xtask deploy -- --network standalone --source default
+//! ```
+//!
+//! Run local CI checks:
+//! ```bash
+//! cargo xtask ci
+//! ```
+//!
 //! Extra arguments after the subcommand are forwarded to the underlying tool,
 //! so `cargo xtask test -- --nocapture` works as expected.
+//!
+//! Layout:
+//!   * [`tasks`]       — the subcommand table, help text and the CI gate
+//!   * [`process`]     — spawning cargo/stellar/npm/bash and capturing output
+//!   * [`gas`]         — local gas profiling and report rendering
+//!   * [`gas_network`] — gas profiling against a live Stellar network
 
 mod gas;
 mod tasks;
@@ -61,16 +79,32 @@ fn main() -> ExitCode {
             }
         }
     }
+mod gas_network;
+mod process;
+mod tasks;
 
-    if command == "gas-profile-network" {
-        match run_gas_profile_network(&forwarded) {
-            Ok(()) => return ExitCode::SUCCESS,
-            Err(err) => {
-                eprintln!("error: gas-profile-network failed: {err}");
-                return ExitCode::FAILURE;
-            }
-        }
-    }
+use std::process::ExitCode;
+
+fn main() -> ExitCode {
+    let registry = tasks::all();
+
+    let mut args = std::env::args().skip(1);
+    let Some(command) = args.next() else {
+        tasks::print_help(&registry);
+        return ExitCode::SUCCESS;
+    };
+    let forwarded: Vec<String> = args.collect();
+
+    let name = match command.as_str() {
+        "--help" | "-h" => "help",
+        other => other,
+    };
+
+    let Some(task) = tasks::find(&registry, name) else {
+        eprintln!("error: unknown command '{command}'\n");
+        tasks::print_help(&registry);
+        return ExitCode::FAILURE;
+    };
 
     match task_list.iter().find(|t| t.name == command) {
         Some(task) => match run((task.run)(&forwarded)).map(|_| ()) {
@@ -83,6 +117,10 @@ fn main() -> ExitCode {
         None => {
             eprintln!("error: unknown command '{command}'\n");
             print_help(&task_list);
+    match task.run(&forwarded) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("error: {name} failed: {err}");
             ExitCode::FAILURE
         }
     }

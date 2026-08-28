@@ -1,33 +1,93 @@
+/**
+ * Shared enums and data interfaces for the TrustLink escrow contract.
+ *
+ * Every interface here mirrors a `#[contracttype]` struct or `#[contracterror]`
+ * enum in `contracts/escrow/src`. Field names match the on-chain layout
+ * (snake_case) so a decoded Soroban value maps straight onto these types.
+ *
+ * These types are maintained by hand. When in doubt about the exact contract
+ * surface, {@link contractAbi} (`./abi.ts`) is the authoritative manifest, and
+ * `npm run generate` re-derives raw bindings from the compiled Wasm.
+ *
+ * Value-type conventions:
+ * - `AddressLike` — a Stellar/Soroban address as a `G…`/`C…` string.
+ * - `bigint` — any `u64` / `i128` on-chain value (ids, amounts, timestamps).
+ * - `number` — `u32` values that comfortably fit a JS number (fees in bps,
+ *   counts, ledger counts).
+ * - `Bytes32` — a fixed 32-byte value (`BytesN<32>`), e.g. an evidence hash.
+ *
+ * @module types
+ */
+
+/** A Stellar/Soroban address in string form (`G…` account or `C…` contract). */
 export type AddressLike = string;
+/** A Soroban `Symbol` represented as a plain string on the TypeScript side. */
 export type ContractSymbol = string;
+/** A fixed-width 32-byte value (`BytesN<32>` on chain). */
 export type Bytes32 = Uint8Array;
+/** A value that is either present or `null` — the TS shape of Rust's `Option<T>`. */
 export type Result<T> = T | null;
 
+/**
+ * One call descriptor for {@link EscrowClient.multicall} / {@link EscrowBatch}.
+ * `function` is the contract method name; `args` are its arguments in the same
+ * order the individual client method takes them.
+ */
 export interface ContractCall {
   function: string;
   args: readonly unknown[];
 }
 
+/**
+ * Lifecycle state of an escrow.
+ *
+ * Typical progression:
+ * `Pending` → `Funded` → `Shipped` → `Completed`.
+ * Branches: any funded state can move to `Disputed` (then back out to
+ * `Completed` or `Refunded` on resolution); `Pending`/`Funded` can reach
+ * `Canceled`; a buyer refund path ends in `Refunded`.
+ */
 export enum EscrowState {
+  /** Created but not yet funded. Holds no tokens. */
   Pending = "Pending",
+  /** Buyer has deposited the amount; the dispute window is open. */
   Funded = "Funded",
+  /** Seller has marked the item shipped. */
   Shipped = "Shipped",
+  /** Funds released to the payees — terminal. */
   Completed = "Completed",
+  /** A dispute is active; normal release/cancel is frozen pending resolution. */
   Disputed = "Disputed",
+  /** Funds returned to the buyer — terminal. */
   Refunded = "Refunded",
+  /** Cancelled before completion; buyer refunded if it had been funded — terminal. */
   Canceled = "Canceled",
 }
 
+/** Whether a dispute record is still open or has been settled. */
 export enum DisputeStatus {
+  /** Awaiting a resolver decision. */
   Active = "Active",
+  /** A resolver has decided; the escrow has moved on. */
   Resolved = "Resolved",
 }
 
+/** How a resolver settles a dispute — see {@link EscrowClient.resolve_dispute}. */
 export enum ResolutionType {
+  /** Pay the escrow out to the payees (seller wins). */
   Release = "Release",
+  /** Return the escrow to the buyer (buyer wins). */
   Refund = "Refund",
 }
 
+/**
+ * Numeric contract error codes.
+ *
+ * @deprecated This is an incomplete, legacy copy. Use {@link ErrorCode} from
+ * `@trustlink/contract-bindings/errors`, which is the full set and is kept in
+ * sync with `contracts/escrow/src/errors.rs` by CI. Values below have been
+ * corrected to match that file.
+ */
 export enum ContractError {
   InvalidAmount = 1,
   InsufficientBalance = 2,
@@ -40,45 +100,80 @@ export enum ContractError {
   ShippingWindowNotElapsed = 9,
   InvalidEvidenceHash = 10,
   DisputeNotFound = 11,
-  ContractPaused = 12,
-  InvalidTrackingId = 13,
-  EscrowExpired = 25,
+  ContractPaused = 14,
+  InvalidTrackingId = 21,
+  EscrowExpired = 28,
 }
 
+/**
+ * Fee configuration returned by {@link EscrowClient.get_fee_config}.
+ * `max_fee_bps` is the hard cap enforced on per-escrow fees (in basis points).
+ */
 export interface FeeConfig {
   collector: AddressLike;
   max_fee_bps: number;
 }
 
+/**
+ * A release recipient. `bps` is this payee's share in basis points; the `bps`
+ * of every payee on an escrow must sum to exactly `10_000` (100%).
+ */
 export interface Payee {
   address: AddressLike;
   bps: number;
 }
 
-export interface EscrowData {
-  payees: Payee[];
-  buyer: AddressLike | null;
-  resolver: AddressLike;
+/** One token/amount pair in a basket (multi-token) escrow. See `get_basket_tokens`. */
+export interface TokenEntry {
   token: AddressLike;
   amount: bigint;
+}
+
+/** The full escrow record, as returned by {@link EscrowClient.get_escrow}. */
+export interface EscrowData {
+  /** Release recipients with their basis-point shares (sum to 10_000). */
+  payees: Payee[];
+  /** Fixed buyer, or `null` for an open escrow anyone may fund. */
+  buyer: AddressLike | null;
+  /** Address authorized to resolve a dispute on this escrow. */
+  resolver: AddressLike;
+  /** SEP-41 token contract the escrow is denominated in. */
+  token: AddressLike;
+  /** Escrow amount in the token's smallest unit. */
+  amount: bigint;
+  /** Platform fee for this escrow, in basis points. */
   fee_bps: number;
+  /** Resolver's fee in basis points, charged only on dispute resolution. */
   resolver_fee_bps: number;
+  /** Seconds the seller has to ship, measured from funding. */
   shipping_window: bigint;
+  /** Ledger timestamp of funding, or `0` while still `Pending`. */
   funded_at: bigint;
+  /** Ledger timestamp after which the buyer can no longer raise a dispute. */
   dispute_deadline: bigint;
+  /** Ledger timestamp of {@link EscrowClient.mark_shipped}, or `0`. */
   shipped_at: bigint;
+  /** Ledger timestamp delivery was recorded, or `null` if not yet recorded. */
   delivered_at: bigint | null;
+  /** Carrier tracking id supplied at `mark_shipped`, or `null`. */
   tracking_id: string | null;
+  /** Current lifecycle state. */
   state: EscrowState;
+  /** Free-text note attached at creation, or `null`. */
   notes: string | null;
 }
 
+/** A dispute record, as returned by {@link EscrowClient.get_dispute}. */
 export interface DisputeData {
   escrow_id: bigint;
+  /** Machine-readable reason tag passed to `raise_dispute` (e.g. `"damaged"`). */
   reason: ContractSymbol;
+  /** Free-text explanation (≤ 256 chars). */
   description: string;
+  /** 32-byte SHA-256 commitment to off-chain evidence (may be all-zero). */
   evidence_hash: Bytes32;
   status: DisputeStatus;
+  /** Ledger timestamp the dispute was raised. */
   disputed_at: bigint;
 }
 
@@ -89,7 +184,10 @@ export interface Message {
   content: string;
 }
 
-/** One entry in a `batch_create_escrow` call. */
+/**
+ * One entry in a {@link EscrowClient.batch_create_escrow} call. The seller is
+ * supplied once for the whole batch, so it is not repeated here.
+ */
 export interface EscrowInput {
   buyer: AddressLike | null;
   resolver: AddressLike;
@@ -111,6 +209,7 @@ export interface ContractStats {
 /** Public, read-only contract configuration from `get_public_config`. */
 export interface PublicContractConfig {
   fee_bps: number;
+  arbitration_fee_bps: number;
   paused: boolean;
   escrow_count: bigint;
 }
@@ -119,6 +218,7 @@ export interface PublicContractConfig {
 export interface ContractConfig {
   admin: AddressLike;
   fee_bps: number;
+  arbitration_fee_bps: number;
   fee_collector: AddressLike;
   escrow_count: bigint;
 }

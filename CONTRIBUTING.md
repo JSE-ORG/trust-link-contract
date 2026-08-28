@@ -97,6 +97,21 @@ This repository participates in the **[Stellar Wave Program](https://www.drips.n
 
 ## Development Setup
 
+Run the following after cloning to install git hooks:
+
+```bash
+make setup
+```
+
+This installs a pre-commit hook that automatically checks:
+
+- **Formatting**: `cargo fmt --all -- --check`
+- **Lints**: `cargo clippy --all-targets --all-features -- -D warnings`
+
+Commits will be rejected if either check fails.
+
+Run `cargo fmt --all` to fix formatting issues.
+
 ### Option A — Dev Container (recommended, zero manual setup)
 
 The repo ships a [`.devcontainer/`](.devcontainer/) definition, so you can get a fully provisioned environment without installing Rust, Node, PostgreSQL or the Stellar CLI on your machine.

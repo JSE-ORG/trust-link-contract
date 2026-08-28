@@ -517,6 +517,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "arbitration_fee"
+                    },
+                    "val": {
+                      "i128": "5"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "description"
                     },
                     "val": {
@@ -577,6 +585,14 @@
                     },
                     "val": {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "resolver_fee"
+                    },
+                    "val": {
+                      "i128": "0"
                     }
                   },
                   {

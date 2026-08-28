@@ -225,7 +225,7 @@ fn resolve_or_vote_internal(
         threshold,
     );
 
-    if let Some(final_resolution) = tally_votes(&votes, threshold) {
+    if let Some(final_resolution) = tally_votes(&votes, threshold)? {
         execute_resolution_transition(env, escrow_id, escrow, caller, final_resolution, votes)?;
     } else {
         save_resolver_votes(env, escrow_id, &votes);
@@ -244,3 +244,59 @@ mod test_auto_release;
 mod test_fallback_resolver;
 #[cfg(test)]
 mod test_helpers;
+mod test_auto_release_additional;
+mod test_basket_escrow;
+mod test_cancel_restrictions;
+mod test_co_signed_release;
+mod test_concurrent_vendor_escrows;
+mod test_contract_config;
+mod test_create_escrow_boundary;
+mod test_create_escrow_with_expiration;
+mod test_delivery;
+mod test_dispute;
+mod test_dispute_deadline_overflow;
+mod test_dispute_flow;
+mod test_dispute_window;
+mod test_edge_cases;
+mod test_emergency_drain;
+mod test_escrow_id;
+mod test_expiration;
+mod test_fallback_resolver;
+mod test_fee_calculation_accuracy;
+mod test_fee_config;
+mod test_fee_minimum;
+mod test_fee_snapshot;
+mod test_fee_update;
+mod test_finalize_dispute_appeal_boundary;
+mod test_get_escrows_by_buyer;
+mod test_get_escrows_by_ids;
+mod test_get_escrows_by_seller;
+mod test_get_escrows_by_vendor;
+mod test_helpers;
+mod test_initialize_twice;
+mod test_initialize_zero_admin;
+mod test_malicious_token;
+mod test_minimum_amount_guard;
+mod test_multi_asset;
+mod test_multi_resolver;
+mod test_multicall;
+mod test_mutual_cancel;
+mod test_not_found;
+mod test_overflow;
+mod test_pause;
+mod test_pending_expiry;
+mod test_refund_override;
+mod test_resolution;
+mod test_resolver_registry;
+mod test_resolver_rotation;
+mod test_sep41;
+mod test_set_fee_boundary;
+mod test_set_fee_collector;
+mod test_shipping_window;
+mod test_state_history;
+mod test_storage_collision;
+mod test_string_length;
+mod test_ttl;
+mod test_unauthorized;
+mod test_upgrade_migration;
+mod test_vote;
