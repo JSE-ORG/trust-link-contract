@@ -1227,7 +1227,8 @@ impl Escrow {
     /// Creates an escrow that pays out multiple tokens ("basket") to a single
     /// seller instead of the single-token flow used by `create_escrow`.
     /// `tokens` and `amounts` must be the same non-empty length and every
-    /// token must pass the allowlist check (if enabled). The primary
+    /// token must pass the allowlist check (if enabled). Every amount is
+    /// validated: must be > 0 and within `[MinAmount, MaxAmount]`. The primary
     /// `EscrowData` record tracks `tokens[0]`/`amounts[0]`; the full basket
     /// is stored separately and readable via `get_basket_tokens`. Must be
     /// funded with `fund_basket_escrow`. Emits `basket_escrow_created`.
@@ -1249,6 +1250,33 @@ impl Escrow {
         }
 
         validate_escrow_fee_bps(fee_bps)?;
+
+        // Validate every basket amount against the configured or default limits.
+        // Mirrors the three-step check in create_escrow_internal so secondary
+        // tokens are subject to the same arithmetic-safety guarantees as the
+        // primary token.
+        let max_amount: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxAmount)
+            .unwrap_or(MAX_ESCROW_AMOUNT);
+        let min_amount: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinAmount)
+            .unwrap_or(MIN_ESCROW_AMOUNT);
+
+        for amount in amounts.iter() {
+            if amount <= 0 {
+                return Err(ContractError::InvalidAmount);
+            }
+            if amount > max_amount {
+                return Err(ContractError::AmountExceedsMaximum);
+            }
+            if amount < min_amount {
+                return Err(ContractError::AmountBelowMinimum);
+            }
+        }
 
         if resolver == seller {
             return Err(ContractError::ConflictingRoles);
@@ -1325,6 +1353,22 @@ impl Escrow {
 
         if escrow.state != EscrowState::Pending {
             return Err(ContractError::InvalidState);
+        }
+
+        // Security: buyer must differ from every payee (seller) and every
+        // resolver in the set. Mirrors the identical check in fund_escrow and
+        // enforces INVARIANTS.md I4 (role separation) for basket escrows.
+        for i in 0..escrow.payees.len() {
+            let payee = escrow
+                .payees
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            if buyer == payee.address {
+                return Err(ContractError::ConflictingRoles);
+            }
+        }
+        if escrow.resolvers.contains(&buyer) {
+            return Err(ContractError::ConflictingRoles);
         }
 
         if let Some(ref expected_buyer) = escrow.buyer {

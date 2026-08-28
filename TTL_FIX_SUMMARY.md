@@ -144,7 +144,7 @@ All persistent storage writes now properly extend TTL:
 | `DataKey::Dispute`              | `save_dispute()` in lib.rs                                  | Via `extend_ttl()` after `set()`            |
 | `StorageKey::EscrowData`        | `storage::write_escrow_data()`                              | Via `extend_ttl_for_key()` helper           |
 | `StorageKey::VendorEscrowIndex` | `storage::write_vendor_escrow_index()`                      | Via `extend_ttl_for_key()` helper           |
-| `StorageKey::BuyerEscrowIndex`  | `storage::write_buyer_escrow_index()` + lib.rs direct write | Via `extend_ttl_for_key()` + `extend_ttl()` |
+| `DataKey::BuyerEscrowIndex`     | `storage::write_buyer_escrow_index()` + instructions.rs inline write | Via `extend_ttl_for_key()` + `extend_ttl()` |
 
 ## Key Design Decisions
 

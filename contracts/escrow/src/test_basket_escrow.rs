@@ -3,7 +3,8 @@
 //!
 //! Exercises the four public entry points end to end:
 //! - `create_basket_escrow` — persists every token/amount, maps index 0 to the
-//!   primary token/amount, rejects malformed baskets
+//!   primary token/amount, rejects malformed baskets, validates every amount
+//!   against MinAmount/MaxAmount (#807)
 //! - `fund_basket_escrow`   — pulls every token from the buyer into escrow
 //! - `get_basket_tokens`    — returns the stored token entries
 //! - `payout_basket_tokens` — driven via `auto_release`, pays each token out
@@ -237,16 +238,16 @@ fn payout_pays_each_basket_token_to_seller() {
 }
 
 #[test]
-fn zero_amount_token_is_skipped_on_fund_and_payout() {
-    // Multi-token edge case: a basket entry with amount 0 must be transferred
-    // neither on funding nor on payout (the buyer is never minted that token).
+fn create_basket_escrow_rejects_zero_secondary_amount() {
+    // Issue #807: a basket entry with amount 0 must be rejected at creation
+    // time, not silently accepted and skipped later at transfer time.
     let fx = setup();
     let client = EscrowClient::new(&fx.env, &fx.contract_id);
     let a = make_token(&fx.env);
     let zero = make_token(&fx.env);
     let c = make_token(&fx.env);
 
-    let escrow_id = client.create_basket_escrow(
+    let result = client.try_create_basket_escrow(
         &fx.seller,
         &None::<Address>,
         &fx.resolver,
@@ -255,26 +256,7 @@ fn zero_amount_token_is_skipped_on_fund_and_payout() {
         &0_u32,
         &SHIPPING_WINDOW,
     );
-
-    a.admin.mint(&fx.buyer, &1_000);
-    c.admin.mint(&fx.buyer, &200);
-    // Note: `zero` token is never minted — funding must not attempt to pull it.
-    client.fund_basket_escrow(&escrow_id, &fx.buyer);
-
-    assert_eq!(a.token.balance(&fx.contract_id), 1_000);
-    assert_eq!(zero.token.balance(&fx.contract_id), 0);
-    assert_eq!(c.token.balance(&fx.contract_id), 200);
-
-    let escrow = client.get_escrow(&escrow_id);
-    fx.env
-        .ledger()
-        .set_timestamp(escrow.dispute_deadline + SHIPPING_WINDOW + 1);
-    client.auto_release(&escrow_id);
-
-    // Seller receives the two funded tokens; the zero-amount token stays at 0.
-    assert_eq!(a.token.balance(&fx.seller), 1_000);
-    assert_eq!(zero.token.balance(&fx.seller), 0);
-    assert_eq!(c.token.balance(&fx.seller), 200);
+    assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
 
 #[test]
@@ -473,4 +455,160 @@ fn co_signed_release_pays_out_basket_tokens_to_the_seller() {
     assert_eq!(a.token.balance(&fx.contract_id), 0);
     assert_eq!(b.token.balance(&fx.contract_id), 0);
     assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Completed);
+}
+
+// ── Issue #807 – per-token amount validation ─────────────────────────────────
+
+#[test]
+fn create_basket_escrow_rejects_secondary_amount_below_minimum() {
+    // When the admin configures a MinAmount, every basket entry must meet it.
+    // Here the primary passes but the secondary is below the floor.
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let admin = Address::generate(&fx.env);
+    // Re-initialize with a known admin so we can call set_amount_limits.
+    let fee_collector = Address::generate(&fx.env);
+    let contract_id = fx.env.register(crate::Escrow, ());
+    let c2 = EscrowClient::new(&fx.env, &contract_id);
+    c2.initialize(&admin, &fee_collector, &0_u32);
+    // Set a minimum of 100 stroops.
+    c2.set_amount_limits(&admin, &100_i128, &(crate::MAX_ESCROW_AMOUNT));
+
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+
+    // amounts[0] = 1_000 (passes), amounts[1] = 50 (below 100 minimum).
+    let result = c2.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address]),
+        &vec_i128(&fx.env, &[1_000, 50]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    assert_eq!(result, Err(Ok(ContractError::AmountBelowMinimum)));
+}
+
+#[test]
+fn create_basket_escrow_rejects_secondary_amount_above_maximum() {
+    // When the admin configures a MaxAmount, every basket entry must stay at or
+    // below it. Here the primary passes but the secondary is above the cap.
+    let fx = setup();
+    let admin = Address::generate(&fx.env);
+    let fee_collector = Address::generate(&fx.env);
+    let contract_id = fx.env.register(crate::Escrow, ());
+    let c2 = EscrowClient::new(&fx.env, &contract_id);
+    c2.initialize(&admin, &fee_collector, &0_u32);
+    // Cap at 10_000 stroops.
+    c2.set_amount_limits(&admin, &1_i128, &10_000_i128);
+
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+
+    // amounts[0] = 1_000 (passes), amounts[1] = 10_001 (exceeds 10_000 cap).
+    let result = c2.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address]),
+        &vec_i128(&fx.env, &[1_000, 10_001]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    assert_eq!(result, Err(Ok(ContractError::AmountExceedsMaximum)));
+}
+
+#[test]
+fn create_basket_escrow_with_all_valid_amounts_succeeds() {
+    // Happy-path smoke test for the validation introduced in #807: a basket
+    // where every amount is > 0 and within the default limits must be created.
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let c = make_token(&fx.env);
+
+    let result = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address, &c.address]),
+        &vec_i128(&fx.env, &[1_000, 500, 200]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    assert!(result.is_ok(), "expected success, got: {result:?}");
+    let escrow_id = result.unwrap();
+
+    let entries = client.get_basket_tokens(&escrow_id);
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries.get(0).unwrap().amount, 1_000);
+    assert_eq!(entries.get(1).unwrap().amount, 500);
+    assert_eq!(entries.get(2).unwrap().amount, 200);
+}
+
+// ── Issue #808 – ConflictingRoles check for basket funding ───────────────────
+
+#[test]
+fn fund_basket_escrow_rejects_buyer_equal_to_seller() {
+    // INVARIANTS.md I4: buyer and seller must be distinct.
+    // fund_basket_escrow must enforce this the same way fund_escrow does.
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+
+    // Create a basket escrow with no pre-set buyer so anyone can attempt to fund.
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address]),
+        &vec_i128(&fx.env, &[1_000]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    primary.admin.mint(&fx.seller, &1_000);
+
+    // The seller attempts to fund their own escrow — must be rejected.
+    assert_eq!(
+        client.try_fund_basket_escrow(&escrow_id, &fx.seller),
+        Err(Ok(ContractError::ConflictingRoles))
+    );
+
+    // No funds should have moved; escrow stays Pending.
+    assert_eq!(primary.token.balance(&fx.seller), 1_000);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+}
+
+#[test]
+fn fund_basket_escrow_rejects_buyer_equal_to_resolver() {
+    // INVARIANTS.md I4: buyer and resolver must be distinct.
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address]),
+        &vec_i128(&fx.env, &[1_000]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    primary.admin.mint(&fx.resolver, &1_000);
+
+    // The resolver attempts to fund — must be rejected.
+    assert_eq!(
+        client.try_fund_basket_escrow(&escrow_id, &fx.resolver),
+        Err(Ok(ContractError::ConflictingRoles))
+    );
+
+    assert_eq!(primary.token.balance(&fx.resolver), 1_000);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
 }
