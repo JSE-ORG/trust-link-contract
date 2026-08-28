@@ -177,7 +177,8 @@ fn post_message_enforces_cap() {
         f.client().post_message(&f.escrow_id, &f.buyer, &content);
     }
     assert_eq!(
-        f.client().try_post_message(&f.escrow_id, &f.buyer, &content),
+        f.client()
+            .try_post_message(&f.escrow_id, &f.buyer, &content),
         Err(Ok(ContractError::TooManyMessages))
     );
 }

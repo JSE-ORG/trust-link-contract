@@ -53,6 +53,8 @@ export const enum ErrorCode {
   InvalidMulticallArg = 43,
   PayeeBpsMismatch = 44,
   TooManyMessages = 45,
+  InvalidTtlExtension = 46,
+  InvalidResolverThreshold = 47,
 }
 
 /** Human-readable message for every contract error code. */
@@ -131,6 +133,10 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.InvalidMulticallArg]: "Invalid multicall argument.",
   [ErrorCode.PayeeBpsMismatch]: "Payee bps mismatch.",
   [ErrorCode.TooManyMessages]: "Too many messages.",
+  [ErrorCode.InvalidTtlExtension]:
+    "The requested TTL extension is below the minimum allowed limit.",
+  [ErrorCode.InvalidResolverThreshold]:
+    "Multi-resolver threshold is invalid.",
 };
 
 /**

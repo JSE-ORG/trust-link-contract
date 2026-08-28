@@ -234,17 +234,17 @@ fn resolve_or_vote_internal(
     Ok(())
 }
 
-#[cfg(test)]
 mod malicious_token;
-#[cfg(test)]
 mod test;
-#[cfg(test)]
+mod test_admin;
+mod test_admin_event_emissions;
+mod test_admin_rotation;
+mod test_amount_limits;
+mod test_appeal;
+mod test_arbitration_fee;
+mod test_auth_matrix;
+mod test_auth_ordering;
 mod test_auto_release;
-#[cfg(test)]
-mod test_fallback_resolver;
-#[cfg(test)]
-mod test_helpers;
-mod test_auto_release_additional;
 mod test_basket_escrow;
 mod test_cancel_restrictions;
 mod test_co_signed_release;
@@ -276,6 +276,7 @@ mod test_helpers;
 mod test_initialize_twice;
 mod test_initialize_zero_admin;
 mod test_malicious_token;
+mod test_messaging;
 mod test_minimum_amount_guard;
 mod test_multi_asset;
 mod test_multi_resolver;

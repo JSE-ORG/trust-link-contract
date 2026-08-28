@@ -291,6 +291,7 @@ fn test_auto_release() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &200_u32);
+    client.set_protocol_fee(&admin, &200_u32);
 
     mint_tokens(&env, &token, &buyer, 1000);
 
@@ -992,6 +993,7 @@ fn test_auto_release_after_dispute_deadline() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &200_u32);
+    client.set_protocol_fee(&admin, &200_u32);
 
     mint_tokens(&env, &token, &buyer, 1000);
 

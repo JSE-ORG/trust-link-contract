@@ -1,9 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::{advance_time, mint_token, setup_contract};
-use crate::{
-    Escrow, EscrowClient, EscrowState, Payee, ResolutionType, ResolverSet, TokenEntry,
-};
+use crate::{Escrow, EscrowClient, EscrowState, Payee, ResolutionType, ResolverSet, TokenEntry};
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{token, Address, Env, IntoVal, String as SorobanString, Vec};
 
