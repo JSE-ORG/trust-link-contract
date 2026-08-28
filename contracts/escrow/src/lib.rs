@@ -584,7 +584,7 @@ impl Escrow {
             .storage()
             .instance()
             .get(&DataKey::EscrowCounter)
-            .expect("counter initialized");
+            .ok_or(ContractError::IndexOutOfBounds)?;
         let next_id = escrow_id.checked_add(1).ok_or(ContractError::ArithmeticError)?;
         env.storage()
             .instance()
