@@ -157,7 +157,7 @@ impl Escrow {
             return Err(ContractError::AppealWindowActive);
         }
 
-        let _prev_state = escrow.state.clone();
+        let prev_state = escrow.state.clone();
         let recipient = match resolution {
             ResolutionType::Release => escrow
                 .payees
@@ -195,6 +195,23 @@ impl Escrow {
             .checked_sub(platform_fee)
             .ok_or(ContractError::ArithmeticError)?;
 
+        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
+        let new_state = match resolution {
+            ResolutionType::Release => EscrowState::Completed,
+            ResolutionType::Refund => EscrowState::Refunded,
+        };
+        escrow.state = new_state.clone();
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        dispute_data.status = DisputeStatus::Resolved;
+        save_dispute(&env, escrow_id, &dispute_data);
+
+        match resolution {
+            ResolutionType::Release => increment_counter(&env, &DataKey::TotalCompleted)?,
+            ResolutionType::Refund => increment_counter(&env, &DataKey::TotalRefunded)?,
+        };
+
+        // ── INTERACTIONS (external token transfers) ──
         if platform_fee > 0 {
             if let Some(ref treasury_addr) = treasury {
                 let token_client = token::Client::new(&env, &escrow.token);
@@ -215,23 +232,6 @@ impl Escrow {
             escrow.fee_bps,
         )?;
         payout_basket_tokens(&env, escrow_id, &recipient)?;
-
-        let prev_state = escrow.state.clone();
-        let new_state = match resolution {
-            ResolutionType::Release => EscrowState::Completed,
-            ResolutionType::Refund => EscrowState::Refunded,
-        };
-        escrow.state = new_state.clone();
-
-        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-
-        dispute_data.status = DisputeStatus::Resolved;
-        save_dispute(&env, escrow_id, &dispute_data);
-
-        match resolution {
-            ResolutionType::Release => increment_counter(&env, &DataKey::TotalCompleted)?,
-            ResolutionType::Refund => increment_counter(&env, &DataKey::TotalRefunded)?,
-        };
 
         emit_dispute_resolved(
             &env,

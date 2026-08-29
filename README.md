@@ -23,39 +23,31 @@ Buyers and sellers never meet. The contract handles the trust gap.
 
 ## State Machine
 
-```text
-  create_escrow()
-       |
-       v
-  ┌─────────┐   fund_escrow()   ┌────────┐   mark_shipped()   ┌─────────┐
-  │ PENDING │─────────────────▶ │ FUNDED │──────────────────▶ │ SHIPPED │
-  └────┬────┘                   └────┬───┘                    └────┬────┘
-       │                             │                      ┌──────┴─────────┐
-cancel_escrow()                 raise_dispute()        confirm_delivery()    │
-or reclaim_expired()                 │                      │           auto_release()
-       │                             │                      │    raise_dispute()
-       v                             v                      v                │
-  ┌──────────┐                 ┌──────────┐           ┌──────────┐           │
-  │CANCELLED │                 │ DISPUTED │◀──────────┼──────────┼───────────┘
-  │    or    │                 └────┬─────┘           │          │
-  │ EXPIRED  │                      │                 │          v
-  └──────────┘              resolve_dispute()         │    ┌──────────┐
-                                    │                 │    │COMPLETED │
-                                    v                 │    └──────────┘
-                          ┌─────────────────────┐     │
-                          │ PENDINGFINALIZATION │     │
-                          └─────────┬───────────┘     │
-                                    │                 │
-                           finalize_dispute()         │
-                                    │                 │
-                                    v                 │
-                            ┌───────────────┐         │
-                            │   COMPLETED   │◀────────┘
-                            │  or REFUNDED  │
-                            └───────────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> Pending : create_escrow
 
-  (Appeal Flow: PendingFinalization ──appeal_dispute()──▶ Disputed)
-  (Refund Flow: Funded/Shipped ──request_refund()──▶ RefundRequested ──approve_refund()──▶ Refunded)
+    Pending --> Funded : fund_escrow
+    Pending --> Canceled : cancel_escrow
+    Pending --> Expired : reclaim_expired
+
+    Funded --> Shipped : mark_shipped
+    Funded --> Completed : confirm_delivery
+    Funded --> Completed : auto_release
+    Funded --> Disputed : raise_dispute
+    Funded --> RefundRequested : request_refund
+
+    Shipped --> Completed : confirm_delivery
+    Shipped --> Completed : auto_release
+    Shipped --> Disputed : raise_dispute
+
+    RefundRequested --> Refunded : approve_refund
+
+    Disputed --> PendingFinalization : resolve_dispute / vote
+
+    PendingFinalization --> Completed : finalize_dispute
+    PendingFinalization --> Refunded : finalize_dispute
+    PendingFinalization --> Disputed : appeal_dispute
 ```
 
 Key rules:
@@ -615,6 +607,35 @@ The escrow contract is token-agnostic, using SEP-41 token interface clients. All
 
 - `soroban_sdk::token::Client`
 
+```mermaid
+sequenceDiagram
+    participant Buyer
+    participant Contract
+    participant Seller_Payees as Seller / Payees
+    participant Fee_Collector
+
+    Note over Buyer,Fee_Collector: Happy path (fund → confirm delivery / auto_release)
+    Buyer->>Contract: fund_escrow (transfer amount)
+    Buyer->>Contract: confirm_delivery (or auto_release triggers)
+    Contract->>Fee_Collector: transfer protocol fee (fee_bps)
+    Contract->>Seller_Payees: transfer net amount (split by payee bps)
+
+    Note over Buyer,Fee_Collector: Dispute resolution path
+    Buyer->>Contract: fund_escrow (transfer amount)
+    Buyer->>Contract: raise_dispute
+    Contract-->>Contract: state → Disputed
+    Note over Contract: resolve_dispute / vote → PendingFinalization
+    Buyer->>Contract: finalize_dispute (after appeal window)
+    Contract->>Contract: state → Completed or Refunded (saved before transfers)
+    Contract->>Fee_Collector: transfer platform fee (optional)
+    Contract->>Fee_Collector: transfer protocol fee (fee_bps)
+    alt Release to seller
+        Contract->>Seller_Payees: transfer net amount
+    else Refund to buyer
+        Contract->>Buyer: transfer net amount
+    end
+```
+
 Token transfers occur in:
 
 - `fund_escrow`: buyer → contract
@@ -631,6 +652,7 @@ The payout logic is governed by `transfer_with_protocol_fee`, which splits the n
 and transfers each `payee_payout` to the respective payee address and `fee` directly to the configured fee collector in the same call — the protocol fee never accumulates in the contract. The sum of basis points (bps) across all payees must equal exactly 10,000 (100%).
 
 The arbitration fee is handled as a separate deduction in `resolve_dispute`.
+
 
 ---
 

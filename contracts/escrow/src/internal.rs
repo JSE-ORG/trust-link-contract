@@ -547,28 +547,7 @@ pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<
     }
 }
 
-pub(crate) fn transfer_with_protocol_fee(
-    env: &Env,
-    token_addr: &Address,
-    recipient: &Address,
-    fee_collector: &Address,
-    amount: i128,
-    fee_bps: u32,
-) -> Result<(i128, i128), ContractError> {
-    let (fee, net) = crate::helpers::payout::calculate_protocol_fee(amount, fee_bps)?;
-    let token_client = token::Client::new(env, token_addr);
-    let contract_addr = env.current_contract_address();
-
-    if net > 0 {
-        token_client.transfer(&contract_addr, recipient, &net);
-    }
-
-    if fee > 0 {
-        token_client.transfer(&contract_addr, fee_collector, &fee);
-    }
-
-    Ok((fee, net))
-}
+pub(crate) use crate::helpers::payout::transfer_with_protocol_fee;
 
 /// Distributes the specified `amount` among the `payees` proportionally based on their BPS shares.
 ///
