@@ -609,3 +609,115 @@ fn fund_basket_escrow_rejects_buyer_equal_to_resolver() {
     assert_eq!(primary.token.balance(&fx.contract_id), 0);
     assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
 }
+
+// ── Issue #851 – basket funding respects pending expiry ──────────────────────
+
+/// After the blanket 7-day `PENDING_EXPIRY_WINDOW` elapses, funding a basket
+/// escrow must fail with `EscrowExpired`, mirroring `fund_escrow`.
+#[test]
+fn fund_basket_escrow_after_blanket_expiry_returns_escrow_expired() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let primary = make_token(&env);
+    let escrow_id = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &vec_addr(&env, &[&primary.address]),
+        &vec_i128(&env, &[1_000]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    primary.admin.mint(&buyer, &1_000);
+
+    // Advance one second past the 7-day pending-expiry window.
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1_000_000 + crate::PENDING_EXPIRY_WINDOW + 1;
+    });
+
+    let result = client.try_fund_basket_escrow(&escrow_id, &buyer);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_basket_escrow after the blanket expiry must return EscrowExpired"
+    );
+
+    // No funds moved and the escrow is still Pending.
+    assert_eq!(primary.token.balance(&buyer), 1_000);
+    assert_eq!(primary.token.balance(&contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+}
+
+/// An explicit `PendingExpiry` schedule that has already passed must also block
+/// funding of a basket escrow, mirroring `fund_escrow`. `create_basket_escrow`
+/// does not set a schedule, so we write one directly to simulate it.
+#[test]
+fn fund_basket_escrow_after_explicit_expires_at_returns_escrow_expired() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let primary = make_token(&env);
+    let escrow_id = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &vec_addr(&env, &[&primary.address]),
+        &vec_i128(&env, &[1_000]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    // Simulate an explicit pending-expiry schedule expiring at t=1_000_100.
+    let expires_at: u64 = 1_000_100;
+    let schedule = crate::ExpirySchedule {
+        expires_at,
+        grace_period: 0,
+    };
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&crate::DataKey::PendingExpiry(escrow_id), &schedule);
+    });
+
+    primary.admin.mint(&buyer, &1_000);
+
+    // Advance past the explicit expires_at.
+    env.ledger().with_mut(|li| {
+        li.timestamp = expires_at + 1;
+    });
+
+    let result = client.try_fund_basket_escrow(&escrow_id, &buyer);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_basket_escrow after expires_at must return EscrowExpired"
+    );
+
+    assert_eq!(primary.token.balance(&buyer), 1_000);
+    assert_eq!(primary.token.balance(&contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+}

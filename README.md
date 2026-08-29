@@ -593,7 +593,7 @@ Each meaningful lifecycle step emits an event (examples):
 - `DisputeResolved`
 - `AutoReleased`
 
-The tests include numerous snapshot JSON files under `contracts/escrow/test_snapshots/…` that strongly suggests events are checked for stability and correctness.
+The tests include committed snapshot JSON files under `contracts/escrow/test_snapshots/…` that check events, auth invocations, and storage for stability and correctness — see `Snapshot Files` in `CONTRIBUTING.md` for how to regenerate them.
 
 For backend oracle/indexer designs, the recommended workflow is:
 

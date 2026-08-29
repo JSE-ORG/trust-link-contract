@@ -449,6 +449,90 @@ fn set_ttl_extension_overwrites_the_previous_value() {
     assert_eq!(effective_ttl_extension(&env, &contract_id).1, 9_000);
 }
 
+// ============================================================================
+// MIN_TTL_EXTENSION floor (Issue #854)
+// ============================================================================
+
+/// Values below `MIN_TTL_EXTENSION` are rejected by the test helper and leave
+/// the configured TTL untouched. The floor prevents instance entries from being
+/// set with an expiry so short that entries would be archived immediately.
+#[test]
+fn set_ttl_extension_below_minimum_is_rejected() {
+    for below in [0_u32, 1_u32, 999_u32] {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+        assert_eq!(
+            client.try_set_ttl_extension(&admin, &below),
+            Err(Ok(ContractError::InvalidTtlExtension)),
+            "set_ttl_extension({}) must be rejected",
+            below,
+        );
+        // The configured value is unchanged.
+        assert_eq!(
+            effective_ttl_extension(&env, &contract_id).1,
+            DEFAULT_TTL_EXTENSION,
+        );
+    }
+}
+
+/// `MIN_TTL_EXTENSION` itself, the smallest allowed value, is accepted.
+#[test]
+fn set_ttl_extension_at_minimum_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    client.set_ttl_extension(&admin, &MIN_TTL_EXTENSION);
+    assert_eq!(
+        effective_ttl_extension(&env, &contract_id).1,
+        MIN_TTL_EXTENSION
+    );
+}
+
+/// The timelocked pathway (`queue`/`execute`) applies the same `MIN_TTL_EXTENSION`
+/// floor: a queued value below the minimum is rejected at execution time.
+#[test]
+fn execute_set_ttl_extension_below_minimum_is_rejected() {
+    for below in [0_u32, 1_u32, 999_u32] {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+        client.queue_set_ttl_extension(&admin, &below);
+        let now = env.ledger().timestamp();
+        env.ledger()
+            .set_timestamp(now + ADMIN_TIMELOCK_DELAY_SECONDS + 1);
+
+        assert_eq!(
+            client.try_execute_set_ttl_extension(&admin),
+            Err(Ok(ContractError::InvalidTtlExtension)),
+            "execute_set_ttl_extension({}) must be rejected",
+            below,
+        );
+    }
+}
+
+/// `MIN_TTL_EXTENSION` is accepted end-to-end through the timelocked pathway.
+#[test]
+fn execute_set_ttl_extension_at_minimum_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    client.queue_set_ttl_extension(&admin, &MIN_TTL_EXTENSION);
+    let now = env.ledger().timestamp();
+    env.ledger()
+        .set_timestamp(now + ADMIN_TIMELOCK_DELAY_SECONDS + 1);
+    client.execute_set_ttl_extension(&admin);
+
+    assert_eq!(
+        effective_ttl_extension(&env, &contract_id).1,
+        MIN_TTL_EXTENSION
+    );
+}
+
 /// The "bump the TTL when it drops below" threshold is `ext / TTL_THRESHOLD_DIVISOR`,
 /// documented in `storage.rs` as `ext / 2`. Guard the constant against drift.
 #[test]
