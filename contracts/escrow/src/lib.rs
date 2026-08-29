@@ -138,6 +138,11 @@ pub const MAX_NOTES_LEN: u32 = 500;
 pub const MAX_MESSAGE_LEN: u32 = 500;
 pub const MAX_MESSAGES_PER_ESCROW: u32 = 100;
 
+/// Maximum number of tokens allowed in a basket escrow. Bounds iteration cost
+/// in `save_basket_tokens` and `payout_basket_tokens`, and keeps the basket
+/// well within Soroban storage entry size limits.
+pub const MAX_BASKET_SIZE: u32 = 20;
+
 /// Minimum shipping window in seconds (1 second).
 /// A value of 0 would allow an immediate dispute with no shipping time, which is invalid.
 pub const MIN_SHIPPING_WINDOW: u64 = 1;
@@ -265,6 +270,7 @@ mod test_fallback_resolver;
 mod test_fee_calculation_accuracy;
 mod test_fee_config;
 mod test_fee_minimum;
+mod test_fee_property_invariants;
 mod test_fee_snapshot;
 mod test_fee_update;
 mod test_finalize_dispute_appeal_boundary;

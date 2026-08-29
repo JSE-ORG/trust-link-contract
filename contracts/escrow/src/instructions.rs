@@ -1207,6 +1207,10 @@ impl Escrow {
             return Err(ContractError::BasketTokenMismatch);
         }
 
+        if tokens.len() > MAX_BASKET_SIZE {
+            return Err(ContractError::BasketTokenMismatch);
+        }
+
         validate_escrow_fee_bps(fee_bps)?;
 
         // Validate every basket amount against the configured or default limits.
@@ -1247,6 +1251,19 @@ impl Escrow {
 
         for token in tokens.iter() {
             is_token_allowed(&env, &token)?;
+        }
+
+        // Reject duplicate tokens: fund_escrow/payout_basket_tokens transfer
+        // and pay out every basket entry individually, so a duplicated token
+        // would be funded and paid out once per occurrence.
+        for i in 0..tokens.len() {
+            let token_i = tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+            for j in (i + 1)..tokens.len() {
+                let token_j = tokens.get(j).ok_or(ContractError::IndexOutOfBounds)?;
+                if token_i == token_j {
+                    return Err(ContractError::BasketTokenMismatch);
+                }
+            }
         }
 
         let escrow_id = crate::next_escrow_id(&env)?;
