@@ -6,22 +6,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Format Check
         run: make fmt-check
+
       - name: Clippy
         run: make clippy
-      - name: Test
+
+      - name: Rust library + integration tests
         run: make test
+
+      - name: Error code drift check
+        run: node scripts/check-error-codes.mjs
+
+      - name: Bindings typecheck
+        run: npm install --prefix bindings && npm run typecheck --prefix bindings
+
+      - name: XTASK tests
+        run: cd xtask && cargo test
+
+      - name: Indexer tests
+        run: npm install --prefix indexer && npm test --prefix indexer
 
   build-wasm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32v1-none
+
       - name: Build WASM
         run: make build-wasm

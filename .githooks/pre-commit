@@ -1,6 +1,7 @@
 #!/bin/sh
 
-# Pre-commit hook: runs cargo fmt and cargo clippy checks
+# Pre-commit hook: runs the same lint/format checks as CI for the library code.
+# Fuzz targets are intentionally checked separately via `make fuzz-check`.
 # Install via: make setup
 
 set -e
@@ -20,9 +21,10 @@ fi
 echo "Formatting check passed."
 
 # Run clippy
+# Keep this in sync with `.github/workflows/ci.yml` and the `make clippy` target.
 echo "Running clippy lints..."
 
-if ! cargo clippy --all-targets --all-features -- -D warnings; then
+if ! cargo clippy --lib -- -D warnings; then
     echo ""
     echo "ERROR: Clippy found lint errors."
     echo "Fix the clippy warnings above, then re-add your files."
