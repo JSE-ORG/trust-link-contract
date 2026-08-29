@@ -962,10 +962,19 @@ pub(crate) fn execute_resolution_transition(
         (dispute_data.arbitration_fee, dispute_data.resolver_fee)
     } else {
         let arbitration_fee_bps = read_fee_config(env).arbitration_fee_bps;
-        (
-            crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?,
-            crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?,
-        )
+        let arbitration_fee =
+            crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;
+        let resolver_fee =
+            crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?;
+
+        let combined_fee = arbitration_fee
+            .checked_add(resolver_fee)
+            .ok_or(ContractError::ArithmeticError)?;
+        if combined_fee > escrow.amount {
+            return Err(ContractError::FeeExceedsMax);
+        }
+
+        (arbitration_fee, resolver_fee)
     };
 
     let prev_state = escrow.state.clone();
