@@ -351,6 +351,8 @@ pub struct EscrowData {
     pub tracking_id: Option<String>,
     pub state: EscrowState,
     pub notes: Option<String>,
+    pub expires_at: Option<u64>,
+    pub grace_period: u64,
 }
 
 #[contracttype]

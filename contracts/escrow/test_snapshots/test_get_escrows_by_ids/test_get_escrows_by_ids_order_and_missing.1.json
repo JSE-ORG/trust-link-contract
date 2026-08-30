@@ -583,6 +583,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "expires_at"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "fee_bps"
                     },
                     "val": {
@@ -592,6 +598,14 @@
                   {
                     "key": {
                       "symbol": "funded_at"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "grace_period"
                     },
                     "val": {
                       "u64": "0"
@@ -757,6 +771,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "expires_at"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "fee_bps"
                     },
                     "val": {
@@ -766,6 +786,14 @@
                   {
                     "key": {
                       "symbol": "funded_at"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "grace_period"
                     },
                     "val": {
                       "u64": "0"
@@ -931,6 +959,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "expires_at"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "fee_bps"
                     },
                     "val": {
@@ -940,6 +974,14 @@
                   {
                     "key": {
                       "symbol": "funded_at"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "grace_period"
                     },
                     "val": {
                       "u64": "0"

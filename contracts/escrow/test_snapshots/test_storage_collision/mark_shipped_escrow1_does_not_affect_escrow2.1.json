@@ -577,6 +577,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "expires_at"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "fee_bps"
                     },
                     "val": {
@@ -589,6 +595,14 @@
                     },
                     "val": {
                       "u64": "1700000000"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "grace_period"
+                    },
+                    "val": {
+                      "u64": "0"
                     }
                   },
                   {
@@ -753,6 +767,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "expires_at"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "fee_bps"
                     },
                     "val": {
@@ -765,6 +785,14 @@
                     },
                     "val": {
                       "u64": "1700000000"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "grace_period"
+                    },
+                    "val": {
+                      "u64": "0"
                     }
                   },
                   {
