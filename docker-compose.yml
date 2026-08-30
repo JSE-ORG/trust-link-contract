@@ -1,5 +1,7 @@
 version: '3.8'
 
+# NOTE: keep the QuickStart tag pinned to a tested release. We only bump it when
+# explicitly validating the new Stellar API/runtime against the local e2e scripts.
 services:
   postgres:
     image: postgres:13-alpine
@@ -18,7 +20,7 @@ services:
       retries: 5
 
   stellar-quickstart:
-    image: stellar/quickstart:latest
+    image: stellar/quickstart:v21.0.0
     command: ["--standalone", "--postgres-host", "postgres", "--postgres-user", "stellar", "--postgres-db", "stellar", "--postgres-password", "stellar"]
     depends_on:
       postgres:

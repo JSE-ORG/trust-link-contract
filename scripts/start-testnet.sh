@@ -32,7 +32,7 @@ ENV_FILE="${STATE_DIR}/local-testnet.env"
 WASM_PATH="${REPO_ROOT}/target/wasm32v1-none/release/trustlink_escrow.wasm"
 
 CONTAINER="${TRUSTLINK_LOCALNET_CONTAINER:-trustlink-localnet}"
-IMAGE="${TRUSTLINK_LOCALNET_IMAGE:-stellar/quickstart:latest}"
+IMAGE="${TRUSTLINK_LOCALNET_IMAGE:-stellar/quickstart:v21.0.0}"
 HOST_PORT="${TRUSTLINK_LOCALNET_PORT:-8000}"
 NETWORK="${TRUSTLINK_LOCALNET_NETWORK:-local}"
 PASSPHRASE="${TRUSTLINK_LOCALNET_PASSPHRASE:-Standalone Network ; February 2017}"

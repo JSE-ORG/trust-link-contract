@@ -13,8 +13,15 @@ build-debug: ## Build all contracts in debug mode
 build-wasm: ## Build contract wasm for deployment
 	cargo build --target wasm32v1-none --release
 
-test: ## Run all tests (lib target, cross-platform)
+test: ## Run library and integration tests (cross-platform)
 	cargo test --lib
+	cargo test --tests
+
+test-all: ## Run the full project test suite including Rust and JS toolchain checks
+	$(MAKE) test
+	$(MAKE) bindings-typecheck
+	$(MAKE) indexer-test
+	$(MAKE) xtask-test
 
 test-verbose: ## Run all tests with output
 	cargo test --lib -- --nocapture
@@ -28,7 +35,7 @@ fmt-check: ## Check formatting without modifying files
 clippy: ## Run clippy lints
 	cargo clippy --lib -- -D warnings
 
-check: fmt-check clippy test check-error-codes ## Run all checks (fmt + clippy + test + error-code drift)
+check: fmt-check clippy test check-error-codes bindings-typecheck indexer-test xtask-test ## Run all checks (fmt + clippy + test + drift checks + JS/Rust toolchain checks)
 
 bench: ## Run benchmarks (if available)
 	cargo test --release -- --ignored
@@ -51,13 +58,8 @@ clean: ## Clean build artifacts
 check-error-codes: ## Verify errors.rs and bindings/src/errors.ts agree
 	node scripts/check-error-codes.mjs
 
-check: fmt-check clippy test check-error-codes ## Run all checks (fmt + clippy + test + error-code drift)
-
-doc: ## Generate and open documentation
-	cargo doc --open
-
-audit: ## Run cargo audit for security vulnerabilities
-	cargo audit 2>/dev/null || echo "Install cargo-audit: cargo install cargo-audit"
+bindings-typecheck: ## Type-check the generated TypeScript bindings
+	cd bindings && npm install && npm run typecheck
 
 # Contract-specific targets
 build-escrow: ## Build only the escrow contract
@@ -81,7 +83,7 @@ bindings-install: ## Install bindings dependencies
 
 # Indexer
 indexer-test: ## Typecheck and test the event indexer
-	cd indexer && npm run typecheck && npm test
+	cd indexer && npm install && npm run typecheck && npm test
 
 # Developer CLI (xtask is its own workspace, so root cargo test does not reach it)
 xtask-test: ## Test the cargo xtask developer CLI
@@ -116,7 +118,7 @@ hooks-install: ## Install pre-commit git hooks
 	@chmod +x .githooks/pre-commit
 	@git config core.hooksPath .githooks
 	@echo "Git hooks installed successfully."
-	@echo "Pre-commit hook will run cargo fmt and cargo clippy on each commit."
+	@echo "Pre-commit hook runs fmt + clippy checks that match CI."
 
 hooks-uninstall: ## Uninstall git hooks
 	@git config --unset core.hooksPath

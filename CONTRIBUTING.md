@@ -105,12 +105,12 @@ make setup
 
 This installs a pre-commit hook that automatically checks:
 
-- **Formatting**: `cargo fmt --all -- --check`
-- **Lints**: `cargo clippy --all-targets --all-features -- -D warnings`
+- **Formatting**: `cargo fmt --all --check`
+- **Lints**: `cargo clippy --lib -- -D warnings`
 
 Commits will be rejected if either check fails.
 
-Run `cargo fmt --all` to fix formatting issues.
+Run `cargo fmt --all` to fix formatting issues. Fuzz-target linting is handled separately via `make fuzz-check` so the hook stays aligned with CI.
 
 ### Option A — Dev Container (recommended, zero manual setup)
 
@@ -304,12 +304,22 @@ make build-wasm
 # Run the full test suite — all must pass
 make test
 
+# Run Rust integration tests directly
+cargo test --tests
+
+# Type-check the generated bindings
+cd bindings && npm install && npm run typecheck
+
+# Validate the indexer workspace
+cd indexer && npm install && npm test
+
 # Or use raw cargo commands:
 cargo fmt --all
 cargo clippy --lib -- -D warnings
 cargo build --lib --release
 cargo build --target wasm32v1-none --release
 cargo test --lib
+cargo test --tests
 
 # Run a single test or a module
 cargo test --lib test_full_escrow_flow
@@ -322,7 +332,7 @@ make check
 ./build.sh
 ```
 
-These checks — `fmt`, `clippy`, `test`, and `build-wasm` — are exactly what the CI pipeline runs, so running them locally before pushing means no CI surprises. All commands use `--lib` targets for cross-platform compatibility.
+These checks — `fmt`, `clippy`, `test`, `bindings-typecheck`, and the workspace-specific Node checks — are exactly what the CI pipeline runs, so running them locally before pushing means no CI surprises. Library-only targets stay cross-platform compatible while integration tests cover the contract test suite.
 
 ---
 
