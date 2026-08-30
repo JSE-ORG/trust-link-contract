@@ -239,12 +239,25 @@ All storage uses Soroban **instance** storage (entries share the contract instan
 |---|---|---|
 | `EscrowCounter` | `u64` | Monotonically increasing counter; also the ID of the most-recently created escrow |
 | `Escrow(id: u64)` | `EscrowData` | Full escrow record keyed by its numeric ID |
+| `EscrowStateHistory(id: u64)` | `Vec<(EscrowState, u64)>` | Audit trail of state transitions with timestamps; capped at MAX_STATE_HISTORY_ENTRIES=50 to bound storage for high-churn escrows. When limit reached, oldest entry is evicted (FIFO). See [State History Capping](#state-history-capping). |
 | `Admin` | `Address` | Contract administrator |
 | `FeeCollector` | `Address` | Address receiving platform fees |
 | `DefaultFeeBps` | `u32` | Default fee in basis points |
 | `Paused` | `bool` | Global pause flag |
 
 IDs start at `1`. The counter is read, incremented, and stored atomically inside `create_escrow`.
+
+### State History Capping
+
+Each escrow maintains a queryable audit trail of state transitions in `EscrowStateHistory(escrow_id)`. To prevent unbounded storage growth for escrows that cycle through states frequently (e.g., repeated disputes → appeal → re-dispute), the history is capped at `MAX_STATE_HISTORY_ENTRIES = 50` entries. When an escrow accumulates more than 50 transitions:
+
+- The oldest entry is evicted (pop_front) before the new entry is appended
+- Only the most recent 50 transitions are retained
+- Off-chain indexers querying `get_state_history(escrow_id)` will see a truncated tail; the full history is not preserved on-chain
+
+Indexers expecting complete history for high-churn escrows should either:
+1. Poll frequently to capture all transitions before the 50-entry window rotates
+2. Be aware that early transitions may be missing from long-lived disputed escrows
 
 ---
 

@@ -962,6 +962,15 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        // Issue #814: When emergency_drain is called on a disputed escrow, escrow.amount
+        // has already been reduced by arbitration_fee in execute_resolution_transition.
+        // The arbitration_fee is tracked separately in DataKey::TotalArbitrationFees(token).
+        // We increment TotalRefunded for the drained amount (which is post-fee), but this
+        // means stats will show TotalRefunded + TotalArbitrationFees split across two
+        // counters rather than summing to the original amount. Consider whether stats queries
+        // should aggregate these counters or if the accounting should be restructured.
+        // For now, TotalRefunded reflects only the amount refunded to buyer, not fees collected.
         increment_counter(&env, &DataKey::TotalRefunded)?;
 
         crate::events::emit_emergency_drain(&env, escrow_id, escrow.token.clone(), escrow.amount);

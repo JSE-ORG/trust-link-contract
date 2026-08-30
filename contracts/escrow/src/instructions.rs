@@ -339,6 +339,16 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
+        // Issue #811: Clear PendingExpiry now that escrow is funded. This key was set at
+        // creation to auto-cancel unfunded escrows after PENDING_EXPIRY_WINDOW (7 days).
+        // Once Funded, the escrow can no longer expire from Pending timeout, so remove
+        // the key. Otherwise, ensure_not_expired will incorrectly reject subsequent
+        // operations (mark_shipped, cancel_escrow, mutual_cancel) if now >= expires_at,
+        // even though the escrow is no longer in Pending state.
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingExpiry(escrow_id));
+
         // Build basket_tokens event data if this is a basket escrow
         let basket_event_data = if basket_tokens.len() > 1 {
             let mut tuples = soroban_sdk::Vec::new(&env);
@@ -655,20 +665,12 @@ impl Escrow {
         });
         validate_resolvers(&resolver_set, &seller, &buyer)?;
 
-        let escrow_id: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCounter)
-            .ok_or(ContractError::NotInitialized)?;
-        let next_id = escrow_id
-            .checked_add(1)
-            .ok_or(ContractError::ArithmeticError)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCounter, &next_id);
-
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        // Issue #813: Use centralized next_escrow_id helper instead of duplicating
+        // counter logic. This ensures TTL extension is always applied and the counter
+        // increment is consistent with other creation paths (create_escrow_multi,
+        // create_basket_escrow, and create_escrow_internal). Prior inline
+        // implementation was identical but spread across multiple functions.
+        let escrow_id = crate::next_escrow_id(&env)?;
 
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
@@ -1376,6 +1378,13 @@ impl Escrow {
             .extend_ttl(&buyer_key, ext / 2, ext);
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        // Issue #811: Clear PendingExpiry after successful funding. Mirrors fix in
+        // fund_escrow to prevent ensure_not_expired from incorrectly blocking operations
+        // on Funded escrows when the Pending timeout window has passed.
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingExpiry(escrow_id));
 
         // Build basket_tokens event data (always Some for basket escrows)
         let mut basket_event_tuples = soroban_sdk::Vec::new(&env);

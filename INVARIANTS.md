@@ -311,6 +311,28 @@ fn confirm_delivery(...) -> Result<(), Error> {
 
 ---
 
+### I16: State History Bounded Storage (Issue #812)
+
+**Statement**: An escrow's state history is capped at MAX_STATE_HISTORY_ENTRIES=50; oldest entries are evicted when limit is reached.
+
+**Proof**:
+- State history appended in `append_state_history` every time state changes
+- Before pushing a new entry, check `history.len() > MAX_STATE_HISTORY_ENTRIES`
+- If true, pop_front (evict oldest) until len == MAX_STATE_HISTORY_ENTRIES
+- Ensures on-chain history never exceeds 50 entries per escrow
+
+**Implementation**:
+```rust
+while history.len() > MAX_STATE_HISTORY_ENTRIES {
+    history.pop_front();
+}
+history.push_back((state, timestamp));
+```
+
+**Verification**: Create an escrow and cycle through 100 state transitions; verify get_state_history returns at most 50 entries, all the most recent ones.
+
+---
+
 ## Derived Invariants
 
 ### D1: Terminal States Prevent Further Operations

@@ -759,6 +759,12 @@ pub(crate) fn settle_escrow_to_payees(
     Ok((prev_state, first_payee_addr))
 }
 
+/// Check if an escrow has an active PendingExpiry scheduled (Issue #811).
+/// This function only checks expiry for escrows still in Pending state; the
+/// PendingExpiry key is semantically bound to Pending lifetime. Callers must
+/// ensure they remove DataKey::PendingExpiry when transitioning away from Pending
+/// (e.g., in fund_escrow, fund_basket_escrow, reclaim_expired). Without removal,
+/// this check will incorrectly reject valid operations on funded escrows.
 pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
     if let Some(schedule) = env
         .storage()
@@ -877,20 +883,13 @@ pub(crate) fn create_escrow_internal(
     // Token allowlist check
     is_token_allowed(env, &token)?;
 
-    let escrow_id: u64 = env
-        .storage()
-        .instance()
-        .get(&DataKey::EscrowCounter)
-        .unwrap_or(1u64);
-    let next_id = escrow_id
-        .checked_add(1)
-        .ok_or(ContractError::ArithmeticError)?;
-    env.storage()
-        .instance()
-        .set(&DataKey::EscrowCounter, &next_id);
-
-    let ext = get_ttl_extension(env);
-    env.storage().instance().extend_ttl(ext / 2, ext);
+    // Issue #813: Use centralized next_escrow_id helper to consolidate counter
+    // management. This function (create_escrow_internal) is the core implementation
+    // used by create_escrow and other entry points. By using next_escrow_id here
+    // instead of duplicating the counter increment + TTL extension logic, we ensure
+    // all paths stay synchronized. create_escrow_with_fallback also duplicated
+    // this logic and has been consolidated as well.
+    let escrow_id = next_escrow_id(env)?;
 
     let resolvers = ResolverSet::Single(resolver.clone());
     let escrow = EscrowData {
