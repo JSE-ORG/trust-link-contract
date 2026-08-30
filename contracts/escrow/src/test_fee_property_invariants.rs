@@ -97,16 +97,33 @@ fn negative_amount_is_rejected_not_panicking() {
 
 /// `fee_bps` beyond `BASIS_POINTS` (over 100%) is outside every call site's
 /// validated range, but the functions are public and take a bare `u32`, so
-/// nothing stops a caller from passing one. They must not panic — returning
-/// `Err` (as here, once the split-div product itself overflows i128) or an
-/// `Ok` with an out-of-domain `fee > amount` are both acceptable; only a
-/// panic would be a bug.
+/// nothing stops a caller from passing one. Both functions reject it with
+/// `FeeExceedsMax` rather than returning an out-of-domain `fee > amount`;
+/// this test only asserts the "never panic" half of that contract.
 #[test]
 fn fee_bps_beyond_basis_points_does_not_panic() {
     for fee_bps in [BASIS_POINTS + 1, 50_000, u32::MAX] {
         for amount in [0_i128, 1, MAX_ESCROW_AMOUNT] {
             let _ = calculate_fee(amount, fee_bps);
             let _ = calculate_protocol_fee(amount, fee_bps);
+        }
+    }
+}
+
+#[test]
+fn fee_bps_beyond_basis_points_is_rejected() {
+    use crate::ContractError;
+
+    for fee_bps in [BASIS_POINTS + 1, 50_000, 3_688_618_798, u32::MAX] {
+        for amount in [0_i128, 1, MAX_ESCROW_AMOUNT] {
+            assert_eq!(
+                calculate_fee(amount, fee_bps),
+                Err(ContractError::FeeExceedsMax)
+            );
+            assert_eq!(
+                calculate_protocol_fee(amount, fee_bps),
+                Err(ContractError::FeeExceedsMax)
+            );
         }
     }
 }

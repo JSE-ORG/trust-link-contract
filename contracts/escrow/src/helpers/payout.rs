@@ -48,9 +48,17 @@ pub fn execute_payout_transfers(
 ///
 /// The computation is split (`amount / 10_000 * fee_bps` plus the remainder
 /// term) to avoid overflowing `i128` for large amounts.
+///
+/// `fee_bps` beyond `BASIS_POINTS` (over 100%) is rejected with
+/// `FeeExceedsMax`: without this bound the split-div trick that avoids i128
+/// overflow can still yield a `fee` greater than `amount`, breaking the
+/// fee-boundedness invariant every caller relies on.
 pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, ContractError> {
     if amount < 0 {
         return Err(ContractError::InvalidAmount);
+    }
+    if fee_bps > BASIS_POINTS {
+        return Err(ContractError::FeeExceedsMax);
     }
 
     let part1 = amount
