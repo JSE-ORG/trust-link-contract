@@ -42,7 +42,9 @@ fn get_ttl_extension(env: &Env) -> u32 {
 /// Helper to extend TTL on a persistent storage key.
 fn extend_ttl_for_key(env: &Env, key: &StorageKey) {
     let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(key, ext / crate::TTL_THRESHOLD_DIVISOR, ext);
 }
 ```
 
@@ -86,7 +88,9 @@ storage::write_vendor_escrow_index(&env, &escrow.seller, &vendor_escrows);
 
 let ext = get_ttl_extension(&env);
 let index_key = storage::StorageKey::VendorEscrowIndex(escrow.seller.clone());
-env.storage().persistent().extend_ttl(&index_key, ext / 2, ext);  // ← Redundant
+env.storage()
+    .persistent()
+    .extend_ttl(&index_key, ext / crate::TTL_THRESHOLD_DIVISOR, ext);  // ← Redundant
 ```
 
 **After:**
@@ -129,7 +133,9 @@ env.storage()
     .persistent()
     .set(&buyer_index_key, &buyer_escrows);
 let ext = get_ttl_extension(&env);
-env.storage().persistent().extend_ttl(&buyer_index_key, ext / 2, ext);  // ← FIXED
+env.storage()
+    .persistent()
+    .extend_ttl(&buyer_index_key, ext / crate::TTL_THRESHOLD_DIVISOR, ext);  // ← FIXED
 
 emit_escrow_funded(&env, escrow_id, buyer, escrow.amount);
 ```
@@ -162,9 +168,10 @@ All persistent storage writes now properly extend TTL:
 
 ### 3. Extension Pattern
 
-All extensions use the same pattern: `extend_ttl(key, ext/2, ext)`
+All extensions use the same pattern:
+`extend_ttl(key, ext / TTL_THRESHOLD_DIVISOR, ext)`
 
-- First parameter (`ext/2`): How many ledgers to extend from the current time
+- First parameter (`ext / TTL_THRESHOLD_DIVISOR`): How many ledgers to extend from the current time
 - Second parameter (`ext`): Maximum TTL threshold
 - This ensures entries have predictable lifespans
 

@@ -36,8 +36,10 @@ Persistent and instance entries are kept alive by bumping their TTL.
   `u32`). If unset it falls back to the constant `DEFAULT_TTL_EXTENSION =
   120_960` ledgers (≈ 7 days at ~5 s/ledger). The admin can change it via
   `set_ttl_extension`.
-- **Bump pattern** — every bump uses `extend_ttl(threshold = ext / 2, extend_to
-  = ext)`: "if fewer than `ext/2` ledgers remain, top the TTL back up to `ext`."
+- **Bump pattern** — every bump uses
+  `extend_ttl(threshold = ext / TTL_THRESHOLD_DIVISOR, extend_to = ext)`: if
+  fewer than `ext / TTL_THRESHOLD_DIVISOR` ledgers remain, top the TTL back up
+  to `ext`.
 - **Persistent entries** (`Escrow`, `Dispute`, `VendorEscrowIndex`,
   `BuyerEscrowIndex`) are bumped on **every read and write** of that entry.
 - **Instance storage** is bumped once per `create_escrow` call (alongside the

@@ -23,7 +23,8 @@
 //! - [`get_ttl_extension_defaults_when_unset`] — fresh contract resolves to `DEFAULT_TTL_EXTENSION`
 //! - [`internal_and_storage_get_ttl_extension_always_agree`] — the two accessor helpers never drift
 //! - [`set_ttl_extension_overwrites_the_previous_value`] — last write wins
-//! - [`ttl_threshold_divisor_is_half`] — the extend-when-below threshold stays `ext / 2`
+//! - [`ttl_threshold_divisor_is_half`] — the extend-when-below threshold stays
+//!   tied to `TTL_THRESHOLD_DIVISOR`
 //! - [`queued_ttl_extension_applies_after_timelock`] — timelocked update flows into `get_ttl_extension`
 //! - [`execute_ttl_extension_before_timelock_elapses_is_rejected`] — early execute reverts
 //! - [`execute_ttl_extension_without_a_queued_proposal_is_rejected`] — execute with nothing queued reverts
@@ -450,7 +451,7 @@ fn set_ttl_extension_overwrites_the_previous_value() {
 }
 
 /// The "bump the TTL when it drops below" threshold is `ext / TTL_THRESHOLD_DIVISOR`,
-/// documented in `storage.rs` as `ext / 2`. Guard the constant against drift.
+/// documented in `storage.rs` with the same constant. Guard the constant against drift.
 #[test]
 fn ttl_threshold_divisor_is_half() {
     assert_eq!(TTL_THRESHOLD_DIVISOR, 2);
