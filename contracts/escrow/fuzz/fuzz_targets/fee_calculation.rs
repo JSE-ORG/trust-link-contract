@@ -53,8 +53,9 @@ fuzz_target!(|data: &[u8]| {
             );
         }
     }
-    // For fee_bps > MAX_ESCROW_FEE_BPS (300): the functions accept any u32 value
-    // without panicking — validation of the bps ceiling is the caller's
-    // responsibility. Reaching this point without a panic satisfies
-    // Requirements 2.7.
+    // For fee_bps > MAX_ESCROW_FEE_BPS (300) but <= BASIS_POINTS (10_000): the
+    // functions accept the value and compute a (larger) fee without panicking.
+    // For fee_bps > BASIS_POINTS (over 100%), both functions return Err
+    // instead of a fee that could exceed amount. Either way, reaching this
+    // point without a panic satisfies Requirements 2.7.
 });

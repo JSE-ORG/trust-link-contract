@@ -1,4 +1,4 @@
-# TrustLink — Soroban Escrow Contract
+# TrustLink ? Soroban Escrow Contract
 # TrustLink Contract (Soroban Escrow)
 
 > Trustless escrow for social commerce on Stellar: funds move only when the contract can prove the requested lifecycle event has happened.
@@ -15,7 +15,7 @@
 
 ## Overview
 
-The TrustLink Escrow Contract is the **trustless vault** of the TrustLink protocol. It holds Stellar assets (USDC and other SEP-41 tokens) in escrow and releases them only when verifiable conditions are met — buyer confirms delivery, dispute resolver decides, or the shipping window expires.
+The TrustLink Escrow Contract is the **trustless vault** of the TrustLink protocol. It holds Stellar assets (USDC and other SEP-41 tokens) in escrow and releases them only when verifiable conditions are met ? buyer confirms delivery, dispute resolver decides, or the shipping window expires.
 
 Buyers and sellers never meet. The contract handles the trust gap.
 
@@ -52,14 +52,14 @@ stateDiagram-v2
 
 Key rules:
 - **Pending**: seller cancels freely (no money moved); `reclaim_expired` sets state to `Expired` if not funded in time.
-- **Funded → Shipped**: only seller can mark shipped.
-- **Shipped → Completed**: buyer confirms delivery, funds release to seller.
-- **Funded or Shipped → Disputed**: buyer raises dispute.
-- **Funded or Shipped → RefundRequested**: buyer requests refund, which must be approved by seller.
-- **Shipped → Completed (auto)**: anyone triggers after `shipped_at + shipping_window` elapses.
-- **Disputed → PendingFinalization**: resolver (or M-of-N multi-resolvers) decide outcome.
-- **PendingFinalization → Completed/Refunded**: anyone finalizes the dispute after resolution is reached.
-- **PendingFinalization → Disputed**: either party can appeal before finalization, resetting the resolution.
+- **Funded ? Shipped**: only seller can mark shipped.
+- **Shipped ? Completed**: buyer confirms delivery, funds release to seller.
+- **Funded or Shipped ? Disputed**: buyer raises dispute.
+- **Funded or Shipped ? RefundRequested**: buyer requests refund, which must be approved by seller.
+- **Shipped ? Completed (auto)**: anyone triggers after `shipped_at + shipping_window` elapses.
+- **Disputed ? PendingFinalization**: resolver (or M-of-N multi-resolvers) decide outcome.
+- **PendingFinalization ? Completed/Refunded**: anyone finalizes the dispute after resolution is reached.
+- **PendingFinalization ? Disputed**: either party can appeal before finalization, resetting the resolution.
 
 ---
 
@@ -70,12 +70,12 @@ Key rules:
 | `create_escrow(seller, resolver, token, amount, shipping_window)` | seller | Creates escrow, assigns sequential `u32` ID. Buyer unknown until funding. |
 | `fund_escrow(escrow_id, buyer)` | buyer | Transfers `amount` tokens from buyer to contract, sets `funded_at`. |
 | `mark_shipped(escrow_id)` | seller | Sets state to `Shipped`, starts delivery clock at `shipped_at`. |
-| `confirm_delivery(escrow_id)` | buyer | Transfers tokens from contract to seller, state → `Completed`. |
-| `raise_dispute(escrow_id)` | buyer | Freezes funds, state → `Disputed`. Works from `Funded` or `Shipped`. |
+| `confirm_delivery(escrow_id)` | buyer | Transfers tokens from contract to seller, state ? `Completed`. |
+| `raise_dispute(escrow_id)` | buyer | Freezes funds, state ? `Disputed`. Works from `Funded` or `Shipped`. |
 | `resolve_dispute(escrow_id, release_to_seller)` | resolver | Transfers to seller or refunds buyer. |
 | `auto_release(escrow_id)` | anyone | After `shipped_at + window`, releases to seller. |
 | `cancel_escrow(escrow_id)` | seller | Only in `Pending` state (no funds moved). |
-| `get_escrow(escrow_id) → EscrowData` | none | Read-only view. |
+| `get_escrow(escrow_id) ? EscrowData` | none | Read-only view. |
 
 ---
 
@@ -122,9 +122,9 @@ pub enum EscrowState {
 ---
 
 ## Getting Started
-This repository contains the **TrustLink escrow smart contract** implemented for **Stellar’s Soroban** runtime, plus a small set of developer tooling and language bindings to interact with the contract.
+This repository contains the **TrustLink escrow smart contract** implemented for **Stellar?s Soroban** runtime, plus a small set of developer tooling and language bindings to interact with the contract.
 
-At a high level, TrustLink replaces “trust me” payments with a lifecycle that is enforced in code:
+At a high level, TrustLink replaces ?trust me? payments with a lifecycle that is enforced in code:
 
 - A **seller** creates an escrow agreement.
 - A **buyer** funds the escrow by transferring tokens into the contract.
@@ -134,7 +134,7 @@ At a high level, TrustLink replaces “trust me” payments with a lifecycle tha
   - allows the buyer to **raise a dispute** before a deadline, after which an authorized **resolver/oracle** decides the outcome, or
   - allows **auto-release** after time windows elapse if no dispute remains unresolved.
 
-The core goal is to ensure that each outcome—delivery completion, dispute release, dispute refund, or cancellation—happens via contract-enforced rules with clear authorization boundaries.
+The core goal is to ensure that each outcome?delivery completion, dispute release, dispute refund, or cancellation?happens via contract-enforced rules with clear authorization boundaries.
 
 ---
 
@@ -153,6 +153,7 @@ The core goal is to ensure that each outcome—delivery completion, dispute rele
   - [6.1 Fee calculation and fee cap](#61-fee-calculation-and-fee-cap)
   - [6.2 Arbitration fee](#62-arbitration-fee)
   - [6.3 Withdrawing protocol fees](#63-withdrawing-protocol-fees)
+- [6.4 Multi-payee rounding dust](#64-multi-payee-rounding-dust)
 - [7. Operational controls](#7-operational-controls)
   - [7.1 Pause / unpause](#71-pause--unpause)
   - [7.2 Admin rotation](#72-admin-rotation)
@@ -179,11 +180,11 @@ The core goal is to ensure that each outcome—delivery completion, dispute rele
 
 ## 1. What is this project?
 
-TrustLink is a **trustless escrow protocol** designed for **peer-to-peer social commerce**. In typical social commerce scenarios—payments initiated through DMs, chats, or lightweight marketplace workflows—buyer and seller rarely share a traditional, enforceable contract. Disputes are commonly handled manually and inconsistently.
+TrustLink is a **trustless escrow protocol** designed for **peer-to-peer social commerce**. In typical social commerce scenarios?payments initiated through DMs, chats, or lightweight marketplace workflows?buyer and seller rarely share a traditional, enforceable contract. Disputes are commonly handled manually and inconsistently.
 
 This smart contract enforces payment outcomes on-chain.
 
-### The contract’s purpose
+### The contract?s purpose
 
 The contract is the **escrow vault and arbitration enforcement layer**. It:
 
@@ -194,9 +195,9 @@ The contract is the **escrow vault and arbitration enforcement layer**. It:
 - supports **auto-release** after time windows elapse (permissionless triggering),
 - supports a global pause flag for operational safety.
 
-### What “trustless” means here
+### What ?trustless? means here
 
-“Trustless” does not mean “no trust anywhere.” Instead, it means that the protocol eliminates the need to trust a custodian to move funds correctly. With the exception of the dispute resolver/oracle’s judgment, outcomes are determined by:
+?Trustless? does not mean ?no trust anywhere.? Instead, it means that the protocol eliminates the need to trust a custodian to move funds correctly. With the exception of the dispute resolver/oracle?s judgment, outcomes are determined by:
 
 - deterministic state machine transitions,
 - deterministic token transfer logic, and
@@ -245,7 +246,7 @@ The repository includes `ORACLE_TRUST_MODEL.md`, which documents the central tru
 
 When the buyer raises a dispute, the contract stores an evidence hash and metadata, but it cannot verify the underlying evidence (shipments, courier records, legal documents). Real-world verification is impossible for on-chain code without trusted inputs.
 
-Therefore, the contract embeds a resolver oracle address per escrow and requires the resolver to authenticate the dispute outcome using Soroban’s `require_auth()`.
+Therefore, the contract embeds a resolver oracle address per escrow and requires the resolver to authenticate the dispute outcome using Soroban?s `require_auth()`.
 
 If the resolver key is compromised, the attacker can finalize disputes in any direction by signing `resolve_dispute`.
 
@@ -280,8 +281,8 @@ cargo test -p trustlink-escrow
 ```
 
 Unit tests run against the mock `Env`. For end-to-end coverage against a real
-Soroban network (Testnet by default) — deploy, fund, and drive each lifecycle
-path while asserting on-chain state — use the idempotent scripts in
+Soroban network (Testnet by default) ? deploy, fund, and drive each lifecycle
+path while asserting on-chain state ? use the idempotent scripts in
 [`e2e/`](e2e/README.md):
 
 ```bash
@@ -292,7 +293,7 @@ cd e2e && ./run_all.sh
 
 `scripts/start-testnet.sh` brings up a self-contained Stellar QuickStart
 devnet, deploys and initializes the contract, and seeds escrows covering the
-Pending / Funded / Shipped / Disputed states. It is idempotent — re-running it
+Pending / Funded / Shipped / Disputed states. It is idempotent ? re-running it
 reuses the container, identities and deployment:
 
 ```bash
@@ -360,7 +361,7 @@ stellar contract deploy \
   --source deployer \
   --network testnet
 
-# → outputs CONTRACT_ID, save it
+# ? outputs CONTRACT_ID, save it
 ```
 
 ### Invoke Examples
@@ -448,9 +449,9 @@ stellar contract invoke \
 | Test | What it verifies |
 |---|---|
 | `test_create_escrow` | All fields set correctly, id increments |
-| `test_fund_escrow` | Tokens move to contract, state → Funded |
-| `test_mark_shipped` | State → Shipped, shipped_at set |
-| `test_confirm_delivery` | Full happy path: create → fund → ship → confirm |
+| `test_fund_escrow` | Tokens move to contract, state ? Funded |
+| `test_mark_shipped` | State ? Shipped, shipped_at set |
+| `test_confirm_delivery` | Full happy path: create ? fund ? ship ? confirm |
 | `test_raise_dispute_after_funded` | Dispute from Funded state |
 | `test_raise_dispute_after_shipped` | Dispute from Shipped state |
 | `test_raise_and_resolve_dispute_release_to_seller` | Resolver releases to seller |
@@ -470,10 +471,10 @@ stellar contract invoke \
 
 ```
 contracts/escrow/
-├── Cargo.toml
-└── src/
-    ├── lib.rs       # Contract + events + storage (single module)
-    └── test.rs      # All 16 tests
+??? Cargo.toml
+??? src/
+    ??? lib.rs       # Contract + events + storage (single module)
+    ??? test.rs      # All 16 tests
 ```
 
 ---
@@ -493,7 +494,7 @@ Please see our [Responsible Disclosure Policy](SECURITY.md#responsible-disclosur
 
 ## Roadmap
 
-- [x] Core escrow state machine (Pending → Funded → Shipped → Completed / Disputed)
+- [x] Core escrow state machine (Pending ? Funded ? Shipped ? Completed / Disputed)
 - [x] SEP-41 token support (USDC, native assets)
 - [x] Auto-release after shipping window
 - [x] Dispute + resolver flow
@@ -507,7 +508,7 @@ Please see our [Responsible Disclosure Policy](SECURITY.md#responsible-disclosur
 
 ## License
 
-MIT © TrustLink Contributors
+MIT ? TrustLink Contributors
 6. **Dispute resolution**
    - `resolve_dispute` requires resolver auth.
    - Allowed only from `Disputed`.
@@ -593,7 +594,7 @@ Each meaningful lifecycle step emits an event (examples):
 - `DisputeResolved`
 - `AutoReleased`
 
-The tests include committed snapshot JSON files under `contracts/escrow/test_snapshots/…` that check events, auth invocations, and storage for stability and correctness — see `Snapshot Files` in `CONTRIBUTING.md` for how to regenerate them.
+The tests include numerous snapshot JSON files under `contracts/escrow/test_snapshots/?` that strongly suggests events are checked for stability and correctness.
 
 For backend oracle/indexer designs, the recommended workflow is:
 
@@ -614,7 +615,7 @@ sequenceDiagram
     participant Seller_Payees as Seller / Payees
     participant Fee_Collector
 
-    Note over Buyer,Fee_Collector: Happy path (fund → confirm delivery / auto_release)
+    Note over Buyer,Fee_Collector: Happy path (fund ? confirm delivery / auto_release)
     Buyer->>Contract: fund_escrow (transfer amount)
     Buyer->>Contract: confirm_delivery (or auto_release triggers)
     Contract->>Fee_Collector: transfer protocol fee (fee_bps)
@@ -623,10 +624,10 @@ sequenceDiagram
     Note over Buyer,Fee_Collector: Dispute resolution path
     Buyer->>Contract: fund_escrow (transfer amount)
     Buyer->>Contract: raise_dispute
-    Contract-->>Contract: state → Disputed
-    Note over Contract: resolve_dispute / vote → PendingFinalization
+    Contract-->>Contract: state ? Disputed
+    Note over Contract: resolve_dispute / vote ? PendingFinalization
     Buyer->>Contract: finalize_dispute (after appeal window)
-    Contract->>Contract: state → Completed or Refunded (saved before transfers)
+    Contract->>Contract: state ? Completed or Refunded (saved before transfers)
     Contract->>Fee_Collector: transfer platform fee (optional)
     Contract->>Fee_Collector: transfer protocol fee (fee_bps)
     alt Release to seller
@@ -638,10 +639,10 @@ sequenceDiagram
 
 Token transfers occur in:
 
-- `fund_escrow`: buyer → contract
-- `confirm_delivery`: contract → payees (payout split based on basis points) + contract → fee collector
-- `auto_release`: contract → payees (payout split based on basis points) + contract → fee collector
-- `resolve_dispute`: contract → payees (payout split based on basis points) or buyer + contract → fee collector
+- `fund_escrow`: buyer ? contract
+- `confirm_delivery`: contract ? payees (payout split based on basis points) + contract ? fee collector
+- `auto_release`: contract ? payees (payout split based on basis points) + contract ? fee collector
+- `resolve_dispute`: contract ? payees (payout split based on basis points) or buyer + contract ? fee collector
 
 The payout logic is governed by `transfer_with_protocol_fee`, which splits the net amount (after fee deduction) among the list of payees:
 
@@ -649,10 +650,12 @@ The payout logic is governed by `transfer_with_protocol_fee`, which splits the n
 - net_total = amount - fee
 - payee_payout = net_total * payee.bps / 10_000
 
-and transfers each `payee_payout` to the respective payee address and `fee` directly to the configured fee collector in the same call — the protocol fee never accumulates in the contract. The sum of basis points (bps) across all payees must equal exactly 10,000 (100%).
+and transfers each `payee_payout` to the respective payee address and `fee` directly to the configured fee collector in the same call ? the protocol fee never accumulates in the contract. The sum of basis points (bps) across all payees must equal exactly 10,000 (100%).
 
 The arbitration fee is handled as a separate deduction in `resolve_dispute`.
+### 6.4 Multi-payee rounding dust
 
+When a payout is split across multiple payees, the contract calculates floor-rounded amounts for secondary payees and assigns the remaining net amount to the first payee. This preserves total payout conservation while making the rounding policy deterministic. The maximum bias is bounded by `N - 1` stroops for `N` payees because each secondary payee can contribute at most one truncated stroop of dust.
 
 ---
 
@@ -672,13 +675,13 @@ The `transfer_with_protocol_fee` helper uses checked arithmetic to avoid silent 
 
 Dispute resolution uses an arbitration fee configured on-chain as `ArbitrationFee`.
 
-`resolve_dispute` reads the arbitration fee, checks that the escrow’s `amount` covers it, subtracts it from `escrow.amount`, and tracks total arbitration fees per token.
+`resolve_dispute` reads the arbitration fee, checks that the escrow?s `amount` covers it, subtracts it from `escrow.amount`, and tracks total arbitration fees per token.
 
 This creates the effect that arbitration resolution payouts are reduced by arbitration fee before applying the protocol fee model.
 
 ### 6.3 Protocol fee delivery
 
-The protocol fee is forwarded to the configured fee collector (`DataKey::FeeCollector`) directly at payout time via `transfer_with_protocol_fee` — it never accumulates in the contract's own token balance, so there is no separate admin sweep step.
+The protocol fee is forwarded to the configured fee collector (`DataKey::FeeCollector`) directly at payout time via `transfer_with_protocol_fee` ? it never accumulates in the contract's own token balance, so there is no separate admin sweep step.
 
 ---
 
@@ -717,7 +720,7 @@ This reduces the chance of long-lived escrow entries expiring unexpectedly.
 
 ## 8. Public API reference
 
-This section provides an “operator’s view” of the contract methods as they appear in:
+This section provides an ?operator?s view? of the contract methods as they appear in:
 
 - `contracts/escrow/src/lib.rs`
 - TypeScript bindings under `bindings/src`
@@ -825,8 +828,8 @@ Whether clients use this function depends on the deployment; the contract also p
 - **Effects:**
   - subtract arbitration fee from escrow amount
   - transfers net remainder based on resolution direction:
-    - `Release` → seller
-    - `Refund` → buyer
+    - `Release` ? seller
+    - `Refund` ? buyer
   - sets escrow state `Completed` or `Refunded`
   - updates dispute status to `Resolved`
   - emits `DisputeResolved`.
@@ -879,7 +882,7 @@ Client applications should handle these errors by showing user-friendly messages
 
 ## 10. Security considerations
 
-This contract’s security is primarily a combination of:
+This contract?s security is primarily a combination of:
 
 - correct authorization checks,
 - strict state-machine guards,
@@ -904,7 +907,7 @@ This ensures that even if someone can guess or discover an escrow id, they canno
 
 Classic EVM external reentrancy patterns rely on the callee executing attacker-controlled callbacks while the caller is mid-execution.
 
-Soroban’s execution model prevents classic external reentrancy patterns. The included `REENTRANCY_ANALYSIS.md` explains why: nested invocation frames are host-managed and there is no ability to inject callbacks that can re-enter the caller mid-frame.
+Soroban?s execution model prevents classic external reentrancy patterns. The included `REENTRANCY_ANALYSIS.md` explains why: nested invocation frames are host-managed and there is no ability to inject callbacks that can re-enter the caller mid-frame.
 
 Even so, the contract still enforces good internal structure:
 
@@ -925,7 +928,7 @@ TrustLink has explicit operational trust points:
 - The resolver is required for dispute finality.
 - Admin keys can pause the contract and update fees.
 
-The protocol is therefore not purely “no trust ever,” but it is structured so that trust is limited to clearly defined roles with explicit authentication.
+The protocol is therefore not purely ?no trust ever,? but it is structured so that trust is limited to clearly defined roles with explicit authentication.
 
 The repository includes further guidance in `ORACLE_TRUST_MODEL.md`.
 
@@ -1016,7 +1019,7 @@ The repository participates in the **Stellar Wave Program**, and the docs descri
 
 ## 15. License
 
-MIT © TrustLink Contributors
+MIT ? TrustLink Contributors
 
 ---
 
@@ -1034,7 +1037,7 @@ MIT © TrustLink Contributors
 
 `raise_dispute` stores a `BytesN<32>` evidence hash.
 
-The contract commits to the hash, but does not validate evidence content. The resolver is trusted to interpret the evidence off-chain (based on the repository’s trust model).
+The contract commits to the hash, but does not validate evidence content. The resolver is trusted to interpret the evidence off-chain (based on the repository?s trust model).
 
 ---
 
