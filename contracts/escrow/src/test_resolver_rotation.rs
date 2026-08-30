@@ -2,10 +2,14 @@
 //! Tests for `rotate_resolver`: seller and admin can rotate, buyer cannot,
 //! same-address is rejected, and terminal states are rejected.
 
-use crate::{Payee, ContractError, Escrow, EscrowClient, EscrowState, ResolutionType, ResolverRotated};
+use crate::{
+    ContractError, Escrow, EscrowClient, EscrowState, Payee, ResolutionType, ResolverRotated,
+    ResolverSet,
+};
 use soroban_sdk::{
-    testutils::{Address as _, Events as _},
-    token, Address, BytesN, Env, String as SorobanString, Symbol, TryFromVal, Val,
+    symbol_short,
+    testutils::{Address as _, Events as _, Ledger as _},
+    token, Address, BytesN, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val, Vec,
 };
 
 struct Fx {
@@ -37,15 +41,22 @@ fn setup() -> Fx {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
+    let mut payees_67 = Vec::new(&env);
+    payees_67.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees_67.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_val,
         &None::<Address>,
         &resolver,
         &token_addr,
         &500_i128,
         &0_u32,
         &0_u32,
-        &0_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
 
     Fx {
@@ -67,7 +78,7 @@ fn seller_can_rotate_resolver() {
     fx.client
         .rotate_resolver(&fx.seller, &fx.escrow_id, &new_resolver);
 
-    use crate::{Payee, DataKey, EscrowData};
+    use crate::{DataKey, EscrowData};
     let escrow: EscrowData = fx
         .env
         .as_contract(&fx.client.address, || {
@@ -77,7 +88,7 @@ fn seller_can_rotate_resolver() {
                 .get(&DataKey::Escrow(fx.escrow_id))
         })
         .expect("escrow exists");
-    assert_eq!(escrow.resolver, new_resolver);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(new_resolver));
 }
 
 #[test]
@@ -88,7 +99,7 @@ fn admin_can_rotate_resolver() {
     fx.client
         .rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
 
-    use crate::{Payee, DataKey, EscrowData};
+    use crate::{DataKey, EscrowData};
     let escrow: EscrowData = fx
         .env
         .as_contract(&fx.client.address, || {
@@ -98,7 +109,7 @@ fn admin_can_rotate_resolver() {
                 .get(&DataKey::Escrow(fx.escrow_id))
         })
         .expect("escrow exists");
-    assert_eq!(escrow.resolver, new_resolver);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(new_resolver));
 }
 
 #[test]
@@ -161,15 +172,22 @@ fn terminal_state_rejected() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
+    let mut payees_66 = Vec::new(&env);
+    payees_66.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees_66.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_val,
         &None::<Address>,
         &resolver,
         &token_addr,
         &100_i128,
         &0_u32,
         &0_u32,
-        &0_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
 
     // Cancel moves to Canceled (terminal)
@@ -183,7 +201,8 @@ fn terminal_state_rejected() {
 /// Returns true if the contract emitted a `resolver_rotated` event whose
 /// `old_resolver`/`new_resolver` match the expected addresses.
 fn resolver_rotated_emitted(fx: &Fx, old: &Address, new: &Address) -> bool {
-    let expected_topic = Symbol::new(&fx.env, "resolver_rotated");
+    let expected_t1 = symbol_short!("Resolver");
+    let expected_t2 = symbol_short!("Rotated");
     fx.env
         .events()
         .all()
@@ -192,13 +211,20 @@ fn resolver_rotated_emitted(fx: &Fx, old: &Address, new: &Address) -> bool {
         .iter()
         .any(|event| match &event.body {
             soroban_sdk::xdr::ContractEventBody::V0(v0) => {
-                let Some(topic) = v0.topics.iter().next() else {
+                let mut topics = v0.topics.iter();
+                let Some(t1) = topics.next() else {
                     return false;
                 };
-                let Ok(topic) = Symbol::try_from_val(&fx.env, topic) else {
+                let Some(t2) = topics.next() else {
                     return false;
                 };
-                if topic != expected_topic {
+                let Ok(sym1) = Symbol::try_from_val(&fx.env, t1) else {
+                    return false;
+                };
+                let Ok(sym2) = Symbol::try_from_val(&fx.env, t2) else {
+                    return false;
+                };
+                if sym1 != expected_t1 || sym2 != expected_t2 {
                     return false;
                 }
                 let Ok(data) = Val::try_from_val(&fx.env, &v0.data) else {
@@ -208,15 +234,20 @@ fn resolver_rotated_emitted(fx: &Fx, old: &Address, new: &Address) -> bool {
                     .map(|ev| &ev.old_resolver == old && &ev.new_resolver == new)
                     .unwrap_or(false)
             }
-            _ => false,
         })
 }
 
 /// Drives the escrow in the fixture all the way to the `Disputed` state.
 fn drive_to_dispute(fx: &Fx) {
     fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
-    fx.client
-        .mark_shipped(&fx.seller, &fx.escrow_id, &SorobanString::from_str(&fx.env, "TRK-ROT"));
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + 3601);
+    fx.client.mark_shipped(
+        &fx.seller,
+        &fx.escrow_id,
+        &SorobanString::from_str(&fx.env, "TRK-ROT"),
+    );
     fx.client.raise_dispute(
         &fx.buyer,
         &fx.escrow_id,
@@ -232,13 +263,17 @@ fn drive_to_dispute(fx: &Fx) {
 fn admin_can_rotate_resolver_during_active_dispute() {
     let fx = setup();
     drive_to_dispute(&fx);
-    assert_eq!(fx.client.get_escrow(&fx.escrow_id).state, EscrowState::Disputed);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::Disputed
+    );
 
     let new_resolver = Address::generate(&fx.env);
-    fx.client.rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    fx.client
+        .rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
 
     let escrow = fx.client.get_escrow(&fx.escrow_id);
-    assert_eq!(escrow.resolver, new_resolver);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(new_resolver));
     // Rotation does not change the lifecycle state.
     assert_eq!(escrow.state, EscrowState::Disputed);
 }
@@ -250,12 +285,28 @@ fn rotation_rejected_after_dispute_resolved() {
     let fx = setup();
     drive_to_dispute(&fx);
 
-    // Resolve the dispute in the seller's favour → Completed (terminal).
-    fx.client.resolve_dispute(&fx.admin, &fx.escrow_id, &ResolutionType::Release);
-    assert_eq!(fx.client.get_escrow(&fx.escrow_id).state, EscrowState::Completed);
+    // Resolve → PendingFinalization
+    fx.client
+        .resolve_dispute(&fx.resolver, &fx.escrow_id, &ResolutionType::Release);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+
+    // Fast-forward past appeal window and finalize → Completed (terminal)
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + 86401);
+    fx.client.finalize_dispute(&fx.resolver, &fx.escrow_id);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::Completed
+    );
 
     let new_resolver = Address::generate(&fx.env);
-    let result = fx.client.try_rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    let result = fx
+        .client
+        .try_rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
     assert_eq!(result, Err(Ok(ContractError::InvalidState)));
 }
 
@@ -267,19 +318,11 @@ fn rotation_emits_resolver_rotated_event() {
     drive_to_dispute(&fx);
 
     let new_resolver = Address::generate(&fx.env);
-    fx.client.rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    fx.client
+        .rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
 
     assert!(
         resolver_rotated_emitted(&fx, &fx.resolver, &new_resolver),
         "expected a resolver_rotated event with the old and new resolver",
     );
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

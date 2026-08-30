@@ -2,7 +2,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const wasmPath = path.join(__dirname, '../target/wasm32-unknown-unknown/release/trustlink_escrow.wasm');
+const wasmPath = path.join(__dirname, '../../target/wasm32v1-none/release/trustlink_escrow.wasm');
 
 if (!fs.existsSync(wasmPath)) {
     console.error('WASM file not found:', wasmPath);

@@ -28,7 +28,6 @@
     [],
     [],
     [],
-    [],
     []
   ],
   "ledger": {
@@ -172,6 +171,18 @@
                       },
                       "val": {
                         "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "StorageVersion"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 1
                       }
                     }
                   ]

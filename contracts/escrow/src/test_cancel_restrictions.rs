@@ -1,11 +1,12 @@
 #![cfg(test)]
-//! `cancel_escrow` is only legal while the escrow is `Pending` (#21). From
-//! any other state it must reject with `InvalidState`.
+use soroban_sdk::IntoVal;
+// `cancel_escrow` is only legal while the escrow is `Pending` (#21). From
+// any other state it must reject with `InvalidState`.
 
-use crate::{Payee, ContractError, DataKey, Escrow, EscrowClient, EscrowData, EscrowState};
+use crate::{ContractError, DataKey, Escrow, EscrowClient, EscrowData, EscrowState, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    token, Address, BytesN, Env, String, Symbol,
+    token, Address, BytesN, Env, String, Symbol, Vec,
 };
 
 struct Fx {
@@ -34,15 +35,22 @@ fn setup() -> Fx {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
     let amount: i128 = 1_000;
+    let mut payees_8 = Vec::new(&env);
+    payees_8.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees_8.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_val,
         &None::<Address>,
         &resolver,
         &token_addr,
         &amount,
         &0_u32,
         &0_u32,
-        &0_u64
+        &3600_u64,
+        &None::<String>,
     );
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
     Fx {
@@ -145,11 +153,117 @@ fn cancel_fails_in_disputed_state() {
     let _ = fx.token_addr;
 }
 
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
+#[test]
+fn cancel_fails_in_refunded_state() {
+    let fx = setup();
+    fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
+    ship(&fx);
+
+    let reason = Symbol::new(&fx.env, "non_delivery");
+    let description = String::from_str(&fx.env, "missing");
+    let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
+    fx.client
+        .raise_dispute(&fx.buyer, &fx.escrow_id, &reason, &description, &evidence);
+
+    fx.client
+        .resolve_dispute(&fx.resolver, &fx.escrow_id, &crate::ResolutionType::Refund);
+
+    assert_eq!(
+        fx.client.try_cancel_escrow(&fx.seller, &fx.escrow_id),
+        Err(Ok(ContractError::InvalidState)),
+    );
+}
+
+#[test]
+fn cancel_fails_in_canceled_state() {
+    let fx = setup();
+    fx.client.cancel_escrow(&fx.seller, &fx.escrow_id);
+
+    assert_eq!(
+        fx.client.try_cancel_escrow(&fx.seller, &fx.escrow_id),
+        Err(Ok(ContractError::InvalidState)),
+    );
+}
+
+#[test]
+fn buyer_cancel_succeeds_in_funded_state() {
+    let fx = setup();
+    fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
+    fx.client.cancel_escrow(&fx.buyer, &fx.escrow_id);
+    let escrow = fx.client.get_escrow(&fx.escrow_id);
+    assert_eq!(escrow.state, EscrowState::Refunded);
+}
+
+#[test]
+fn buyer_cancel_fails_in_shipped_state() {
+    let fx = setup();
+    fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
+    ship(&fx);
+    assert_eq!(
+        fx.client.try_cancel_escrow(&fx.buyer, &fx.escrow_id),
+        Err(Ok(ContractError::InvalidState)),
+    );
+}
+
+#[test]
+fn buyer_cancel_fails_in_completed_state() {
+    let fx = setup();
+    fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
+    ship(&fx);
+
+    let escrow: EscrowData = fx
+        .env
+        .as_contract(&fx.contract_id, || {
+            fx.env
+                .storage()
+                .persistent()
+                .get(&DataKey::Escrow(fx.escrow_id))
+        })
+        .expect("escrow exists");
+    fx.env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    fx.client.confirm_delivery(&fx.buyer, &fx.escrow_id);
+
+    assert_eq!(
+        fx.client.try_cancel_escrow(&fx.buyer, &fx.escrow_id),
+        Err(Ok(ContractError::InvalidState)),
+    );
+}
+
+#[test]
+fn buyer_cancel_fails_in_disputed_state() {
+    let fx = setup();
+    fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
+    ship(&fx);
+
+    let reason = Symbol::new(&fx.env, "non_delivery");
+    let description = String::from_str(&fx.env, "missing");
+    let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
+    fx.client
+        .raise_dispute(&fx.buyer, &fx.escrow_id, &reason, &description, &evidence);
+
+    assert_eq!(
+        fx.client.try_cancel_escrow(&fx.buyer, &fx.escrow_id),
+        Err(Ok(ContractError::InvalidState)),
+    );
+}
+
+#[test]
+fn buyer_cancel_fails_in_refunded_state() {
+    let fx = setup();
+    fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
+    ship(&fx);
+
+    let reason = Symbol::new(&fx.env, "non_delivery");
+    let description = String::from_str(&fx.env, "missing");
+    let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
+    fx.client
+        .raise_dispute(&fx.buyer, &fx.escrow_id, &reason, &description, &evidence);
+
+    fx.client
+        .resolve_dispute(&fx.resolver, &fx.escrow_id, &crate::ResolutionType::Refund);
+
+    assert_eq!(
+        fx.client.try_cancel_escrow(&fx.buyer, &fx.escrow_id),
+        Err(Ok(ContractError::InvalidState)),
+    );
 }

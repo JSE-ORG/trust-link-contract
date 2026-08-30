@@ -38,13 +38,10 @@ Persistent and instance entries are kept alive by bumping their TTL.
   `set_ttl_extension`.
 - **Bump pattern** — every bump uses `extend_ttl(threshold = ext / 2, extend_to
   = ext)`: "if fewer than `ext/2` ledgers remain, top the TTL back up to `ext`."
-- **Persistent entries** (`Escrow`, `Dispute`, `VendorEscrowIndex`) are bumped on
-  **every read and write** of that entry.
+- **Persistent entries** (`Escrow`, `Dispute`, `VendorEscrowIndex`,
+  `BuyerEscrowIndex`) are bumped on **every read and write** of that entry.
 - **Instance storage** is bumped once per `create_escrow` call (alongside the
   escrow-counter increment), which keeps all instance singletons alive together.
-
-> ⚠️ **Known exception:** `DataKey::BuyerEscrowIndex` is written to persistent
-> storage **without** a TTL bump (see [Implementation notes](#implementation-notes)).
 
 ---
 
@@ -63,8 +60,8 @@ throughout the contract.
 | `Paused` | `bool` | Global pause flag; defaults to `false` when unset. |
 | `EscrowCounter` | `u64` | Monotonic counter producing the next escrow ID. |
 | `TtlExtensionLedgers` | `u32` | Configurable TTL extension (ledgers). Falls back to `120_960` when unset. |
+| `StorageVersion` | `u32` | Schema version of the stored data. Set by `initialize` and advanced by `migrate`; reads as `0` on deployments predating versioning. See [UPGRADES.md](UPGRADES.md). |
 | `TotalArbitrationFees(Address)` | `i128` | Per-token running total of arbitration fees collected. Keyed by token address. |
-| `AccumulatedFees(Address)` | `i128` | Per-token fees sitting in the vault that are withdrawable via `withdraw_fees`. Keyed by token address. |
 | `TotalCreated` | `u64` | Lifetime count of escrows created (stats). |
 | `TotalCompleted` | `u64` | Lifetime count of escrows completed (stats). |
 | `TotalDisputed` | `u64` | Lifetime count of escrows disputed (stats). |
@@ -79,7 +76,7 @@ All instance entries share the contract instance TTL (bumped during
 |---|---|---|---|
 | `Escrow(u64)` | `EscrowData` | read **and** write | The full escrow record, keyed by escrow ID. See [`types.rs`](../contracts/escrow/src/types.rs) for `EscrowData`. |
 | `Dispute(u64)` | `DisputeData` | read **and** write | The dispute record for an escrow, keyed by escrow ID. |
-| `BuyerEscrowIndex(Address)` | `Vec<u64>` | ⚠️ **not bumped** | List of escrow IDs a buyer has funded. Keyed by buyer address. |
+| `BuyerEscrowIndex(Address)` | `Vec<u64>` | read **and** write | List of escrow IDs a buyer has funded. Keyed by buyer address. |
 
 ### Declared but unused (legacy)
 
@@ -122,8 +119,8 @@ use.
 | Paused | `DataKey` | Instance | `bool` | — |
 | EscrowCounter | `DataKey` | Instance | `u64` | — |
 | TtlExtensionLedgers | `DataKey` | Instance | `u32` | — |
+| StorageVersion | `DataKey` | Instance | `u32` | — |
 | TotalArbitrationFees | `DataKey` | Instance | `i128` | token `Address` |
-| AccumulatedFees | `DataKey` | Instance | `i128` | token `Address` |
 | TotalCreated / Completed / Disputed / Refunded | `DataKey` | Instance | `u64` | — |
 | Escrow | `DataKey` | Persistent | `EscrowData` | escrow ID `u64` |
 | Dispute | `DataKey` | Persistent | `DisputeData` | escrow ID `u64` |
@@ -142,11 +139,7 @@ out of scope for this reference.
    while vendor indexes use `StorageKey::VendorEscrowIndex` (a different enum in
    `storage.rs`). Most `StorageKey` variants are unused.
 
-2. **`BuyerEscrowIndex` is written without a TTL bump.** Unlike every other
-   persistent entry, the buyer index is `set` on persistent storage without a
-   following `extend_ttl` (lib.rs `fund_escrow`). A buyer index can therefore
-   reach its archival TTL earlier than the escrow records it points to.
-
-3. **Fee bookkeeping is per token.** `AccumulatedFees` and
-   `TotalArbitrationFees` are keyed by the token `Address`, so multi-token
-   deployments track withdrawable balances independently per asset.
+2. **Fee bookkeeping is per token.** `TotalArbitrationFees` is keyed by the
+   token `Address`, so multi-token deployments track arbitration fee totals
+   independently per asset. The protocol fee itself is not tracked in
+   storage — it is forwarded to the fee collector directly at payout time.

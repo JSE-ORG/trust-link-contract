@@ -1,0 +1,302 @@
+[
+  {
+    "ledger_sequence": 100,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Contract", "Init"],
+    "payload": {
+      "schema_version": 1,
+      "admin":               "GADMIN111111111111111111111111111111111111111111111111111",
+      "fee_collector":       "GFEECOL11111111111111111111111111111111111111111111111111",
+      "arbitration_fee_bps": 100,
+      "timestamp":           1700000000
+    }
+  },
+
+  {
+    "comment": "── Escrow 1: happy path (create → fund → ship → deliver → complete) ──",
+    "ledger_sequence": 101,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Created", "GSELLER111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version":   1,
+      "escrow_id":        1,
+      "seller":           "GSELLER111111111111111111111111111111111111111111111111111",
+      "resolver":         "GRESOLVR11111111111111111111111111111111111111111111111111",
+      "token":            "GTOKEN1111111111111111111111111111111111111111111111111111",
+      "amount":           "1000000000",
+      "fee_bps":          150,
+      "resolver_fee_bps": 100,
+      "shipping_window":  604800,
+      "timestamp":        1700001000,
+      "prev_state":       "Pending",
+      "new_state":        "Pending"
+    }
+  },
+  {
+    "ledger_sequence": 102,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Funded", "GBUYER1111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version": 1,
+      "escrow_id":      1,
+      "buyer":          "GBUYER1111111111111111111111111111111111111111111111111111",
+      "amount":         "1000000000",
+      "timestamp":      1700002000,
+      "prev_state":     "Pending",
+      "new_state":      "Funded"
+    }
+  },
+  {
+    "ledger_sequence": 103,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Shipped", "GSELLER111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version": 1,
+      "escrow_id":      1,
+      "seller":         "GSELLER111111111111111111111111111111111111111111111111111",
+      "tracking_id":    "TRACK-ABC-001",
+      "timestamp":      1700003000,
+      "prev_state":     "Funded",
+      "new_state":      "Shipped"
+    }
+  },
+  {
+    "ledger_sequence": 104,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Delivered"],
+    "payload": {
+      "schema_version": 1,
+      "escrow_id":      1,
+      "delivered_at":   1700004000
+    }
+  },
+  {
+    "ledger_sequence": 105,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Completed", "GBUYER1111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version": 1,
+      "escrow_id":      1,
+      "recipient":      "GBUYER1111111111111111111111111111111111111111111111111111",
+      "amount":         "985000000",
+      "fee_bps":        150,
+      "timestamp":      1700005000,
+      "prev_state":     "Shipped",
+      "new_state":      "Completed"
+    }
+  },
+
+  {
+    "comment": "── Escrow 2: dispute path (create → fund → ship → dispute → resolve Release) ──",
+    "ledger_sequence": 110,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Created", "GSELLER111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version":   1,
+      "escrow_id":        2,
+      "seller":           "GSELLER111111111111111111111111111111111111111111111111111",
+      "resolver":         "GRESOLVR11111111111111111111111111111111111111111111111111",
+      "token":            "GTOKEN1111111111111111111111111111111111111111111111111111",
+      "amount":           "500000000",
+      "fee_bps":          200,
+      "resolver_fee_bps": 150,
+      "shipping_window":  259200,
+      "timestamp":        1700010000,
+      "prev_state":       "Pending",
+      "new_state":        "Pending"
+    }
+  },
+  {
+    "ledger_sequence": 111,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Funded", "GBUYER1111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version": 1,
+      "escrow_id":      2,
+      "buyer":          "GBUYER1111111111111111111111111111111111111111111111111111",
+      "amount":         "500000000",
+      "timestamp":      1700011000,
+      "prev_state":     "Pending",
+      "new_state":      "Funded"
+    }
+  },
+  {
+    "ledger_sequence": 112,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Shipped", "GSELLER111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version": 1,
+      "escrow_id":      2,
+      "seller":         "GSELLER111111111111111111111111111111111111111111111111111",
+      "tracking_id":    "TRACK-XYZ-002",
+      "timestamp":      1700012000,
+      "prev_state":     "Funded",
+      "new_state":      "Shipped"
+    }
+  },
+  {
+    "ledger_sequence": 113,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Dispute", "Raised", "GBUYER1111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version": 1,
+      "escrow_id":      2,
+      "buyer":          "GBUYER1111111111111111111111111111111111111111111111111111",
+      "reason":         "fraud",
+      "description":    "Item not as described — counterfeit goods shipped.",
+      "evidence_hash":  "aabbccddeeff00112233445566778899aabbccddeeff001122334455",
+      "timestamp":      1700013000,
+      "prev_state":     "Shipped",
+      "new_state":      "Disputed"
+    }
+  },
+  {
+    "ledger_sequence": 114,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Dispute", "Resolved", "GRESOLVR11111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version":   1,
+      "escrow_id":        2,
+      "resolver":         "GRESOLVR11111111111111111111111111111111111111111111111111",
+      "resolution":       "Refund",
+      "recipient":        "GBUYER1111111111111111111111111111111111111111111111111111",
+      "amount":           "490000000",
+      "arbitration_fee":  "5000000",
+      "resolver_fee":     "5000000",
+      "timestamp":        1700014000,
+      "prev_state":       "Disputed",
+      "new_state":        "Refunded"
+    }
+  },
+
+  {
+    "comment": "── Escrow 3: cancelled before funding ──",
+    "ledger_sequence": 120,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Created", "GSELLER111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version":   1,
+      "escrow_id":        3,
+      "seller":           "GSELLER111111111111111111111111111111111111111111111111111",
+      "resolver":         "GRESOLVR11111111111111111111111111111111111111111111111111",
+      "token":            "GTOKEN1111111111111111111111111111111111111111111111111111",
+      "amount":           "250000000",
+      "fee_bps":          100,
+      "resolver_fee_bps": 50,
+      "shipping_window":  86400,
+      "timestamp":        1700020000,
+      "prev_state":       "Pending",
+      "new_state":        "Pending"
+    }
+  },
+  {
+    "ledger_sequence": 121,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Canceled", "GSELLER111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version": 1,
+      "escrow_id":      3,
+      "seller":         "GSELLER111111111111111111111111111111111111111111111111111",
+      "timestamp":      1700021000,
+      "prev_state":     "Pending",
+      "new_state":      "Canceled"
+    }
+  },
+
+  {
+    "comment": "── Escrow 4: auto-release (no buyer, shipping window elapses) ──",
+    "ledger_sequence": 130,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Created", "GSELLER111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version":   1,
+      "escrow_id":        4,
+      "seller":           "GSELLER111111111111111111111111111111111111111111111111111",
+      "resolver":         "GRESOLVR11111111111111111111111111111111111111111111111111",
+      "token":            "GTOKEN1111111111111111111111111111111111111111111111111111",
+      "amount":           "750000000",
+      "fee_bps":          150,
+      "resolver_fee_bps": 0,
+      "shipping_window":  604800,
+      "timestamp":        1700030000,
+      "prev_state":       "Pending",
+      "new_state":        "Pending"
+    }
+  },
+  {
+    "ledger_sequence": 131,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Escrow", "Released", "GSELLER111111111111111111111111111111111111111111111111111"],
+    "payload": {
+      "schema_version": 1,
+      "escrow_id":      4,
+      "seller":         "GSELLER111111111111111111111111111111111111111111111111111",
+      "amount":         "738750000",
+      "fee_bps":        150,
+      "timestamp":      1700640000,
+      "prev_state":     "Pending",
+      "new_state":      "Completed"
+    }
+  },
+
+  {
+    "comment": "── Resolver rotation on escrow 1 (post-completion, recorded for audit) ──",
+    "ledger_sequence": 140,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Resolver", "Rotated"],
+    "payload": {
+      "schema_version": 1,
+      "escrow_id":      1,
+      "old_resolver":   "GRESOLVR11111111111111111111111111111111111111111111111111",
+      "new_resolver":   "GRESOLVR22222222222222222222222222222222222222222222222222",
+      "rotated_at":     1700040000
+    }
+  },
+
+  {
+    "comment": "── Fee update ──",
+    "ledger_sequence": 150,
+    "tx_index": 0,
+    "event_index": 0,
+    "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
+    "topics": ["Fee", "Updated"],
+    "payload": {
+      "schema_version": 1,
+      "old_fee_bps":    150,
+      "new_fee_bps":    175,
+      "timestamp":      1700050000
+    }
+  }
+]

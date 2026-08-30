@@ -1,0 +1,26 @@
+# Mercury — Schema version guard
+#
+# Call this query after decoding any event's `data` XDR payload.
+# If schema_version in the decoded struct exceeds 1, the Mercury subscriber
+# may be reading stale field mappings.  See docs/events.md for the changelog.
+#
+# This is a client-side pattern, not a Mercury feature:
+#   const decoded = xdr.ScVal.fromXDR(event.data, 'base64');
+#   const map     = scValToNative(decoded);
+#   if (map.schema_version > SUPPORTED_VERSION) throw new SchemaVersionError(...)
+
+# Fetch the most recent Escrow:Created event to inspect the live schema_version.
+query LatestSchemaVersion($contractId: String!) {
+  eventsByContractId(
+    contractId: $contractId
+    topic1: "AAAADwAAAAZFc2Nyb3c="   # Symbol("Escrow")
+    topic2: "AAAADwAAAAdDcmVhdGVk"   # Symbol("Created")
+    orderBy: LEDGER_DESC
+    first: 1
+  ) {
+    nodes {
+      ledger
+      data   # decode with stellar-sdk: scValToNative(xdr.ScVal.fromXDR(data,'base64'))
+    }
+  }
+}

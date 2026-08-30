@@ -8,11 +8,12 @@ use soroban_sdk::{
 };
 
 use crate::test_helpers::{create_funded_escrow, setup_contract};
-use crate::{Payee, ContractError, EscrowState};
+use crate::{ContractError, EscrowState};
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
-    env.register_stellar_asset_contract(token_admin)
+    env.register_stellar_asset_contract_v2(token_admin)
+        .address()
 }
 
 /// Happy path: with both parties signing, the full amount is refunded to the
@@ -74,7 +75,10 @@ fn test_mutual_cancel_requires_buyer_signature() {
 
     assert!(client.try_mutual_cancel(&id).is_err());
     // No funds moved and the escrow is untouched.
-    assert_eq!(soroban_sdk::token::Client::new(&env, &token).balance(&buyer), 0);
+    assert_eq!(
+        soroban_sdk::token::Client::new(&env, &token).balance(&buyer),
+        0
+    );
     assert_eq!(client.get_escrow(&id).state, EscrowState::Funded);
 }
 

@@ -6,11 +6,14 @@
 //! receive `amount - arbitration_fee`, the buyer must not be refunded, and
 //! the on-chain dispute record must be marked `Resolved`.
 
-use crate::{Payee,
-    DataKey, DisputeData, DisputeStatus, Escrow, EscrowClient, EscrowData, EscrowState,
+use crate::{
+    DataKey, DisputeData, DisputeStatus, Escrow, EscrowClient, EscrowData, EscrowState, Payee,
     ResolutionType,
 };
-use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String, Symbol};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    token, Address, BytesN, Env, IntoVal, String, Symbol, Vec,
+};
 
 #[test]
 fn full_dispute_release_to_vendor() {
@@ -35,19 +38,24 @@ fn full_dispute_release_to_vendor() {
     client.initialize(&admin, &fee_collector, &arbitration_fee);
 
     let amount: i128 = 1_000;
-    // shipping_window = 0 so `mark_shipped` is permitted immediately. The
-    // dispute window is enforced separately on raise_dispute.
     // fee_bps = 0 isolates the arbitration-fee accounting the issue specifies
     // (a non-zero protocol fee would further reduce the seller's payout).
+    let mut payees_23 = Vec::new(&env);
+    payees_23.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees_23.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_val,
         &None::<Address>,
         &resolver,
         &token_address,
         &amount,
         &0_u32,
         &0_u32,
-        &0_u64
+        &3600_u64,
+        &None::<String>,
     );
 
     // Fund the buyer and the escrow.
@@ -55,7 +63,9 @@ fn full_dispute_release_to_vendor() {
     token_admin_client.mint(&buyer, &amount);
     client.fund_escrow(&escrow_id, &buyer);
 
-    // Seller marks shipped. mark_shipped now takes (caller, escrow_id, tracking_id).
+    // Advance time past shipping window so mark_shipped is permitted.
+    env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
+    // Seller marks shipped.
     let tracking_id = String::from_str(&env, "TRK-001");
     client.mark_shipped(&seller, &escrow_id, &tracking_id);
 
@@ -75,6 +85,8 @@ fn full_dispute_release_to_vendor() {
 
     // Resolver decides in favour of the vendor.
     client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Release);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &escrow_id);
 
     // ── Post-resolution assertions ─────────────────────────────────────────
     let token_client = token::TokenClient::new(&env, &token_address);
@@ -108,13 +120,4 @@ fn full_dispute_release_to_vendor() {
         })
         .expect("dispute exists");
     assert_eq!(dispute.status, DisputeStatus::Resolved);
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

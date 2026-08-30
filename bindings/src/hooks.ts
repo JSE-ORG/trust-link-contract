@@ -14,7 +14,7 @@
 // hooks API; TypeScript will resolve the types from the consumer's node_modules.
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
-import type { EscrowData, DisputeData } from "./types.js";
+import type { EscrowData, DisputeData, TokenEntry } from "./types.js";
 import type { ContractTransport } from "./client.js";
 import { EscrowClient } from "./client.js";
 import { parseContractError } from "./errors.js";
@@ -128,6 +128,50 @@ export function useDispute(
     dispatch({ type: "loading" });
     try {
       const data = await clientRef.current.get_dispute(escrowId);
+      dispatch({ type: "success", payload: data });
+    } catch (err) {
+      dispatch({ type: "error", payload: normalizeError(err) });
+    }
+  }, [escrowId]);
+
+  useEffect(() => {
+    void fetch();
+  }, [fetch]);
+
+  return { ...state, refetch: fetch };
+}
+
+// ---------------------------------------------------------------------------
+// useBasketTokens
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the token/amount entries of a basket (multi-token) escrow. Resolves
+ * to an empty array for a non-basket escrow. Re-fetches whenever `escrowId`
+ * changes.
+ *
+ * @example
+ * ```tsx
+ * const { data: tokens, loading } = useBasketTokens(transport, escrowId);
+ * if (!loading) tokens?.map((t) => <li key={t.token}>{t.token}: {t.amount.toString()}</li>);
+ * ```
+ */
+export function useBasketTokens(
+  transport: ContractTransport | null,
+  escrowId: bigint | null,
+): AsyncState<TokenEntry[]> & { refetch: () => void } {
+  const [state, dispatch] = useReducer(asyncReducer<TokenEntry[]>, undefined, initial);
+  const clientRef = useRef<EscrowClient | null>(null);
+
+  if (transport && clientRef.current === null) {
+    clientRef.current = new EscrowClient(transport);
+  }
+
+  const fetch = useCallback(async () => {
+    if (!clientRef.current || escrowId === null) return;
+    dispatch({ type: "loading" });
+    try {
+      const data = await clientRef.current.get_basket_tokens(escrowId);
       dispatch({ type: "success", payload: data });
     } catch (err) {
       dispatch({ type: "error", payload: normalizeError(err) });
@@ -277,11 +321,12 @@ export function useConfirmDelivery(transport: ContractTransport | null): {
  * ```tsx
  * const { raise, loading, error } = useRaiseDispute(transport);
  *
- * raise(42n, "not_received", "Item never arrived", evidenceHashBytes);
+ * raise("G...BUYER", 42n, "not_received", "Item never arrived", evidenceHashBytes);
  * ```
  */
 export function useRaiseDispute(transport: ContractTransport | null): {
   raise: (
+    caller: string,
     escrowId: bigint,
     reason: string,
     description: string,
@@ -300,11 +345,17 @@ export function useRaiseDispute(transport: ContractTransport | null): {
   }
 
   const raise = useCallback(
-    async (escrowId: bigint, reason: string, description: string, evidenceHash: Uint8Array) => {
+    async (
+      caller: string,
+      escrowId: bigint,
+      reason: string,
+      description: string,
+      evidenceHash: Uint8Array,
+    ) => {
       if (!clientRef.current) return;
       dispatch({ type: "loading" });
       try {
-        await clientRef.current.raise_dispute(escrowId, reason, description, evidenceHash);
+        await clientRef.current.raise_dispute(caller, escrowId, reason, description, evidenceHash);
         dispatch({ type: "success" });
       } catch (err) {
         dispatch({ type: "error", payload: normalizeError(err) });
@@ -316,4 +367,53 @@ export function useRaiseDispute(transport: ContractTransport | null): {
   const reset = useCallback(() => dispatch({ type: "reset" }), []);
 
   return { raise, loading: state.loading, error: state.error, success: state.success, reset };
+}
+
+// ---------------------------------------------------------------------------
+// useFundBasketEscrow
+// ---------------------------------------------------------------------------
+
+/**
+ * Mutation hook for funding a basket (multi-token) escrow. Pulls every
+ * configured token from `buyer` in one call — use this instead of
+ * `useFundEscrow` for escrows created with `create_basket_escrow`.
+ *
+ * @example
+ * ```tsx
+ * const { fund, loading, error, success } = useFundBasketEscrow(transport);
+ *
+ * const handleFund = () => fund(42n, "G...BUYER_ADDRESS");
+ * ```
+ */
+export function useFundBasketEscrow(transport: ContractTransport | null): {
+  fund: (escrowId: bigint, buyer: string) => Promise<void>;
+  loading: boolean;
+  error: Error | null;
+  success: boolean;
+  reset: () => void;
+} {
+  const [state, dispatch] = useReducer(mutationReducer, initialMutation);
+  const clientRef = useRef<EscrowClient | null>(null);
+
+  if (transport && clientRef.current === null) {
+    clientRef.current = new EscrowClient(transport);
+  }
+
+  const fund = useCallback(
+    async (escrowId: bigint, buyer: string) => {
+      if (!clientRef.current) return;
+      dispatch({ type: "loading" });
+      try {
+        await clientRef.current.fund_basket_escrow(escrowId, buyer);
+        dispatch({ type: "success" });
+      } catch (err) {
+        dispatch({ type: "error", payload: normalizeError(err) });
+      }
+    },
+    [],
+  );
+
+  const reset = useCallback(() => dispatch({ type: "reset" }), []);
+
+  return { fund, loading: state.loading, error: state.error, success: state.success, reset };
 }

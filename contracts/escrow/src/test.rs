@@ -1,12 +1,13 @@
 #![cfg(test)]
 
+use crate::{
+    events::DisputePendingFinalization, AutoReleased, ContractError, DisputeRaised,
+    DisputeResolved, Escrow, EscrowClient, EscrowCompleted, EscrowCreated, EscrowFunded,
+    EscrowState, Payee, ResolutionType, ResolverSet,
+};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
     token, Address, BytesN, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val, Vec,
-};
-use crate::{
-    AutoReleased, ContractError, DisputeRaised, DisputeResolved, Escrow, EscrowClient,
-    EscrowCompleted, EscrowCreated, EscrowFunded, EscrowState, ResolutionType, Payee,
 };
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
@@ -20,7 +21,9 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
 
     (
         env,
@@ -45,7 +48,9 @@ fn get_balance(env: &Env, token: &Address, user: &Address) -> i128 {
 
 fn register_alt_token(env: &Env) -> (Address, Address) {
     let admin = Address::generate(env);
-    let token_address = env.register_stellar_asset_contract(admin.clone());
+    let token_address = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
     (token_address, admin)
 }
 
@@ -78,17 +83,16 @@ where
                     .map(|event| predicate(&event))
                     .unwrap_or(false)
             }
-            _ => false,
         })
 }
 
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
+fn single_payee(env: &Env, address: &Address) -> Val {
+    let mut payees = Vec::new(env);
     payees.push_back(Payee {
         address: address.clone(),
         bps: 10_000,
     });
-    payees
+    payees.into_val(env)
 }
 
 #[test]
@@ -100,12 +104,22 @@ fn test_create_escrow() {
 
     let payees = single_payee(&env, &seller);
 
-    let id = client.create_escrow(&payees, &None::<Address>, &resolver, &token, &100_i128, &200_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow(
+        &payees,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &200_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
     assert_eq!(id, 1u64);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.payees.get(0).unwrap().address, seller);
-    assert_eq!(escrow.resolver, resolver);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(resolver.clone()));
     assert_eq!(escrow.token, token);
     assert_eq!(escrow.amount, 100);
     assert_eq!(escrow.fee_bps, 200);
@@ -125,7 +139,17 @@ fn test_fund_escrow() {
     mint_tokens(&env, &token, &buyer, 1000);
 
     let payees = single_payee(&env, &seller);
-    let id = client.create_escrow(&payees, &None::<Address>, &resolver, &token, &100_i128, &200_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow(
+        &payees,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &200_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
     client.fund_escrow(&id, &buyer);
 
     let escrow = client.get_escrow(&id);
@@ -140,12 +164,21 @@ fn test_confirm_delivery() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
-    client.set_protocol_fee(&admin, &200_u32);
 
     mint_tokens(&env, &token, &buyer, 1000);
 
     let payees = single_payee(&env, &seller);
-    let id = client.create_escrow(&payees, &None::<Address>, &resolver, &token, &1000_i128, &200_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow(
+        &payees,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &200_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-010"));
 
@@ -170,7 +203,17 @@ fn test_raise_and_resolve_dispute_release_to_seller() {
     mint_tokens(&env, &token, &buyer, 1000);
 
     let payees = single_payee(&env, &seller);
-    let id = client.create_escrow(&payees, &None::<Address>, &resolver, &token, &1000_i128, &200_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow(
+        &payees,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &200_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(
         &seller,
@@ -186,11 +229,14 @@ fn test_raise_and_resolve_dispute_release_to_seller() {
     );
 
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &id);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Completed);
     assert_eq!(get_balance(&env, &token, &seller), 980);
-    assert_eq!(get_balance(&env, &token, &contract_id), 20);
+    assert_eq!(get_balance(&env, &token, &contract_id), 0);
+    assert_eq!(get_balance(&env, &token, &fee_collector), 20);
 }
 
 #[test]
@@ -203,7 +249,17 @@ fn test_raise_and_resolve_dispute_refund_buyer() {
     mint_tokens(&env, &token, &buyer, 1000);
 
     let payees = single_payee(&env, &seller);
-    let id = client.create_escrow(&payees, &None::<Address>, &resolver, &token, &1000_i128, &200_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow(
+        &payees,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &200_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(
         &seller,
@@ -219,11 +275,14 @@ fn test_raise_and_resolve_dispute_refund_buyer() {
     );
 
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &id);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Refunded);
     assert_eq!(get_balance(&env, &token, &buyer), 980);
-    assert_eq!(get_balance(&env, &token, &contract_id), 20);
+    assert_eq!(get_balance(&env, &token, &contract_id), 0);
+    assert_eq!(get_balance(&env, &token, &fee_collector), 20);
 }
 
 #[test]
@@ -231,17 +290,27 @@ fn test_auto_release() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_u32);
+    client.initialize(&admin, &fee_collector, &200_u32);
     client.set_protocol_fee(&admin, &200_u32);
 
     mint_tokens(&env, &token, &buyer, 1000);
 
     let payees = single_payee(&env, &seller);
-    let id = client.create_escrow(&payees, &None::<Address>, &resolver, &token, &1000_i128, &200_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow(
+        &payees,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &200_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO-1"));
     env.ledger().set_timestamp(1_700_000_000);
-    client.record_delivery(&admin, &id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
 
     let escrow = client.get_escrow(&id);
     env.ledger()
@@ -263,7 +332,17 @@ fn test_fund_non_pending_escrow_fails() {
     client.initialize(&admin, &fee_collector, &0_u32);
     mint_tokens(&env, &token, &buyer, 1000);
     let payees = single_payee(&env, &seller);
-    let id = client.create_escrow(&payees, &None::<Address>, &resolver, &token, &100_i128, &200_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow(
+        &payees,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &200_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
     client.fund_escrow(&id, &buyer);
     let res = client.try_fund_escrow(&id, &buyer);
     assert!(matches!(res, Err(Ok(ContractError::InvalidState))));
@@ -275,14 +354,23 @@ fn test_auto_release_before_window_fails() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
-    client.set_protocol_fee(&admin, &200_u32);
     mint_tokens(&env, &token, &buyer, 1000);
     let payees = single_payee(&env, &seller);
-    let id = client.create_escrow(&payees, &None::<Address>, &resolver, &token, &100_i128, &200_u32, &0_u32, &3600_u64);
+    let id = client.create_escrow(
+        &payees,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &100_i128,
+        &200_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO-2"));
     env.ledger().set_timestamp(1_700_000_000);
-    client.record_delivery(&admin, &id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
     let escrow = client.get_escrow(&id);
     env.ledger().set_timestamp(escrow.delivered_at.unwrap() + 1);
     let res = client.try_auto_release(&id);
@@ -299,15 +387,22 @@ fn test_raise_dispute_only_once() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
     mint_tokens(&env, &token, &buyer, 1000);
+    let mut payees_66 = Vec::new(&env);
+    payees_66.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_66_val = payees_66.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_66_val,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(
@@ -339,25 +434,39 @@ fn test_multiple_escrows() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
     mint_tokens(&env, &token, &buyer, 2000);
+    let mut payees_67 = Vec::new(&env);
+    payees_67.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_67_val = payees_67.into_val(&env);
     let id1 = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_67_val,
         &None::<Address>,
         &resolver,
         &token,
         &100_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
+    let mut payees_68 = Vec::new(&env);
+    payees_68.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_68_val = payees_68.into_val(&env);
     let id2 = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_68_val,
         &None::<Address>,
         &resolver,
         &token,
         &200_i128,
         &200_u32,
         &0_u32,
-        &7200_u64
+        &7200_u64,
+        &None::<SorobanString>,
     );
     assert_eq!(id1, 1u64);
     assert_eq!(id2, 2u64);
@@ -370,15 +479,22 @@ fn test_create_escrow_with_non_usdc_token() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
+    let mut payees_69 = Vec::new(&env);
+    payees_69.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_69_val = payees_69.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_69_val,
         &None::<Address>,
         &resolver,
         &alt_token,
         &500_i128,
         &0_u32,
         &0_u32,
-        &7200_u64
+        &7200_u64,
+        &None::<SorobanString>,
     );
     assert_eq!(id, 1u64);
 
@@ -397,17 +513,23 @@ fn test_fund_and_confirm_delivery_with_non_usdc_token() {
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
-    client.set_protocol_fee(&admin, &100_u32);
     mint_tokens(&env, &alt_token, &buyer, 1000);
+    let mut payees_70 = Vec::new(&env);
+    payees_70.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_70_val = payees_70.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_70_val,
         &None::<Address>,
         &resolver,
         &alt_token,
         &300_i128,
         &100_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
 
@@ -431,15 +553,22 @@ fn test_dispute_resolved_to_seller_with_non_usdc_token() {
 
     mint_tokens(&env, &alt_token, &buyer, 1_000);
 
+    let mut payees_71 = Vec::new(&env);
+    payees_71.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_71_val = payees_71.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_71_val,
         &None::<Address>,
         &resolver,
         &alt_token,
         &400_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(
@@ -459,6 +588,8 @@ fn test_dispute_resolved_to_seller_with_non_usdc_token() {
     assert_eq!(escrow.state, EscrowState::Disputed);
 
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &id);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Completed);
@@ -476,15 +607,22 @@ fn test_dispute_refunded_to_buyer_with_non_usdc_token() {
 
     mint_tokens(&env, &alt_token, &buyer, 1_000);
 
+    let mut payees_72 = Vec::new(&env);
+    payees_72.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_72_val = payees_72.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_72_val,
         &None::<Address>,
         &resolver,
         &alt_token,
         &400_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(
@@ -500,6 +638,8 @@ fn test_dispute_refunded_to_buyer_with_non_usdc_token() {
         &BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &id);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Refunded);
@@ -519,15 +659,22 @@ fn test_auto_release_with_non_usdc_token() {
     mint_tokens(&env, &alt_token, &buyer, 1_000);
 
     let shipping_window: u64 = 86_400;
+    let mut payees_73 = Vec::new(&env);
+    payees_73.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_73_val = payees_73.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_73_val,
         &None::<Address>,
         &resolver,
         &alt_token,
         &250_i128,
         &0_u32,
         &0_u32,
-        &shipping_window
+        &shipping_window,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(
@@ -536,7 +683,7 @@ fn test_auto_release_with_non_usdc_token() {
         &SorobanString::from_str(&env, "TRACK-SEP41-AUTO"),
     );
     env.ledger().set_timestamp(1_700_000_000);
-    client.record_delivery(&admin, &id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
 
     let escrow = client.get_escrow(&id);
     env.ledger()
@@ -566,25 +713,39 @@ fn test_multi_asset_concurrent_escrows_different_tokens() {
     mint_tokens(&env, &token_a, &buyer_a, 1_000);
     mint_tokens(&env, &token_b, &buyer_b, 2_000);
 
+    let mut payees_74 = Vec::new(&env);
+    payees_74.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_74_val = payees_74.into_val(&env);
     let id1 = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_74_val,
         &None::<Address>,
         &resolver,
         &token_a,
         &150_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
+    let mut payees_75 = Vec::new(&env);
+    payees_75.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_75_val = payees_75.into_val(&env);
     let id2 = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_75_val,
         &None::<Address>,
         &resolver,
         &token_b,
         &500_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
 
     assert_eq!(id1, 1u64);
@@ -599,6 +760,8 @@ fn test_multi_asset_concurrent_escrows_different_tokens() {
     assert_eq!(get_balance(&env, &token_b, &contract_id), 500);
 
     client.mark_shipped(&seller, &id2, &SorobanString::from_str(&env, "TRK-B"));
+
+    // Raise dispute for id2 while still within its dispute window.
     client.raise_dispute(
         &buyer_b,
         &id2,
@@ -606,21 +769,17 @@ fn test_multi_asset_concurrent_escrows_different_tokens() {
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
-
-    client.mark_shipped(&seller, &id1, &SorobanString::from_str(&env, "TRK-A"));
-    let escrow1 = client.get_escrow(&id1);
-    env.ledger().set_timestamp(escrow1.dispute_deadline + 1);
-    client.confirm_delivery(&buyer_a, &id1);
-
     client.resolve_dispute(&resolver, &id2, &ResolutionType::Refund);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &id2);
 
     let escrow1 = client.get_escrow(&id1);
     let escrow2 = client.get_escrow(&id2);
-    assert_eq!(escrow1.state, EscrowState::Completed);
+    assert_eq!(escrow1.state, EscrowState::Funded);
     assert_eq!(escrow2.state, EscrowState::Refunded);
 
-    assert_eq!(get_balance(&env, &token_a, &seller), 150);
-    assert_eq!(get_balance(&env, &token_a, &contract_id), 0);
+    assert_eq!(get_balance(&env, &token_a, &seller), 0);
+    assert_eq!(get_balance(&env, &token_a, &contract_id), 150);
 
     assert_eq!(get_balance(&env, &token_b, &buyer_b), 2_000);
     assert_eq!(get_balance(&env, &token_b, &seller), 0);
@@ -640,16 +799,18 @@ fn test_sequential_escrows_same_non_usdc_token() {
 
     for (i, amount) in [100_i128, 200_i128, 300_i128].iter().enumerate() {
         let expected_id = (i as u64) + 1;
+        let seller_val = seller.clone().into_val(&env);
         let id = client.create_escrow(
-        &single_payee(&env, &seller),
-        &None::<Address>,
-        &resolver,
-        &alt_token,
-        amount,
-        &0_u32,
-        &0_u32,
-        &3600_u64
-    );
+            &seller_val,
+            &None::<Address>,
+            &resolver,
+            &alt_token,
+            &amount,
+            &0_u32,
+            &0_u32,
+            &3600_u64,
+            &None::<SorobanString>,
+        );
         assert_eq!(id, expected_id);
 
         client.fund_escrow(&id, &buyer);
@@ -675,15 +836,22 @@ fn test_zero_fee_no_collector_transfer() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
     mint_tokens(&env, &token, &buyer, 1000);
+    let mut payees_76 = Vec::new(&env);
+    payees_76.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_76_val = payees_76.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_76_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
 
@@ -716,15 +884,17 @@ fn test_fee_exceeds_max_bps_fails() {
     let client = EscrowClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     client.initialize(&admin, &fee_collector, &0_u32);
+    let seller_val = seller.clone().into_val(&env);
     let res = client.try_create_escrow(
-        &single_payee(&env, &seller),
+        &seller_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &301_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     assert!(matches!(res, Err(Ok(ContractError::FeeExceedsMax))));
 }
@@ -738,15 +908,22 @@ fn test_dispute_after_shipping_succeeds() {
 
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_77 = Vec::new(&env);
+    payees_77.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_77_val = payees_77.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_77_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(
@@ -776,15 +953,22 @@ fn test_dispute_requires_shipped_state() {
 
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_78 = Vec::new(&env);
+    payees_78.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_78_val = payees_78.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_78_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
 
@@ -808,25 +992,32 @@ fn test_auto_release_after_dispute_deadline() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &0_u32);
+    client.initialize(&admin, &fee_collector, &200_u32);
     client.set_protocol_fee(&admin, &200_u32);
 
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_79 = Vec::new(&env);
+    payees_79.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_79_val = payees_79.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_79_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO-3"));
     env.ledger().set_timestamp(1_700_000_000);
-    client.record_delivery(&admin, &id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
 
     let escrow = client.get_escrow(&id);
     let delivered_at = escrow.delivered_at.unwrap();
@@ -851,19 +1042,24 @@ fn test_fee_change_does_not_affect_funded_escrow() {
     mint_tokens(&env, &token, &buyer, 1_000_000);
 
     let escrow_amount = 1_000_000_i128;
+    let mut payees_80 = Vec::new(&env);
+    payees_80.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_80_val = payees_80.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_80_val,
         &None::<Address>,
         &resolver,
         &token,
         &escrow_amount,
         &100_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&escrow_id, &buyer);
-
-    client.set_fee(&admin, &300_u32);
 
     client.mark_shipped(
         &seller,
@@ -893,31 +1089,33 @@ fn test_event_integrity_escrow_created() {
     let client = EscrowClient::new(&env, &cid);
     client.initialize(&admin, &fee_collector, &0_u32);
 
+    let mut payees_81 = Vec::new(&env);
+    payees_81.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_81_val = payees_81.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_81_val,
         &None::<Address>,
         &resolver,
         &token,
         &500_i128,
         &150_u32,
         &0_u32,
-        &7200_u64
+        &7200_u64,
+        &None::<SorobanString>,
     );
 
-    assert!(has_event::<EscrowCreated, _>(
-        &env,
-        &cid,
-        "escrow_created",
-        |ev| {
-            ev.escrow_id == escrow_id as u64
-                && ev.seller == seller
-                && ev.resolver == resolver
-                && ev.token == token
-                && ev.amount == 500
-                && ev.fee_bps == 150
-                && ev.shipping_window == 7200
-        }
-    ));
+    assert!(has_event::<EscrowCreated, _>(&env, &cid, "Escrow", |ev| {
+        ev.escrow_id == escrow_id as u64
+            && ev.seller == seller
+            && ev.resolver == resolver
+            && ev.token == token
+            && ev.amount == 500
+            && ev.fee_bps == 150
+            && ev.shipping_window == 7200
+    }));
 }
 
 #[test]
@@ -928,24 +1126,28 @@ fn test_event_integrity_escrow_funded() {
     client.initialize(&admin, &fee_collector, &0_u32);
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_82 = Vec::new(&env);
+    payees_82.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_82_val = payees_82.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_82_val,
         &None::<Address>,
         &resolver,
         &token,
         &500_i128,
         &150_u32,
         &0_u32,
-        &7200_u64
+        &7200_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&escrow_id, &buyer);
 
-    assert!(has_event::<EscrowFunded, _>(
-        &env,
-        &cid,
-        "escrow_funded",
-        |ev| { ev.escrow_id == escrow_id as u64 && ev.buyer == buyer && ev.amount == 500 }
-    ));
+    assert!(has_event::<EscrowFunded, _>(&env, &cid, "Escrow", |ev| {
+        ev.escrow_id == escrow_id as u64 && ev.buyer == buyer && ev.amount == 500
+    }));
 }
 
 #[test]
@@ -956,15 +1158,22 @@ fn test_event_integrity_escrow_completed_via_confirm_delivery() {
     client.initialize(&admin, &fee_collector, &0_u32);
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_83 = Vec::new(&env);
+    payees_83.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_83_val = payees_83.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_83_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&escrow_id, &buyer);
     client.mark_shipped(
@@ -980,7 +1189,7 @@ fn test_event_integrity_escrow_completed_via_confirm_delivery() {
     assert!(has_event::<EscrowCompleted, _>(
         &env,
         &cid,
-        "escrow_completed",
+        "Escrow",
         |ev| {
             ev.escrow_id == escrow_id as u64
                 && ev.recipient == seller
@@ -998,15 +1207,22 @@ fn test_event_integrity_dispute_raised() {
     client.initialize(&admin, &fee_collector, &0_u32);
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_84 = Vec::new(&env);
+    payees_84.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_84_val = payees_84.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_84_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&escrow_id, &buyer);
     client.mark_shipped(
@@ -1024,14 +1240,9 @@ fn test_event_integrity_dispute_raised() {
         &evidence,
     );
 
-    assert!(has_event::<DisputeRaised, _>(
-        &env,
-        &cid,
-        "dispute_raised",
-        |ev| {
-            ev.escrow_id == escrow_id as u64 && ev.buyer == buyer && ev.evidence_hash == evidence
-        }
-    ));
+    assert!(has_event::<DisputeRaised, _>(&env, &cid, "Dispute", |ev| {
+        ev.escrow_id == escrow_id as u64 && ev.buyer == buyer && ev.evidence_hash == evidence
+    }));
 }
 
 #[test]
@@ -1039,18 +1250,26 @@ fn test_event_integrity_dispute_resolved_release_to_seller() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let cid = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &cid);
-    client.initialize(&admin, &fee_collector, &0_u32);
+    // Non-zero arbitration fee (5%) so the resolved event must carry it.
+    client.initialize(&admin, &fee_collector, &500_u32);
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_85 = Vec::new(&env);
+    payees_85.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_85_val = payees_85.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_85_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &200_u32,
-        &0_u32,
-        &3600_u64
+        &300_u32,
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&escrow_id, &buyer);
     client.mark_shipped(
@@ -1066,12 +1285,20 @@ fn test_event_integrity_dispute_resolved_release_to_seller() {
         &BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Release);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &escrow_id);
 
+    // arbitration_fee = 5% of 1000 = 50, resolver_fee = 3% of 1000 = 30.
     assert!(has_event::<DisputeResolved, _>(
         &env,
         &cid,
-        "dispute_resolved",
-        |ev| { ev.escrow_id == escrow_id as u64 && ev.resolution == ResolutionType::Release }
+        "Dispute",
+        |ev| {
+            ev.escrow_id == escrow_id as u64
+                && ev.resolution == ResolutionType::Release
+                && ev.arbitration_fee == 50
+                && ev.resolver_fee == 30
+        }
     ));
 }
 
@@ -1080,18 +1307,26 @@ fn test_event_integrity_dispute_resolved_refund_buyer() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let cid = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &cid);
-    client.initialize(&admin, &fee_collector, &0_u32);
+    // Non-zero arbitration fee (5%) so the resolved event must carry it.
+    client.initialize(&admin, &fee_collector, &500_u32);
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_86 = Vec::new(&env);
+    payees_86.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_86_val = payees_86.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_86_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &200_u32,
-        &0_u32,
-        &3600_u64
+        &300_u32,
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&escrow_id, &buyer);
     client.mark_shipped(
@@ -1107,12 +1342,20 @@ fn test_event_integrity_dispute_resolved_refund_buyer() {
         &BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Refund);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &escrow_id);
 
+    // arbitration_fee = 5% of 1000 = 50, resolver_fee = 3% of 1000 = 30.
     assert!(has_event::<DisputeResolved, _>(
         &env,
         &cid,
-        "dispute_resolved",
-        |ev| { ev.escrow_id == escrow_id as u64 && ev.resolution == ResolutionType::Refund }
+        "Dispute",
+        |ev| {
+            ev.escrow_id == escrow_id as u64
+                && ev.resolution == ResolutionType::Refund
+                && ev.arbitration_fee == 50
+                && ev.resolver_fee == 30
+        }
     ));
 }
 
@@ -1124,15 +1367,22 @@ fn test_event_integrity_auto_released() {
     client.initialize(&admin, &fee_collector, &0_u32);
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_87 = Vec::new(&env);
+    payees_87.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_87_val = payees_87.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_87_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&escrow_id, &buyer);
     client.mark_shipped(
@@ -1141,24 +1391,19 @@ fn test_event_integrity_auto_released() {
         &SorobanString::from_str(&env, "TRK-EVT-AR"),
     );
     env.ledger().set_timestamp(1_700_000_000);
-    client.record_delivery(&admin, &escrow_id);
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, escrow_id);
 
     let escrow = client.get_escrow(&escrow_id);
     env.ledger()
         .set_timestamp(escrow.delivered_at.unwrap() + 172_801);
     client.auto_release(&escrow_id);
 
-    assert!(has_event::<AutoReleased, _>(
-        &env,
-        &cid,
-        "auto_released",
-        |ev| {
-            ev.escrow_id == escrow_id as u64
-                && ev.seller == seller
-                && ev.amount == 1000
-                && ev.fee_bps == 200
-        }
-    ));
+    assert!(has_event::<AutoReleased, _>(&env, &cid, "Escrow", |ev| {
+        ev.escrow_id == escrow_id as u64
+            && ev.seller == seller
+            && ev.amount == 1000
+            && ev.fee_bps == 200
+    }));
 }
 
 #[test]
@@ -1169,47 +1414,52 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
     client.initialize(&admin, &fee_collector, &0_u32);
     mint_tokens(&env, &token, &buyer, 2000);
 
+    let mut payees_88 = Vec::new(&env);
+    payees_88.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_88_val = payees_88.into_val(&env);
     let id1 = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_88_val,
         &None::<Address>,
         &resolver,
         &token,
         &500_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
-    assert!(has_event::<EscrowCreated, _>(
-        &env,
-        &cid,
-        "escrow_created",
-        |ev| { ev.escrow_id == id1 as u64 && ev.seller == seller }
-    ));
+    assert!(has_event::<EscrowCreated, _>(&env, &cid, "Escrow", |ev| {
+        ev.escrow_id == id1 as u64 && ev.seller == seller
+    }));
 
+    let mut payees_89 = Vec::new(&env);
+    payees_89.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_89_val = payees_89.into_val(&env);
     let id2 = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_89_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &200_u32,
         &0_u32,
-        &7200_u64
+        &7200_u64,
+        &None::<SorobanString>,
     );
-    assert!(has_event::<EscrowCreated, _>(
-        &env,
-        &cid,
-        "escrow_created",
-        |ev| { ev.escrow_id == id2 as u64 }
-    ));
+    assert!(has_event::<EscrowCreated, _>(&env, &cid, "Escrow", |ev| {
+        ev.escrow_id == id2 as u64
+    }));
 
     client.fund_escrow(&id1, &buyer);
-    assert!(has_event::<EscrowFunded, _>(
-        &env,
-        &cid,
-        "escrow_funded",
-        |ev| { ev.escrow_id == id1 as u64 && ev.buyer == buyer }
-    ));
+    assert!(has_event::<EscrowFunded, _>(&env, &cid, "Escrow", |ev| {
+        ev.escrow_id == id1 as u64 && ev.buyer == buyer
+    }));
 
     client.mark_shipped(&seller, &id1, &SorobanString::from_str(&env, "TRK-LIFE-1"));
     let escrow1 = client.get_escrow(&id1);
@@ -1218,17 +1468,14 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
     assert!(has_event::<EscrowCompleted, _>(
         &env,
         &cid,
-        "escrow_completed",
+        "Escrow",
         |ev| { ev.escrow_id == id1 as u64 }
     ));
 
     client.fund_escrow(&id2, &buyer);
-    assert!(has_event::<EscrowFunded, _>(
-        &env,
-        &cid,
-        "escrow_funded",
-        |ev| { ev.escrow_id == id2 as u64 }
-    ));
+    assert!(has_event::<EscrowFunded, _>(&env, &cid, "Escrow", |ev| {
+        ev.escrow_id == id2 as u64
+    }));
 
     client.mark_shipped(&seller, &id2, &SorobanString::from_str(&env, "TRK-LIFE-2"));
     client.raise_dispute(
@@ -1238,18 +1485,23 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
-    assert!(has_event::<DisputeRaised, _>(
-        &env,
-        &cid,
-        "dispute_raised",
-        |ev| { ev.escrow_id == id2 as u64 }
-    ));
+    assert!(has_event::<DisputeRaised, _>(&env, &cid, "Dispute", |ev| {
+        ev.escrow_id == id2 as u64
+    }));
 
     client.resolve_dispute(&resolver, &id2, &ResolutionType::Refund);
+    assert!(has_event::<DisputePendingFinalization, _>(
+        &env,
+        &cid,
+        "Dispute",
+        |ev| { ev.escrow_id == id2 as u64 }
+    ));
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &id2);
     assert!(has_event::<DisputeResolved, _>(
         &env,
         &cid,
-        "dispute_resolved",
+        "Dispute",
         |ev| { ev.escrow_id == id2 as u64 && ev.resolution == ResolutionType::Refund }
     ));
 }
@@ -1267,15 +1519,22 @@ fn test_cancel_escrow_by_buyer_refunds_full_amount() {
 
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_90 = Vec::new(&env);
+    payees_90.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_90_val = payees_90.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_90_val,
         &None::<Address>,
         &resolver,
         &token,
         &500_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
 
@@ -1302,15 +1561,22 @@ fn test_cancel_escrow_state_transitions_correctly() {
 
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_91 = Vec::new(&env);
+    payees_91.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_91_val = payees_91.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_91_val,
         &None::<Address>,
         &resolver,
         &token,
         &300_i128,
         &100_u32,
         &0_u32,
-        &7200_u64
+        &7200_u64,
+        &None::<SorobanString>,
     );
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Pending);
@@ -1328,24 +1594,32 @@ fn test_cancel_escrow_state_transitions_correctly() {
 }
 
 #[test]
-fn test_cancel_escrow_pending_escrow_fails() {
-    let (env, admin, seller, buyer, resolver, token, _fee_collector) = setup_env();
+fn test_cancel_escrow_pending_escrow_by_seller_succeeds() {
+    let (env, admin, seller, _buyer, resolver, token, _fee_collector) = setup_env();
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &_fee_collector, &0_u32);
 
+    let mut payees_92 = Vec::new(&env);
+    payees_92.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_92_val = payees_92.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_92_val,
         &None::<Address>,
         &resolver,
         &token,
         &500_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
-    let res = client.try_cancel_escrow(&buyer, &id);
-    assert!(matches!(res, Err(Ok(ContractError::InvalidState))));
+    client.cancel_escrow(&seller, &id);
+    let escrow = client.get_escrow(&id);
+    assert_eq!(escrow.state, EscrowState::Canceled);
 }
 
 #[test]
@@ -1357,15 +1631,22 @@ fn test_cancel_escrow_completed_escrow_fails() {
 
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_93 = Vec::new(&env);
+    payees_93.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_93_val = payees_93.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_93_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRK-CANCEL"));
@@ -1386,15 +1667,22 @@ fn test_cancel_escrow_already_cancelled_fails() {
 
     mint_tokens(&env, &token, &buyer, 1000);
 
+    let mut payees_94 = Vec::new(&env);
+    payees_94.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_94_val = payees_94.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_94_val,
         &None::<Address>,
         &resolver,
         &token,
         &500_i128,
         &200_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
     client.cancel_escrow(&buyer, &id);
@@ -1412,21 +1700,29 @@ fn test_cancel_escrow_with_zero_fee() {
 
     mint_tokens(&env, &token, &buyer, 500);
 
+    let mut payees_95 = Vec::new(&env);
+    payees_95.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_95_val = payees_95.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_95_val,
         &None::<Address>,
         &resolver,
         &token,
         &500_i128,
         &0_u32,
         &0_u32,
-        &3600_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
     client.cancel_escrow(&buyer, &id);
 
     let escrow = client.get_escrow(&id);
-    assert_eq!(escrow.state, EscrowState::Canceled);
+    // Buyer cancellation always results in Refunded, even with zero fee_bps.
+    assert_eq!(escrow.state, EscrowState::Refunded);
 
     assert_eq!(get_balance(&env, &token, &buyer), 500);
     assert_eq!(get_balance(&env, &token, &contract_id), 0);
@@ -1441,26 +1737,35 @@ fn test_cancel_escrow_preserves_escrow_metadata() {
 
     mint_tokens(&env, &token, &buyer, 2000);
 
+    let mut payees_96 = Vec::new(&env);
+    payees_96.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_96_val = payees_96.into_val(&env);
     let id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_96_val,
         &None::<Address>,
         &resolver,
         &token,
         &1500_i128,
         &250_u32,
         &0_u32,
-        &86400_u64
+        &86400_u64,
+        &None::<SorobanString>,
     );
     client.fund_escrow(&id, &buyer);
-    client.cancel_escrow(&seller, &id);
+    // Buyer cancels the funded escrow; seller can no longer cancel once funded.
+    client.cancel_escrow(&buyer, &id);
 
     let escrow = client.get_escrow(&id);
-    assert_eq!(escrow.seller, seller);
+    assert_eq!(escrow.payees.get(0).unwrap().address, seller);
     assert_eq!(escrow.buyer, Some(buyer));
-    assert_eq!(escrow.resolver, resolver);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(resolver.clone()));
     assert_eq!(escrow.token, token);
     assert_eq!(escrow.amount, 1500);
     assert_eq!(escrow.fee_bps, 250);
     assert_eq!(escrow.shipping_window, 86400);
-    assert_eq!(escrow.state, EscrowState::Canceled);
+    // Buyer cancellation of a funded escrow always results in Refunded state.
+    assert_eq!(escrow.state, EscrowState::Refunded);
 }

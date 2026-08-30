@@ -2,3 +2,4 @@
 channel = "stable"
 components = ["rustfmt", "clippy"]
 targets = ["wasm32v1-none"]
+profile = "minimal"

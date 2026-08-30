@@ -1,7 +1,8 @@
 #![cfg(test)]
 
 use crate::helpers::payout::calculate_protocol_fee;
-use crate::ContractError;
+use crate::Payee;
+use crate::{ContractError, ResolverSet};
 
 /// Parameterized test that verifies fee calculation is mathematically correct
 /// for various fee_bps values: 0, 50, 100, 150, 200, 250, 300.
@@ -422,7 +423,7 @@ fn test_fee_calculation_invalid_amount() {
 #[test]
 fn test_dispute_allocations_include_protocol_fee() {
     use crate::helpers::payout::calculate_dispute_allocations;
-    use crate::{Payee, EscrowData, EscrowState, ResolutionType};
+    use crate::{EscrowData, EscrowState, ResolutionType};
     use soroban_sdk::{testutils::Address as _, Address, Env};
 
     let env = Env::default();
@@ -433,15 +434,25 @@ fn test_dispute_allocations_include_protocol_fee() {
     let fee_collector = Address::generate(&env);
 
     // Create mock escrow with 1,000,000 stroops and 100 bps (1%) fee
+    // ==========================================
+    // FIRST TEST TRANSFORMATION
+    // ==========================================
+
+    // 1. Setup a single payee vector representing 100% allocation for the seller
+    let mut payees_53 = soroban_sdk::Vec::new(&env);
+    payees_53.push_back(crate::types::Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+
     let escrow = EscrowData {
-        payees: soroban_sdk::Vec::new(&env), // Not used in this specific helper call
-        seller: seller.clone(),
+        payees: payees_53, // Changed from seller: seller.clone()
         buyer: Some(buyer.clone()),
-        resolver: resolver.clone(),
+        resolvers: ResolverSet::Single(resolver.clone()),
         token: token.clone(),
         amount: 1_000_000_i128,
-        fee_bps: 100_u32, // 1%
-        resolver_fee_bps: 0,
+        fee_bps: 100_u32,        // 1%
+        resolver_fee_bps: 0_u32, // Added missing field
         state: EscrowState::Disputed,
         shipping_window: 3600,
         funded_at: 0,
@@ -449,6 +460,7 @@ fn test_dispute_allocations_include_protocol_fee() {
         shipped_at: 0,
         delivered_at: None,
         tracking_id: None,
+        notes: None, // Added missing field
     };
 
     let arbitration_fee = 50_000_i128; // 5% arbitration fee
@@ -488,7 +500,8 @@ fn test_dispute_allocations_include_protocol_fee() {
 #[test]
 fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     use crate::helpers::payout::calculate_dispute_allocations;
-    use crate::{Payee, EscrowData, EscrowState, ResolutionType};
+    use crate::types::{EscrowState, ResolutionType};
+    use crate::EscrowData;
     use soroban_sdk::{testutils::Address as _, Address, Env};
 
     let env = Env::default();
@@ -498,15 +511,24 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     let token = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
+    // ==========================================
+    // SECOND TEST TRANSFORMATION
+    // ==========================================
+
+    let mut payees_52 = soroban_sdk::Vec::new(&env);
+    payees_52.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+
     let escrow = EscrowData {
-        payees: soroban_sdk::Vec::new(&env),
-        seller: seller.clone(),
+        payees: payees_52,
         buyer: Some(buyer.clone()),
-        resolver: resolver.clone(),
+        resolvers: ResolverSet::Single(resolver.clone()),
         token: token.clone(),
         amount: 1_000_000_i128,
-        fee_bps: 0_u32, // 0% fee
-        resolver_fee_bps: 0,
+        fee_bps: 0_u32,          // 0% fee
+        resolver_fee_bps: 0_u32, // Added missing field
         state: EscrowState::Disputed,
         shipping_window: 3600,
         funded_at: 0,
@@ -514,6 +536,7 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
         shipped_at: 0,
         delivered_at: None,
         tracking_id: None,
+        notes: None, // Added missing field
     };
 
     let arbitration_fee = 50_000_i128;

@@ -1,14 +1,14 @@
 #![cfg(test)]
 
-use crate::{Payee, Escrow, EscrowClient};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use crate::{Escrow, EscrowClient, Payee};
+use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal, String, Vec};
 
 #[test]
 #[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
 fn test_mark_shipped_auth_fails_immediately() {
     let env = Env::default();
 
-    let contract_id = env.register_contract(None, Escrow);
+    let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
     let unauthorized_caller = Address::generate(&env);
@@ -23,7 +23,7 @@ fn test_mark_shipped_auth_fails_immediately() {
 #[should_panic]
 fn test_unauthorized_pause_fails_early() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, Escrow);
+    let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
     let fake_admin = Address::generate(&env);
@@ -38,7 +38,7 @@ fn test_unauthorized_pause_fails_early() {
 #[should_panic]
 fn test_unauthorized_create_escrow_fails_early() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, Escrow);
+    let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
     let fake_seller = Address::generate(&env);
@@ -46,15 +46,20 @@ fn test_unauthorized_create_escrow_fails_early() {
     let token = Address::generate(&env);
 
     // Will panic on `seller.require_auth()` instead of `ensure_not_paused`
-    client.create_escrow(
-        &single_payee(&env, &fake_seller),
+    let mut payees_5 = Vec::new(&env);
+    payees_5.push_back(Payee {
+        address: fake_seller.clone(),
+        bps: 10_000,
+    });
+    let payees_5_val = payees_5.into_val(&env);
+    client.create_escrow_8(
+        &payees_5_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000,
         &100,
-        &0_u32,
-        &86400
+        &86400,
     );
 }
 
@@ -62,20 +67,11 @@ fn test_unauthorized_create_escrow_fails_early() {
 #[should_panic]
 fn test_unauthorized_cancel_escrow_fails_early() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, Escrow);
+    let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
 
     let fake_caller = Address::generate(&env);
 
     // Will panic on `caller.require_auth()` instead of `load_escrow`
     client.cancel_escrow(&fake_caller, &1);
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

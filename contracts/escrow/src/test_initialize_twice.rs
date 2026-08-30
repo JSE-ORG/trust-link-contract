@@ -2,7 +2,7 @@
 //! Calling `initialize` a second time must return `ContractError::AlreadyInitialized`
 //! and leave the storage values from the first call intact (#14).
 
-use crate::{Payee, DataKey, Escrow, EscrowClient};
+use crate::{DataKey, Escrow, EscrowClient};
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 fn deploy_and_init(env: &Env) -> (EscrowClient, Address, Address) {
