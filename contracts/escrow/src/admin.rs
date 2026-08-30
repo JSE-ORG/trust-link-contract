@@ -1224,8 +1224,8 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        if fee > 10000 {
-            return Err(ContractError::FeeExceedsMax);
+        if fee > MAX_PLATFORM_FEE_BPS {
+            return Err(ContractError::PlatformFeeExceedsMax);
         }
         env.storage().instance().set(&DataKey::PlatformFeeBps, &fee);
         Ok(())

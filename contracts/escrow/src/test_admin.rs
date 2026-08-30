@@ -89,6 +89,20 @@ fn test_set_ttl_extension() {
 }
 
 #[test]
+fn test_set_platform_fee_cap_matches_production_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    client.set_platform_fee(&admin, &200_u32);
+    assert_eq!(
+        client.try_set_platform_fee(&admin, &201_u32),
+        Err(Ok(ContractError::PlatformFeeExceedsMax))
+    );
+}
+
+#[test]
 fn test_upgrade() {
     let env = Env::default();
     env.mock_all_auths();
