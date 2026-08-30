@@ -1086,14 +1086,7 @@ impl Escrow {
             .unwrap_or(MAX_ESCROW_AMOUNT);
         env.storage().instance().set(&DataKey::MinAmount, &min);
         env.storage().instance().set(&DataKey::MaxAmount, &max);
-        emit_amount_limits_updated(
-            &env,
-            old_min_amount,
-            min,
-            old_max_amount,
-            max,
-            caller,
-        );
+        emit_amount_limits_updated(&env, old_min_amount, min, old_max_amount, max, caller);
         Ok(())
     }
 
