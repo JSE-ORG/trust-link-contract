@@ -766,6 +766,16 @@ pub(crate) fn settle_escrow_to_payees(
 /// (e.g., in fund_escrow, fund_basket_escrow, reclaim_expired). Without removal,
 /// this check will incorrectly reject valid operations on funded escrows.
 pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    let escrow = load_escrow(env, escrow_id)?;
+
+    // Check custom expiration stored in EscrowData
+    if let Some(expires_at) = escrow.expires_at {
+        if env.ledger().timestamp() >= expires_at {
+            return Err(ContractError::EscrowExpired);
+        }
+    }
+
+    // Also check the automatic pending timeout (for unfunded escrows)
     if let Some(schedule) = env
         .storage()
         .persistent()
@@ -799,6 +809,8 @@ pub(crate) fn create_escrow_internal(
     resolver_fee_bps: u32,
     shipping_window: u64,
     notes: Option<String>,
+    expires_at: Option<u64>,
+    grace_period: u64,
 ) -> Result<u64, ContractError> {
     if payees.is_empty() {
         return Err(ContractError::InvalidAddress);
@@ -908,6 +920,8 @@ pub(crate) fn create_escrow_internal(
         delivered_at: None,
         tracking_id: None,
         notes,
+        expires_at,
+        grace_period,
     };
 
     save_escrow(env, escrow_id, &escrow, None);

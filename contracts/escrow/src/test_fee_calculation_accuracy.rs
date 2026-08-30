@@ -461,6 +461,8 @@ fn test_dispute_allocations_include_protocol_fee() {
         delivered_at: None,
         tracking_id: None,
         notes: None, // Added missing field
+        expires_at: None,
+        grace_period: 0,
     };
 
     let arbitration_fee = 50_000_i128; // 5% arbitration fee
@@ -537,6 +539,8 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
         delivered_at: None,
         tracking_id: None,
         notes: None, // Added missing field
+        expires_at: None,
+        grace_period: 0,
     };
 
     let arbitration_fee = 50_000_i128;

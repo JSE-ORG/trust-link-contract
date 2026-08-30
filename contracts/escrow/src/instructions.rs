@@ -51,6 +51,8 @@ impl Escrow {
             resolver_fee_bps,
             shipping_window,
             notes,
+            None,
+            0,
         )
     }
 
@@ -122,6 +124,15 @@ impl Escrow {
         expires_at: Option<u64>,
         grace_period: u64,
     ) -> Result<u64, ContractError> {
+        if let Some(exp_time) = expires_at {
+            if exp_time <= env.ledger().timestamp() {
+                return Err(ContractError::InvalidExpiration);
+            }
+            exp_time
+                .checked_add(grace_period)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+        }
+
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
             address: seller,
@@ -138,18 +149,13 @@ impl Escrow {
             0,
             shipping_window,
             None,
+            expires_at,
+            grace_period,
         )?;
 
-        if let Some(expires_at) = expires_at {
-            if expires_at <= env.ledger().timestamp() {
-                return Err(ContractError::InvalidExpiration);
-            }
-            expires_at
-                .checked_add(grace_period)
-                .ok_or(ContractError::ArithmeticOverflow)?;
-
+        if let Some(exp_data) = expires_at {
             let schedule = crate::ExpirySchedule {
-                expires_at,
+                expires_at: exp_data,
                 grace_period,
             };
             let key = DataKey::PendingExpiry(escrow_id);
@@ -171,19 +177,15 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        let schedule: crate::ExpirySchedule = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingExpiry(escrow_id))
-            .ok_or(ContractError::InvalidState)?;
+        let expires_at = escrow.expires_at.ok_or(ContractError::InvalidState)?;
+        let grace_period = escrow.grace_period;
 
         let now = env.ledger().timestamp();
-        if now < schedule.expires_at {
+        if now < expires_at {
             return Err(ContractError::InvalidState);
         }
-        let reclaimable_at = schedule
-            .expires_at
-            .checked_add(schedule.grace_period)
+        let reclaimable_at = expires_at
+            .checked_add(grace_period)
             .ok_or(ContractError::ArithmeticOverflow)?;
         if now < reclaimable_at {
             return Err(ContractError::GracePeriodNotElapsed);
@@ -441,6 +443,8 @@ impl Escrow {
             delivered_at: None,
             tracking_id: None,
             notes: None,
+            expires_at: None,
+            grace_period: 0,
         };
 
         save_escrow(&env, escrow_id, &escrow, None);
@@ -693,6 +697,8 @@ impl Escrow {
             delivered_at: None,
             tracking_id: None,
             notes: None,
+            expires_at: None,
+            grace_period: 0,
         };
 
         save_escrow(&env, escrow_id, &escrow, None);
@@ -1277,6 +1283,8 @@ impl Escrow {
             delivered_at: None,
             tracking_id: None,
             notes: None,
+            expires_at: None,
+            grace_period: 0,
         };
 
         save_escrow(&env, escrow_id, &escrow, None);
@@ -1625,6 +1633,8 @@ impl Escrow {
                 0, // resolver_fee_bps
                 input.shipping_window,
                 input.notes,
+                None,
+                0,
             )?;
             escrow_ids.push_back(id);
         }
