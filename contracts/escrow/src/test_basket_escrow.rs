@@ -12,7 +12,7 @@
 //! Plus multi-token edge cases: more than one token type, uneven per-token
 //! amounts, and a zero-amount token that funding and payout both skip.
 
-use crate::{ContractError, Escrow, EscrowClient, EscrowState};
+use crate::{ContractError, Escrow, EscrowClient, EscrowState, MAX_BASKET_SIZE};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     token, Address, Env, Vec,
@@ -608,4 +608,102 @@ fn fund_basket_escrow_rejects_buyer_equal_to_resolver() {
     assert_eq!(primary.token.balance(&fx.resolver), 1_000);
     assert_eq!(primary.token.balance(&fx.contract_id), 0);
     assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+}
+
+#[test]
+fn create_basket_escrow_accepts_basket_at_max_size() {
+    // Issue #820: MAX_BASKET_SIZE itself must still be accepted.
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+
+    let mut addrs = Vec::new(&fx.env);
+    let mut amounts = Vec::new(&fx.env);
+    for _ in 0..MAX_BASKET_SIZE {
+        addrs.push_back(Address::generate(&fx.env));
+        amounts.push_back(100_i128);
+    }
+
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &addrs,
+        &amounts,
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    assert_eq!(client.get_basket_tokens(&escrow_id).len(), MAX_BASKET_SIZE);
+}
+
+#[test]
+fn create_basket_escrow_rejects_basket_over_max_size() {
+    // Issue #820: create_basket_escrow must cap basket length rather than
+    // allowing unbounded iteration in save_basket_tokens/payout_basket_tokens.
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+
+    let mut addrs = Vec::new(&fx.env);
+    let mut amounts = Vec::new(&fx.env);
+    for _ in 0..(MAX_BASKET_SIZE + 1) {
+        addrs.push_back(Address::generate(&fx.env));
+        amounts.push_back(100_i128);
+    }
+
+    let result = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &addrs,
+        &amounts,
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    assert_eq!(result, Err(Ok(ContractError::BasketTokenMismatch)));
+}
+
+#[test]
+fn create_basket_escrow_rejects_duplicate_secondary_token() {
+    // Issue #821: create_basket_escrow must reject duplicate tokens so that
+    // fund_escrow/payout_basket_tokens (which transfer/pay out every basket
+    // entry individually) cannot double-fund or double-pay a repeated token.
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+
+    let result = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address, &b.address]),
+        &vec_i128(&fx.env, &[1_000, 300, 300]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    assert_eq!(result, Err(Ok(ContractError::BasketTokenMismatch)));
+}
+
+#[test]
+fn create_basket_escrow_rejects_duplicate_primary_token() {
+    // A duplicated primary token (index 0 repeated later in the basket) must
+    // also be rejected — fund_escrow only ever transfers the primary amount
+    // once (via escrow.amount) and skips every basket entry matching it, so
+    // a duplicate would be silently dropped rather than double-handled, but
+    // rejecting all duplicates uniformly keeps the invariant simple to audit.
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+
+    let result = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address, &a.address]),
+        &vec_i128(&fx.env, &[1_000, 300, 200]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    assert_eq!(result, Err(Ok(ContractError::BasketTokenMismatch)));
 }
