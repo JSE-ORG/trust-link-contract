@@ -203,10 +203,6 @@ impl Escrow {
             .unwrap_or(0)
     }
 
-    pub fn is_token_allowlist_enabled(env: Env) -> bool {
-        crate::internal::is_token_allowlist_enabled(&env)
-    }
-
     /// Enables or disables the token allowlist. Only callable by admin.
     /// While enabled, `create_escrow` and related entry points reject any
     /// `token` not present in `get_allowed_tokens`. Emits
