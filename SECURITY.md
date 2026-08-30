@@ -151,8 +151,8 @@ try {
 1. **No Escrow Cancellation Post-Fund** — Once funded, only 3 paths: complete, refund (via dispute), or auto-release. Buyer cannot cancel alone.
 2. **Fixed Dispute Window** — 172800 seconds (2 days); not adjustable per-escrow.
 3. **No Partial Releases** — Full amount or nothing; no milestone-based split payments.
-4. **Single Resolver** — No multi-sig or voting for dispute resolution.
-5. **No Token Whitelisting** — Any SEP-41 token accepted; contract-level filtering not enforced.
+4. **Resolver Configuration Is Fixed At Creation** — `create_escrow` (and other single-resolver entry points) use one resolver with no fallback. `create_escrow_multi` supports an M-of-N voting committee (`ResolverSet::Multi`), and `create_escrow_with_fallback` supports a primary/backup pair with a time-delayed handover (`ResolverSet::Fallback`) — see `contracts/escrow/src/types.rs`. Whichever mode is chosen at creation cannot be changed later except via `rotate_resolver`.
+5. **Token Whitelisting Is Opt-In** — An admin-controlled allowlist exists (`set_token_allowlist_enabled`, `add_allowed_token`, `remove_allowed_token` in `contracts/escrow/src/admin.rs`) and rejects non-listed tokens with `TokenNotAllowed` once enabled, but it is disabled by default — deployers who want filtering must turn it on and populate it.
 
 ### Performance
 6. **O(n) Lookups** — `get_escrows_by_buyer` must scan index; large indices may be slow.
