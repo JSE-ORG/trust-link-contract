@@ -1,15 +1,17 @@
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::{DataKey, EscrowData, FeeConfig, TimelockProposal, DEFAULT_TTL_EXTENSION};
+use crate::{
+    DataKey, EscrowData, FeeConfig, TimelockProposal, DEFAULT_TTL_EXTENSION, TTL_THRESHOLD_DIVISOR,
+};
 
 // ============================================================================
 // TTL CONSTANTS — documented here as the canonical reference.
 //
 // DEFAULT_TTL_EXTENSION (120_960 ledgers ≈ 13.7 days at 10 s/ledger) is the
 // fallback used when no admin-configured value exists in instance storage.
-// The threshold for triggering an extension is always set to `ext / 2` so
-// that the key is kept alive as long as it continues to be accessed at least
-// once every half-TTL period.
+// The threshold for triggering an extension is always set to
+// `ext / TTL_THRESHOLD_DIVISOR` so that the key is kept alive as long as it
+// continues to be accessed before crossing the configured threshold.
 //
 // Both instance and persistent entries use the same value so that all storage
 // tiers expire on the same schedule.  Admins can override the value via
@@ -33,7 +35,7 @@ pub fn extend_instance_ttl(env: &Env) {
     let ext = get_ttl_extension(env);
     env.storage()
         .instance()
-        .extend_ttl(ext / crate::TTL_THRESHOLD_DIVISOR, ext);
+        .extend_ttl(ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
 /// Helper to extend TTL on a persistent storage key.
@@ -41,7 +43,7 @@ fn extend_ttl_for_key(env: &Env, key: &DataKey) {
     let ext = get_ttl_extension(env);
     env.storage()
         .persistent()
-        .extend_ttl(key, ext / crate::TTL_THRESHOLD_DIVISOR, ext);
+        .extend_ttl(key, ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
 /// Typed keys for all contract storage entries.
