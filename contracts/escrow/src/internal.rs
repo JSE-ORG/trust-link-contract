@@ -149,7 +149,14 @@ pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
 }
 
 pub(crate) fn ensure_action_not_paused(env: &Env, action: Symbol) -> Result<(), ContractError> {
-    ensure_not_paused(env)?;
+    let paused: bool = env
+        .storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false);
+    if paused {
+        return Err(ContractError::ContractPaused);
+    }
     let action_paused: bool = env
         .storage()
         .instance()
