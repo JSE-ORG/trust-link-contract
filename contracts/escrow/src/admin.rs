@@ -976,6 +976,7 @@ impl Escrow {
     #[cfg(any(test, feature = "testutils"))]
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
         let old_admin = require_admin(&env)?;
+        old_admin.require_auth();
         if new_admin == old_admin {
             return Err(ContractError::SameAddress);
         }
@@ -991,10 +992,12 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        if fee > 10000 {
+        if fee > MAX_PROTOCOL_FEE_BPS {
             return Err(ContractError::FeeExceedsMax);
         }
-        env.storage().instance().set(&DataKey::PlatformFeeBps, &fee);
+        let mut config = read_fee_config(&env);
+        config.protocol_fee_bps = fee;
+        write_fee_config(&env, &config);
         Ok(())
     }
 
@@ -1005,19 +1008,14 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        if fee > 10000 {
-            return Err(ContractError::PlatformFeeExceedsMax);
+        if fee > MAX_PROTOCOL_FEE_BPS {
+            return Err(ContractError::FeeExceedsMax);
         }
-        let mut config: crate::types::FeeConfig = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeConfig)
-            .unwrap_or(crate::types::FeeConfig {
-                protocol_fee_bps: 0,
-                arbitration_fee_bps: 0,
-            });
+        let mut config = read_fee_config(&env);
+        let old_fee = config.protocol_fee_bps;
         config.protocol_fee_bps = fee;
-        env.storage().instance().set(&DataKey::FeeConfig, &config);
+        write_fee_config(&env, &config);
+        emit_protocol_fee_updated(&env, old_fee, fee);
         Ok(())
     }
 
@@ -1035,9 +1033,11 @@ impl Escrow {
         if extension_seconds < MIN_TTL_EXTENSION {
             return Err(ContractError::InvalidTtlExtension);
         }
+        let old_ledgers = storage::get_ttl_extension(&env);
         env.storage()
             .instance()
             .set(&DataKey::TtlExtensionLedgers, &extension_seconds);
+        emit_ttl_extension_updated(&env, old_ledgers, extension_seconds, caller);
         Ok(())
     }
 
@@ -1077,8 +1077,19 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
+        let old_min_amount = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinAmount)
+            .unwrap_or(MIN_ESCROW_AMOUNT);
+        let old_max_amount = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxAmount)
+            .unwrap_or(MAX_ESCROW_AMOUNT);
         env.storage().instance().set(&DataKey::MinAmount, &min);
         env.storage().instance().set(&DataKey::MaxAmount, &max);
+        emit_amount_limits_updated(&env, old_min_amount, min, old_max_amount, max, caller);
         Ok(())
     }
 
@@ -1093,9 +1104,15 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
+        let old_strict = env
+            .storage()
+            .instance()
+            .get(&DataKey::ResolverStrict)
+            .unwrap_or(false);
         env.storage()
             .instance()
             .set(&DataKey::ResolverStrict, &strict);
+        emit_resolver_strict_updated(&env, old_strict, strict, caller);
         Ok(())
     }
 
@@ -1116,10 +1133,11 @@ impl Escrow {
             .get(&DataKey::ApprovedResolvers)
             .unwrap_or(soroban_sdk::Vec::new(&env));
         if !crate::internal::contains(&approved, &resolver) {
-            approved.push_back(resolver);
+            approved.push_back(resolver.clone());
             env.storage()
                 .instance()
                 .set(&DataKey::ApprovedResolvers, &approved);
+            emit_resolver_approved(&env, resolver, caller);
         }
         Ok(())
     }
@@ -1140,6 +1158,9 @@ impl Escrow {
             .instance()
             .get(&DataKey::ApprovedResolvers)
             .unwrap_or(soroban_sdk::Vec::new(&env));
+        if !crate::internal::contains(&approved, &resolver) {
+            return Err(ContractError::InvalidAddress);
+        }
         let mut new_approved = soroban_sdk::Vec::new(&env);
         for a in approved.iter() {
             if a != resolver {
@@ -1149,6 +1170,7 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::ApprovedResolvers, &new_approved);
+        emit_resolver_removed(&env, resolver, caller);
         Ok(())
     }
 
@@ -1196,7 +1218,8 @@ impl Escrow {
         }
         env.storage()
             .instance()
-            .set(&DataKey::ActionPaused(action), &true);
+            .set(&DataKey::ActionPaused(action.clone()), &true);
+        emit_action_paused(&env, action, caller);
         Ok(())
     }
 
@@ -1213,7 +1236,8 @@ impl Escrow {
         }
         env.storage()
             .instance()
-            .set(&DataKey::ActionPaused(action), &false);
+            .set(&DataKey::ActionPaused(action.clone()), &false);
+        emit_action_unpaused(&env, action, caller);
         Ok(())
     }
 

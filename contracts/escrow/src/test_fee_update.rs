@@ -75,7 +75,6 @@ fn test_set_fee_max_500_bps() {
 
 /// Test: set_protocol_fee rejects 501 bps (exceeds cap of 500)
 #[test]
-#[ignore]
 fn test_set_fee_rejects_501_bps() {
     let env = Env::default();
     env.mock_all_auths();
@@ -126,7 +125,6 @@ fn test_set_fee_rejects_non_admin_caller() {
 
 /// Test: set_protocol_fee emits ProtocolFeeUpdated event with old and new values
 #[test]
-#[ignore]
 fn test_set_fee_emits_event() {
     let env = Env::default();
     env.mock_all_auths();

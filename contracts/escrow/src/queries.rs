@@ -75,17 +75,23 @@ impl Escrow {
             .unwrap_or(1);
 
         let max_iterations = 1000;
-        for (iterations, id) in (1..counter).rev().enumerate() {
-            if iterations >= max_iterations {
-                break;
-            }
+        // Scan the most recent max_iterations escrows. `zip` bounds the scan
+        // without a manual counter.
+        for (id, _) in (1..counter).rev().zip(0..max_iterations) {
             if let Ok(escrow) = load_escrow(&env, id) {
                 if escrow.buyer.as_ref() == Some(&buyer) {
                     result.push_back(id);
                 }
             }
         }
-        result
+        // build in ascending order
+        let mut ascending = Vec::new(&env);
+        for i in (0..result.len()).rev() {
+            if let Some(id) = result.get(i) {
+                ascending.push_back(id);
+            }
+        }
+        ascending
     }
 
     /// Batch view: return escrows for the supplied IDs in the same order.

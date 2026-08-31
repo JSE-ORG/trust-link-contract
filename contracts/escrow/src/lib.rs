@@ -69,6 +69,14 @@ const MAX_ESCROW_FEE_BPS: u32 = 300;
 /// Capped at 5% to preserve incentive alignment in dispute outcomes.
 const MAX_ARBITRATION_FEE_BPS: u32 = 500;
 
+/// Maximum protocol fee in basis points (500 = 5%).
+///
+/// `set_fee` and `set_protocol_fee` reject any value above this with
+/// `FeeExceedsMax`, and it feeds the combined fee cap together with the
+/// arbitration fee.
+#[cfg(any(test, feature = "testutils"))]
+const MAX_PROTOCOL_FEE_BPS: u32 = 500;
+
 /// Maximum combined protocol + arbitration fee in basis points (1000 = 10%).
 ///
 /// Ensures that protocol_fee_bps + arbitration_fee_bps cannot exceed 10%,
