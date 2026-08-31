@@ -637,6 +637,30 @@ fn fund_basket_escrow_after_blanket_expiry_returns_escrow_expired() {
         &resolver,
         &vec_addr(&env, &[&primary.address]),
         &vec_i128(&env, &[1_000]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    primary.admin.mint(&buyer, &1_000);
+
+    // Advance one second past the 7-day pending-expiry window.
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1_000_000 + crate::PENDING_EXPIRY_WINDOW + 1;
+    });
+
+    let result = client.try_fund_basket_escrow(&escrow_id, &buyer);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_basket_escrow after the blanket expiry must return EscrowExpired"
+    );
+
+    // No funds moved and the escrow is still Pending.
+    assert_eq!(primary.token.balance(&buyer), 1_000);
+    assert_eq!(primary.token.balance(&contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+}
+
 #[test]
 fn create_basket_escrow_accepts_basket_at_max_size() {
     // Issue #820: MAX_BASKET_SIZE itself must still be accepted.
@@ -660,24 +684,7 @@ fn create_basket_escrow_accepts_basket_at_max_size() {
         &SHIPPING_WINDOW,
     );
 
-    primary.admin.mint(&buyer, &1_000);
-
-    // Advance one second past the 7-day pending-expiry window.
-    env.ledger().with_mut(|li| {
-        li.timestamp = 1_000_000 + crate::PENDING_EXPIRY_WINDOW + 1;
-    });
-
-    let result = client.try_fund_basket_escrow(&escrow_id, &buyer);
-    assert_eq!(
-        result,
-        Err(Ok(ContractError::EscrowExpired)),
-        "fund_basket_escrow after the blanket expiry must return EscrowExpired"
-    );
-
-    // No funds moved and the escrow is still Pending.
-    assert_eq!(primary.token.balance(&buyer), 1_000);
-    assert_eq!(primary.token.balance(&contract_id), 0);
-    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+    assert_eq!(client.get_basket_tokens(&escrow_id).len(), MAX_BASKET_SIZE);
 }
 
 /// An explicit `PendingExpiry` schedule that has already passed must also block
@@ -739,7 +746,6 @@ fn fund_basket_escrow_after_explicit_expires_at_returns_escrow_expired() {
     assert_eq!(primary.token.balance(&buyer), 1_000);
     assert_eq!(primary.token.balance(&contract_id), 0);
     assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
-    assert_eq!(client.get_basket_tokens(&escrow_id).len(), MAX_BASKET_SIZE);
 }
 
 #[test]
