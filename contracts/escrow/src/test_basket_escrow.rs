@@ -12,10 +12,10 @@
 //! Plus multi-token edge cases: more than one token type, uneven per-token
 //! amounts, and a zero-amount token that funding and payout both skip.
 
-use crate::{ContractError, Escrow, EscrowClient, EscrowState, MAX_BASKET_SIZE};
+use crate::{ContractError, Escrow, EscrowClient, EscrowState, Payee, MAX_BASKET_SIZE};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    token, Address, Env, Vec,
+    token, Address, Env, IntoVal, Vec,
 };
 
 const SHIPPING_WINDOW: u64 = 3_600;
@@ -103,7 +103,7 @@ fn create_basket_escrow_persists_all_tokens() {
     );
 
     // All three tokens/amounts are stored, in order.
-    let entries = client.get_basket_tokens(&escrow_id);
+    let entries = client.get_basket_tokens(&escrow_id).unwrap();
     assert_eq!(entries.len(), 3);
     assert_eq!(entries.get(0).unwrap().token, a.address);
     assert_eq!(entries.get(0).unwrap().amount, 1_000);
@@ -189,11 +189,38 @@ fn fund_basket_escrow_pulls_every_token_from_buyer() {
 }
 
 #[test]
-fn get_basket_tokens_empty_for_non_basket_escrow() {
+fn get_basket_tokens_distinguishes_missing_vs_single_token() {
     let fx = setup();
     let client = EscrowClient::new(&fx.env, &fx.contract_id);
-    // A never-created id has no basket entries.
-    assert_eq!(client.get_basket_tokens(&999_u64).len(), 0);
+
+    // A never-created id returns None
+    assert!(client.get_basket_tokens(&999_u64).is_none());
+
+    // A single-token escrow (created via create_escrow, not basket) returns Some(empty Vec)
+    let token = make_token(&fx.env);
+    token.admin.mint(&fx.buyer, &1_000);
+
+    let mut payees = Vec::new(&fx.env);
+    payees.push_back(Payee {
+        address: fx.seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&fx.env);
+
+    let single_token_id = client.create_escrow_8(
+        &payees_val,
+        &None::<Address>,
+        &fx.resolver,
+        &token.address,
+        &1_000_i128,
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    client.fund_escrow(&single_token_id, &fx.buyer);
+
+    let result = client.get_basket_tokens(&single_token_id);
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().len(), 0); // Empty Vec for single-token escrow
 }
 
 #[test]
@@ -538,7 +565,7 @@ fn create_basket_escrow_with_all_valid_amounts_succeeds() {
         &SHIPPING_WINDOW,
     );
 
-    let entries = client.get_basket_tokens(&escrow_id);
+    let entries = client.get_basket_tokens(&escrow_id).unwrap();
     assert_eq!(entries.len(), 3);
     assert_eq!(entries.get(0).unwrap().amount, 1_000);
     assert_eq!(entries.get(1).unwrap().amount, 500);
@@ -684,7 +711,10 @@ fn create_basket_escrow_accepts_basket_at_max_size() {
         &SHIPPING_WINDOW,
     );
 
-    assert_eq!(client.get_basket_tokens(&escrow_id).len(), MAX_BASKET_SIZE);
+    assert_eq!(
+        client.get_basket_tokens(&escrow_id).unwrap().len(),
+        MAX_BASKET_SIZE
+    );
 }
 
 /// An explicit `PendingExpiry` schedule that has already passed must also block

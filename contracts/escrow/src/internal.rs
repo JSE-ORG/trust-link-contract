@@ -516,6 +516,16 @@ pub(crate) fn load_state_history(env: &Env, id: u64) -> Vec<(EscrowState, u64)> 
     history
 }
 
+/// Load state history without extending TTL - used by query functions that
+/// should not have side effects on storage rent.
+pub(crate) fn load_state_history_no_ttl(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
+    let key = DataKey::EscrowStateHistory(id);
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
 pub(crate) fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
     let key = DataKey::Dispute(id);
     let ext = get_ttl_extension(env);

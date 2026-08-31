@@ -37,8 +37,16 @@ impl Escrow {
     }
 
     /// Returns the full list of tokens and amounts for a basket escrow.
-    pub fn get_basket_tokens(env: Env, escrow_id: u64) -> Vec<TokenEntry> {
-        load_basket_tokens(&env, escrow_id)
+    /// Returns `None` if the escrow does not exist. Returns `Some(empty Vec)`
+    /// for single-token escrows (created via `create_escrow`). Returns
+    /// `Some(Vec<TokenEntry>)` for basket escrows with additional tokens.
+    pub fn get_basket_tokens(env: Env, escrow_id: u64) -> Option<Vec<TokenEntry>> {
+        // Check if escrow exists first
+        if load_escrow(&env, escrow_id).is_err() {
+            return None;
+        }
+        // Return Some(Vec) - empty for single-token, populated for basket
+        Some(load_basket_tokens(&env, escrow_id))
     }
 
     /// Returns the full escrow record for `escrow_id`. Reverts with
@@ -48,17 +56,22 @@ impl Escrow {
     }
 
     /// Returns the full state transition history for an escrow as
-    /// `(state, ledger_timestamp)` pairs, oldest first. Reverts if the
-    /// escrow does not exist.
+    /// `(state, ledger_timestamp)` pairs, oldest first. Returns
+    /// `EscrowNotFound` if the escrow does not exist.
     pub fn get_state_history(
         env: Env,
         escrow_id: u64,
     ) -> Result<Vec<(EscrowState, u64)>, ContractError> {
+        // Verify escrow exists first - this returns EscrowNotFound if missing
         load_escrow(&env, escrow_id)?;
-        Ok(load_state_history(&env, escrow_id))
+        // Load history without extending TTL for non-matching escrows
+        Ok(load_state_history_no_ttl(&env, escrow_id))
     }
 
     /// Retrieves all escrow IDs associated with a specific buyer.
+    /// Uses the buyer index if available; otherwise falls back to scanning
+    /// up to 1000 most recent escrows (capped to avoid budget exhaustion).
+    /// The fallback scan avoids extending TTL for non-matching escrows.
     pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
         if let Some(ids) = env
             .storage()
@@ -79,9 +92,14 @@ impl Escrow {
             if iterations >= max_iterations {
                 break;
             }
-            if let Ok(escrow) = load_escrow(&env, id) {
-                if escrow.buyer.as_ref() == Some(&buyer) {
-                    result.push_back(id);
+            // Check if escrow key exists without TTL extension
+            let key = DataKey::Escrow(id);
+            if env.storage().persistent().has(&key) {
+                // Only extend TTL if this escrow matches the buyer
+                if let Ok(escrow) = load_escrow(&env, id) {
+                    if escrow.buyer.as_ref() == Some(&buyer) {
+                        result.push_back(id);
+                    }
                 }
             }
         }
@@ -89,13 +107,21 @@ impl Escrow {
     }
 
     /// Batch view: return escrows for the supplied IDs in the same order.
-    /// Missing IDs return None in the corresponding slot.
+    /// Missing IDs return None in the corresponding slot. Input is capped at
+    /// MAX_MESSAGES_PER_PAGE (50 IDs) to prevent resource exhaustion.
     pub fn get_escrows_by_ids(
         env: Env,
         ids: soroban_sdk::Vec<u64>,
     ) -> soroban_sdk::Vec<Option<EscrowData>> {
         let mut result: soroban_sdk::Vec<Option<EscrowData>> = soroban_sdk::Vec::new(&env);
-        for i in 0..ids.len() {
+        let max_ids = crate::MAX_MESSAGES_PER_PAGE as u32;
+        let limit = if ids.len() > max_ids {
+            max_ids
+        } else {
+            ids.len()
+        };
+
+        for i in 0..limit {
             let Some(id) = ids.get(i) else {
                 result.push_back(None);
                 continue;
