@@ -52,14 +52,17 @@ stateDiagram-v2
 
 Key rules:
 - **Pending**: seller cancels freely (no money moved); `reclaim_expired` sets state to `Expired` if not funded in time.
-- **Funded ? Shipped**: only seller can mark shipped.
-- **Shipped ? Completed**: buyer confirms delivery, funds release to seller.
-- **Funded or Shipped ? Disputed**: buyer raises dispute.
-- **Funded or Shipped ? RefundRequested**: buyer requests refund, which must be approved by seller.
-- **Shipped ? Completed (auto)**: anyone triggers after `shipped_at + shipping_window` elapses.
-- **Disputed ? PendingFinalization**: resolver (or M-of-N multi-resolvers) decide outcome.
-- **PendingFinalization ? Completed/Refunded**: anyone finalizes the dispute after resolution is reached.
-- **PendingFinalization ? Disputed**: either party can appeal before finalization, resetting the resolution.
+- **Funded → Shipped**: only seller can mark shipped.
+- **Shipped → Completed**: buyer confirms delivery (after `dispute_deadline`), funds release to seller.
+- **Funded or Shipped → Disputed**: buyer raises dispute (before `dispute_deadline`).
+- **Funded or Shipped → RefundRequested**: buyer requests refund, which must be approved by seller.
+- **Shipped → Completed (auto)**: anyone triggers after `shipped_at + shipping_window` AND `dispute_deadline` elapses.
+- **Funded → Completed (auto)**: anyone triggers after `funded_at + shipping_window` AND `dispute_deadline` elapses.
+- **Disputed → PendingFinalization**: resolver (or M-of-N multi-resolvers) decide outcome.
+- **PendingFinalization → Completed/Refunded**: anyone finalizes the dispute after 24-hour appeal window elapses.
+- **PendingFinalization → Disputed**: either party can appeal before finalization, resetting the resolution.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete state machine with guard conditions and error codes.
 
 ---
 

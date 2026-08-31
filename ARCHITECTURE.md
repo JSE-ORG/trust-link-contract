@@ -11,29 +11,70 @@ TrustLink is a Soroban smart contract on the Stellar network that implements a t
 ```mermaid
 stateDiagram-v2
     [*] --> Pending : create_escrow
+
     Pending --> Funded : fund_escrow
-    Funded --> Completed : confirm_delivery
-    Funded --> Completed : auto_release
-    Funded --> Disputed : raise_dispute
+    Pending --> Canceled : cancel_escrow
+    Pending --> Expired : reclaim_expired
+
+    Funded --> Shipped : mark_shipped
+    Funded --> Completed : confirm_delivery (after dispute_deadline)
+    Funded --> Completed : auto_release (after dispute_deadline + shipping_window)
+    Funded --> Disputed : raise_dispute (before dispute_deadline)
+    Funded --> RefundRequested : request_refund
+
+    Shipped --> Completed : confirm_delivery (after dispute_deadline)
+    Shipped --> Completed : auto_release (after shipped_at + shipping_window AND dispute_deadline)
+    Shipped --> Disputed : raise_dispute (before dispute_deadline)
+
+    RefundRequested --> Refunded : approve_refund
+    RefundRequested --> Funded : deny_refund
+
     Disputed --> PendingFinalization : resolve_dispute / vote (threshold met)
-    PendingFinalization --> Completed : finalize_dispute (release, appeal window elapsed)
-    PendingFinalization --> Refunded : finalize_dispute (refund, appeal window elapsed)
-    PendingFinalization --> Disputed : appeal_dispute (within appeal window)
+
+    PendingFinalization --> Completed : finalize_dispute (Release, after appeal_window)
+    PendingFinalization --> Refunded : finalize_dispute (Refund, after appeal_window)
+    PendingFinalization --> Disputed : appeal_dispute (within appeal_window)
+
     Completed --> [*]
     Refunded --> [*]
+    Canceled --> [*]
+    Expired --> [*]
 ```
 
 ### Valid Transitions
 
-| From | To | Trigger |
-|---|---|---|
-| `Pending` | `Funded` | `fund_escrow` |
-| `Funded` | `Completed` | `confirm_delivery` or `auto_release` |
-| `Funded` | `Disputed` | `raise_dispute` |
-| `Disputed` | `PendingFinalization` | `resolve_dispute` / `vote` once the resolver threshold is met (see [Multi-Resolver Dispute Resolution](#multi-resolver-dispute-resolution-m-of-n-voting)) |
-| `PendingFinalization` | `Completed` | `finalize_dispute`, resolution was `Release`, appeal window elapsed |
-| `PendingFinalization` | `Refunded` | `finalize_dispute`, resolution was `Refund`, appeal window elapsed |
-| `PendingFinalization` | `Disputed` | `appeal_dispute`, called by buyer or seller before the appeal window elapses (see [Appeal Flow](#appeal-flow)) |
+| From | To | Trigger | Guard Conditions |
+|---|---|---|---|
+| `Pending` | `Funded` | `fund_escrow` | Buyer authorizes |
+| `Pending` | `Canceled` | `cancel_escrow` | Seller authorizes |
+| `Pending` | `Expired` | `reclaim_expired` | `now > expiration` (if set) |
+| `Funded` | `Shipped` | `mark_shipped` | Seller authorizes |
+| `Funded` | `Completed` | `confirm_delivery` | Buyer authorizes, `now >= dispute_deadline` |
+| `Funded` | `Completed` | `auto_release` | Permissionless, `now >= dispute_deadline`, `now >= funded_at + shipping_window` |
+| `Funded` | `Disputed` | `raise_dispute` | Buyer authorizes, `now < dispute_deadline` |
+| `Funded` | `RefundRequested` | `request_refund` | Buyer authorizes |
+| `Shipped` | `Completed` | `confirm_delivery` | Buyer authorizes, `now >= dispute_deadline` |
+| `Shipped` | `Completed` | `auto_release` | Permissionless, `now >= dispute_deadline`, `now >= shipped_at + shipping_window` |
+| `Shipped` | `Disputed` | `raise_dispute` | Buyer authorizes, `now < dispute_deadline` |
+| `RefundRequested` | `Refunded` | `approve_refund` | Seller authorizes |
+| `RefundRequested` | `Funded` | `deny_refund` | Seller authorizes |
+| `Disputed` | `PendingFinalization` | `resolve_dispute` / `vote` | Resolver(s) authorize, voting threshold met (see [Multi-Resolver Dispute Resolution](#multi-resolver-dispute-resolution-m-of-n-voting)) |
+| `PendingFinalization` | `Completed` | `finalize_dispute` | Permissionless, resolution=Release, `now >= resolved_at + APPEAL_WINDOW` (24h) |
+| `PendingFinalization` | `Refunded` | `finalize_dispute` | Permissionless, resolution=Refund, `now >= resolved_at + APPEAL_WINDOW` (24h) |
+| `PendingFinalization` | `Disputed` | `appeal_dispute` | Buyer or seller authorizes, `now < resolved_at + APPEAL_WINDOW` (24h) |
+
+**Terminal States:** `Completed`, `Refunded`, `Canceled`, `Expired` — no further transitions are possible.
+
+**Guard Condition Details** (see `contracts/escrow/src/instructions.rs`):
+- `auto_release` timing: lines 1157-1181
+  - For `Funded` escrows: requires `now >= dispute_deadline` AND `now >= funded_at + shipping_window`
+  - For `Shipped` escrows: requires `now >= dispute_deadline` AND `now >= shipped_at + shipping_window`
+  - Returns error code 13 (`DeliveryBeforeDisputeWindow`) if `dispute_deadline` not yet passed
+  - Returns error code 9 (`ShippingWindowNotElapsed`) if `shipping_window` not yet elapsed
+- `confirm_delivery` timing: lines 1016+
+  - Requires `now >= dispute_deadline`
+  - Returns error code 24 (`DisputeWindowStillOpen`) if called too early
+- `raise_dispute` timing: must be called before `dispute_deadline` (typically 48 hours after funding)
 
 `Completed` and `Refunded` are terminal states — no further transitions are possible. A dispute can be appealed and re-resolved any number of times; each appeal increments `DisputeData.appeal_count` and, for multi-resolver escrows, clears prior votes so a fresh voting round begins.
 
