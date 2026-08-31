@@ -292,6 +292,7 @@ mod test_not_found;
 mod test_overflow;
 mod test_pause;
 mod test_pending_expiry;
+mod test_query_improvements;
 mod test_refund_override;
 mod test_resolution;
 mod test_resolver_registry;
