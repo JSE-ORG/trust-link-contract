@@ -215,3 +215,83 @@ fn non_strict_mode_accepts_any_resolver_even_when_list_empty() {
         &3600_u64,
     );
 }
+
+// ── Issue #829: Basket escrow resolver strict check ────────────────────────
+
+/// Issue #829: create_basket_escrow must check resolver strict registry
+/// just like create_escrow_internal. When strict mode is enabled, only
+/// approved resolvers may be used.
+#[test]
+fn basket_escrow_strict_mode_rejects_unapproved_resolver() {
+    let env = Env::default();
+    let (client, admin, _fee_collector, seller, _buyer, resolver, _token) = init_client(&env);
+
+    // Enable strict mode
+    client.set_resolver_strict(&admin, &true);
+
+    // Create two tokens for basket
+    let token_a = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let token_b = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+
+    let mut tokens = Vec::new(&env);
+    tokens.push_back(token_a);
+    tokens.push_back(token_b);
+
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(100_i128);
+    amounts.push_back(50_i128);
+
+    // Should reject unapproved resolver
+    let result = client.try_create_basket_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &3600_u64,
+    );
+    assert_eq!(result, Err(Ok(ContractError::UnauthorizedResolver)));
+}
+
+#[test]
+fn basket_escrow_strict_mode_accepts_approved_resolver() {
+    let env = Env::default();
+    let (client, admin, _fee_collector, seller, _buyer, resolver, _token) = init_client(&env);
+
+    // Approve resolver and enable strict mode
+    client.add_approved_resolver(&admin, &resolver);
+    client.set_resolver_strict(&admin, &true);
+
+    // Create two tokens for basket
+    let token_a = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let token_b = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+
+    let mut tokens = Vec::new(&env);
+    tokens.push_back(token_a);
+    tokens.push_back(token_b);
+
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(100_i128);
+    amounts.push_back(50_i128);
+
+    // Should succeed with approved resolver
+    let escrow_id = client.create_basket_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &3600_u64,
+    );
+    assert!(escrow_id > 0);
+}
