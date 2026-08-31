@@ -1035,9 +1035,11 @@ impl Escrow {
         if extension_seconds < MIN_TTL_EXTENSION {
             return Err(ContractError::InvalidTtlExtension);
         }
+        let old_ledgers = storage::get_ttl_extension(&env);
         env.storage()
             .instance()
             .set(&DataKey::TtlExtensionLedgers, &extension_seconds);
+        emit_ttl_extension_updated(&env, old_ledgers, extension_seconds, caller);
         Ok(())
     }
 
@@ -1077,8 +1079,19 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
+        let old_min_amount = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinAmount)
+            .unwrap_or(MIN_ESCROW_AMOUNT);
+        let old_max_amount = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxAmount)
+            .unwrap_or(MAX_ESCROW_AMOUNT);
         env.storage().instance().set(&DataKey::MinAmount, &min);
         env.storage().instance().set(&DataKey::MaxAmount, &max);
+        emit_amount_limits_updated(&env, old_min_amount, min, old_max_amount, max, caller);
         Ok(())
     }
 
@@ -1093,9 +1106,15 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
+        let old_strict = env
+            .storage()
+            .instance()
+            .get(&DataKey::ResolverStrict)
+            .unwrap_or(false);
         env.storage()
             .instance()
             .set(&DataKey::ResolverStrict, &strict);
+        emit_resolver_strict_updated(&env, old_strict, strict, caller);
         Ok(())
     }
 
@@ -1116,10 +1135,11 @@ impl Escrow {
             .get(&DataKey::ApprovedResolvers)
             .unwrap_or(soroban_sdk::Vec::new(&env));
         if !crate::internal::contains(&approved, &resolver) {
-            approved.push_back(resolver);
+            approved.push_back(resolver.clone());
             env.storage()
                 .instance()
                 .set(&DataKey::ApprovedResolvers, &approved);
+            emit_resolver_approved(&env, resolver, caller);
         }
         Ok(())
     }
@@ -1141,14 +1161,20 @@ impl Escrow {
             .get(&DataKey::ApprovedResolvers)
             .unwrap_or(soroban_sdk::Vec::new(&env));
         let mut new_approved = soroban_sdk::Vec::new(&env);
+        let mut removed = false;
         for a in approved.iter() {
             if a != resolver {
                 new_approved.push_back(a);
+            } else {
+                removed = true;
             }
         }
         env.storage()
             .instance()
             .set(&DataKey::ApprovedResolvers, &new_approved);
+        if removed {
+            emit_resolver_removed(&env, resolver, caller);
+        }
         Ok(())
     }
 
@@ -1196,7 +1222,8 @@ impl Escrow {
         }
         env.storage()
             .instance()
-            .set(&DataKey::ActionPaused(action), &true);
+            .set(&DataKey::ActionPaused(action.clone()), &true);
+        emit_action_paused(&env, action, caller);
         Ok(())
     }
 
@@ -1213,7 +1240,8 @@ impl Escrow {
         }
         env.storage()
             .instance()
-            .set(&DataKey::ActionPaused(action), &false);
+            .set(&DataKey::ActionPaused(action.clone()), &false);
+        emit_action_unpaused(&env, action, caller);
         Ok(())
     }
 
