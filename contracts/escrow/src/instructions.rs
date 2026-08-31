@@ -1257,6 +1257,24 @@ impl Escrow {
             }
         }
 
+        // Issue #829: Check resolver strict registry (same as create_escrow_internal).
+        // When strict mode is enabled, only approved resolvers may be used.
+        if env
+            .storage()
+            .instance()
+            .get::<DataKey, bool>(&DataKey::ResolverStrict)
+            .unwrap_or(false)
+        {
+            let approved: soroban_sdk::Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::ApprovedResolvers)
+                .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
+            if !contains(&approved, &resolver) {
+                return Err(ContractError::UnauthorizedResolver);
+            }
+        }
+
         for token in tokens.iter() {
             is_token_allowed(&env, &token)?;
         }
