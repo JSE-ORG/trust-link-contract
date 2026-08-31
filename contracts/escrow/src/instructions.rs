@@ -1340,6 +1340,28 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
+        // Expiry checks, mirroring fund_escrow: an explicit PendingExpiry
+        // schedule and the blanket 7-day PENDING_EXPIRY_WINDOW after creation.
+        // A basket escrow cannot be funded once it has expired, just like a
+        // normal escrow.
+        let now = env.ledger().timestamp();
+        if let Some(schedule) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, crate::ExpirySchedule>(&DataKey::PendingExpiry(escrow_id))
+        {
+            if now >= schedule.expires_at {
+                return Err(ContractError::EscrowExpired);
+            }
+        }
+        let created_at = crate::internal::escrow_created_at(&env, escrow_id);
+        let blanket_deadline = created_at
+            .checked_add(crate::PENDING_EXPIRY_WINDOW)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if now > blanket_deadline {
+            return Err(ContractError::EscrowExpired);
+        }
+
         // Security: buyer must differ from every payee (seller) and every
         // resolver in the set. Mirrors the identical check in fund_escrow and
         // enforces INVARIANTS.md I4 (role separation) for basket escrows.
@@ -1380,7 +1402,6 @@ impl Escrow {
             }
         }
 
-        let now = env.ledger().timestamp();
         let prev_state = escrow.state.clone();
         escrow.buyer = Some(buyer.clone());
         escrow.state = EscrowState::Funded;

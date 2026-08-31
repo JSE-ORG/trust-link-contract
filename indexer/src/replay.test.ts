@@ -14,7 +14,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_FIXTURE, findResumeIndex, loadFixture } from "./replay.js";
+import { DEFAULT_FIXTURE, defaultFixturePath, findResumeIndex, loadFixture } from "./replay.js";
+import { planReplay } from "./replay-fixture.js";
 import type { Cursor, RawEvent } from "./types.js";
 
 const ORIGIN: Cursor = { ledger_sequence: 0, tx_index: 0, event_index: 0 };
@@ -46,6 +47,7 @@ test("DEFAULT_FIXTURE points at the bundled fixture and it loads", () => {
   // Guards the path arithmetic: a wrong number of `..` segments resolves
   // outside indexer/ and the CLI's no-argument form breaks.
   assert.match(DEFAULT_FIXTURE, /indexer[/\\]fixtures[/\\]events\.json$/);
+  assert.equal(defaultFixturePath(), DEFAULT_FIXTURE);
   assert.ok(loadFixture(DEFAULT_FIXTURE).length > 0);
 });
 
@@ -139,6 +141,15 @@ test("findResumeIndex returns events.length when everything is committed", () =>
 
 test("findResumeIndex handles an empty fixture", () => {
   assert.equal(findResumeIndex([], ORIGIN), 0);
+});
+
+test("planReplay returns skipped count and pending events", () => {
+  const events = [event(100), event(101), event(102)];
+  const cursor: Cursor = { ledger_sequence: 101, tx_index: 0, event_index: 0 };
+  const plan = planReplay(events, cursor);
+
+  assert.equal(plan.startIndex, 2);
+  assert.deepEqual(plan.pending, [events[2]]);
 });
 
 test("findResumeIndex is idempotent across repeated resumes", () => {

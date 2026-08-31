@@ -1162,15 +1162,20 @@ impl Escrow {
             return Err(ContractError::InvalidAddress);
         }
         let mut new_approved = soroban_sdk::Vec::new(&env);
+        let mut removed = false;
         for a in approved.iter() {
             if a != resolver {
                 new_approved.push_back(a);
+            } else {
+                removed = true;
             }
         }
         env.storage()
             .instance()
             .set(&DataKey::ApprovedResolvers, &new_approved);
-        emit_resolver_removed(&env, resolver, caller);
+        if removed {
+            emit_resolver_removed(&env, resolver, caller);
+        }
         Ok(())
     }
 

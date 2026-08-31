@@ -12,10 +12,10 @@
 //! Plus multi-token edge cases: more than one token type, uneven per-token
 //! amounts, and a zero-amount token that funding and payout both skip.
 
-use crate::{ContractError, Escrow, EscrowClient, EscrowState, MAX_BASKET_SIZE};
+use crate::{ContractError, Escrow, EscrowClient, EscrowState, Payee, MAX_BASKET_SIZE};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    token, Address, Env, Vec,
+    token, Address, Env, IntoVal, Vec,
 };
 
 const SHIPPING_WINDOW: u64 = 3_600;
@@ -103,7 +103,7 @@ fn create_basket_escrow_persists_all_tokens() {
     );
 
     // All three tokens/amounts are stored, in order.
-    let entries = client.get_basket_tokens(&escrow_id);
+    let entries = client.get_basket_tokens(&escrow_id).unwrap();
     assert_eq!(entries.len(), 3);
     assert_eq!(entries.get(0).unwrap().token, a.address);
     assert_eq!(entries.get(0).unwrap().amount, 1_000);
@@ -189,11 +189,38 @@ fn fund_basket_escrow_pulls_every_token_from_buyer() {
 }
 
 #[test]
-fn get_basket_tokens_empty_for_non_basket_escrow() {
+fn get_basket_tokens_distinguishes_missing_vs_single_token() {
     let fx = setup();
     let client = EscrowClient::new(&fx.env, &fx.contract_id);
-    // A never-created id has no basket entries.
-    assert_eq!(client.get_basket_tokens(&999_u64).len(), 0);
+
+    // A never-created id returns None
+    assert!(client.get_basket_tokens(&999_u64).is_none());
+
+    // A single-token escrow (created via create_escrow, not basket) returns Some(empty Vec)
+    let token = make_token(&fx.env);
+    token.admin.mint(&fx.buyer, &1_000);
+
+    let mut payees = Vec::new(&fx.env);
+    payees.push_back(Payee {
+        address: fx.seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&fx.env);
+
+    let single_token_id = client.create_escrow_8(
+        &payees_val,
+        &None::<Address>,
+        &fx.resolver,
+        &token.address,
+        &1_000_i128,
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    client.fund_escrow(&single_token_id, &fx.buyer);
+
+    let result = client.get_basket_tokens(&single_token_id);
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().len(), 0); // Empty Vec for single-token escrow
 }
 
 #[test]
@@ -571,7 +598,7 @@ fn create_basket_escrow_with_all_valid_amounts_succeeds() {
         &SHIPPING_WINDOW,
     );
 
-    let entries = client.get_basket_tokens(&escrow_id);
+    let entries = client.get_basket_tokens(&escrow_id).unwrap();
     assert_eq!(entries.len(), 3);
     assert_eq!(entries.get(0).unwrap().amount, 1_000);
     assert_eq!(entries.get(1).unwrap().amount, 500);
@@ -643,6 +670,57 @@ fn fund_basket_escrow_rejects_buyer_equal_to_resolver() {
     assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
 }
 
+// ── Issue #851 – basket funding respects pending expiry ──────────────────────
+
+/// After the blanket 7-day `PENDING_EXPIRY_WINDOW` elapses, funding a basket
+/// escrow must fail with `EscrowExpired`, mirroring `fund_escrow`.
+#[test]
+fn fund_basket_escrow_after_blanket_expiry_returns_escrow_expired() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let primary = make_token(&env);
+    let escrow_id = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &vec_addr(&env, &[&primary.address]),
+        &vec_i128(&env, &[1_000]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    primary.admin.mint(&buyer, &1_000);
+
+    // Advance one second past the 7-day pending-expiry window.
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1_000_000 + crate::PENDING_EXPIRY_WINDOW + 1;
+    });
+
+    let result = client.try_fund_basket_escrow(&escrow_id, &buyer);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_basket_escrow after the blanket expiry must return EscrowExpired"
+    );
+
+    // No funds moved and the escrow is still Pending.
+    assert_eq!(primary.token.balance(&buyer), 1_000);
+    assert_eq!(primary.token.balance(&contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+}
+
 #[test]
 fn create_basket_escrow_accepts_basket_at_max_size() {
     // Issue #820: MAX_BASKET_SIZE itself must still be accepted.
@@ -666,7 +744,71 @@ fn create_basket_escrow_accepts_basket_at_max_size() {
         &SHIPPING_WINDOW,
     );
 
-    assert_eq!(client.get_basket_tokens(&escrow_id).len(), MAX_BASKET_SIZE);
+    assert_eq!(
+        client.get_basket_tokens(&escrow_id).unwrap().len(),
+        MAX_BASKET_SIZE
+    );
+}
+
+/// An explicit `PendingExpiry` schedule that has already passed must also block
+/// funding of a basket escrow, mirroring `fund_escrow`. `create_basket_escrow`
+/// does not set a schedule, so we write one directly to simulate it.
+#[test]
+fn fund_basket_escrow_after_explicit_expires_at_returns_escrow_expired() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let primary = make_token(&env);
+    let escrow_id = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &vec_addr(&env, &[&primary.address]),
+        &vec_i128(&env, &[1_000]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    // Simulate an explicit pending-expiry schedule expiring at t=1_000_100.
+    let expires_at: u64 = 1_000_100;
+    let schedule = crate::ExpirySchedule {
+        expires_at,
+        grace_period: 0,
+    };
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&crate::DataKey::PendingExpiry(escrow_id), &schedule);
+    });
+
+    primary.admin.mint(&buyer, &1_000);
+
+    // Advance past the explicit expires_at.
+    env.ledger().with_mut(|li| {
+        li.timestamp = expires_at + 1;
+    });
+
+    let result = client.try_fund_basket_escrow(&escrow_id, &buyer);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_basket_escrow after expires_at must return EscrowExpired"
+    );
+
+    assert_eq!(primary.token.balance(&buyer), 1_000);
+    assert_eq!(primary.token.balance(&contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
 }
 
 #[test]
