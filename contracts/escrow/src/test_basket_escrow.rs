@@ -197,6 +197,39 @@ fn get_basket_tokens_empty_for_non_basket_escrow() {
 }
 
 #[test]
+fn fund_basket_escrow_rejects_empty_basket_with_basket_token_mismatch() {
+    // Issue #853: fund_basket_escrow must return the basket-specific
+    // BasketTokenMismatch error (42), not InvalidAmount (1), when there are no
+    // stored basket tokens, so indexers and the error-code catalogue stay
+    // consistent with create_basket_escrow.
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address]),
+        &vec_i128(&fx.env, &[1_000]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    // Simulate a corrupt/empty basket: clear the stored token entries directly.
+    fx.env.as_contract(&fx.contract_id, || {
+        let empty: Vec<crate::TokenEntry> = Vec::new(&fx.env);
+        fx.env
+            .storage()
+            .persistent()
+            .set(&crate::DataKey::BasketTokens(escrow_id), &empty);
+    });
+
+    let result = client.try_fund_basket_escrow(&escrow_id, &fx.buyer);
+    assert_eq!(result, Err(Ok(ContractError::BasketTokenMismatch)));
+}
+
+#[test]
 fn payout_pays_each_basket_token_to_seller() {
     let fx = setup();
     let client = EscrowClient::new(&fx.env, &fx.contract_id);
