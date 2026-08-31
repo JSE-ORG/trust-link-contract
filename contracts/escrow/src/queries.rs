@@ -9,6 +9,13 @@ use soroban_sdk::{contractimpl, Address, Env, Vec};
 impl Escrow {
     /// Retrieves messages for a given escrow with pagination.
     pub fn get_messages(env: Env, escrow_id: u64, start: u64, limit: u64) -> Vec<Message> {
+        // Issue #827: Validate escrow exists first. If escrow does not exist,
+        // return empty Vec (same as valid escrow with no messages). Callers can
+        // distinguish by checking escrow existence separately via get_escrow.
+        if load_escrow(&env, escrow_id).is_err() {
+            return Vec::new(&env);
+        }
+
         let max_limit = if limit > crate::MAX_MESSAGES_PER_PAGE {
             crate::MAX_MESSAGES_PER_PAGE
         } else {
@@ -178,6 +185,11 @@ impl Escrow {
     /// Returns publicly-readable contract configuration: protocol fee,
     /// arbitration fee, pause state, and total escrow count. Callable by anyone.
     pub fn get_public_config(env: Env) -> PublicContractConfig {
+        // Issue #828: Extend instance TTL to prevent archival during frequent
+        // read-only queries. All mutating entry points extend TTL, and this
+        // read-only query must do the same to keep singleton config alive.
+        storage::extend_instance_ttl(&env);
+
         let fee_config = read_fee_config(&env);
         let paused: bool = env
             .storage()

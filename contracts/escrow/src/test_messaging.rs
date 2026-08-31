@@ -182,3 +182,23 @@ fn post_message_enforces_cap() {
         Err(Ok(ContractError::TooManyMessages))
     );
 }
+
+/// Issue #827: get_messages for non-existent escrow returns empty Vec,
+/// same as valid escrow with no messages. Validate that both cases return
+/// empty Vec but can be distinguished by checking escrow existence separately.
+#[test]
+fn get_messages_returns_empty_for_nonexistent_escrow() {
+    let f = fixture();
+
+    // Non-existent escrow returns empty Vec
+    let messages_missing = f.client().get_messages(&999_u64, &0, &10);
+    assert_eq!(messages_missing.len(), 0);
+
+    // Valid escrow with no messages also returns empty Vec
+    let messages_no_msgs = f.client().get_messages(&f.escrow_id, &0, &10);
+    assert_eq!(messages_no_msgs.len(), 0);
+
+    // Callers can distinguish by checking escrow existence
+    assert!(f.client().try_get_escrow(&999_u64).is_err());
+    assert!(f.client().try_get_escrow(&f.escrow_id).is_ok());
+}
