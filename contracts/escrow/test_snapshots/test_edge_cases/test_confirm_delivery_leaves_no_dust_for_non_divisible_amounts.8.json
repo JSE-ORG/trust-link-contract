@@ -78,7 +78,7 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "create_escrow_7",
+              "function_name": "create_escrow_8",
               "args": [
                 {
                   "vec": [
@@ -116,6 +116,9 @@
                 },
                 {
                   "u32": 137
+                },
+                {
+                  "u64": "3600"
                 }
               ]
             }

@@ -62,13 +62,15 @@ fn test_escrow_stored_in_persistent_storage() {
     let resolver = Address::generate(&env);
 
     let id = create_funded_escrow(
-        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 7200,
     );
 
     // Escrow is readable after funding — persistent storage write + TTL extension succeeded.
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.amount, 1000);
     assert_eq!(escrow.fee_bps, 100);
+    // The non-default shipping window passed to create_funded_escrow must be persisted.
+    assert_eq!(escrow.shipping_window, 7200);
 }
 
 /// Dispute data written to persistent storage is readable after a dispute is raised.
