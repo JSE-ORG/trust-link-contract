@@ -89,15 +89,9 @@ impl Escrow {
 
         let max_iterations = 1000;
         // Scan the most recent max_iterations escrows. `zip` bounds the scan
-        // without a manual counter.
+        // without a manual counter. The `has` check avoids extending TTL for
+        // non-matching escrows.
         for (id, _) in (1..counter).rev().zip(0..max_iterations) {
-            if let Ok(escrow) = load_escrow(&env, id) {
-                if escrow.buyer.as_ref() == Some(&buyer) {
-                    result.push_back(id);
-        for (iterations, id) in (1..counter).rev().enumerate() {
-            if iterations >= max_iterations {
-                break;
-            }
             // Check if escrow key exists without TTL extension
             let key = DataKey::Escrow(id);
             if env.storage().persistent().has(&key) {
