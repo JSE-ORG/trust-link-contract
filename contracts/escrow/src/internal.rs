@@ -149,7 +149,14 @@ pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
 }
 
 pub(crate) fn ensure_action_not_paused(env: &Env, action: Symbol) -> Result<(), ContractError> {
-    ensure_not_paused(env)?;
+    let paused: bool = env
+        .storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false);
+    if paused {
+        return Err(ContractError::ContractPaused);
+    }
     let action_paused: bool = env
         .storage()
         .instance()
@@ -244,7 +251,7 @@ pub(crate) fn read_treasury(env: &Env) -> Result<Address, ContractError> {
     env.storage()
         .instance()
         .get(&DataKey::Treasury)
-        .ok_or(ContractError::NotAuthorized)
+        .ok_or(ContractError::NotInitialized)
 }
 
 pub(crate) fn write_treasury(env: &Env, treasury: &Address) {
@@ -279,7 +286,7 @@ pub(crate) fn validate_resolvers(
     if let ResolverSet::Multi(m) = resolvers {
         let count = m.resolvers.len();
         if count == 0 || m.threshold == 0 || m.threshold > count {
-            return Err(ContractError::InvalidAmount); // Use as proxy for invalid threshold
+            return Err(ContractError::InvalidResolverThreshold);
         }
 
         // Ensure all resolvers are unique
@@ -289,6 +296,10 @@ pub(crate) fn validate_resolvers(
                 return Err(ContractError::ConflictingRoles);
             }
             seen.push_back(resolver);
+        }
+    } else if let ResolverSet::Fallback(f) = resolvers {
+        if f.primary == f.backup {
+            return Err(ContractError::ConflictingRoles);
         }
     }
 
@@ -355,6 +366,45 @@ pub(crate) fn validate_combined_fees(
     Ok(())
 }
 
+/// Validates a proposed new fee collector and returns the current one.
+///
+/// Applies the same invariants `initialize` enforces on the *initial*
+/// collector, so the immediate (`set_fee_collector`) and timelocked
+/// (`execute_set_fee_collector`) update paths cannot drift from them:
+/// - it may not be the all-zero address (`InvalidAddress`);
+/// - it may not equal the current admin (`InvalidAddress`) — the admin and
+///   fee-collector roles are kept separate so a single compromised key
+///   cannot both govern the contract and sweep its fees;
+/// - it may not be a no-op change (`SameAddress`).
+///
+/// Returns the current collector so the caller can emit
+/// `fee_collector_updated`.
+pub(crate) fn validate_fee_collector_change(
+    env: &Env,
+    new_collector: &Address,
+) -> Result<Address, ContractError> {
+    if *new_collector == crate::zero_address(env) {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    let admin = require_admin(env)?;
+    if *new_collector == admin {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    let old_collector: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::FeeCollector)
+        .ok_or(ContractError::NotAuthorized)?;
+
+    if *new_collector == old_collector {
+        return Err(ContractError::SameAddress);
+    }
+
+    Ok(old_collector)
+}
+
 /// Updates the arbitration fee. Requires admin auth.
 /// Validates that arbitration fee + current protocol fee doesn't exceed combined cap.
 pub(crate) fn update_arbitration_fee(
@@ -377,11 +427,16 @@ pub(crate) fn update_arbitration_fee(
     Ok(old_fee)
 }
 
+/// Effective TTL extension (in ledgers) applied to every `extend_ttl` call:
+/// the admin-configured `TtlExtensionLedgers` value, or `DEFAULT_TTL_EXTENSION`
+/// when none has been set.
+///
+/// Thin re-export of [`crate::storage::get_ttl_extension`] so the instructions,
+/// admin, and disputes modules — which reach for helpers through `internal` —
+/// resolve the value through the exact same code path as the `storage` layer,
+/// leaving one implementation to keep correct.
 pub(crate) fn get_ttl_extension(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::TtlExtensionLedgers)
-        .unwrap_or(DEFAULT_TTL_EXTENSION)
+    crate::storage::get_ttl_extension(env)
 }
 
 /// Saves the escrow and records a state-history entry if the state changed.
@@ -461,6 +516,16 @@ pub(crate) fn load_state_history(env: &Env, id: u64) -> Vec<(EscrowState, u64)> 
     history
 }
 
+/// Load state history without extending TTL - used by query functions that
+/// should not have side effects on storage rent.
+pub(crate) fn load_state_history_no_ttl(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
+    let key = DataKey::EscrowStateHistory(id);
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
 pub(crate) fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
     let key = DataKey::Dispute(id);
     let ext = get_ttl_extension(env);
@@ -499,28 +564,7 @@ pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<
     }
 }
 
-pub(crate) fn transfer_with_protocol_fee(
-    env: &Env,
-    token_addr: &Address,
-    recipient: &Address,
-    fee_collector: &Address,
-    amount: i128,
-    fee_bps: u32,
-) -> Result<(i128, i128), ContractError> {
-    let (fee, net) = crate::helpers::payout::calculate_protocol_fee(amount, fee_bps)?;
-    let token_client = token::Client::new(env, token_addr);
-    let contract_addr = env.current_contract_address();
-
-    if net > 0 {
-        token_client.transfer(&contract_addr, recipient, &net);
-    }
-
-    if fee > 0 {
-        token_client.transfer(&contract_addr, fee_collector, &fee);
-    }
-
-    Ok((fee, net))
-}
+pub(crate) use crate::helpers::payout::transfer_with_protocol_fee;
 
 /// Distributes the specified `amount` among the `payees` proportionally based on their BPS shares.
 ///
@@ -614,7 +658,141 @@ pub(crate) fn payout_basket_tokens(
     Ok(())
 }
 
+/// State and timing gate for [`Escrow::auto_release`](crate::Escrow::auto_release).
+///
+/// `auto_release` is permissionless — anyone may call it — so the safety of the
+/// flow rests entirely on these checks. They live here, separate from the
+/// payout, so the release-eligibility rules are in one place and can be
+/// reasoned about (and tested) on their own.
+///
+/// Returns `Ok(())` only when every condition holds:
+/// - the escrow is `Funded` or `Shipped` (`InvalidState` otherwise);
+/// - no dispute has been raised (`InvalidState`);
+/// - the applicable no-dispute window has fully elapsed:
+///   - delivery recorded: `now >= delivered_at + DELIVERY_RELEASE_WINDOW`,
+///     else `ShippingWindowNotElapsed`;
+///   - `Shipped` but no recorded delivery: `DeliveryNotRecorded` (delivery must
+///     be recorded first);
+///   - otherwise the buyer's dispute window must have opened
+///     (`DeliveryBeforeDisputeWindow`) and the shipping window measured from
+///     `shipped_at` — or `funded_at` if the escrow was never shipped — must
+///     have elapsed (`ShippingWindowNotElapsed`).
+pub(crate) fn ensure_auto_release_eligible(
+    env: &Env,
+    escrow: &EscrowData,
+    escrow_id: u64,
+) -> Result<(), ContractError> {
+    if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+        return Err(ContractError::InvalidState);
+    }
+
+    if load_dispute(env, escrow_id).is_ok() {
+        return Err(ContractError::InvalidState);
+    }
+
+    let now = env.ledger().timestamp();
+
+    if let Some(delivered_at) = escrow.delivered_at {
+        let eligible_at = delivered_at
+            .checked_add(DELIVERY_RELEASE_WINDOW)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if now < eligible_at {
+            return Err(ContractError::ShippingWindowNotElapsed);
+        }
+    } else if escrow.state == EscrowState::Shipped {
+        return Err(ContractError::DeliveryNotRecorded);
+    } else {
+        if now < escrow.dispute_deadline {
+            return Err(ContractError::DeliveryBeforeDisputeWindow);
+        }
+        let shipped_or_funded_at = if escrow.shipped_at > 0 {
+            escrow.shipped_at
+        } else {
+            escrow.funded_at
+        };
+        let window_elapsed_at = shipped_or_funded_at
+            .checked_add(escrow.shipping_window)
+            .ok_or(ContractError::ArithmeticError)?;
+        if now < window_elapsed_at {
+            return Err(ContractError::ShippingWindowNotElapsed);
+        }
+    }
+
+    Ok(())
+}
+
+/// Shared settlement path for the two "pay the payees and close the escrow"
+/// flows: [`Escrow::auto_release`](crate::Escrow::auto_release) and
+/// [`Escrow::confirm_delivery`](crate::Escrow::confirm_delivery).
+///
+/// Takes the protocol fee off the top (paid to the fee collector), splits the
+/// remainder across `escrow.payees`, forwards any non-primary basket tokens to
+/// the primary payee, then flips the escrow to `Completed` and bumps the
+/// completed-escrow counter.
+///
+/// `fee_bps` is passed in rather than read here because the callers source it
+/// differently — `auto_release` uses the current global protocol fee,
+/// `confirm_delivery` uses the rate snapshotted on the escrow — and that
+/// difference is preserved deliberately.
+///
+/// Returns `(prev_state, first_payee)` so the caller can emit its own
+/// completion event.
+pub(crate) fn settle_escrow_to_payees(
+    env: &Env,
+    escrow: &mut EscrowData,
+    escrow_id: u64,
+    fee_bps: u32,
+) -> Result<(EscrowState, Address), ContractError> {
+    let fee_collector: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::FeeCollector)
+        .ok_or(ContractError::NotInitialized)?;
+
+    let first_payee_addr = escrow
+        .payees
+        .get(0)
+        .ok_or(ContractError::IndexOutOfBounds)?
+        .address
+        .clone();
+
+    let (protocol_fee, net_amount) =
+        crate::helpers::payout::calculate_protocol_fee(escrow.amount, fee_bps)?;
+    if protocol_fee > 0 {
+        token::Client::new(env, &escrow.token).transfer(
+            &env.current_contract_address(),
+            &fee_collector,
+            &protocol_fee,
+        );
+    }
+    distribute_to_payees(env, &escrow.token, &escrow.payees, net_amount)?;
+    payout_basket_tokens(env, escrow_id, &first_payee_addr)?;
+
+    let prev_state = escrow.state.clone();
+    escrow.state = EscrowState::Completed;
+    save_escrow(env, escrow_id, escrow, Some(&prev_state));
+    increment_counter(env, &DataKey::TotalCompleted)?;
+
+    Ok((prev_state, first_payee_addr))
+}
+
+/// Check if an escrow has an active PendingExpiry scheduled (Issue #811).
+/// This function only checks expiry for escrows still in Pending state; the
+/// PendingExpiry key is semantically bound to Pending lifetime. Callers must
+/// ensure they remove DataKey::PendingExpiry when transitioning away from Pending
+/// (e.g., in fund_escrow, fund_basket_escrow, reclaim_expired). Without removal,
+/// this check will incorrectly reject valid operations on funded escrows.
 pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    let escrow = load_escrow(env, escrow_id)?;
+
+    // Check custom expiration stored in EscrowData
+    if let Some(expires_at) = escrow.expires_at {
+        if env.ledger().timestamp() >= expires_at {
+            return Err(ContractError::EscrowExpired);
+        }
+    }
+
+    // Also check the automatic pending timeout (for unfunded escrows)
     if let Some(schedule) = env
         .storage()
         .persistent()
@@ -648,6 +826,8 @@ pub(crate) fn create_escrow_internal(
     resolver_fee_bps: u32,
     shipping_window: u64,
     notes: Option<String>,
+    expires_at: Option<u64>,
+    grace_period: u64,
 ) -> Result<u64, ContractError> {
     if payees.is_empty() {
         return Err(ContractError::InvalidAddress);
@@ -732,20 +912,13 @@ pub(crate) fn create_escrow_internal(
     // Token allowlist check
     is_token_allowed(env, &token)?;
 
-    let escrow_id: u64 = env
-        .storage()
-        .instance()
-        .get(&DataKey::EscrowCounter)
-        .unwrap_or(1u64);
-    let next_id = escrow_id
-        .checked_add(1)
-        .ok_or(ContractError::ArithmeticError)?;
-    env.storage()
-        .instance()
-        .set(&DataKey::EscrowCounter, &next_id);
-
-    let ext = get_ttl_extension(env);
-    env.storage().instance().extend_ttl(ext / 2, ext);
+    // Issue #813: Use centralized next_escrow_id helper to consolidate counter
+    // management. This function (create_escrow_internal) is the core implementation
+    // used by create_escrow and other entry points. By using next_escrow_id here
+    // instead of duplicating the counter increment + TTL extension logic, we ensure
+    // all paths stay synchronized. create_escrow_with_fallback also duplicated
+    // this logic and has been consolidated as well.
+    let escrow_id = next_escrow_id(env)?;
 
     let resolvers = ResolverSet::Single(resolver.clone());
     let escrow = EscrowData {
@@ -764,6 +937,8 @@ pub(crate) fn create_escrow_internal(
         delivered_at: None,
         tracking_id: None,
         notes,
+        expires_at,
+        grace_period,
     };
 
     save_escrow(env, escrow_id, &escrow, None);
@@ -803,31 +978,80 @@ pub(crate) fn execute_resolution_transition(
     final_resolution: ResolutionType,
     votes: Vec<ResolverVote>,
 ) -> Result<(), ContractError> {
-    let arbitration_fee_bps = read_fee_config(env).arbitration_fee_bps;
-    let arbitration_fee =
-        crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;
+    // Load the dispute record up front. After an appeal the escrow returns to
+    // `Disputed` and this transition runs again — but the arbitration and
+    // resolver fees are charged to the escrow **once per dispute**, not once
+    // per appeal round. A non-zero fee on the dispute record means a prior
+    // round already deducted and paid it out (`clear_resolution` deliberately
+    // preserves these two fields), so this round reuses the recorded amounts
+    // and skips the deduction, the accounting bump, and the transfers.
+    let mut dispute_data = load_dispute(env, escrow_id)?;
+    let fees_already_charged = dispute_data.arbitration_fee > 0 || dispute_data.resolver_fee > 0;
 
-    let resolver_fee =
-        crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?;
+    let (arbitration_fee, resolver_fee) = if fees_already_charged {
+        (dispute_data.arbitration_fee, dispute_data.resolver_fee)
+    } else {
+        let arbitration_fee_bps = read_fee_config(env).arbitration_fee_bps;
+        let arbitration_fee =
+            crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;
+        let resolver_fee =
+            crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?;
+
+        let combined_fee = arbitration_fee
+            .checked_add(resolver_fee)
+            .ok_or(ContractError::ArithmeticError)?;
+        if combined_fee > escrow.amount {
+            return Err(ContractError::FeeExceedsMax);
+        }
+
+        (arbitration_fee, resolver_fee)
+    };
 
     let prev_state = escrow.state.clone();
     let mut updated_escrow = escrow;
-    updated_escrow.amount = updated_escrow
-        .amount
-        .checked_sub(arbitration_fee)
-        .ok_or(ContractError::ArithmeticError)?;
-    updated_escrow.amount = updated_escrow
-        .amount
-        .checked_sub(resolver_fee)
-        .ok_or(ContractError::ArithmeticError)?;
 
-    // Pay resolver fee immediately
-    if resolver_fee > 0 {
-        token::Client::new(env, &updated_escrow.token).transfer(
-            &env.current_contract_address(),
-            &caller,
-            &resolver_fee,
+    if !fees_already_charged {
+        updated_escrow.amount = updated_escrow
+            .amount
+            .checked_sub(arbitration_fee)
+            .ok_or(ContractError::ArithmeticError)?;
+        updated_escrow.amount = updated_escrow
+            .amount
+            .checked_sub(resolver_fee)
+            .ok_or(ContractError::ArithmeticError)?;
+
+        // Update Accounting
+        let total_key = DataKey::TotalArbitrationFees(updated_escrow.token.clone());
+        let current_total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
+        env.storage().instance().set(
+            &total_key,
+            &current_total
+                .checked_add(arbitration_fee)
+                .ok_or(ContractError::ArithmeticError)?,
         );
+
+        let fee_collector: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeCollector)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if arbitration_fee > 0 {
+            token::Client::new(env, &updated_escrow.token).transfer(
+                &env.current_contract_address(),
+                &fee_collector,
+                &arbitration_fee,
+            );
+        }
+
+        // Pay resolver fee immediately
+        if resolver_fee > 0 {
+            token::Client::new(env, &updated_escrow.token).transfer(
+                &env.current_contract_address(),
+                &caller,
+                &resolver_fee,
+            );
+        }
     }
 
     // Store resolution in dispute data and transition to PendingFinalization
@@ -836,7 +1060,6 @@ pub(crate) fn execute_resolution_transition(
         .checked_add(APPEAL_WINDOW)
         .ok_or(ContractError::ArithmeticError)?;
 
-    let mut dispute_data = load_dispute(env, escrow_id)?;
     dispute_data.set_resolution(final_resolution.clone());
     dispute_data.resolved_by = Some(caller.clone());
     dispute_data.resolved_at = now;

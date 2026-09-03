@@ -118,7 +118,7 @@ fn test_multi_resolver_validation() {
         &0,
         &3600,
     );
-    assert_eq!(res, Err(Ok(ContractError::InvalidAmount)));
+    assert_eq!(res, Err(Ok(ContractError::InvalidResolverThreshold)));
 
     // 2. Empty multi-resolver list with threshold=1 rejected
     let res = client.try_create_escrow_multi(
@@ -131,7 +131,7 @@ fn test_multi_resolver_validation() {
         &0,
         &3600,
     );
-    assert_eq!(res, Err(Ok(ContractError::InvalidAmount)));
+    assert_eq!(res, Err(Ok(ContractError::InvalidResolverThreshold)));
 
     // 3. Non-empty resolver list with threshold=0 rejected
     let res = client.try_create_escrow_multi(
@@ -144,7 +144,7 @@ fn test_multi_resolver_validation() {
         &0,
         &3600,
     );
-    assert_eq!(res, Err(Ok(ContractError::InvalidAmount)));
+    assert_eq!(res, Err(Ok(ContractError::InvalidResolverThreshold)));
 
     // 4. Threshold greater than resolver count rejected
     let res = client.try_create_escrow_multi(
@@ -157,7 +157,7 @@ fn test_multi_resolver_validation() {
         &0,
         &3600,
     );
-    assert_eq!(res, Err(Ok(ContractError::InvalidAmount)));
+    assert_eq!(res, Err(Ok(ContractError::InvalidResolverThreshold)));
 
     // 5. Valid config (threshold=1, resolvers=[resolver_a]) works
     let escrow_id = client.create_escrow_multi(
@@ -171,4 +171,66 @@ fn test_multi_resolver_validation() {
         &3600,
     );
     assert_eq!(escrow_id, 1);
+}
+
+#[test]
+fn test_multi_resolver_threshold_validation_errors() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver_a = Address::generate(&env);
+    let resolver_b = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let mut resolvers = Vec::new(&env);
+    resolvers.push_back(resolver_a.clone());
+    resolvers.push_back(resolver_b.clone());
+
+    // Test threshold=0 returns InvalidResolverThreshold
+    let res = client.try_create_escrow_multi(
+        &seller,
+        &Some(buyer.clone()),
+        &resolvers,
+        &0,
+        &token,
+        &1000,
+        &0,
+        &3600,
+    );
+    assert_eq!(res, Err(Ok(ContractError::InvalidResolverThreshold)));
+
+    // Test threshold>count returns InvalidResolverThreshold
+    let res = client.try_create_escrow_multi(
+        &seller,
+        &Some(buyer.clone()),
+        &resolvers,
+        &3,
+        &token,
+        &1000,
+        &0,
+        &3600,
+    );
+    assert_eq!(res, Err(Ok(ContractError::InvalidResolverThreshold)));
+
+    // Test empty resolvers with threshold=1 returns InvalidResolverThreshold
+    let empty_resolvers = Vec::new(&env);
+    let res = client.try_create_escrow_multi(
+        &seller,
+        &Some(buyer.clone()),
+        &empty_resolvers,
+        &1,
+        &token,
+        &1000,
+        &0,
+        &3600,
+    );
+    assert_eq!(res, Err(Ok(ContractError::InvalidResolverThreshold)));
 }

@@ -36,15 +36,14 @@ Persistent and instance entries are kept alive by bumping their TTL.
   `u32`). If unset it falls back to the constant `DEFAULT_TTL_EXTENSION =
   120_960` ledgers (≈ 7 days at ~5 s/ledger). The admin can change it via
   `set_ttl_extension`.
-- **Bump pattern** — every bump uses `extend_ttl(threshold = ext / 2, extend_to
-  = ext)`: "if fewer than `ext/2` ledgers remain, top the TTL back up to `ext`."
-- **Persistent entries** (`Escrow`, `Dispute`, `VendorEscrowIndex`) are bumped on
-  **every read and write** of that entry.
+- **Bump pattern** — every bump uses
+  `extend_ttl(threshold = ext / TTL_THRESHOLD_DIVISOR, extend_to = ext)`: if
+  fewer than `ext / TTL_THRESHOLD_DIVISOR` ledgers remain, top the TTL back up
+  to `ext`.
+- **Persistent entries** (`Escrow`, `Dispute`, `VendorEscrowIndex`,
+  `BuyerEscrowIndex`) are bumped on **every read and write** of that entry.
 - **Instance storage** is bumped once per `create_escrow` call (alongside the
   escrow-counter increment), which keeps all instance singletons alive together.
-
-> ⚠️ **Known exception:** `DataKey::BuyerEscrowIndex` is written to persistent
-> storage **without** a TTL bump (see [Implementation notes](#implementation-notes)).
 
 ---
 
@@ -79,7 +78,7 @@ All instance entries share the contract instance TTL (bumped during
 |---|---|---|---|
 | `Escrow(u64)` | `EscrowData` | read **and** write | The full escrow record, keyed by escrow ID. See [`types.rs`](../contracts/escrow/src/types.rs) for `EscrowData`. |
 | `Dispute(u64)` | `DisputeData` | read **and** write | The dispute record for an escrow, keyed by escrow ID. |
-| `BuyerEscrowIndex(Address)` | `Vec<u64>` | ⚠️ **not bumped** | List of escrow IDs a buyer has funded. Keyed by buyer address. |
+| `BuyerEscrowIndex(Address)` | `Vec<u64>` | read **and** write | List of escrow IDs a buyer has funded. Keyed by buyer address. |
 
 ### Declared but unused (legacy)
 
@@ -142,12 +141,7 @@ out of scope for this reference.
    while vendor indexes use `StorageKey::VendorEscrowIndex` (a different enum in
    `storage.rs`). Most `StorageKey` variants are unused.
 
-2. **`BuyerEscrowIndex` is written without a TTL bump.** Unlike every other
-   persistent entry, the buyer index is `set` on persistent storage without a
-   following `extend_ttl` (lib.rs `fund_escrow`). A buyer index can therefore
-   reach its archival TTL earlier than the escrow records it points to.
-
-3. **Fee bookkeeping is per token.** `TotalArbitrationFees` is keyed by the
+2. **Fee bookkeeping is per token.** `TotalArbitrationFees` is keyed by the
    token `Address`, so multi-token deployments track arbitration fee totals
    independently per asset. The protocol fee itself is not tracked in
    storage — it is forwarded to the fee collector directly at payout time.

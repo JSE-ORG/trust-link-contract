@@ -56,7 +56,7 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "function_name": "create_escrow_7",
+              "function_name": "create_escrow_8",
               "args": [
                 {
                   "vec": [
@@ -94,6 +94,9 @@
                 },
                 {
                   "u32": 0
+                },
+                {
+                  "u64": "3600"
                 }
               ]
             }
@@ -174,7 +177,7 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "function_name": "create_escrow_7",
+              "function_name": "create_escrow_8",
               "args": [
                 {
                   "vec": [
@@ -212,6 +215,9 @@
                 },
                 {
                   "u32": 0
+                },
+                {
+                  "u64": "3600"
                 }
               ]
             }
@@ -292,7 +298,7 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "function_name": "create_escrow_7",
+              "function_name": "create_escrow_8",
               "args": [
                 {
                   "vec": [
@@ -330,6 +336,9 @@
                 },
                 {
                   "u32": 0
+                },
+                {
+                  "u64": "3600"
                 }
               ]
             }
@@ -584,6 +593,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "expires_at"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "fee_bps"
                     },
                     "val": {
@@ -593,6 +608,14 @@
                   {
                     "key": {
                       "symbol": "funded_at"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "grace_period"
                     },
                     "val": {
                       "u64": "0"
@@ -758,6 +781,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "expires_at"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "fee_bps"
                     },
                     "val": {
@@ -767,6 +796,14 @@
                   {
                     "key": {
                       "symbol": "funded_at"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "grace_period"
                     },
                     "val": {
                       "u64": "0"
@@ -932,6 +969,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "expires_at"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "fee_bps"
                     },
                     "val": {
@@ -941,6 +984,14 @@
                   {
                     "key": {
                       "symbol": "funded_at"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "grace_period"
                     },
                     "val": {
                       "u64": "0"

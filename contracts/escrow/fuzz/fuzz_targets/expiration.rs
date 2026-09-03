@@ -51,7 +51,7 @@ fuzz_target!(|data: &[u8]| {
 
     h.env.ledger().set_timestamp(r.timestamp());
 
-    let target_id = if r.bool() { escrow_id } else { r.u64() };
+    let target_id = r.target_id(escrow_id);
 
     // Both reclaim paths, in a fuzz-chosen order; neither may settle an escrow
     // twice or settle one that has not actually expired.

@@ -69,6 +69,14 @@ const MAX_ESCROW_FEE_BPS: u32 = 300;
 /// Capped at 5% to preserve incentive alignment in dispute outcomes.
 const MAX_ARBITRATION_FEE_BPS: u32 = 500;
 
+/// Maximum protocol fee in basis points (500 = 5%).
+///
+/// `set_fee` and `set_protocol_fee` reject any value above this with
+/// `FeeExceedsMax`, and it feeds the combined fee cap together with the
+/// arbitration fee.
+#[cfg(any(test, feature = "testutils"))]
+const MAX_PROTOCOL_FEE_BPS: u32 = 500;
+
 /// Maximum combined protocol + arbitration fee in basis points (1000 = 10%).
 ///
 /// Ensures that protocol_fee_bps + arbitration_fee_bps cannot exceed 10%,
@@ -137,6 +145,11 @@ pub const MAX_DESCRIPTION_LEN: u32 = 256;
 pub const MAX_NOTES_LEN: u32 = 500;
 pub const MAX_MESSAGE_LEN: u32 = 500;
 pub const MAX_MESSAGES_PER_ESCROW: u32 = 100;
+
+/// Maximum number of tokens allowed in a basket escrow. Bounds iteration cost
+/// in `save_basket_tokens` and `payout_basket_tokens`, and keeps the basket
+/// well within Soroban storage entry size limits.
+pub const MAX_BASKET_SIZE: u32 = 20;
 
 /// Minimum shipping window in seconds (1 second).
 /// A value of 0 would allow an immediate dispute with no shipping time, which is invalid.
@@ -245,7 +258,6 @@ mod test_arbitration_fee;
 mod test_auth_matrix;
 mod test_auth_ordering;
 mod test_auto_release;
-mod test_auto_release_additional;
 mod test_basket_escrow;
 mod test_cancel_restrictions;
 mod test_co_signed_release;
@@ -266,6 +278,7 @@ mod test_fallback_resolver;
 mod test_fee_calculation_accuracy;
 mod test_fee_config;
 mod test_fee_minimum;
+mod test_fee_property_invariants;
 mod test_fee_snapshot;
 mod test_fee_update;
 mod test_finalize_dispute_appeal_boundary;
@@ -277,6 +290,7 @@ mod test_helpers;
 mod test_initialize_twice;
 mod test_initialize_zero_admin;
 mod test_malicious_token;
+mod test_messaging;
 mod test_minimum_amount_guard;
 mod test_multi_asset;
 mod test_multi_resolver;
@@ -286,6 +300,7 @@ mod test_not_found;
 mod test_overflow;
 mod test_pause;
 mod test_pending_expiry;
+mod test_query_improvements;
 mod test_refund_override;
 mod test_resolution;
 mod test_resolver_registry;

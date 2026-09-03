@@ -24,7 +24,7 @@ fuzz_target!(|data: &[u8]| {
     let description = r.ascii_string(&h.env, 320);
     let evidence_hash = BytesN::from_array(&h.env, &r.bytes32());
     let caller = h.actor(r.u8());
-    let target_id = if r.bool() { escrow_id } else { r.u64() };
+    let target_id = r.target_id(escrow_id);
 
     let _ = h
         .client

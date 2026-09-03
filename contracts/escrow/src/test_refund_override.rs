@@ -2,8 +2,7 @@
 
 use crate::{ContractError, Escrow, EscrowClient, EscrowState, Payee};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
-    token, Address, Env, IntoVal, String as SorobanString, Vec,
+    testutils::Address as _, token, Address, Env, IntoVal, String as SorobanString, Vec,
 };
 
 fn setup(env: &Env) -> (EscrowClient<'static>, Address, Address, Address, Address) {

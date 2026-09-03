@@ -1,10 +1,7 @@
 #![cfg(test)]
 
 use crate::{Escrow, EscrowClient, EscrowState, Payee};
-use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
-    token, Address, Env, IntoVal, Vec,
-};
+use soroban_sdk::{testutils::Address as _, token, Address, Env, IntoVal, Vec};
 
 fn setup(env: &Env) -> (EscrowClient<'static>, Address, Address, Address, Address) {
     let admin = Address::generate(env);

@@ -25,6 +25,11 @@ identities via Friendbot.
 | `04_cancel_path.sh` | create → cancel → **Canceled** |
 | `run_all.sh` | Runs setup + all paths in order |
 
+Each helper in `lib.sh` (`ensure_identity`, `addr`, `invoke`, `escrow_state`,
+`assert_state`, `native_token`, `create_escrow`, ...) has a doc comment above
+its definition with its arguments, return value, and a usage example — that
+file is the canonical API reference when writing a new path script.
+
 ## Usage
 
 ```bash

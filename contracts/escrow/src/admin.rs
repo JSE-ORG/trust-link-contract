@@ -155,26 +155,14 @@ impl Escrow {
     /// Sets the fee collector address immediately (not timelocked). Only
     /// callable by the current admin, gated at the host level via
     /// `admin.require_auth()`. Reverts with `InvalidAddress` if
-    /// `new_collector` is the all-zero address. Emits
+    /// `new_collector` is the all-zero address or the current admin, or with
+    /// `SameAddress` if it already is the collector. Emits
     /// `emit_fee_collector_updated`.
     pub fn set_fee_collector(env: Env, new_collector: Address) -> Result<(), ContractError> {
         let admin = require_admin(&env)?;
         admin.require_auth();
 
-        let zero = crate::zero_address(&env);
-        if new_collector == zero {
-            return Err(ContractError::InvalidAddress);
-        }
-
-        let old_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotAuthorized)?;
-
-        if new_collector == old_collector {
-            return Err(ContractError::SameAddress);
-        }
+        let old_collector = validate_fee_collector_change(&env, &new_collector)?;
 
         env.storage()
             .instance()
@@ -213,10 +201,6 @@ impl Escrow {
             .instance()
             .get(&DataKey::TotalArbitrationFees(token))
             .unwrap_or(0)
-    }
-
-    pub fn is_token_allowlist_enabled(env: Env) -> bool {
-        crate::internal::is_token_allowlist_enabled(&env)
     }
 
     /// Enables or disables the token allowlist. Only callable by admin.
@@ -524,19 +508,7 @@ impl Escrow {
         )
         .map_err(|_| ContractError::IndexOutOfBounds)?;
 
-        let zero = crate::zero_address(&env);
-        if new_collector == zero {
-            return Err(ContractError::InvalidAddress);
-        }
-        let old_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotAuthorized)?;
-
-        if new_collector == old_collector {
-            return Err(ContractError::SameAddress);
-        }
+        let old_collector = validate_fee_collector_change(&env, &new_collector)?;
 
         env.storage()
             .instance()
@@ -566,6 +538,10 @@ impl Escrow {
                 .ok_or(ContractError::IndexOutOfBounds)?,
         )
         .map_err(|_| ContractError::IndexOutOfBounds)?;
+
+        if ledgers < MIN_TTL_EXTENSION {
+            return Err(ContractError::InvalidTtlExtension);
+        }
 
         let old_ledgers = storage::get_ttl_extension(&env);
         env.storage()
@@ -982,6 +958,15 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        // Issue #814: When emergency_drain is called on a disputed escrow, escrow.amount
+        // has already been reduced by arbitration_fee in execute_resolution_transition.
+        // The arbitration_fee is tracked separately in DataKey::TotalArbitrationFees(token).
+        // We increment TotalRefunded for the drained amount (which is post-fee), but this
+        // means stats will show TotalRefunded + TotalArbitrationFees split across two
+        // counters rather than summing to the original amount. Consider whether stats queries
+        // should aggregate these counters or if the accounting should be restructured.
+        // For now, TotalRefunded reflects only the amount refunded to buyer, not fees collected.
         increment_counter(&env, &DataKey::TotalRefunded)?;
 
         crate::events::emit_emergency_drain(&env, escrow_id, escrow.token.clone(), escrow.amount);
@@ -991,6 +976,7 @@ impl Escrow {
     #[cfg(any(test, feature = "testutils"))]
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
         let old_admin = require_admin(&env)?;
+        old_admin.require_auth();
         if new_admin == old_admin {
             return Err(ContractError::SameAddress);
         }
@@ -1006,10 +992,12 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        if fee > 10000 {
+        if fee > MAX_PROTOCOL_FEE_BPS {
             return Err(ContractError::FeeExceedsMax);
         }
-        env.storage().instance().set(&DataKey::PlatformFeeBps, &fee);
+        let mut config = read_fee_config(&env);
+        config.protocol_fee_bps = fee;
+        write_fee_config(&env, &config);
         Ok(())
     }
 
@@ -1020,19 +1008,14 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        if fee > 10000 {
-            return Err(ContractError::PlatformFeeExceedsMax);
+        if fee > MAX_PROTOCOL_FEE_BPS {
+            return Err(ContractError::FeeExceedsMax);
         }
-        let mut config: crate::types::FeeConfig = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeConfig)
-            .unwrap_or(crate::types::FeeConfig {
-                protocol_fee_bps: 0,
-                arbitration_fee_bps: 0,
-            });
+        let mut config = read_fee_config(&env);
+        let old_fee = config.protocol_fee_bps;
         config.protocol_fee_bps = fee;
-        env.storage().instance().set(&DataKey::FeeConfig, &config);
+        write_fee_config(&env, &config);
+        emit_protocol_fee_updated(&env, old_fee, fee);
         Ok(())
     }
 
@@ -1047,9 +1030,14 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
+        if extension_seconds < MIN_TTL_EXTENSION {
+            return Err(ContractError::InvalidTtlExtension);
+        }
+        let old_ledgers = storage::get_ttl_extension(&env);
         env.storage()
             .instance()
             .set(&DataKey::TtlExtensionLedgers, &extension_seconds);
+        emit_ttl_extension_updated(&env, old_ledgers, extension_seconds, caller);
         Ok(())
     }
 
@@ -1089,8 +1077,19 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
+        let old_min_amount = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinAmount)
+            .unwrap_or(MIN_ESCROW_AMOUNT);
+        let old_max_amount = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxAmount)
+            .unwrap_or(MAX_ESCROW_AMOUNT);
         env.storage().instance().set(&DataKey::MinAmount, &min);
         env.storage().instance().set(&DataKey::MaxAmount, &max);
+        emit_amount_limits_updated(&env, old_min_amount, min, old_max_amount, max, caller);
         Ok(())
     }
 
@@ -1105,9 +1104,15 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
+        let old_strict = env
+            .storage()
+            .instance()
+            .get(&DataKey::ResolverStrict)
+            .unwrap_or(false);
         env.storage()
             .instance()
             .set(&DataKey::ResolverStrict, &strict);
+        emit_resolver_strict_updated(&env, old_strict, strict, caller);
         Ok(())
     }
 
@@ -1128,10 +1133,11 @@ impl Escrow {
             .get(&DataKey::ApprovedResolvers)
             .unwrap_or(soroban_sdk::Vec::new(&env));
         if !crate::internal::contains(&approved, &resolver) {
-            approved.push_back(resolver);
+            approved.push_back(resolver.clone());
             env.storage()
                 .instance()
                 .set(&DataKey::ApprovedResolvers, &approved);
+            emit_resolver_approved(&env, resolver, caller);
         }
         Ok(())
     }
@@ -1152,15 +1158,24 @@ impl Escrow {
             .instance()
             .get(&DataKey::ApprovedResolvers)
             .unwrap_or(soroban_sdk::Vec::new(&env));
+        if !crate::internal::contains(&approved, &resolver) {
+            return Err(ContractError::InvalidAddress);
+        }
         let mut new_approved = soroban_sdk::Vec::new(&env);
+        let mut removed = false;
         for a in approved.iter() {
             if a != resolver {
                 new_approved.push_back(a);
+            } else {
+                removed = true;
             }
         }
         env.storage()
             .instance()
             .set(&DataKey::ApprovedResolvers, &new_approved);
+        if removed {
+            emit_resolver_removed(&env, resolver, caller);
+        }
         Ok(())
     }
 
@@ -1208,7 +1223,8 @@ impl Escrow {
         }
         env.storage()
             .instance()
-            .set(&DataKey::ActionPaused(action), &true);
+            .set(&DataKey::ActionPaused(action.clone()), &true);
+        emit_action_paused(&env, action, caller);
         Ok(())
     }
 
@@ -1225,7 +1241,8 @@ impl Escrow {
         }
         env.storage()
             .instance()
-            .set(&DataKey::ActionPaused(action), &false);
+            .set(&DataKey::ActionPaused(action.clone()), &false);
+        emit_action_unpaused(&env, action, caller);
         Ok(())
     }
 
@@ -1236,8 +1253,8 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        if fee > 10000 {
-            return Err(ContractError::FeeExceedsMax);
+        if fee > MAX_PLATFORM_FEE_BPS {
+            return Err(ContractError::PlatformFeeExceedsMax);
         }
         env.storage().instance().set(&DataKey::PlatformFeeBps, &fee);
         Ok(())

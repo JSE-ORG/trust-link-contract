@@ -77,23 +77,21 @@ where
 }
 
 #[test]
-#[ignore]
 fn set_ttl_extension_emits_event_with_caller_and_new_value() {
     let (env, client, contract_id, admin) = setup();
 
-    client.set_ttl_extension(&admin, &500_u32);
+    client.set_ttl_extension(&admin, &2_000_u32);
 
     assert!(event_emitted::<TtlExtensionUpdated, _>(
         &env,
         &contract_id,
         symbol_short!("TtlExt"),
         symbol_short!("Updated"),
-        |ev| ev.new_ledgers == 500 && ev.caller == admin,
+        |ev| ev.new_ledgers == 2_000 && ev.caller == admin,
     ));
 }
 
 #[test]
-#[ignore]
 fn set_amount_limits_emits_event_with_caller_and_new_values() {
     let (env, client, contract_id, admin) = setup();
 
@@ -109,7 +107,6 @@ fn set_amount_limits_emits_event_with_caller_and_new_values() {
 }
 
 #[test]
-#[ignore]
 fn pause_action_emits_event_with_caller_and_action() {
     let (env, client, contract_id, admin) = setup();
     let action = Symbol::new(&env, "CREATE");
@@ -126,7 +123,6 @@ fn pause_action_emits_event_with_caller_and_action() {
 }
 
 #[test]
-#[ignore]
 fn unpause_action_emits_event_with_caller_and_action() {
     let (env, client, contract_id, admin) = setup();
     let action = Symbol::new(&env, "CREATE");
@@ -144,7 +140,6 @@ fn unpause_action_emits_event_with_caller_and_action() {
 }
 
 #[test]
-#[ignore]
 fn add_approved_resolver_emits_event_with_caller_and_resolver() {
     let (env, client, contract_id, admin) = setup();
     let resolver = Address::generate(&env);
@@ -166,6 +161,10 @@ fn re_adding_an_already_approved_resolver_does_not_emit_a_second_event() {
     let resolver = Address::generate(&env);
     client.add_approved_resolver(&admin, &resolver);
 
+    // Drain the event log so a later count reflects only events emitted from
+    // this point onward.
+    let _before = env.events().all().events().len();
+
     // Re-adding the same resolver is a no-op: no state change, so this call
     // itself must not publish another ResolverApproved event.
     client.add_approved_resolver(&admin, &resolver);
@@ -175,7 +174,6 @@ fn re_adding_an_already_approved_resolver_does_not_emit_a_second_event() {
 }
 
 #[test]
-#[ignore]
 fn remove_approved_resolver_emits_event_with_caller_and_resolver() {
     let (env, client, contract_id, admin) = setup();
     let resolver = Address::generate(&env);
@@ -193,7 +191,6 @@ fn remove_approved_resolver_emits_event_with_caller_and_resolver() {
 }
 
 #[test]
-#[ignore]
 fn set_resolver_strict_emits_event_with_caller_and_new_value() {
     let (env, client, contract_id, admin) = setup();
 

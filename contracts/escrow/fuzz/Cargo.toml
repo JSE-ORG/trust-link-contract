@@ -133,6 +133,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "fee_calculation"
+path = "fuzz_targets/fee_calculation.rs"
+test = false
+doc = false
+bench = false
+
 [dependencies]
 trustlink-escrow = { path = "..", features = ["testutils"] }
 soroban-sdk = { version = "26", features = ["testutils"] }

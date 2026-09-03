@@ -102,4 +102,8 @@ pub enum ContractError {
     PayeeBpsMismatch = 44,
     /// Returned when the maximum number of messages for an escrow has been reached.
     TooManyMessages = 45,
+    /// Returned when a requested TTL extension is below `MIN_TTL_EXTENSION`.
+    InvalidTtlExtension = 46,
+    /// Returned when multi-resolver threshold is invalid (zero, exceeds resolver count, or resolver list is empty).
+    InvalidResolverThreshold = 47,
 }

@@ -30,7 +30,7 @@ fuzz_target!(|data: &[u8]| {
 
         let sender = h.actor(r.u8());
         let content = r.ascii_string(&h.env, MAX_CONTENT);
-        let target_id = if r.bool() { escrow_id } else { r.u64() };
+        let target_id = r.target_id(escrow_id);
 
         let _ = h.client.try_post_message(&target_id, &sender, &content);
     }

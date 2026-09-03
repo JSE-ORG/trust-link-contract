@@ -1,19 +1,24 @@
-# Multi-Resolver M-of-N Voting Scheme
+# Multi-Resolver & Fallback Dispute Resolution Schemes
 
 ## Overview
 
-The TrustLink Escrow Contract now supports M-of-N multi-resolver dispute resolution, replacing the previous single-resolver architecture. This enhancement eliminates the single point of failure risk while maintaining backward compatibility.
+The TrustLink Escrow Contract supports three flexible dispute resolution architectures:
+1. **Single Resolver** (`ResolverSet::Single`): Traditional 1-of-1 resolver (backward compatible).
+2. **M-of-N Multi-Resolver** (`ResolverSet::Multi`): Decentralized dispute resolution requiring M agreeing votes out of N total resolvers.
+3. **Primary/Backup Fallback Resolver** (`ResolverSet::Fallback`): A designated primary resolver with an automatic backup resolver fallback after a specified deadline.
 
 ## Backward Compatibility
 
 **Single-resolver escrows remain fully compatible:**
-- Existing `create_escrow()` function continues to work with a single resolver
-- Single resolvers automatically wrapped in `ResolverSet::Single` internally
+- Existing `create_escrow()` functions continue to work with a single resolver
+- Single resolvers are automatically wrapped in `ResolverSet::Single` internally
 - Existing events and storage remain unchanged for single-resolver mode
 
-## New Multi-Resolver Mode
+## Multi-Resolver Modes
 
-### Creating Multi-Resolver Escrows
+### 1. M-of-N Multi-Resolver Mode
+
+#### Creating Multi-Resolver Escrows
 
 ```rust
 // Create escrow with 3 resolvers, requiring 2 votes (2-of-3 scheme)
@@ -29,11 +34,44 @@ contract.create_escrow_multi(
 )
 ```
 
-### Resolver Requirements
+#### Resolver Requirements
 
 - **Unique:** All resolvers must be distinct addresses
 - **Non-conflicting:** Resolvers cannot be the seller or buyer
 - **Valid Threshold:** Must be > 0 and ≤ number of resolvers
+
+### 2. Primary / Backup Fallback Resolver Mode
+
+#### Overview
+The Fallback Resolver scheme (`ResolverSet::Fallback`) eliminates dispute stagnation if a primary resolver becomes unresponsive, unavailable, or abandons the platform.
+
+- **Primary Resolver**: Authorized to resolve disputes immediately once a dispute is raised.
+- **Backup Resolver**: Authorized to resolve disputes **only after** the ledger timestamp reaches or passes `dispute_deadline`.
+- **Voting Threshold**: 1 (resolution by either authorized party immediately transitions the dispute to `PendingFinalization`).
+
+#### Creating Fallback Escrows
+
+```rust
+// Create escrow with primary and backup resolvers and a 7-day fallback deadline
+let dispute_deadline = env.ledger().timestamp() + 7 * 86_400;
+
+contract.create_escrow_with_fallback(
+    seller,
+    Some(buyer),
+    primary_resolver,
+    backup_resolver,
+    dispute_deadline,
+    token,
+    amount,
+    fee_bps,
+    shipping_window
+);
+```
+
+#### Authorization & Timing Rules
+- If caller == `primary`: Authorized at any time (`now < dispute_deadline` or `now >= dispute_deadline`).
+- If caller == `backup`: Authorized **only if** `now >= dispute_deadline`. Calls prior to `dispute_deadline` revert with `ContractError::NotAuthorized`.
+- If caller is neither: Reverts with `ContractError::NotAuthorized`.
 
 ## Voting Mechanism
 
@@ -101,6 +139,24 @@ pub fn create_escrow_multi(
 ) -> Result<u64, ContractError>
 ```
 
+#### `create_escrow_with_fallback`
+```rust
+pub fn create_escrow_with_fallback(
+    env: Env,
+    seller: Address,
+    buyer: Option<Address>,
+    primary_resolver: Address,        // Primary arbitrator (authorized anytime)
+    backup_resolver: Address,         // Backup arbitrator (authorized at or after dispute_deadline)
+    dispute_deadline: u64,            // Timestamp threshold in seconds
+    token: Address,
+    amount: i128,
+    fee_bps: u32,
+    shipping_window: u64,
+) -> Result<u64, ContractError>
+```
+
+Creates an escrow with primary and backup dispute resolvers.
+
 #### `get_resolver_votes`
 ```rust
 pub fn get_resolver_votes(env: Env, escrow_id: u64) -> Vec<ResolverVote>
@@ -111,7 +167,7 @@ Returns the complete voting history for a disputed escrow, including all resolve
 ### Modified Contract Methods
 
 #### `resolve_dispute`
-Enhanced to support multi-resolver voting:
+Enhanced to support multi-resolver voting and fallback dispute resolution:
 
 ```rust
 pub fn resolve_dispute(
@@ -125,6 +181,7 @@ pub fn resolve_dispute(
 **Behavior:**
 - **Single resolver:** Executes immediately (backward compatible)
 - **Multi-resolver:** Records vote, checks threshold, auto-executes when threshold met
+- **Fallback resolver:** Executes immediately if caller is primary resolver, or if caller is backup resolver and `now >= dispute_deadline`
 
 #### `rotate_resolver`
 Enhanced to support rotation in single-resolver escrows only:
@@ -140,9 +197,7 @@ pub fn rotate_resolver(
 
 **Behavior:**
 - **Single resolver:** Rotates resolver (backward compatible)
-- **Multi-resolver:** Returns `InvalidState` (not supported yet)
-
-*Note: Multi-resolver set rotation would require a separate function.*
+- **Multi-resolver & Fallback:** Returns `InvalidState` (rotation not supported for multi/fallback sets)
 
 ## Data Structures
 
@@ -153,17 +208,27 @@ pub enum ResolverSet {
     /// Single resolver (backward compatible mode)
     Single(Address),
     /// Multiple resolvers with M-of-N voting threshold
-    Multi {
-        resolvers: Vec<Address>,
-        threshold: u32,
-    },
+    Multi(MultiResolver),
+    /// Primary resolver with a backup that can resolve after a deadline
+    Fallback(FallbackResolver),
 }
 ```
 
 **Methods:**
-- `count()` - Returns number of resolvers
-- `contains(addr)` - Checks if address is a resolver
-- `threshold()` - Returns required vote count
+- `count()` - Returns number of resolvers (1 for Single, N for Multi, 2 for Fallback)
+- `contains(addr)` - Checks if address is in the resolver set
+- `threshold()` - Returns required vote count (1 for Single, M for Multi, 1 for Fallback)
+- `can_resolve_now(addr, now)` - Checks whether address is currently authorized to resolve (enforces `dispute_deadline` for backup)
+
+### FallbackResolver Struct
+
+```rust
+pub struct FallbackResolver {
+    pub primary: Address,
+    pub backup: Address,
+    pub dispute_deadline: u64,
+}
+```
 
 ### ResolverVote Struct
 
@@ -221,11 +286,20 @@ await contract.create_escrow({
     seller, buyer, resolver, token, amount, fee_bps, shipping_window
 });
 
-// Multi-resolver (new feature)
+// Multi-resolver (M-of-N voting)
 await contract.create_escrow_multi({
     seller, buyer,
     resolvers: [resolver1, resolver2, resolver3],
     threshold: 2,
+    token, amount, fee_bps, shipping_window
+});
+
+// Fallback resolver (Primary / Backup with takeover deadline)
+await contract.create_escrow_with_fallback({
+    seller, buyer,
+    primary_resolver,
+    backup_resolver,
+    dispute_deadline: Math.floor(Date.now() / 1000) + (7 * 86400),
     token, amount, fee_bps, shipping_window
 });
 ```

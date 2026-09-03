@@ -48,9 +48,17 @@ pub fn execute_payout_transfers(
 ///
 /// The computation is split (`amount / 10_000 * fee_bps` plus the remainder
 /// term) to avoid overflowing `i128` for large amounts.
+///
+/// `fee_bps` beyond `BASIS_POINTS` (over 100%) is rejected with
+/// `FeeExceedsMax`: without this bound the split-div trick that avoids i128
+/// overflow can still yield a `fee` greater than `amount`, breaking the
+/// fee-boundedness invariant every caller relies on.
 pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, ContractError> {
     if amount < 0 {
         return Err(ContractError::InvalidAmount);
+    }
+    if fee_bps > BASIS_POINTS {
+        return Err(ContractError::FeeExceedsMax);
     }
 
     let part1 = amount
@@ -75,6 +83,34 @@ pub fn calculate_protocol_fee(amount: i128, fee_bps: u32) -> Result<(i128, i128)
     let net = amount
         .checked_sub(fee)
         .ok_or(ContractError::ArithmeticOverflow)?;
+    Ok((fee, net))
+}
+
+/// Transfers `amount` from the contract to `recipient` after deducting the
+/// protocol fee at `fee_bps` basis points, forwarding the fee to
+/// `fee_collector`.
+///
+/// Returns `(fee, net)` where `fee + net == amount`.
+pub(crate) fn transfer_with_protocol_fee(
+    env: &Env,
+    token_addr: &Address,
+    recipient: &Address,
+    fee_collector: &Address,
+    amount: i128,
+    fee_bps: u32,
+) -> Result<(i128, i128), ContractError> {
+    let (fee, net) = calculate_protocol_fee(amount, fee_bps)?;
+    let token_client = token::Client::new(env, token_addr);
+    let contract_addr = env.current_contract_address();
+
+    if net > 0 {
+        token_client.transfer(&contract_addr, recipient, &net);
+    }
+
+    if fee > 0 {
+        token_client.transfer(&contract_addr, fee_collector, &fee);
+    }
+
     Ok((fee, net))
 }
 

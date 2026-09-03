@@ -51,6 +51,8 @@ impl Escrow {
             resolver_fee_bps,
             shipping_window,
             notes,
+            None,
+            0,
         )
     }
 
@@ -122,6 +124,15 @@ impl Escrow {
         expires_at: Option<u64>,
         grace_period: u64,
     ) -> Result<u64, ContractError> {
+        if let Some(exp_time) = expires_at {
+            if exp_time <= env.ledger().timestamp() {
+                return Err(ContractError::InvalidExpiration);
+            }
+            exp_time
+                .checked_add(grace_period)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+        }
+
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
             address: seller,
@@ -138,18 +149,13 @@ impl Escrow {
             0,
             shipping_window,
             None,
+            expires_at,
+            grace_period,
         )?;
 
-        if let Some(expires_at) = expires_at {
-            if expires_at <= env.ledger().timestamp() {
-                return Err(ContractError::InvalidExpiration);
-            }
-            expires_at
-                .checked_add(grace_period)
-                .ok_or(ContractError::ArithmeticOverflow)?;
-
+        if let Some(exp_data) = expires_at {
             let schedule = crate::ExpirySchedule {
-                expires_at,
+                expires_at: exp_data,
                 grace_period,
             };
             let key = DataKey::PendingExpiry(escrow_id);
@@ -171,19 +177,15 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        let schedule: crate::ExpirySchedule = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingExpiry(escrow_id))
-            .ok_or(ContractError::InvalidState)?;
+        let expires_at = escrow.expires_at.ok_or(ContractError::InvalidState)?;
+        let grace_period = escrow.grace_period;
 
         let now = env.ledger().timestamp();
-        if now < schedule.expires_at {
+        if now < expires_at {
             return Err(ContractError::InvalidState);
         }
-        let reclaimable_at = schedule
-            .expires_at
-            .checked_add(schedule.grace_period)
+        let reclaimable_at = expires_at
+            .checked_add(grace_period)
             .ok_or(ContractError::ArithmeticOverflow)?;
         if now < reclaimable_at {
             return Err(ContractError::GracePeriodNotElapsed);
@@ -339,6 +341,16 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
+        // Issue #811: Clear PendingExpiry now that escrow is funded. This key was set at
+        // creation to auto-cancel unfunded escrows after PENDING_EXPIRY_WINDOW (7 days).
+        // Once Funded, the escrow can no longer expire from Pending timeout, so remove
+        // the key. Otherwise, ensure_not_expired will incorrectly reject subsequent
+        // operations (mark_shipped, cancel_escrow, mutual_cancel) if now >= expires_at,
+        // even though the escrow is no longer in Pending state.
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingExpiry(escrow_id));
+
         // Build basket_tokens event data if this is a basket escrow
         let basket_event_data = if basket_tokens.len() > 1 {
             let mut tuples = soroban_sdk::Vec::new(&env);
@@ -391,7 +403,7 @@ impl Escrow {
         }
 
         if amount < MIN_ESCROW_AMOUNT {
-            return Err(ContractError::InvalidAmount);
+            return Err(ContractError::AmountBelowMinimum);
         }
 
         validate_escrow_fee_bps(fee_bps)?;
@@ -431,6 +443,8 @@ impl Escrow {
             delivered_at: None,
             tracking_id: None,
             notes: None,
+            expires_at: None,
+            grace_period: 0,
         };
 
         save_escrow(&env, escrow_id, &escrow, None);
@@ -515,6 +529,49 @@ impl Escrow {
         Ok(())
     }
 
+    /// Creates an escrow configured with a fallback resolver scheme (`ResolverSet::Fallback`).
+    ///
+    /// The fallback scheme designates a primary resolver and a backup resolver:
+    /// - **Primary Resolver**: Authorized to resolve disputes at any time once a dispute is raised.
+    /// - **Backup Resolver**: Authorized to resolve disputes only when the ledger timestamp is at
+    ///   or after `dispute_deadline`. This prevents deadlocks if the primary resolver is unresponsive.
+    /// - **Threshold**: The voting threshold is 1 (either the primary resolver or the backup resolver
+    ///   can unilaterally resolve the dispute once authorized).
+    ///
+    /// # Arguments
+    /// * `env` - Soroban environment.
+    /// * `seller` - Address of the seller (must authenticate this call).
+    /// * `buyer` - Optional address of the designated buyer (if None, anyone can fund).
+    /// * `primary_resolver` - Address of the primary dispute arbitrator.
+    /// * `backup_resolver` - Address of the backup dispute arbitrator who takes over after `dispute_deadline`.
+    /// * `dispute_deadline` - Unix timestamp in seconds after which the backup resolver becomes eligible to resolve disputes.
+    /// * `token` - Address of the SPL/SEP-41 payment token.
+    /// * `amount` - Escrow deposit amount in stroops (must be >= `MIN_ESCROW_AMOUNT` and <= `MAX_ESCROW_AMOUNT`).
+    /// * `fee_bps` - Escrow fee in basis points (100 bps = 1%, max 300 bps).
+    /// * `shipping_window` - Duration in seconds allocated for shipping before auto-cancellation or delivery.
+    ///
+    /// # Errors
+    /// * `ContractError::ContractPaused` - Contract is currently paused.
+    /// * `ContractError::InvalidAmount` - Amount is <= 0 or < `MIN_ESCROW_AMOUNT`.
+    /// * `ContractError::AmountExceedsMaximum` - Amount exceeds `MAX_ESCROW_AMOUNT`.
+    /// * `ContractError::InvalidFeeBps` - Fee exceeds maximum permitted cap (`MAX_ESCROW_FEE_BPS`).
+    /// * `ContractError::ResolverRoleConflict` - `primary_resolver` or `backup_resolver` matches `seller` or `buyer`.
+    /// * `ContractError::DuplicateResolver` - `primary_resolver` equals `backup_resolver`.
+    /// * `ContractError::ResolverNotApproved` - Strict resolver mode is enabled and a resolver is not on the approved list.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let escrow_id = client.create_escrow_with_fallback(
+    ///     &seller,
+    ///     &Some(buyer),
+    ///     &primary_resolver,
+    ///     &backup_resolver,
+    ///     &(env.ledger().timestamp() + 86_400), // backup eligible after 24h
+    ///     &token,
+    ///     &1_000_000_i128,
+    ///     &100_u32, // 1%
+    ///     &86_400_u64, // 24h shipping window
+    /// );
     /// Creates an escrow whose dispute resolver is a **primary/backup pair**:
     /// the `primary_resolver` handles disputes, and if they go unresponsive the
     /// `backup_resolver` may step in once `dispute_deadline` is reached.
@@ -612,20 +669,12 @@ impl Escrow {
         });
         validate_resolvers(&resolver_set, &seller, &buyer)?;
 
-        let escrow_id: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCounter)
-            .ok_or(ContractError::NotInitialized)?;
-        let next_id = escrow_id
-            .checked_add(1)
-            .ok_or(ContractError::ArithmeticError)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCounter, &next_id);
-
-        let ext = get_ttl_extension(&env);
-        env.storage().instance().extend_ttl(ext / 2, ext);
+        // Issue #813: Use centralized next_escrow_id helper instead of duplicating
+        // counter logic. This ensures TTL extension is always applied and the counter
+        // increment is consistent with other creation paths (create_escrow_multi,
+        // create_basket_escrow, and create_escrow_internal). Prior inline
+        // implementation was identical but spread across multiple functions.
+        let escrow_id = crate::next_escrow_id(&env)?;
 
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
@@ -648,6 +697,8 @@ impl Escrow {
             delivered_at: None,
             tracking_id: None,
             notes: None,
+            expires_at: None,
+            grace_period: 0,
         };
 
         save_escrow(&env, escrow_id, &escrow, None);
@@ -1017,34 +1068,9 @@ impl Escrow {
             return Err(ContractError::DisputeWindowStillOpen);
         }
 
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotInitialized)?;
-
-        let first_payee_addr = escrow
-            .payees
-            .get(0)
-            .ok_or(ContractError::IndexOutOfBounds)?
-            .address
-            .clone();
-        let (protocol_fee, net_amount) =
-            crate::helpers::payout::calculate_protocol_fee(escrow.amount, escrow.fee_bps)?;
-        if protocol_fee > 0 {
-            token::Client::new(&env, &escrow.token).transfer(
-                &env.current_contract_address(),
-                &fee_collector,
-                &protocol_fee,
-            );
-        }
-        distribute_to_payees(&env, &escrow.token, &escrow.payees, net_amount)?;
-        payout_basket_tokens(&env, escrow_id, &first_payee_addr)?;
-
-        let prev_state = escrow.state.clone();
-        escrow.state = EscrowState::Completed;
-        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-        increment_counter(&env, &DataKey::TotalCompleted)?;
+        let snapshot_fee_bps = escrow.fee_bps;
+        let (prev_state, first_payee_addr) =
+            settle_escrow_to_payees(&env, &mut escrow, escrow_id, snapshot_fee_bps)?;
 
         emit_escrow_completed(
             &env,
@@ -1144,73 +1170,13 @@ impl Escrow {
         crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
-        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-            return Err(ContractError::InvalidState);
-        }
+        ensure_auto_release_eligible(&env, &escrow, escrow_id)?;
 
-        if load_dispute(&env, escrow_id).is_ok() {
-            return Err(ContractError::InvalidState);
-        }
-
-        let now = env.ledger().timestamp();
-
-        if let Some(delivered_at) = escrow.delivered_at {
-            let eligible_at = delivered_at
-                .checked_add(DELIVERY_RELEASE_WINDOW)
-                .ok_or(ContractError::ArithmeticOverflow)?;
-            if now < eligible_at {
-                return Err(ContractError::ShippingWindowNotElapsed);
-            }
-        } else if escrow.state == EscrowState::Shipped {
-            return Err(ContractError::DeliveryNotRecorded);
-        } else {
-            if now < escrow.dispute_deadline {
-                return Err(ContractError::DeliveryBeforeDisputeWindow);
-            }
-            let shipped_or_funded_at = if escrow.shipped_at > 0 {
-                escrow.shipped_at
-            } else {
-                escrow.funded_at
-            };
-            let window_elapsed_at = shipped_or_funded_at
-                .checked_add(escrow.shipping_window)
-                .ok_or(ContractError::ArithmeticError)?;
-            if now < window_elapsed_at {
-                return Err(ContractError::ShippingWindowNotElapsed);
-            }
-        }
-
-        let fee_config = read_fee_config(&env);
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotInitialized)?;
-
-        let first_payee_addr = escrow
-            .payees
-            .get(0)
-            .ok_or(ContractError::IndexOutOfBounds)?
-            .address
-            .clone();
-        let (protocol_fee, net_amount) = crate::helpers::payout::calculate_protocol_fee(
-            escrow.amount,
-            fee_config.protocol_fee_bps,
-        )?;
-        if protocol_fee > 0 {
-            token::Client::new(&env, &escrow.token).transfer(
-                &env.current_contract_address(),
-                &fee_collector,
-                &protocol_fee,
-            );
-        }
-        distribute_to_payees(&env, &escrow.token, &escrow.payees, net_amount)?;
-        payout_basket_tokens(&env, escrow_id, &first_payee_addr)?;
-
-        let prev_state = escrow.state.clone();
-        escrow.state = EscrowState::Completed;
-        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-        increment_counter(&env, &DataKey::TotalCompleted)?;
+        // `auto_release` settles at the *current* global protocol fee, unlike
+        // `confirm_delivery` which uses the rate snapshotted on the escrow.
+        let protocol_fee_bps = read_fee_config(&env).protocol_fee_bps;
+        let (prev_state, first_payee_addr) =
+            settle_escrow_to_payees(&env, &mut escrow, escrow_id, protocol_fee_bps)?;
 
         emit_auto_released(
             &env,
@@ -1227,7 +1193,8 @@ impl Escrow {
     /// Creates an escrow that pays out multiple tokens ("basket") to a single
     /// seller instead of the single-token flow used by `create_escrow`.
     /// `tokens` and `amounts` must be the same non-empty length and every
-    /// token must pass the allowlist check (if enabled). The primary
+    /// token must pass the allowlist check (if enabled). Every amount is
+    /// validated: must be > 0 and within `[MinAmount, MaxAmount]`. The primary
     /// `EscrowData` record tracks `tokens[0]`/`amounts[0]`; the full basket
     /// is stored separately and readable via `get_basket_tokens`. Must be
     /// funded with `fund_basket_escrow`. Emits `basket_escrow_created`.
@@ -1248,7 +1215,38 @@ impl Escrow {
             return Err(ContractError::BasketTokenMismatch);
         }
 
+        if tokens.len() > MAX_BASKET_SIZE {
+            return Err(ContractError::BasketTokenMismatch);
+        }
+
         validate_escrow_fee_bps(fee_bps)?;
+
+        // Validate every basket amount against the configured or default limits.
+        // Mirrors the three-step check in create_escrow_internal so secondary
+        // tokens are subject to the same arithmetic-safety guarantees as the
+        // primary token.
+        let max_amount: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxAmount)
+            .unwrap_or(MAX_ESCROW_AMOUNT);
+        let min_amount: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinAmount)
+            .unwrap_or(MIN_ESCROW_AMOUNT);
+
+        for amount in amounts.iter() {
+            if amount <= 0 {
+                return Err(ContractError::InvalidAmount);
+            }
+            if amount > max_amount {
+                return Err(ContractError::AmountExceedsMaximum);
+            }
+            if amount < min_amount {
+                return Err(ContractError::AmountBelowMinimum);
+            }
+        }
 
         if resolver == seller {
             return Err(ContractError::ConflictingRoles);
@@ -1259,8 +1257,39 @@ impl Escrow {
             }
         }
 
+        // Issue #829: Check resolver strict registry (same as create_escrow_internal).
+        // When strict mode is enabled, only approved resolvers may be used.
+        if env
+            .storage()
+            .instance()
+            .get::<DataKey, bool>(&DataKey::ResolverStrict)
+            .unwrap_or(false)
+        {
+            let approved: soroban_sdk::Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::ApprovedResolvers)
+                .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
+            if !contains(&approved, &resolver) {
+                return Err(ContractError::UnauthorizedResolver);
+            }
+        }
+
         for token in tokens.iter() {
             is_token_allowed(&env, &token)?;
+        }
+
+        // Reject duplicate tokens: fund_escrow/payout_basket_tokens transfer
+        // and pay out every basket entry individually, so a duplicated token
+        // would be funded and paid out once per occurrence.
+        for i in 0..tokens.len() {
+            let token_i = tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+            for j in (i + 1)..tokens.len() {
+                let token_j = tokens.get(j).ok_or(ContractError::IndexOutOfBounds)?;
+                if token_i == token_j {
+                    return Err(ContractError::BasketTokenMismatch);
+                }
+            }
         }
 
         let escrow_id = crate::next_escrow_id(&env)?;
@@ -1289,6 +1318,8 @@ impl Escrow {
             delivered_at: None,
             tracking_id: None,
             notes: None,
+            expires_at: None,
+            grace_period: 0,
         };
 
         save_escrow(&env, escrow_id, &escrow, None);
@@ -1327,6 +1358,44 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
+        // Expiry checks, mirroring fund_escrow: an explicit PendingExpiry
+        // schedule and the blanket 7-day PENDING_EXPIRY_WINDOW after creation.
+        // A basket escrow cannot be funded once it has expired, just like a
+        // normal escrow.
+        let now = env.ledger().timestamp();
+        if let Some(schedule) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, crate::ExpirySchedule>(&DataKey::PendingExpiry(escrow_id))
+        {
+            if now >= schedule.expires_at {
+                return Err(ContractError::EscrowExpired);
+            }
+        }
+        let created_at = crate::internal::escrow_created_at(&env, escrow_id);
+        let blanket_deadline = created_at
+            .checked_add(crate::PENDING_EXPIRY_WINDOW)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if now > blanket_deadline {
+            return Err(ContractError::EscrowExpired);
+        }
+
+        // Security: buyer must differ from every payee (seller) and every
+        // resolver in the set. Mirrors the identical check in fund_escrow and
+        // enforces INVARIANTS.md I4 (role separation) for basket escrows.
+        for i in 0..escrow.payees.len() {
+            let payee = escrow
+                .payees
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            if buyer == payee.address {
+                return Err(ContractError::ConflictingRoles);
+            }
+        }
+        if escrow.resolvers.contains(&buyer) {
+            return Err(ContractError::ConflictingRoles);
+        }
+
         if let Some(ref expected_buyer) = escrow.buyer {
             if &buyer != expected_buyer {
                 return Err(ContractError::NotAuthorized);
@@ -1335,7 +1404,7 @@ impl Escrow {
 
         let basket_tokens = load_basket_tokens(&env, escrow_id);
         if basket_tokens.is_empty() {
-            return Err(ContractError::InvalidAmount);
+            return Err(ContractError::BasketTokenMismatch);
         }
 
         for i in 0..basket_tokens.len() {
@@ -1351,7 +1420,6 @@ impl Escrow {
             }
         }
 
-        let now = env.ledger().timestamp();
         let prev_state = escrow.state.clone();
         escrow.buyer = Some(buyer.clone());
         escrow.state = EscrowState::Funded;
@@ -1374,6 +1442,13 @@ impl Escrow {
             .extend_ttl(&buyer_key, ext / 2, ext);
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        // Issue #811: Clear PendingExpiry after successful funding. Mirrors fix in
+        // fund_escrow to prevent ensure_not_expired from incorrectly blocking operations
+        // on Funded escrows when the Pending timeout window has passed.
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingExpiry(escrow_id));
 
         // Build basket_tokens event data (always Some for basket escrows)
         let mut basket_event_tuples = soroban_sdk::Vec::new(&env);
@@ -1614,6 +1689,8 @@ impl Escrow {
                 0, // resolver_fee_bps
                 input.shipping_window,
                 input.notes,
+                None,
+                0,
             )?;
             escrow_ids.push_back(id);
         }
