@@ -1715,21 +1715,6 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "TotalArbitrationFees"
-                          },
-                          {
-                            "address": "CCF7CGAN3G4L2LJV6EB3GZKQSQY6YGJ4XEQYQVA7GXOYRGIQXSIWVBTI"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "i128": "0"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
                             "symbol": "TotalCreated"
                           }
                         ]
