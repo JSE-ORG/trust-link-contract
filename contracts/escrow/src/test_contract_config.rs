@@ -4,7 +4,6 @@ use crate::{Escrow, EscrowClient, Payee};
 use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal, Vec};
 
 #[test]
-#[ignore]
 fn test_get_public_config() {
     let env = Env::default();
     env.mock_all_auths();
@@ -62,7 +61,6 @@ fn test_get_public_config() {
 }
 
 #[test]
-#[ignore]
 fn test_get_contract_config_requires_admin() {
     let env = Env::default();
     env.mock_all_auths();

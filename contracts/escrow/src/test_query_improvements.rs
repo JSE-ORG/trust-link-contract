@@ -68,12 +68,12 @@ fn test_get_escrows_by_buyer_fallback_without_ttl_extension() {
         );
     }
 
-    // Query should return only target buyer's escrows (in reverse creation order)
+    // Query should return only target buyer's escrows (in creation order)
     let result = client.get_escrows_by_buyer(&buyer_target);
     assert_eq!(result.len(), 5);
-    // Results are in reverse order (newest first) due to fallback scan
+    // Results are in ascending (creation) order after the fallback scan
     for i in 0..5 {
-        let expected_id = target_ids.get(4 - i).unwrap(); // Reverse lookup
+        let expected_id = target_ids.get(i).unwrap();
         assert_eq!(result.get(i).unwrap(), expected_id);
     }
 }

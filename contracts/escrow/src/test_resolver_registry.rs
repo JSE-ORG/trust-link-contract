@@ -144,7 +144,6 @@ fn admin_can_remove_approved_resolver() {
 }
 
 #[test]
-#[ignore]
 fn remove_unknown_resolver_returns_error() {
     let env = Env::default();
     let (client, admin, _fee_collector, _seller, _buyer, resolver, _token) = init_client(&env);

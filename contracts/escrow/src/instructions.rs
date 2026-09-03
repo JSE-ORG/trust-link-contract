@@ -1404,7 +1404,7 @@ impl Escrow {
 
         let basket_tokens = load_basket_tokens(&env, escrow_id);
         if basket_tokens.is_empty() {
-            return Err(ContractError::InvalidAmount);
+            return Err(ContractError::BasketTokenMismatch);
         }
 
         for i in 0..basket_tokens.len() {

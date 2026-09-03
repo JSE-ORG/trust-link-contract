@@ -34,7 +34,7 @@ pub fn create_funded_escrow(
     token: &Address,
     amount: i128,
     fee_bps: u32,
-    _shipping_window: u64,
+    shipping_window: u64,
 ) -> u64 {
     mint_token(env, token, buyer, amount);
     let mut payees = Vec::new(env);
@@ -43,13 +43,14 @@ pub fn create_funded_escrow(
         bps: 10_000,
     });
     let payees_val = payees.into_val(env);
-    let id = client.create_escrow_7(
+    let id = client.create_escrow_8(
         &payees_val,
         &None::<Address>,
         resolver,
         token,
         &amount,
         &fee_bps,
+        &shipping_window,
     );
     client.fund_escrow(&id, buyer);
     id

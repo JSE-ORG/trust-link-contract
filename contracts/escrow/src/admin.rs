@@ -976,6 +976,7 @@ impl Escrow {
     #[cfg(any(test, feature = "testutils"))]
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
         let old_admin = require_admin(&env)?;
+        old_admin.require_auth();
         if new_admin == old_admin {
             return Err(ContractError::SameAddress);
         }
@@ -991,10 +992,12 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        if fee > 10000 {
+        if fee > MAX_PROTOCOL_FEE_BPS {
             return Err(ContractError::FeeExceedsMax);
         }
-        env.storage().instance().set(&DataKey::PlatformFeeBps, &fee);
+        let mut config = read_fee_config(&env);
+        config.protocol_fee_bps = fee;
+        write_fee_config(&env, &config);
         Ok(())
     }
 
@@ -1005,19 +1008,14 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        if fee > 10000 {
-            return Err(ContractError::PlatformFeeExceedsMax);
+        if fee > MAX_PROTOCOL_FEE_BPS {
+            return Err(ContractError::FeeExceedsMax);
         }
-        let mut config: crate::types::FeeConfig = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeConfig)
-            .unwrap_or(crate::types::FeeConfig {
-                protocol_fee_bps: 0,
-                arbitration_fee_bps: 0,
-            });
+        let mut config = read_fee_config(&env);
+        let old_fee = config.protocol_fee_bps;
         config.protocol_fee_bps = fee;
-        env.storage().instance().set(&DataKey::FeeConfig, &config);
+        write_fee_config(&env, &config);
+        emit_protocol_fee_updated(&env, old_fee, fee);
         Ok(())
     }
 
@@ -1160,6 +1158,9 @@ impl Escrow {
             .instance()
             .get(&DataKey::ApprovedResolvers)
             .unwrap_or(soroban_sdk::Vec::new(&env));
+        if !crate::internal::contains(&approved, &resolver) {
+            return Err(ContractError::InvalidAddress);
+        }
         let mut new_approved = soroban_sdk::Vec::new(&env);
         let mut removed = false;
         for a in approved.iter() {

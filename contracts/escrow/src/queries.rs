@@ -95,10 +95,10 @@ impl Escrow {
             .unwrap_or(1);
 
         let max_iterations = 1000;
-        for (iterations, id) in (1..counter).rev().enumerate() {
-            if iterations >= max_iterations {
-                break;
-            }
+        // Scan the most recent max_iterations escrows. `zip` bounds the scan
+        // without a manual counter. The `has` check avoids extending TTL for
+        // non-matching escrows.
+        for (id, _) in (1..counter).rev().zip(0..max_iterations) {
             // Check if escrow key exists without TTL extension
             let key = DataKey::Escrow(id);
             if env.storage().persistent().has(&key) {
@@ -110,7 +110,14 @@ impl Escrow {
                 }
             }
         }
-        result
+        // build in ascending order
+        let mut ascending = Vec::new(&env);
+        for i in (0..result.len()).rev() {
+            if let Some(id) = result.get(i) {
+                ascending.push_back(id);
+            }
+        }
+        ascending
     }
 
     /// Batch view: return escrows for the supplied IDs in the same order.
