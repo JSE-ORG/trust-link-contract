@@ -44,6 +44,18 @@ fn queue_timelock_op(
     Ok(())
 }
 
+/// Executes a queued timelocked admin operation once it is ready.
+///
+/// Intentionally permissionless ("keeper" execution): unlike `queue_timelock_op`
+/// and `cancel_timelock_op`, this function performs no `caller.require_auth()`
+/// and no `require_admin_caller` check. `caller` need not be the admin or the
+/// original proposer — any address may submit the transaction that executes
+/// a proposal once `now >= proposal.ready_at`. This is by design: the
+/// operation's parameters were fixed and validated at queue time (admin-only),
+/// the 24-hour delay has already elapsed, and there is no benefit to
+/// restricting who pays the gas to apply it. `cancel_timelock_op` remains
+/// admin-only, so the admin retains the ability to withdraw a proposal before
+/// any keeper can execute it.
 fn execute_timelock_op(
     env: &Env,
     caller: &Address,

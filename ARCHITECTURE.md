@@ -339,6 +339,18 @@ Indexers expecting complete history for high-churn escrows should either:
 | `auto_release` | No auth required — permissionless after window expires |
 | `get_escrow` / `get_resolver_votes` / `get_basket_tokens` | No auth required — read-only |
 
+### Admin Timelock (Queue → Execute → Cancel)
+
+Every privileged admin operation (`SetAdmin`, `Upgrade`, fee/treasury/TTL/amount-limit changes, the approved-resolver registry, the token allowlist, and pause/unpause) goes through a two-step `queue_<op>` → `execute_<op>` workflow gated by `ADMIN_TIMELOCK_DELAY_SECONDS` (24 hours). The three steps have different authorization:
+
+| Step | Who must sign | Notes |
+|---|---|---|
+| `queue_<op>` (e.g. `queue_set_admin`) | `admin` | Validates params, stores a `TimelockProposal` with `ready_at = now + 24h` |
+| `execute_<op>` (e.g. `execute_set_admin`) | **Anyone (permissionless keeper execution)** | No auth check by design — any address may execute a proposal once `now >= ready_at`. The proposal's parameters were already fixed and validated at queue time, so a keeper cannot change what gets executed, only trigger it |
+| `cancel_timelock_op` | `admin` | Withdraws a queued proposal before it executes; admin-only, unlike `execute_<op>` |
+
+The permissionless design lets any interested party (not just the admin) submit the execute transaction once the delay has elapsed, so a queued operation can't be stalled by the admin simply going offline.
+
 ---
 
 ## Cross-Contract Interactions

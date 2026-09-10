@@ -303,9 +303,12 @@ proof.
 ## Assumptions & Trust Model
 
 ### Trusted Roles
-1. **Admin**: Can pause, set fees, record delivery. Key must be secured.
+1. **Admin**: Can pause, set fees, record delivery. Also queues and cancels timelocked admin operations (`SetAdmin`, `Upgrade`, fee/treasury changes, resolver registry, token allowlist, pause/unpause) — see `contracts/escrow/src/admin.rs`. Key must be secured.
 2. **Fee Collector**: Receives protocol fees. No special permissions.
 3. **Resolver**: Mediates disputes; chosen by seller at creation. Trusted by both parties.
+
+### Untrusted, but permissionless by design
+- **Timelock keeper**: `execute_<op>` (e.g. `execute_set_admin`) intentionally performs no auth check — any address may execute a queued admin operation once its 24-hour delay has elapsed. This does not expand admin's trust boundary: the operation's parameters were already fixed and validated by the admin at queue time, and the admin can `cancel_timelock_op` (admin-only) to withdraw it first.
 
 ### Untrusted
 - Buyer: Can fund, confirm, dispute; confined by auth
@@ -334,7 +337,7 @@ proof.
 
 ### Low Priority
 9. Add internal audit logging for disputed escrows
-10. Consider timelock for admin functions
+10. ✅ Timelock for admin functions — implemented as the `queue_<op>` / `execute_<op>` / `cancel_timelock_op` workflow in `contracts/escrow/src/admin.rs` (24-hour delay). Note that `execute_<op>` is intentionally permissionless keeper execution, while `queue_<op>` and `cancel_timelock_op` remain admin-only.
 11. Evaluate multi-sig for admin role
 
 ## Out-of-Scope
