@@ -153,15 +153,16 @@ try {
 3. **No Partial Releases** — Full amount or nothing; no milestone-based split payments.
 4. **Resolver Configuration Is Fixed At Creation** — `create_escrow` (and other single-resolver entry points) use one resolver with no fallback. `create_escrow_multi` supports an M-of-N voting committee (`ResolverSet::Multi`), and `create_escrow_with_fallback` supports a primary/backup pair with a time-delayed handover (`ResolverSet::Fallback`) — see `contracts/escrow/src/types.rs`. Whichever mode is chosen at creation cannot be changed later except via `rotate_resolver`.
 5. **Token Whitelisting Is Opt-In** — An admin-controlled allowlist exists (`set_token_allowlist_enabled`, `add_allowed_token`, `remove_allowed_token` in `contracts/escrow/src/admin.rs`) and rejects non-listed tokens with `TokenNotAllowed` once enabled, but it is disabled by default — deployers who want filtering must turn it on and populate it.
+6. **Timelocked Admin Operations Execute Permissionlessly** — Queuing (`queue_<op>`) and cancelling (`cancel_timelock_op`) a timelocked admin operation (`SetAdmin`, `Upgrade`, fee/treasury changes, the resolver registry, the token allowlist, pause/unpause) are admin-only, but executing it (`execute_<op>`, e.g. `execute_set_admin`) is intentionally permissionless "keeper" execution — any address may submit the transaction once the 24-hour delay has elapsed, in `contracts/escrow/src/admin.rs`. The executed parameters were already fixed and validated by the admin at queue time, so this does not let a keeper change what runs, only when the already-approved change gets applied.
 
 ### Performance
-6. **O(n) Lookups** — `get_escrows_by_buyer` must scan index; large indices may be slow.
-7. **Persistent Storage** — All escrow history retained; storage grows unbounded.
-8. **Single-Threaded** — Soroban transactions are sequential; no parallel operations.
+7. **O(n) Lookups** — `get_escrows_by_buyer` must scan index; large indices may be slow.
+8. **Persistent Storage** — All escrow history retained; storage grows unbounded.
+9. **Single-Threaded** — Soroban transactions are sequential; no parallel operations.
 
 ### Operational
-9. **Fee Cannot Be Retroactively Changed** — Fees are frozen at creation; new fee applied only to new escrows.
-10. **No Emergency Pause Mitigation** — Pause stops all operations; unpause requires admin action.
+10. **Fee Cannot Be Retroactively Changed** — Fees are frozen at creation; new fee applied only to new escrows.
+11. **No Emergency Pause Mitigation** — Pause stops all operations; unpause requires admin action.
 
 ---
 
