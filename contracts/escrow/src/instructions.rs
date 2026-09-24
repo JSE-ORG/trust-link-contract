@@ -761,19 +761,24 @@ impl Escrow {
         }
 
         let prev_state = escrow.state.clone();
-        if escrow.state == EscrowState::Pending {
+        let should_refund = if escrow.state == EscrowState::Pending {
             escrow.state = EscrowState::Canceled;
+            false
         } else if escrow.state == EscrowState::Funded && buyer.as_ref() == Some(&caller) {
+            escrow.state = EscrowState::Refunded;
+            increment_counter(&env, &DataKey::TotalRefunded)?;
+            true
+        } else {
+            return Err(ContractError::InvalidState);
+        };
+
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        if should_refund {
             let token_client = token::Client::new(&env, &escrow.token);
             token_client.transfer(&env.current_contract_address(), &caller, &escrow.amount);
             payout_basket_tokens(&env, escrow_id, &caller)?;
-            escrow.state = EscrowState::Refunded;
-            increment_counter(&env, &DataKey::TotalRefunded)?;
-        } else {
-            return Err(ContractError::InvalidState);
         }
-
-        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         let first_payee_addr = escrow
             .payees
             .get(0)
@@ -814,6 +819,10 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
+        let prev_state = escrow.state.clone();
+        escrow.state = EscrowState::Canceled;
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
         token::Client::new(&env, &escrow.token).transfer(
             &env.current_contract_address(),
             &buyer,
@@ -821,10 +830,6 @@ impl Escrow {
         );
 
         payout_basket_tokens(&env, escrow_id, &buyer)?;
-
-        let prev_state = escrow.state.clone();
-        escrow.state = EscrowState::Canceled;
-        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
         emit_escrow_canceled(
             &env,
@@ -1128,22 +1133,22 @@ impl Escrow {
             .get(&DataKey::FeeCollector)
             .ok_or(ContractError::NotInitialized)?;
 
-        transfer_with_protocol_fee(
-            &env,
-            &escrow.token,
-            &first_payee,
-            &fee_collector,
-            escrow.amount,
-            fee_config.protocol_fee_bps,
-        )?;
-        payout_basket_tokens(&env, escrow_id, &first_payee)?;
-
         let prev_state = escrow.state.clone();
         let mut updated = escrow;
         updated.state = EscrowState::Completed;
 
         save_escrow(&env, escrow_id, &updated, Some(&prev_state));
         increment_counter(&env, &DataKey::TotalCompleted)?;
+
+        transfer_with_protocol_fee(
+            &env,
+            &updated.token,
+            &first_payee,
+            &fee_collector,
+            updated.amount,
+            fee_config.protocol_fee_bps,
+        )?;
+        payout_basket_tokens(&env, escrow_id, &first_payee)?;
         emit_escrow_completed(
             &env,
             escrow_id,
@@ -1640,14 +1645,14 @@ impl Escrow {
             .clone()
             .ok_or(ContractError::EscrowHasNoBuyer)?;
 
-        let token_client = token::Client::new(&env, &escrow.token);
-        token_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
-
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         increment_counter(&env, &DataKey::TotalRefunded)?;
+
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
 
         emit_refund_approved(
             &env,
