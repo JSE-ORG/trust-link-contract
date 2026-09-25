@@ -958,6 +958,7 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        crate::internal::clear_delivery_proposal(&env, escrow_id);
 
         // Issue #814: When emergency_drain is called on a disputed escrow, escrow.amount
         // has already been reduced by arbitration_fee in execute_resolution_transition.

@@ -210,6 +210,7 @@ impl Escrow {
         env.storage()
             .persistent()
             .remove(&DataKey::PendingExpiry(escrow_id));
+        clear_delivery_proposal(&env, escrow_id);
 
         emit_escrow_expired(
             &env,
@@ -1157,6 +1158,7 @@ impl Escrow {
         updated.state = EscrowState::Completed;
 
         save_escrow(&env, escrow_id, &updated, Some(&prev_state));
+        clear_delivery_proposal(&env, escrow_id);
         increment_counter(&env, &DataKey::TotalCompleted)?;
         emit_escrow_completed(
             &env,

@@ -579,6 +579,17 @@ pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<
     }
 }
 
+/// Drops any pending admin delivery proposal (`propose_record_delivery`).
+/// A proposal can only exist while the escrow is `Shipped` with no recorded
+/// delivery, so every transition out of `Shipped` other than
+/// `record_delivery` (which consumes it) must call this, or the entry is
+/// orphaned in persistent storage. A no-op when no proposal exists.
+pub(crate) fn clear_delivery_proposal(env: &Env, escrow_id: u64) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::DeliveryProposal(escrow_id));
+}
+
 /// Tops up the TTL of every persistent entry owned by `escrow_id`, and of the
 /// contract instance, to the full configured extension without reading or
 /// writing any value. Backs the permissionless `extend_escrow_ttl` entry point.
@@ -826,6 +837,7 @@ pub(crate) fn settle_escrow_to_payees(
     let prev_state = escrow.state.clone();
     escrow.state = EscrowState::Completed;
     save_escrow(env, escrow_id, escrow, Some(&prev_state));
+    clear_delivery_proposal(env, escrow_id);
     increment_counter(env, &DataKey::TotalCompleted)?;
 
     Ok((prev_state, first_payee_addr))
