@@ -25,6 +25,11 @@ impl Escrow {
         shipping_window: u64,
         notes: Option<String>,
     ) -> Result<u64, ContractError> {
+        // `seller_or_payees` must be decoded before we know which address to
+        // authenticate; this is otherwise the first thing the function does.
+        // See internal.rs: `create_escrow_internal` no longer calls
+        // `require_auth()` itself — every entry point must do it here, at
+        // the top, not leave it to the shared helper.
         let payees = if let Ok(payees_vec) = Vec::<Payee>::try_from_val(&env, &seller_or_payees) {
             payees_vec
         } else if let Ok(seller_address) = Address::try_from_val(&env, &seller_or_payees) {
@@ -37,6 +42,11 @@ impl Escrow {
         } else {
             return Err(ContractError::InvalidAddress);
         };
+        payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .require_auth();
 
         ensure_not_paused(&env)?;
 
@@ -124,6 +134,8 @@ impl Escrow {
         expires_at: Option<u64>,
         grace_period: u64,
     ) -> Result<u64, ContractError> {
+        seller.require_auth();
+
         if let Some(exp_time) = expires_at {
             if exp_time <= env.ledger().timestamp() {
                 return Err(ContractError::InvalidExpiration);
@@ -174,7 +186,10 @@ impl Escrow {
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         let expires_at = escrow.expires_at.ok_or(ContractError::InvalidState)?;
@@ -197,13 +212,7 @@ impl Escrow {
             .ok_or(ContractError::EscrowHasNoBuyer)?;
         buyer.require_auth();
 
-        token::Client::new(&env, &escrow.token).transfer(
-            &env.current_contract_address(),
-            &buyer,
-            &escrow.amount,
-        );
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
-
+        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Expired;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
@@ -211,6 +220,10 @@ impl Escrow {
             .persistent()
             .remove(&DataKey::PendingExpiry(escrow_id));
         clear_delivery_proposal(&env, escrow_id);
+
+        // ── INTERACTIONS (external token transfers) ──
+        payout(&env, &escrow.token, &buyer, escrow.amount);
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
 
         emit_escrow_expired(
             &env,
@@ -231,7 +244,10 @@ impl Escrow {
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Pending {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         let created_at = escrow_created_at(&env, escrow_id);
@@ -262,7 +278,10 @@ impl Escrow {
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Pending {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         let now = env.ledger().timestamp();
@@ -300,7 +319,7 @@ impl Escrow {
         }
         if let Some(ref expected_buyer) = escrow.buyer {
             if &buyer != expected_buyer {
-                return Err(ContractError::NotAuthorized);
+                return Err(ContractError::NotAuthorizedBuyer);
             }
         }
 
@@ -769,7 +788,11 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
+        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
+        // Set once the Funded branch below decides a refund is due, so the
+        // actual transfer can run after save_escrow, as the last step.
+        let mut refund_recipient: Option<Address> = None;
         if escrow.state == EscrowState::Pending {
             escrow.state = EscrowState::Canceled;
             // The schedule only governs a Pending escrow; drop it rather than
@@ -779,16 +802,24 @@ impl Escrow {
                 .persistent()
                 .remove(&DataKey::PendingExpiry(escrow_id));
         } else if escrow.state == EscrowState::Funded && buyer.as_ref() == Some(&caller) {
-            let token_client = token::Client::new(&env, &escrow.token);
-            token_client.transfer(&env.current_contract_address(), &caller, &escrow.amount);
-            payout_basket_tokens(&env, escrow_id, &caller)?;
             escrow.state = EscrowState::Refunded;
             increment_counter(&env, &DataKey::TotalRefunded)?;
+            refund_recipient = Some(caller.clone());
         } else {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        // ── INTERACTIONS (external token transfers) ──
+        if let Some(recipient) = refund_recipient {
+            payout(&env, &escrow.token, &recipient, escrow.amount);
+            payout_basket_tokens(&env, escrow_id, &recipient)?;
+        }
+
         let first_payee_addr = escrow
             .payees
             .get(0)
@@ -826,20 +857,20 @@ impl Escrow {
         buyer.require_auth();
 
         if escrow.state != EscrowState::Funded {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
-        token::Client::new(&env, &escrow.token).transfer(
-            &env.current_contract_address(),
-            &buyer,
-            &escrow.amount,
-        );
-
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
-
+        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Canceled;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        // ── INTERACTIONS (external token transfers) ──
+        payout(&env, &escrow.token, &buyer, escrow.amount);
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
 
         emit_escrow_canceled(
             &env,
@@ -885,13 +916,16 @@ impl Escrow {
         };
 
         if !is_authorized {
-            return Err(ContractError::NotAuthorized);
+            return Err(ContractError::NotAuthorizedSeller);
         }
 
         // The seller may mark shipped from `Funded`, or from `RefundRequested`
         // to override an outstanding buyer refund request (issue #730).
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::RefundRequested {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         if tracking_id.is_empty() {
@@ -942,7 +976,10 @@ impl Escrow {
 
         let escrow = load_escrow(&env, escrow_id)?;
         if escrow.state != EscrowState::Shipped {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         if escrow.delivered_at.is_some() {
@@ -1006,7 +1043,10 @@ impl Escrow {
 
         let mut escrow = load_escrow(&env, escrow_id)?;
         if escrow.state != EscrowState::Shipped {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         // Idempotency guard: prevent re-recording delivery
@@ -1067,11 +1107,14 @@ impl Escrow {
             .clone()
             .ok_or(ContractError::EscrowHasNoBuyer)?;
         if caller != buyer {
-            return Err(ContractError::NotAuthorized);
+            return Err(ContractError::NotAuthorizedBuyer);
         }
 
         if escrow.state != EscrowState::Shipped {
-            return Err(ContractError::InvalidStateTransition);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidStateTransition,
+            ));
         }
 
         // The dispute window is still open until `dispute_deadline`; the buyer
@@ -1129,7 +1172,10 @@ impl Escrow {
 
         // Allow early release from Funded or Shipped states, but not if disputed.
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         if load_dispute(&env, escrow_id).is_ok() {
@@ -1143,16 +1189,7 @@ impl Escrow {
             .get(&DataKey::FeeCollector)
             .ok_or(ContractError::NotInitialized)?;
 
-        transfer_with_protocol_fee(
-            &env,
-            &escrow.token,
-            &first_payee,
-            &fee_collector,
-            escrow.amount,
-            fee_config.protocol_fee_bps,
-        )?;
-        payout_basket_tokens(&env, escrow_id, &first_payee)?;
-
+        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
         let mut updated = escrow;
         updated.state = EscrowState::Completed;
@@ -1160,6 +1197,18 @@ impl Escrow {
         save_escrow(&env, escrow_id, &updated, Some(&prev_state));
         clear_delivery_proposal(&env, escrow_id);
         increment_counter(&env, &DataKey::TotalCompleted)?;
+
+        // ── INTERACTIONS (external token transfers) ──
+        transfer_with_protocol_fee(
+            &env,
+            &updated.token,
+            &first_payee,
+            &fee_collector,
+            updated.amount,
+            fee_config.protocol_fee_bps,
+        )?;
+        payout_basket_tokens(&env, escrow_id, &first_payee)?;
+
         emit_escrow_completed(
             &env,
             escrow_id,
@@ -1383,7 +1432,10 @@ impl Escrow {
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Pending {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         // Expiry checks, mirroring fund_escrow: an explicit PendingExpiry
@@ -1426,7 +1478,7 @@ impl Escrow {
 
         if let Some(ref expected_buyer) = escrow.buyer {
             if &buyer != expected_buyer {
-                return Err(ContractError::NotAuthorized);
+                return Err(ContractError::NotAuthorizedBuyer);
             }
         }
 
@@ -1540,7 +1592,10 @@ impl Escrow {
                 | EscrowState::Expired
         );
         if is_terminal {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         // Only support rotation for single-resolver escrows (backward compat)
@@ -1580,7 +1635,7 @@ impl Escrow {
 
     /// Buyer requests a refund on a `Funded` escrow, transitioning it to
     /// `RefundRequested` pending seller approval via `approve_refund`.
-    /// Reverts with `NotAuthorized` if `caller` is not the buyer, or
+    /// Reverts with `NotAuthorizedBuyer` if `caller` is not the buyer, or
     /// `InvalidStateTransition` if the escrow is not `Funded`. Emits
     /// `refund_requested`.
     pub fn request_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
@@ -1594,11 +1649,14 @@ impl Escrow {
             .clone()
             .ok_or(ContractError::EscrowHasNoBuyer)?;
         if caller != buyer {
-            return Err(ContractError::NotAuthorized);
+            return Err(ContractError::NotAuthorizedBuyer);
         }
 
         if escrow.state != EscrowState::Funded {
-            return Err(ContractError::InvalidStateTransition);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidStateTransition,
+            ));
         }
 
         let prev_state = escrow.state.clone();
@@ -1634,8 +1692,8 @@ impl Escrow {
     /// Primary payee (`payees[0]`) approves a pending refund request,
     /// transferring the full amount (and any basket tokens) back to the buyer.
     /// Secondary payees cannot approve, since a refund forfeits the primary
-    /// seller's share as well as their own. Reverts with `NotAuthorized` if
-    /// `caller` is not the primary payee, or `InvalidStateTransition` if the
+    /// seller's share as well as their own. Reverts with `NotAuthorizedSeller`
+    /// if `caller` is not the primary payee, or `InvalidStateTransition` if the
     /// escrow is not `RefundRequested`. Transitions the escrow to `Refunded`.
     /// Emits `refund_approved`.
     pub fn approve_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
@@ -1650,11 +1708,14 @@ impl Escrow {
             .ok_or(ContractError::IndexOutOfBounds)?
             .address;
         if caller != primary_payee {
-            return Err(ContractError::NotAuthorized);
+            return Err(ContractError::NotAuthorizedSeller);
         }
 
         if escrow.state != EscrowState::RefundRequested {
-            return Err(ContractError::InvalidStateTransition);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidStateTransition,
+            ));
         }
 
         let buyer = escrow
@@ -1662,14 +1723,15 @@ impl Escrow {
             .clone()
             .ok_or(ContractError::EscrowHasNoBuyer)?;
 
-        let token_client = token::Client::new(&env, &escrow.token);
-        token_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
-
+        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         increment_counter(&env, &DataKey::TotalRefunded)?;
+
+        // ── INTERACTIONS (external token transfers) ──
+        payout(&env, &escrow.token, &buyer, escrow.amount);
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
 
         emit_refund_approved(
             &env,

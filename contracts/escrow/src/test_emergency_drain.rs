@@ -73,9 +73,10 @@ fn emergency_drain_succeeds_when_paused_and_both_sign() {
     // full amount returned to buyer
     assert_eq!(buyer_balance_after - buyer_balance_before, 500_i128);
 
-    // escrow state is now Refunded — cannot drain again
+    // escrow state is now Refunded — cannot drain again, dedicated code
+    // (was InvalidState).
     let result = client.try_emergency_drain(&1_u64);
-    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+    assert_eq!(result, Err(Ok(ContractError::EscrowAlreadyRefunded)));
 }
 
 // ── Cannot drain in terminal / pre-fund states ───────────────────────────────
@@ -165,7 +166,7 @@ fn emergency_drain_fails_on_completed_escrow() {
 
     client.pause_contract(&admin);
 
-    // Completed escrow — cannot drain
+    // Completed escrow — cannot drain, dedicated code (was InvalidState).
     let result = client.try_emergency_drain(&id);
-    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+    assert_eq!(result, Err(Ok(ContractError::EscrowAlreadyCompleted)));
 }

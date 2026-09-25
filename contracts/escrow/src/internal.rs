@@ -3,7 +3,7 @@
 //! resolver-vote tallying. Not part of the contract's public interface.
 
 use crate::*;
-use soroban_sdk::{token, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{Address, Env, String, Symbol, Vec};
 
 pub(crate) fn load_resolver_votes(env: &Env, escrow_id: u64) -> Vec<ResolverVote> {
     use crate::DataKey;
@@ -420,14 +420,17 @@ pub(crate) fn validate_fee_collector_change(
     Ok(old_collector)
 }
 
-/// Updates the arbitration fee. Requires admin auth.
-/// Validates that arbitration fee + current protocol fee doesn't exceed combined cap.
+/// Updates the arbitration fee. Validates that arbitration fee + current
+/// protocol fee doesn't exceed combined cap.
+///
+/// Does not call `caller.require_auth()` — both callers (`set_arbitration_fee`,
+/// `execute_set_arbitration_fee`) authenticate `caller` at their own top, per
+/// the standardized require_auth-at-entry-point convention.
 pub(crate) fn update_arbitration_fee(
     env: &Env,
     caller: &Address,
     fee_bps: u32,
 ) -> Result<u32, ContractError> {
-    caller.require_auth();
     let admin = require_admin(env)?;
     if caller != &admin {
         return Err(ContractError::NotAuthorized);
@@ -590,6 +593,23 @@ pub(crate) fn clear_delivery_proposal(env: &Env, escrow_id: u64) {
         .remove(&DataKey::DeliveryProposal(escrow_id));
 }
 
+/// Sharpens a generic lifecycle-guard error for the two terminal states
+/// callers most often hit by mistake — retrying an action on an escrow that
+/// already settled. Returns `EscrowAlreadyCompleted` / `EscrowAlreadyRefunded`
+/// when `state` is `Completed` / `Refunded`, or `fallback` (typically
+/// `InvalidState` / `InvalidStateTransition`) for every other state.
+///
+/// Lets off-chain indexers tell "already paid out to the seller" apart from
+/// "already refunded to the buyer" without re-querying escrow state or
+/// parsing error text.
+pub(crate) fn terminal_state_error(state: &EscrowState, fallback: ContractError) -> ContractError {
+    match state {
+        EscrowState::Completed => ContractError::EscrowAlreadyCompleted,
+        EscrowState::Refunded => ContractError::EscrowAlreadyRefunded,
+        _ => fallback,
+    }
+}
+
 /// Tops up the TTL of every persistent entry owned by `escrow_id`, and of the
 /// contract instance, to the full configured extension without reading or
 /// writing any value. Backs the permissionless `extend_escrow_ttl` entry point.
@@ -630,7 +650,7 @@ pub(crate) fn extend_escrow_ttl(env: &Env, escrow_id: u64) -> Result<(), Contrac
     Ok(())
 }
 
-pub(crate) use crate::helpers::payout::transfer_with_protocol_fee;
+pub(crate) use crate::helpers::payout::{payout, transfer_with_protocol_fee};
 
 /// Distributes the specified `amount` among the `payees` proportionally based on their BPS shares.
 ///
@@ -652,9 +672,6 @@ pub(crate) fn distribute_to_payees(
         return Err(ContractError::InvalidAmount);
     }
 
-    let token_client = token::Client::new(env, token_addr);
-    let contract_addr = env.current_contract_address();
-
     let mut remaining = amount;
 
     // Calculate amounts for all payees except the first
@@ -666,9 +683,7 @@ pub(crate) fn distribute_to_payees(
             .checked_div(10_000)
             .ok_or(ContractError::ArithmeticError)?;
 
-        if payee_amount > 0 {
-            token_client.transfer(&contract_addr, &payee.address, &payee_amount);
-        }
+        crate::helpers::payout::payout(env, token_addr, &payee.address, payee_amount);
 
         remaining = remaining
             .checked_sub(payee_amount)
@@ -677,9 +692,7 @@ pub(crate) fn distribute_to_payees(
 
     // First payee gets the remainder (rounding goes to first payee)
     let first_payee = payees.get(0).ok_or(ContractError::IndexOutOfBounds)?;
-    if remaining > 0 {
-        token_client.transfer(&contract_addr, &first_payee.address, &remaining);
-    }
+    crate::helpers::payout::payout(env, token_addr, &first_payee.address, remaining);
 
     Ok(())
 }
@@ -704,7 +717,6 @@ pub(crate) fn payout_basket_tokens(
     let escrow = load_escrow(env, escrow_id)?;
     let primary_token = &escrow.token;
     let basket_tokens = load_basket_tokens(env, escrow_id);
-    let contract_addr = env.current_contract_address();
     for i in 0..basket_tokens.len() {
         let entry = basket_tokens
             .get(i)
@@ -713,13 +725,7 @@ pub(crate) fn payout_basket_tokens(
         if &entry.token == primary_token {
             continue;
         }
-        if entry.amount > 0 {
-            token::Client::new(env, &entry.token).transfer(
-                &contract_addr,
-                recipient,
-                &entry.amount,
-            );
-        }
+        crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);
     }
     Ok(())
 }
@@ -749,7 +755,10 @@ pub(crate) fn ensure_auto_release_eligible(
     escrow_id: u64,
 ) -> Result<(), ContractError> {
     if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-        return Err(ContractError::InvalidState);
+        return Err(terminal_state_error(
+            &escrow.state,
+            ContractError::InvalidState,
+        ));
     }
 
     if load_dispute(env, escrow_id).is_ok() {
@@ -824,21 +833,18 @@ pub(crate) fn settle_escrow_to_payees(
 
     let (protocol_fee, net_amount) =
         crate::helpers::payout::calculate_protocol_fee(escrow.amount, fee_bps)?;
-    if protocol_fee > 0 {
-        token::Client::new(env, &escrow.token).transfer(
-            &env.current_contract_address(),
-            &fee_collector,
-            &protocol_fee,
-        );
-    }
-    distribute_to_payees(env, &escrow.token, &escrow.payees, net_amount)?;
-    payout_basket_tokens(env, escrow_id, &first_payee_addr)?;
 
+    // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
     let prev_state = escrow.state.clone();
     escrow.state = EscrowState::Completed;
     save_escrow(env, escrow_id, escrow, Some(&prev_state));
     clear_delivery_proposal(env, escrow_id);
     increment_counter(env, &DataKey::TotalCompleted)?;
+
+    // ── INTERACTIONS (external token transfers) ──
+    crate::helpers::payout::payout(env, &escrow.token, &fee_collector, protocol_fee);
+    distribute_to_payees(env, &escrow.token, &escrow.payees, net_amount)?;
+    payout_basket_tokens(env, escrow_id, &first_payee_addr)?;
 
     Ok((prev_state, first_payee_addr))
 }
@@ -897,11 +903,14 @@ pub(crate) fn create_escrow_internal(
     expires_at: Option<u64>,
     grace_period: u64,
 ) -> Result<u64, ContractError> {
+    // Does not call `payees[0].require_auth()` — every caller (`create_escrow`,
+    // `create_escrow_with_expiration`, `batch_create_escrow`) authenticates
+    // the seller/first payee at its own top, per the standardized
+    // require_auth-at-entry-point convention. Do not call this helper from a
+    // new entry point without adding that check there first.
     if payees.is_empty() {
         return Err(ContractError::InvalidAddress);
     }
-    let first_payee = payees.get(0).ok_or(ContractError::IndexOutOfBounds)?;
-    first_payee.address.require_auth();
 
     ensure_action_not_paused(env, Symbol::new(env, "CREATE"))?;
 
@@ -1078,6 +1087,20 @@ pub(crate) fn execute_resolution_transition(
         (arbitration_fee, resolver_fee)
     };
 
+    // fee_collector is only needed for the transfer below, but the lookup
+    // itself is a Check (a plain storage read), not an Interaction — resolved
+    // up front alongside the other fallible reads, before any state mutates.
+    let fee_collector: Option<Address> = if fees_already_charged {
+        None
+    } else {
+        Some(
+            env.storage()
+                .instance()
+                .get(&DataKey::FeeCollector)
+                .ok_or(ContractError::NotInitialized)?,
+        )
+    };
+
     let prev_state = escrow.state.clone();
     let mut updated_escrow = escrow;
 
@@ -1100,29 +1123,6 @@ pub(crate) fn execute_resolution_transition(
                 .checked_add(arbitration_fee)
                 .ok_or(ContractError::ArithmeticError)?,
         );
-
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotInitialized)?;
-
-        if arbitration_fee > 0 {
-            token::Client::new(env, &updated_escrow.token).transfer(
-                &env.current_contract_address(),
-                &fee_collector,
-                &arbitration_fee,
-            );
-        }
-
-        // Pay resolver fee immediately
-        if resolver_fee > 0 {
-            token::Client::new(env, &updated_escrow.token).transfer(
-                &env.current_contract_address(),
-                &caller,
-                &resolver_fee,
-            );
-        }
     }
 
     // Store resolution in dispute data and transition to PendingFinalization
@@ -1140,9 +1140,16 @@ pub(crate) fn execute_resolution_transition(
 
     updated_escrow.state = EscrowState::PendingFinalization;
 
+    // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
     save_escrow(env, escrow_id, &updated_escrow, Some(&prev_state));
     save_dispute(env, escrow_id, &dispute_data);
     save_resolver_votes(env, escrow_id, &votes);
+
+    // ── INTERACTIONS (external token transfers) ──
+    if let Some(fee_collector) = fee_collector {
+        crate::helpers::payout::payout(env, &updated_escrow.token, &fee_collector, arbitration_fee);
+        crate::helpers::payout::payout(env, &updated_escrow.token, &caller, resolver_fee);
+    }
 
     emit_dispute_pending_finalization(
         env,

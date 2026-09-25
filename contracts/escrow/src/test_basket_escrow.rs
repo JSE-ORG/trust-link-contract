@@ -339,7 +339,7 @@ fn fund_basket_escrow_rejects_a_buyer_other_than_the_expected_buyer() {
     primary.admin.mint(&stranger, &100);
     assert_eq!(
         client.try_fund_basket_escrow(&escrow_id, &stranger),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedBuyer))
     );
     assert_eq!(primary.token.balance(&stranger), 100);
     assert_eq!(primary.token.balance(&fx.contract_id), 0);

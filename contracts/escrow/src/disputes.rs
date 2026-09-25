@@ -3,7 +3,7 @@
 
 use crate::internal::*;
 use crate::*;
-use soroban_sdk::{contractimpl, token, Address, BytesN, Env, String, Symbol, Vec};
+use soroban_sdk::{contractimpl, Address, BytesN, Env, String, Symbol, Vec};
 
 #[contractimpl]
 impl Escrow {
@@ -33,11 +33,14 @@ impl Escrow {
             .clone()
             .ok_or(ContractError::EscrowHasNoBuyer)?;
         if caller != buyer {
-            return Err(ContractError::NotAuthorized);
+            return Err(ContractError::NotAuthorizedBuyer);
         }
 
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         if env.ledger().timestamp() >= escrow.dispute_deadline {
@@ -101,6 +104,7 @@ impl Escrow {
         escrow_id: u64,
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
+        caller.require_auth();
         crate::resolve_or_vote_internal(&env, caller, escrow_id, resolution)
     }
 
@@ -112,6 +116,7 @@ impl Escrow {
         escrow_id: u64,
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
+        caller.require_auth();
         crate::resolve_or_vote_internal(&env, caller, escrow_id, resolution)
     }
 
@@ -214,15 +219,8 @@ impl Escrow {
         };
 
         // ── INTERACTIONS (external token transfers) ──
-        if platform_fee > 0 {
-            if let Some(ref treasury_addr) = treasury {
-                let token_client = token::Client::new(&env, &escrow.token);
-                token_client.transfer(
-                    &env.current_contract_address(),
-                    treasury_addr,
-                    &platform_fee,
-                );
-            }
+        if let Some(ref treasury_addr) = treasury {
+            payout(&env, &escrow.token, treasury_addr, platform_fee);
         }
 
         transfer_with_protocol_fee(

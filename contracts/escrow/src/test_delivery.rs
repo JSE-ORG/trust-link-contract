@@ -271,7 +271,7 @@ fn test_confirm_delivery_by_vendor_reverts() {
 
     assert_eq!(
         client.try_confirm_delivery(&seller, &id),
-        Err(Ok(ContractError::NotAuthorized)),
+        Err(Ok(ContractError::NotAuthorizedBuyer)),
     );
 }
 
@@ -299,7 +299,7 @@ fn test_confirm_delivery_by_third_party_reverts() {
 
     assert_eq!(
         client.try_confirm_delivery(&intruder, &id),
-        Err(Ok(ContractError::NotAuthorized)),
+        Err(Ok(ContractError::NotAuthorizedBuyer)),
     );
 }
 
@@ -657,8 +657,10 @@ fn test_confirm_delivery_from_completed_state_fails() {
 
     client.confirm_delivery(&buyer, &id);
 
+    // Confirming again on a Completed escrow now gets the dedicated code
+    // (was InvalidStateTransition).
     let res = client.try_confirm_delivery(&buyer, &id);
-    assert_eq!(res, Err(Ok(ContractError::InvalidStateTransition)));
+    assert_eq!(res, Err(Ok(ContractError::EscrowAlreadyCompleted)));
 }
 
 // ============================================================================

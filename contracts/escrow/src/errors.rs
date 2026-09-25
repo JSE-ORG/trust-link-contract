@@ -109,4 +109,19 @@ pub enum ContractError {
     /// Returned when a fallback resolver's `dispute_deadline` is later than
     /// `MAX_FALLBACK_DEADLINE_OFFSET` past the current ledger timestamp.
     InvalidFallbackDeadline = 48,
+    /// Returned when an operation requires a different state but the escrow
+    /// has already been released to the payees (`Completed`).
+    EscrowAlreadyCompleted = 49,
+    /// Returned when an operation requires a different state but the escrow
+    /// has already been refunded to the buyer (`Refunded`).
+    EscrowAlreadyRefunded = 50,
+    /// Returned when the caller is required to be the escrow's buyer, but is
+    /// not. Returned in place of the generic `NotAuthorized` where the check
+    /// specifically compares `caller` against the escrow's buyer.
+    NotAuthorizedBuyer = 51,
+    /// Returned when the caller is required to be one of the escrow's payees
+    /// (sellers) — the primary payee for some operations, any payee for
+    /// others — but is not. Returned in place of the generic `NotAuthorized`
+    /// where the check specifically compares `caller` against the payee list.
+    NotAuthorizedSeller = 52,
 }
