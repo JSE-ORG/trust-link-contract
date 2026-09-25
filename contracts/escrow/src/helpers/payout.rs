@@ -1,28 +1,5 @@
-use crate::{ContractError, EscrowData, ResolutionType, BASIS_POINTS};
-use soroban_sdk::{contracttype, token, Address, Env, Vec};
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TransferInstruction {
-    pub recipient: Address,
-    pub amount: i128,
-}
-
-pub fn execute_payout_transfers(
-    env: &Env,
-    token_addr: &Address,
-    transfers: &Vec<TransferInstruction>,
-) -> Result<(), ContractError> {
-    let client = token::Client::new(env, token_addr);
-    let contract_addr = env.current_contract_address();
-
-    for instruction in transfers.iter() {
-        if instruction.amount > 0 {
-            client.transfer(&contract_addr, &instruction.recipient, &instruction.amount);
-        }
-    }
-    Ok(())
-}
+use crate::{ContractError, BASIS_POINTS};
+use soroban_sdk::{token, Address, Env};
 
 /// Computes the protocol fee for `amount` at `fee_bps` basis points.
 ///
@@ -112,54 +89,4 @@ pub(crate) fn transfer_with_protocol_fee(
     }
 
     Ok((fee, net))
-}
-
-pub fn calculate_dispute_allocations(
-    env: &Env,
-    escrow: &EscrowData,
-    resolution: &ResolutionType,
-    arbitration_fee: i128,
-    fee_collector: &Address,
-) -> Result<Vec<TransferInstruction>, ContractError> {
-    if escrow.amount < arbitration_fee {
-        return Err(ContractError::InsufficientBalance);
-    }
-
-    let remaining_amount = escrow
-        .amount
-        .checked_sub(arbitration_fee)
-        .ok_or(ContractError::ArithmeticOverflow)?;
-
-    let (fee, net_amount) = calculate_protocol_fee(remaining_amount, escrow.fee_bps)?;
-
-    let recipient = match resolution {
-        ResolutionType::Release => escrow
-            .payees
-            .get(0)
-            .ok_or(ContractError::IndexOutOfBounds)?
-            .address
-            .clone(),
-        ResolutionType::Refund => escrow
-            .buyer
-            .clone()
-            .ok_or(ContractError::EscrowHasNoBuyer)?,
-    };
-
-    let mut transfers = Vec::new(env);
-
-    // Transfer net amount to the winning party
-    transfers.push_back(TransferInstruction {
-        recipient,
-        amount: net_amount,
-    });
-
-    // Transfer protocol fee to fee collector (if non-zero)
-    if fee > 0 {
-        transfers.push_back(TransferInstruction {
-            recipient: fee_collector.clone(),
-            amount: fee,
-        });
-    }
-
-    Ok(transfers)
 }
