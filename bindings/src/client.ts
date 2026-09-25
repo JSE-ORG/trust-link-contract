@@ -331,6 +331,18 @@ export class EscrowClient {
   }
 
   /**
+   * Permissionlessly extends the storage TTL of every entry belonging to the
+   * escrow (and of the contract instance) so a dormant escrow is not
+   * archived. Changes no escrow data; anyone may call it (e.g. a keeper bot)
+   * and pays the rent.
+   *
+   * @throws `EscrowNotFound`.
+   */
+  extend_escrow_ttl(escrowId: bigint): Call<void> {
+    return this.transport.invoke("extend_escrow_ttl", [escrowId]);
+  }
+
+  /**
    * Permissionlessly releases funds to the payees once delivery was recorded
    * and the delivery-release window has elapsed with no dispute. Anyone may
    * call it (e.g. a keeper bot).

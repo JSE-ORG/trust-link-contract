@@ -579,6 +579,46 @@ pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<
     }
 }
 
+/// Tops up the TTL of every persistent entry owned by `escrow_id`, and of the
+/// contract instance, to the full configured extension without reading or
+/// writing any value. Backs the permissionless `extend_escrow_ttl` entry point.
+///
+/// The opportunistic extensions on reads and writes only fire once an entry's
+/// TTL drops below `ext / TTL_THRESHOLD_DIVISOR`; here the caller is
+/// explicitly paying rent to keep a dormant escrow alive, so every entry is
+/// extended to `ext` regardless. Entries the escrow never created (e.g.
+/// `Dispute` on an undisputed escrow) are skipped. Entries that have already
+/// been archived cannot be revived this way and need a `RestoreFootprint`
+/// operation first.
+pub(crate) fn extend_escrow_ttl(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    let persistent = env.storage().persistent();
+    let escrow_key = DataKey::Escrow(escrow_id);
+    if !persistent.has(&escrow_key) {
+        return Err(ContractError::EscrowNotFound);
+    }
+
+    let ext = get_ttl_extension(env);
+    persistent.extend_ttl(&escrow_key, ext, ext);
+    for key in [
+        DataKey::EscrowStateHistory(escrow_id),
+        DataKey::Dispute(escrow_id),
+        DataKey::Messages(escrow_id),
+        DataKey::PendingExpiry(escrow_id),
+        DataKey::ResolverVotes(escrow_id),
+        DataKey::BasketTokens(escrow_id),
+        DataKey::DeliveryProposal(escrow_id),
+    ] {
+        if persistent.has(&key) {
+            persistent.extend_ttl(&key, ext, ext);
+        }
+    }
+
+    // The escrow is unusable if the instance (config, fee collector, and the
+    // contract code it pins) is archived, so keep that alive too.
+    env.storage().instance().extend_ttl(ext, ext);
+    Ok(())
+}
+
 pub(crate) use crate::helpers::payout::transfer_with_protocol_fee;
 
 /// Distributes the specified `amount` among the `payees` proportionally based on their BPS shares.

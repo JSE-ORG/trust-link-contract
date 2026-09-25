@@ -1159,6 +1159,18 @@ impl Escrow {
         Ok(())
     }
 
+    /// Keeps a dormant escrow from being archived by extending the TTL of all
+    /// of its persistent entries (escrow, state history, dispute, messages,
+    /// votes, basket tokens, etc.) and of the contract instance to the full
+    /// configured TTL extension. Callable by anyone, e.g. a keeper bot, who
+    /// pays the rent; it does not change any escrow data and works in every
+    /// state, even while the contract is paused. Reverts with `EscrowNotFound`
+    /// if the escrow does not exist. Entries that are already archived must be
+    /// restored with a `RestoreFootprint` operation first.
+    pub fn extend_escrow_ttl(env: Env, escrow_id: u64) -> Result<(), ContractError> {
+        crate::internal::extend_escrow_ttl(&env, escrow_id)
+    }
+
     /// Releases funds to the payees once the shipping/delivery window has
     /// elapsed with no dispute raised. Callable by anyone. Reverts with
     /// `InvalidState` if the escrow is not `Funded`/`Shipped` or has an open
