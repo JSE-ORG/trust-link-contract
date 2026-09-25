@@ -29,13 +29,27 @@
 //! - [`execute_ttl_extension_before_timelock_elapses_is_rejected`] — early execute reverts
 //! - [`execute_ttl_extension_without_a_queued_proposal_is_rejected`] — execute with nothing queued reverts
 //! - [`timelocked_smaller_ttl_value_flows_into_extend_ttl`] — a reduced value is honoured end-to-end
+//!
+//! # `extend_escrow_ttl` coverage
+//! - [`extend_escrow_ttl_tops_up_every_entry_without_mutation`] — all escrow entries and the
+//!   instance are extended to the full TTL, and no data changes
+//! - [`extend_escrow_ttl_keeps_dormant_escrow_alive`] — an untouched escrow outlives its
+//!   original TTL when bumped
+//! - [`extend_escrow_ttl_is_permissionless_and_works_while_paused`] — no auth, no pause gate
+//! - [`extend_escrow_ttl_rejects_unknown_escrow`] — `EscrowNotFound`
 
 use crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS;
 use crate::test_helpers::{create_funded_escrow, setup_contract};
-use crate::{ContractError, DEFAULT_TTL_EXTENSION, MIN_TTL_EXTENSION, TTL_THRESHOLD_DIVISOR};
+use crate::{
+    ContractError, DataKey, EscrowData, EscrowState, DEFAULT_TTL_EXTENSION, MIN_TTL_EXTENSION,
+    TTL_THRESHOLD_DIVISOR,
+};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    Address, Env,
+    testutils::{
+        storage::{Instance as _, Persistent as _},
+        Address as _, Ledger,
+    },
+    Address, Env, Vec,
 };
 
 fn register_token(env: &Env) -> Address {
@@ -640,5 +654,150 @@ fn timelocked_smaller_ttl_value_flows_into_extend_ttl() {
     assert_eq!(
         escrow.amount, 750,
         "escrow archived before its configured TTL"
+    );
+}
+
+// ============================================================================
+// extend_escrow_ttl
+// ============================================================================
+
+fn advance_ledgers(env: &Env, ledgers: u32) {
+    let mut ledger_info = env.ledger().get();
+    ledger_info.sequence_number += ledgers;
+    env.ledger().set(ledger_info);
+}
+
+/// Creates a funded, shipped, disputed escrow with a posted message, so the
+/// escrow owns `Escrow`, `EscrowStateHistory`, `Dispute` and `Messages`
+/// entries.
+fn disputed_escrow_with_message(env: &Env, client: &crate::EscrowClient) -> u64 {
+    let token = register_token(env);
+    let seller = Address::generate(env);
+    let buyer = Address::generate(env);
+    let resolver = Address::generate(env);
+    let id = create_funded_escrow(
+        env, client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(env, "TRACK-EXT"),
+    );
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &soroban_sdk::Symbol::new(env, "defect"),
+        &soroban_sdk::String::from_str(env, "item broken"),
+        &soroban_sdk::BytesN::from_array(env, &[0xee; 32]),
+    );
+    client.post_message(&id, &buyer, &soroban_sdk::String::from_str(env, "hello"));
+    id
+}
+
+fn escrow_entry_keys(id: u64) -> [DataKey; 4] {
+    [
+        DataKey::Escrow(id),
+        DataKey::EscrowStateHistory(id),
+        DataKey::Dispute(id),
+        DataKey::Messages(id),
+    ]
+}
+
+#[test]
+fn extend_escrow_ttl_tops_up_every_entry_without_mutation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let id = disputed_escrow_with_message(&env, &client);
+
+    // Let every TTL decay, but not below the ext / 2 threshold at which the
+    // opportunistic read/write extensions would kick in.
+    advance_ledgers(&env, DEFAULT_TTL_EXTENSION / 4);
+
+    let read_raw = || {
+        env.as_contract(&contract_id, || {
+            let escrow: EscrowData = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Escrow(id))
+                .unwrap();
+            let history: Vec<(EscrowState, u64)> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::EscrowStateHistory(id))
+                .unwrap();
+            (escrow, history)
+        })
+    };
+    let before = read_raw();
+    env.as_contract(&contract_id, || {
+        for key in escrow_entry_keys(id) {
+            assert!(env.storage().persistent().get_ttl(&key) < DEFAULT_TTL_EXTENSION);
+        }
+    });
+
+    client.extend_escrow_ttl(&id);
+
+    env.as_contract(&contract_id, || {
+        for key in escrow_entry_keys(id) {
+            assert_eq!(
+                env.storage().persistent().get_ttl(&key),
+                DEFAULT_TTL_EXTENSION
+            );
+        }
+        assert_eq!(env.storage().instance().get_ttl(), DEFAULT_TTL_EXTENSION);
+    });
+    assert_eq!(read_raw(), before, "extend_escrow_ttl mutated escrow data");
+}
+
+/// An escrow nobody touches for longer than its original TTL survives if a
+/// keeper bumps it part-way through.
+#[test]
+fn extend_escrow_ttl_keeps_dormant_escrow_alive() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token = register_token(&env);
+    let (contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 4321, 0, 3600,
+    );
+
+    advance_ledgers(&env, DEFAULT_TTL_EXTENSION - 10);
+    client.extend_escrow_ttl(&id);
+    advance_ledgers(&env, DEFAULT_TTL_EXTENSION - 10);
+
+    // Nearly two full TTL periods after the last write, well past the
+    // escrow's original expiry, its entries and the instance are still live.
+    // (Reads alone can't show this: the test host serves expired entries.)
+    env.as_contract(&contract_id, || {
+        assert_eq!(env.storage().persistent().get_ttl(&DataKey::Escrow(id)), 10);
+        assert_eq!(env.storage().instance().get_ttl(), 10);
+    });
+}
+
+#[test]
+fn extend_escrow_ttl_is_permissionless_and_works_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let id = disputed_escrow_with_message(&env, &client);
+    client.pause_contract(&admin);
+
+    // No authorization of any kind is required.
+    env.mock_auths(&[]);
+    assert!(client.try_extend_escrow_ttl(&id).is_ok());
+}
+
+#[test]
+fn extend_escrow_ttl_rejects_unknown_escrow() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    assert_eq!(
+        client.try_extend_escrow_ttl(&999),
+        Err(Ok(ContractError::EscrowNotFound))
     );
 }

@@ -73,6 +73,7 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         save_dispute(&env, escrow_id, &dispute_data);
+        crate::internal::clear_delivery_proposal(&env, escrow_id);
         increment_counter(&env, &DataKey::TotalDisputed)?;
         emit_dispute_raised(
             &env,

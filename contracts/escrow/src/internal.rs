@@ -579,6 +579,57 @@ pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<
     }
 }
 
+/// Drops any pending admin delivery proposal (`propose_record_delivery`).
+/// A proposal can only exist while the escrow is `Shipped` with no recorded
+/// delivery, so every transition out of `Shipped` other than
+/// `record_delivery` (which consumes it) must call this, or the entry is
+/// orphaned in persistent storage. A no-op when no proposal exists.
+pub(crate) fn clear_delivery_proposal(env: &Env, escrow_id: u64) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::DeliveryProposal(escrow_id));
+}
+
+/// Tops up the TTL of every persistent entry owned by `escrow_id`, and of the
+/// contract instance, to the full configured extension without reading or
+/// writing any value. Backs the permissionless `extend_escrow_ttl` entry point.
+///
+/// The opportunistic extensions on reads and writes only fire once an entry's
+/// TTL drops below `ext / TTL_THRESHOLD_DIVISOR`; here the caller is
+/// explicitly paying rent to keep a dormant escrow alive, so every entry is
+/// extended to `ext` regardless. Entries the escrow never created (e.g.
+/// `Dispute` on an undisputed escrow) are skipped. Entries that have already
+/// been archived cannot be revived this way and need a `RestoreFootprint`
+/// operation first.
+pub(crate) fn extend_escrow_ttl(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    let persistent = env.storage().persistent();
+    let escrow_key = DataKey::Escrow(escrow_id);
+    if !persistent.has(&escrow_key) {
+        return Err(ContractError::EscrowNotFound);
+    }
+
+    let ext = get_ttl_extension(env);
+    persistent.extend_ttl(&escrow_key, ext, ext);
+    for key in [
+        DataKey::EscrowStateHistory(escrow_id),
+        DataKey::Dispute(escrow_id),
+        DataKey::Messages(escrow_id),
+        DataKey::PendingExpiry(escrow_id),
+        DataKey::ResolverVotes(escrow_id),
+        DataKey::BasketTokens(escrow_id),
+        DataKey::DeliveryProposal(escrow_id),
+    ] {
+        if persistent.has(&key) {
+            persistent.extend_ttl(&key, ext, ext);
+        }
+    }
+
+    // The escrow is unusable if the instance (config, fee collector, and the
+    // contract code it pins) is archived, so keep that alive too.
+    env.storage().instance().extend_ttl(ext, ext);
+    Ok(())
+}
+
 pub(crate) use crate::helpers::payout::transfer_with_protocol_fee;
 
 /// Distributes the specified `amount` among the `payees` proportionally based on their BPS shares.
@@ -795,7 +846,8 @@ pub(crate) fn settle_escrow_to_payees(
 /// This function only checks expiry for escrows still in Pending state; the
 /// PendingExpiry key is semantically bound to Pending lifetime. Callers must
 /// ensure they remove DataKey::PendingExpiry when transitioning away from Pending
-/// (e.g., in fund_escrow, fund_basket_escrow, reclaim_expired). Without removal,
+/// (fund_escrow, fund_basket_escrow, reclaim_expired, cancel_escrow,
+/// auto_cancel_pending). Without removal,
 /// this check will incorrectly reject valid operations on funded escrows.
 pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
     let escrow = load_escrow(env, escrow_id)?;
