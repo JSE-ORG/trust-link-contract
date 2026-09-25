@@ -61,6 +61,7 @@ fn execute_timelock_op(
         operation as u32,
         proposal.proposer.clone(),
         caller.clone(),
+        proposal.params.clone(),
     );
     Ok(proposal)
 }
@@ -171,7 +172,7 @@ impl Escrow {
 
     /// Sets the arbitration fee (in basis points) deducted from escrows
     /// during dispute resolution. Only callable by admin. Reverts with
-    /// `FeeExceedsMax` if `fee_bps` exceeds `MAX_ARBITRATION_FEE_BPS`, or
+    /// `ArbitrationFeeExceedsMax` if `fee_bps` exceeds `MAX_ARBITRATION_FEE_BPS`, or
     /// with the combined-fee cap if `protocol_fee_bps + fee_bps` would
     /// exceed `MAX_COMBINED_FEE_BPS`. Emits `arbitration_fee_updated`.
     pub fn set_arbitration_fee(
@@ -971,7 +972,7 @@ impl Escrow {
         // counters rather than summing to the original amount. Consider whether stats queries
         // should aggregate these counters or if the accounting should be restructured.
         // For now, TotalRefunded reflects only the amount refunded to buyer, not fees collected.
-        increment_counter(&env, &DataKey::TotalRefunded)?;
+        increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
 
         // ── INTERACTIONS (external token transfers) ──
         payout(&env, &escrow.token, &buyer, escrow.amount);
@@ -1001,7 +1002,7 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
         if fee > MAX_PROTOCOL_FEE_BPS {
-            return Err(ContractError::FeeExceedsMax);
+            return Err(ContractError::ProtocolFeeExceedsMax);
         }
         let mut config = read_fee_config(&env);
         config.protocol_fee_bps = fee;
@@ -1017,7 +1018,7 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
         if fee > MAX_PROTOCOL_FEE_BPS {
-            return Err(ContractError::FeeExceedsMax);
+            return Err(ContractError::ProtocolFeeExceedsMax);
         }
         let mut config = read_fee_config(&env);
         let old_fee = config.protocol_fee_bps;
@@ -1047,6 +1048,35 @@ impl Escrow {
             .set(&DataKey::TtlExtensionLedgers, &extension_seconds);
         emit_ttl_extension_updated(&env, old_ledgers, extension_seconds, caller);
         Ok(())
+    }
+
+    /// Sets the maximum duration (in seconds) a dispute may remain unresolved
+    /// before either the buyer or the seller can force a Refund with
+    /// `claim_dispute_timeout`. Admin-only. Reverts with `NotAuthorized` if
+    /// `caller` is not the admin, or `InvalidDisputeTimeout` if
+    /// `timeout_seconds` falls outside
+    /// `MIN_DISPUTE_TIMEOUT..=MAX_DISPUTE_TIMEOUT`.
+    pub fn set_dispute_timeout(
+        env: Env,
+        caller: Address,
+        timeout_seconds: u64,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        if !(crate::MIN_DISPUTE_TIMEOUT..=crate::MAX_DISPUTE_TIMEOUT).contains(&timeout_seconds) {
+            return Err(ContractError::InvalidDisputeTimeout);
+        }
+        write_dispute_timeout(&env, timeout_seconds);
+        Ok(())
+    }
+
+    /// Returns the configured maximum dispute duration in seconds. Defaults to
+    /// `DEFAULT_DISPUTE_TIMEOUT` (30 days) until the admin overrides it.
+    pub fn get_dispute_timeout(env: Env) -> u64 {
+        read_dispute_timeout(&env)
     }
 
     #[cfg(any(test, feature = "testutils"))]

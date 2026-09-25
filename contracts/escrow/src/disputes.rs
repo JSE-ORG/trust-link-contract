@@ -5,6 +5,35 @@ use crate::internal::*;
 use crate::*;
 use soroban_sdk::{contractimpl, Address, BytesN, Env, String, Symbol, Vec};
 
+/// Returns `(buyer, primary_payee)` for a dispute participant check. The
+/// primary payee is treated as the "seller" side throughout the escrow.
+fn buyer_and_seller(escrow: &EscrowData) -> Result<(Address, Address), ContractError> {
+    let buyer = escrow
+        .buyer
+        .clone()
+        .ok_or(ContractError::EscrowHasNoBuyer)?;
+    let seller = escrow
+        .payees
+        .get(0)
+        .ok_or(ContractError::IndexOutOfBounds)?
+        .address
+        .clone();
+    Ok((buyer, seller))
+}
+
+/// Returns the address of the first resolver whose recorded vote matches
+/// `resolution`, used to attribute a deadlock-fallback resolution.
+fn voter_for(votes: &Vec<ResolverVote>, resolution: &ResolutionType) -> Option<Address> {
+    for i in 0..votes.len() {
+        if let Some(vote) = votes.get(i) {
+            if &vote.resolution == resolution {
+                return Some(vote.resolver.clone());
+            }
+        }
+    }
+    None
+}
+
 #[contractimpl]
 impl Escrow {
     /// Buyer raises a dispute on a funded or shipped escrow.
@@ -77,7 +106,7 @@ impl Escrow {
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         save_dispute(&env, escrow_id, &dispute_data);
         crate::internal::clear_delivery_proposal(&env, escrow_id);
-        increment_counter(&env, &DataKey::TotalDisputed)?;
+        increment_sharded_counter(&env, COUNTER_KIND_DISPUTED, escrow_id)?;
         emit_dispute_raised(
             &env,
             escrow_id,
@@ -214,8 +243,12 @@ impl Escrow {
         save_dispute(&env, escrow_id, &dispute_data);
 
         match resolution {
-            ResolutionType::Release => increment_counter(&env, &DataKey::TotalCompleted)?,
-            ResolutionType::Refund => increment_counter(&env, &DataKey::TotalRefunded)?,
+            ResolutionType::Release => {
+                increment_sharded_counter(&env, COUNTER_KIND_COMPLETED, escrow_id)?
+            }
+            ResolutionType::Refund => {
+                increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?
+            }
         };
 
         // ── INTERACTIONS (external token transfers) ──
@@ -242,6 +275,7 @@ impl Escrow {
             escrow.amount,
             dispute_data.arbitration_fee,
             dispute_data.resolver_fee,
+            platform_fee,
             prev_state,
             new_state,
         );
@@ -307,7 +341,7 @@ impl Escrow {
         updated_dispute.appeal_count = updated_dispute
             .appeal_count
             .checked_add(1)
-            .ok_or(ContractError::ArithmeticError)?;
+            .ok_or(ContractError::MaxAppealsReached)?;
 
         // Clear votes so a fresh round begins
         env.storage()
@@ -325,5 +359,100 @@ impl Escrow {
     /// has ever been raised on it.
     pub fn get_dispute(env: Env, escrow_id: u64) -> Option<DisputeData> {
         load_dispute(&env, escrow_id).ok()
+    }
+
+    /// Forced-refund escape hatch for a dispute that no resolver ever
+    /// concludes. Callable by either party (buyer or the primary payee) once
+    /// `dispute.disputed_at + dispute_timeout` has elapsed, where
+    /// `dispute_timeout` is admin-configurable via `set_dispute_timeout`
+    /// (default 30 days). This prevents a resolver who has gone permanently
+    /// offline from locking the escrowed funds forever.
+    ///
+    /// Moves the escrow to `PendingFinalization` with a `Refund` resolution,
+    /// reusing the existing appeal/finalization flow; after the appeal window
+    /// `finalize_dispute` pays the buyer. No arbitration or resolver fee is
+    /// charged because no resolver acted. Reverts with `InvalidState` if the
+    /// escrow is not `Disputed`, `NotAuthorized` if `caller` is neither party,
+    /// or `DisputeTimeoutNotElapsed` before the deadline.
+    pub fn claim_dispute_timeout(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        ensure_not_paused(&env)?;
+        let escrow = load_escrow(&env, escrow_id)?;
+
+        if escrow.state != EscrowState::Disputed {
+            return Err(ContractError::InvalidState);
+        }
+
+        let (buyer, seller) = buyer_and_seller(&escrow)?;
+        if caller != buyer && caller != seller {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        let dispute_data = load_dispute(&env, escrow_id)?;
+        let deadline = dispute_data
+            .disputed_at
+            .checked_add(read_dispute_timeout(&env))
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if env.ledger().timestamp() < deadline {
+            return Err(ContractError::DisputeTimeoutNotElapsed);
+        }
+
+        let votes = load_resolver_votes(&env, escrow_id);
+        execute_resolution_transition(
+            &env,
+            escrow_id,
+            escrow,
+            caller,
+            ResolutionType::Refund,
+            votes,
+            false,
+        )
+    }
+
+    /// Permissionless, time-based escape hatch for a multi-resolver deadlock.
+    /// Once `DISPUTE_DEADLOCK_WINDOW` has elapsed since the dispute was raised
+    /// with votes cast but no threshold reached, resolves by simple majority;
+    /// a perfect tie resolves to `Refund`. The resolver fee (if any) is paid
+    /// to a resolver who backed the winning side.
+    ///
+    /// Reverts with `InvalidState` if the escrow is not `Disputed`,
+    /// `DisputeNotDeadlocked` if the window has not elapsed or the votes
+    /// already meet the threshold, or `NoResolverVotes` when no resolver voted
+    /// (that resolver-inaction case is handled by `claim_dispute_timeout`).
+    pub fn resolve_deadlocked_dispute(env: Env, escrow_id: u64) -> Result<(), ContractError> {
+        ensure_not_paused(&env)?;
+        let escrow = load_escrow(&env, escrow_id)?;
+
+        if escrow.state != EscrowState::Disputed {
+            return Err(ContractError::InvalidState);
+        }
+
+        let dispute_data = load_dispute(&env, escrow_id)?;
+        let deadline = dispute_data
+            .disputed_at
+            .checked_add(crate::DISPUTE_DEADLOCK_WINDOW)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if env.ledger().timestamp() < deadline {
+            return Err(ContractError::DisputeNotDeadlocked);
+        }
+
+        let votes = load_resolver_votes(&env, escrow_id);
+        if votes.is_empty() {
+            return Err(ContractError::NoResolverVotes);
+        }
+
+        // If the threshold is actually met the escrow would already have moved
+        // to PendingFinalization when the deciding vote was cast.
+        if tally_votes(&votes, escrow.resolvers.threshold())?.is_some() {
+            return Err(ContractError::DisputeNotDeadlocked);
+        }
+
+        let resolution = tally_votes_majority(&votes);
+        let actor = voter_for(&votes, &resolution).ok_or(ContractError::NoResolverVotes)?;
+        execute_resolution_transition(&env, escrow_id, escrow, actor, resolution, votes, true)
     }
 }

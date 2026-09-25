@@ -56,10 +56,10 @@ export const enum ErrorCode {
   InvalidTtlExtension = 46,
   InvalidResolverThreshold = 47,
   InvalidFallbackDeadline = 48,
-  EscrowAlreadyCompleted = 49,
-  EscrowAlreadyRefunded = 50,
-  NotAuthorizedBuyer = 51,
-  NotAuthorizedSeller = 52,
+  DisputeTimeoutNotElapsed = 49,
+  DisputeNotDeadlocked = 50,
+  InvalidDisputeTimeout = 51,
+  NoResolverVotes = 52,
 }
 
 /** Human-readable message for every contract error code. */
@@ -144,14 +144,14 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "Multi-resolver threshold is invalid.",
   [ErrorCode.InvalidFallbackDeadline]:
     "The fallback resolver's dispute deadline is too far in the future.",
-  [ErrorCode.EscrowAlreadyCompleted]:
-    "The escrow has already been completed and released to the payees.",
-  [ErrorCode.EscrowAlreadyRefunded]:
-    "The escrow has already been refunded to the buyer.",
-  [ErrorCode.NotAuthorizedBuyer]:
-    "Caller is not authorised to perform this action — it requires the escrow's buyer.",
-  [ErrorCode.NotAuthorizedSeller]:
-    "Caller is not authorised to perform this action — it requires one of the escrow's sellers (payees).",
+  [ErrorCode.DisputeTimeoutNotElapsed]:
+    "The dispute has not yet remained unresolved for the maximum dispute duration.",
+  [ErrorCode.DisputeNotDeadlocked]:
+    "The dispute is not yet deadlocked or its resolver threshold was already met.",
+  [ErrorCode.InvalidDisputeTimeout]:
+    "The dispute timeout is outside the supported range.",
+  [ErrorCode.NoResolverVotes]:
+    "No resolver has voted on this dispute yet.",
 };
 
 /**

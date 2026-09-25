@@ -9,7 +9,7 @@ use crate::ResolutionType;
 /// Increment this constant whenever a field is added, removed, or renamed in
 /// any event struct.  Consumers can use it to guard against decoding stale
 /// snapshots with the wrong XDR shape.
-pub const EVENT_SCHEMA_VERSION: u32 = 3;
+pub const EVENT_SCHEMA_VERSION: u32 = 4;
 
 /// Event topic/data schemas used by the escrow contract.
 ///
@@ -165,6 +165,7 @@ pub struct EscrowCreated {
     pub fee_bps: u32,
     pub resolver_fee_bps: u32,
     pub shipping_window: u64,
+    pub expires_at: Option<u64>,
     pub timestamp: u64,
     pub new_state: crate::EscrowState,
 }
@@ -181,6 +182,7 @@ pub fn emit_escrow_created(
     fee_bps: u32,
     resolver_fee_bps: u32,
     shipping_window: u64,
+    expires_at: Option<u64>,
     new_state: crate::EscrowState,
 ) {
     env.events().publish(
@@ -199,6 +201,7 @@ pub fn emit_escrow_created(
             fee_bps,
             resolver_fee_bps,
             shipping_window,
+            expires_at,
             timestamp: env.ledger().timestamp(),
             new_state,
         },
@@ -407,6 +410,7 @@ pub struct DisputeResolved {
     pub amount: i128,
     pub arbitration_fee: i128,
     pub resolver_fee: i128,
+    pub platform_fee: i128,
     pub timestamp: u64,
     pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
@@ -423,6 +427,7 @@ pub fn emit_dispute_resolved(
     amount: i128,
     arbitration_fee: i128,
     resolver_fee: i128,
+    platform_fee: i128,
     prev_state: crate::EscrowState,
     new_state: crate::EscrowState,
 ) {
@@ -441,6 +446,7 @@ pub fn emit_dispute_resolved(
             amount,
             arbitration_fee,
             resolver_fee,
+            platform_fee,
             timestamp: env.ledger().timestamp(),
             prev_state,
             new_state,
@@ -1348,11 +1354,18 @@ pub struct TimelockExecuted {
     pub operation: u32,
     pub proposer: Address,
     pub executor: Address,
+    pub params: soroban_sdk::Vec<soroban_sdk::Val>,
     pub executed_at: u64,
 }
 
 /// Topic: `(symbol_short!("Timelock"), symbol_short!("Executed"), operation as u32,)`, data: `TimelockExecuted`.
-pub fn emit_timelock_executed(env: &Env, operation: u32, proposer: Address, executor: Address) {
+pub fn emit_timelock_executed(
+    env: &Env,
+    operation: u32,
+    proposer: Address,
+    executor: Address,
+    params: soroban_sdk::Vec<soroban_sdk::Val>,
+) {
     env.events().publish(
         (symbol_short!("Timelock"), symbol_short!("Executed")),
         TimelockExecuted {
@@ -1360,6 +1373,7 @@ pub fn emit_timelock_executed(env: &Env, operation: u32, proposer: Address, exec
             operation,
             proposer,
             executor,
+            params,
             executed_at: env.ledger().timestamp(),
         },
     );

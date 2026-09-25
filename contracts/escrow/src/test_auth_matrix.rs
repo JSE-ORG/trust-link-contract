@@ -449,7 +449,7 @@ fn approve_refund_rejects_secondary_payee() {
 
     assert_eq!(
         ctx.client.try_approve_refund(&affiliate, &id),
-        Err(Ok(ContractError::NotAuthorizedSeller))
+        Err(Ok(ContractError::NotAuthorized))
     );
 
     // The primary payee can still approve, and the buyer is made whole.

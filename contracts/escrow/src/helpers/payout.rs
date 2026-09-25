@@ -1,40 +1,5 @@
-//! Every outbound token transfer the escrow contract ever makes — every
-//! settlement, refund, fee, or basket-token payout — is funnelled through
-//! [`payout`], the single audited point where the contract's balance actually
-//! moves. No other module calls `token::Client::transfer` on the contract's
-//! own behalf.
-//!
-//! # CEI (Checks-Effects-Interactions)
-//!
-//! [`payout`] is the "Interaction" step of CEI and must always run **last**:
-//! every caller is required to have already committed its state changes
-//! (`save_escrow`, `save_dispute`, counters, storage removals, ...) before
-//! calling it or any of the higher-level helpers in this module
-//! (`distribute_to_payees`, `payout_basket_tokens`,
-//! `transfer_with_protocol_fee`) that call it in turn. Soroban's host itself
-//! forbids a callee from re-entering the still-executing contract (see
-//! `malicious_token.rs`), so this ordering is defense in depth rather than
-//! the only thing standing between the contract and a drained balance — but
-//! it is still the invariant every payout in this contract must uphold, and
-//! consolidating every transfer here means it only has to be audited once.
-
 use crate::{ContractError, BASIS_POINTS};
 use soroban_sdk::{token, Address, Env};
-
-/// The single point through which every outbound token transfer leaves the
-/// contract's own balance. See the module-level CEI note above: the caller
-/// must have already saved every state change this payout is a consequence
-/// of. A no-op when `amount <= 0` — the common case of a rounded-to-zero
-/// payee share or a waived fee — so callers never need their own guard.
-pub(crate) fn payout(env: &Env, token_addr: &Address, recipient: &Address, amount: i128) {
-    if amount > 0 {
-        token::Client::new(env, token_addr).transfer(
-            &env.current_contract_address(),
-            recipient,
-            &amount,
-        );
-    }
-}
 
 /// Computes the protocol fee for `amount` at `fee_bps` basis points.
 ///
@@ -75,26 +40,26 @@ pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, ContractError> 
 
     let part1 = amount
         .checked_div(BASIS_POINTS as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?
+        .ok_or(ContractError::FeeCalculationOverflow)?
         .checked_mul(fee_bps as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?;
+        .ok_or(ContractError::FeeCalculationOverflow)?;
 
     let part2 = (amount % BASIS_POINTS as i128)
         .checked_mul(fee_bps as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?
+        .ok_or(ContractError::FeeCalculationOverflow)?
         .checked_div(BASIS_POINTS as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?;
+        .ok_or(ContractError::FeeCalculationOverflow)?;
 
     part1
         .checked_add(part2)
-        .ok_or(ContractError::ArithmeticOverflow)
+        .ok_or(ContractError::FeeCalculationOverflow)
 }
 
 pub fn calculate_protocol_fee(amount: i128, fee_bps: u32) -> Result<(i128, i128), ContractError> {
     let fee = calculate_fee(amount, fee_bps)?;
     let net = amount
         .checked_sub(fee)
-        .ok_or(ContractError::ArithmeticOverflow)?;
+        .ok_or(ContractError::AmountCalculationOverflow)?;
     Ok((fee, net))
 }
 

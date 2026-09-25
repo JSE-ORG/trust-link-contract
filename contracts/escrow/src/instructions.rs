@@ -179,8 +179,11 @@ impl Escrow {
         Ok(escrow_id)
     }
 
-    /// Buyer reclaims tokens from a Funded/Shipped escrow that has passed its
-    /// expiry schedule's grace period. Transitions the escrow to Expired.
+    /// Buyer reclaims tokens from a Funded/Shipped escrow once `expires_at`
+    /// has been reached. Transitions the escrow to Expired. The grace period
+    /// is deliberately *not* applied here: it only covers the funding race for
+    /// a still-Pending escrow, so a funded-but-unshipped escrow is reclaimable
+    /// immediately at `expires_at` rather than being locked in limbo.
     pub fn reclaim_expired(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_action_not_paused(&env, Symbol::new(&env, "RECLAIM"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
@@ -192,18 +195,19 @@ impl Escrow {
             ));
         }
 
+        // `expires_at` is the hard deadline for a funded escrow. `grace_period`
+        // only exists to cover the Pending -> Funded funding race (see
+        // `ExpirySchedule`), so once the escrow is Funded or Shipped the buyer
+        // may reclaim the moment `expires_at` is reached. Previously reclaim
+        // was also gated on `expires_at + grace_period`, which trapped funds
+        // when a seller failed to ship by `expires_at`: `mark_shipped` was
+        // already rejected as expired, yet the buyer still had to wait out the
+        // grace period before recovering their principal.
         let expires_at = escrow.expires_at.ok_or(ContractError::InvalidState)?;
-        let grace_period = escrow.grace_period;
 
         let now = env.ledger().timestamp();
         if now < expires_at {
             return Err(ContractError::InvalidState);
-        }
-        let reclaimable_at = expires_at
-            .checked_add(grace_period)
-            .ok_or(ContractError::ArithmeticOverflow)?;
-        if now < reclaimable_at {
-            return Err(ContractError::GracePeriodNotElapsed);
         }
 
         let buyer = escrow
@@ -220,10 +224,6 @@ impl Escrow {
             .persistent()
             .remove(&DataKey::PendingExpiry(escrow_id));
         clear_delivery_proposal(&env, escrow_id);
-
-        // ── INTERACTIONS (external token transfers) ──
-        payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
 
         emit_escrow_expired(
             &env,
@@ -350,19 +350,8 @@ impl Escrow {
             .checked_add(DISPUTE_WINDOW)
             .ok_or(ContractError::ArithmeticOverflow)?;
 
-        // Index the buyer for lookup.
-        let mut buyer_escrows: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
-            .unwrap_or(Vec::new(&env));
-        buyer_escrows.push_back(escrow_id);
-        let buyer_key = DataKey::BuyerEscrowIndex(buyer.clone());
-        let ext = get_ttl_extension(&env);
-        env.storage().persistent().set(&buyer_key, &buyer_escrows);
-        env.storage()
-            .persistent()
-            .extend_ttl(&buyer_key, ext / 2, ext);
+        // Index the buyer for lookup (paged, bounded per storage entry).
+        storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
@@ -474,11 +463,9 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow, None);
 
-        let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &seller);
-        vendor_escrows.push_back(escrow_id);
-        storage::write_vendor_escrow_index(&env, &seller, &vendor_escrows);
+        storage::append_vendor_escrow_index(&env, &seller, escrow_id);
 
-        increment_counter(&env, &DataKey::TotalCreated)?;
+        increment_sharded_counter(&env, COUNTER_KIND_CREATED, escrow_id)?;
 
         // Emit with first resolver for backward compat
         if let ResolverSet::Multi(ref m) = &resolver_set {
@@ -497,6 +484,7 @@ impl Escrow {
                 escrow.fee_bps,
                 escrow.resolver_fee_bps,
                 escrow.shipping_window,
+                escrow.expires_at,
                 crate::EscrowState::Pending,
             );
         }
@@ -537,19 +525,9 @@ impl Escrow {
             timestamp: env.ledger().timestamp(),
             content,
         };
-        let key = DataKey::Messages(escrow_id);
-        let mut msgs: Vec<Message> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(&env));
-
-        if msgs.len() >= crate::MAX_MESSAGES_PER_ESCROW {
-            return Err(ContractError::TooManyMessages);
-        }
-
-        msgs.push_back(message);
-        env.storage().persistent().set(&key, &msgs);
+        // Store one message per `Message(escrow_id, index)` key so reads are
+        // targeted instead of deserialising the whole thread.
+        storage::append_message(&env, escrow_id, &message, crate::MAX_MESSAGES_PER_ESCROW)?;
         emit_message_posted(&env, escrow_id, sender);
         Ok(())
     }
@@ -731,11 +709,9 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow, None);
 
-        let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &seller);
-        vendor_escrows.push_back(escrow_id);
-        storage::write_vendor_escrow_index(&env, &seller, &vendor_escrows);
+        storage::append_vendor_escrow_index(&env, &seller, escrow_id);
 
-        increment_counter(&env, &DataKey::TotalCreated)?;
+        increment_sharded_counter(&env, COUNTER_KIND_CREATED, escrow_id)?;
 
         emit_escrow_created(
             &env,
@@ -747,6 +723,7 @@ impl Escrow {
             escrow.fee_bps,
             escrow.resolver_fee_bps,
             escrow.shipping_window,
+            escrow.expires_at,
             crate::EscrowState::Pending,
         );
 
@@ -790,36 +767,30 @@ impl Escrow {
 
         // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
-        // Set once the Funded branch below decides a refund is due, so the
-        // actual transfer can run after save_escrow, as the last step.
-        let mut refund_recipient: Option<Address> = None;
-        if escrow.state == EscrowState::Pending {
+        let should_refund = if escrow.state == EscrowState::Pending {
             escrow.state = EscrowState::Canceled;
-            // The schedule only governs a Pending escrow; drop it rather than
-            // leave an orphaned entry accruing rent. (A Funded escrow already
-            // had it removed by fund_escrow.)
-            env.storage()
-                .persistent()
-                .remove(&DataKey::PendingExpiry(escrow_id));
+            false
         } else if escrow.state == EscrowState::Funded && buyer.as_ref() == Some(&caller) {
             escrow.state = EscrowState::Refunded;
-            increment_counter(&env, &DataKey::TotalRefunded)?;
-            refund_recipient = Some(caller.clone());
+            increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
+            true
         } else {
-            return Err(terminal_state_error(
-                &escrow.state,
-                ContractError::InvalidState,
-            ));
-        }
+            return Err(ContractError::InvalidState);
+        };
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        // The PendingExpiry schedule only governs a Pending escrow; removing it
+        // on cancellation keeps it from being orphaned (see `ensure_not_expired`
+        // and `extend_escrow_ttl`).
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingExpiry(escrow_id));
 
-        // ── INTERACTIONS (external token transfers) ──
-        if let Some(recipient) = refund_recipient {
-            payout(&env, &escrow.token, &recipient, escrow.amount);
-            payout_basket_tokens(&env, escrow_id, &recipient)?;
+        if should_refund {
+            let token_client = token::Client::new(&env, &escrow.token);
+            token_client.transfer(&env.current_contract_address(), &caller, &escrow.amount);
+            payout_basket_tokens(&env, escrow_id, &caller)?;
         }
-
         let first_payee_addr = escrow
             .payees
             .get(0)
@@ -863,13 +834,16 @@ impl Escrow {
             ));
         }
 
-        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Canceled;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
-        // ── INTERACTIONS (external token transfers) ──
-        payout(&env, &escrow.token, &buyer, escrow.amount);
+        token::Client::new(&env, &escrow.token).transfer(
+            &env.current_contract_address(),
+            &buyer,
+            &escrow.amount,
+        );
+
         payout_basket_tokens(&env, escrow_id, &buyer)?;
 
         emit_escrow_canceled(
@@ -1189,16 +1163,16 @@ impl Escrow {
             .get(&DataKey::FeeCollector)
             .ok_or(ContractError::NotInitialized)?;
 
-        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
         let mut updated = escrow;
         updated.state = EscrowState::Completed;
 
         save_escrow(&env, escrow_id, &updated, Some(&prev_state));
+        // A delivery proposal can only exist while the escrow is Shipped, so
+        // completing it here must drop the orphaned entry.
         clear_delivery_proposal(&env, escrow_id);
         increment_counter(&env, &DataKey::TotalCompleted)?;
 
-        // ── INTERACTIONS (external token transfers) ──
         transfer_with_protocol_fee(
             &env,
             &updated.token,
@@ -1208,7 +1182,6 @@ impl Escrow {
             fee_config.protocol_fee_bps,
         )?;
         payout_basket_tokens(&env, escrow_id, &first_payee)?;
-
         emit_escrow_completed(
             &env,
             escrow_id,
@@ -1410,11 +1383,9 @@ impl Escrow {
         }
         save_basket_tokens(&env, escrow_id, &basket_entries);
 
-        let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &seller);
-        vendor_escrows.push_back(escrow_id);
-        storage::write_vendor_escrow_index(&env, &seller, &vendor_escrows);
+        storage::append_vendor_escrow_index(&env, &seller, escrow_id);
 
-        increment_counter(&env, &DataKey::TotalCreated)?;
+        increment_sharded_counter(&env, COUNTER_KIND_CREATED, escrow_id)?;
         emit_basket_escrow_created(&env, escrow_id, seller, tokens.len());
 
         Ok(escrow_id)
@@ -1508,18 +1479,8 @@ impl Escrow {
             .checked_add(DISPUTE_WINDOW)
             .ok_or(ContractError::ArithmeticError)?;
 
-        let mut buyer_escrows: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
-            .unwrap_or(Vec::new(&env));
-        buyer_escrows.push_back(escrow_id);
-        let buyer_key = DataKey::BuyerEscrowIndex(buyer.clone());
-        let ext = get_ttl_extension(&env);
-        env.storage().persistent().set(&buyer_key, &buyer_escrows);
-        env.storage()
-            .persistent()
-            .extend_ttl(&buyer_key, ext / 2, ext);
+        // Index the buyer for lookup (paged, bounded per storage entry).
+        storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
@@ -1692,8 +1653,8 @@ impl Escrow {
     /// Primary payee (`payees[0]`) approves a pending refund request,
     /// transferring the full amount (and any basket tokens) back to the buyer.
     /// Secondary payees cannot approve, since a refund forfeits the primary
-    /// seller's share as well as their own. Reverts with `NotAuthorizedSeller`
-    /// if `caller` is not the primary payee, or `InvalidStateTransition` if the
+    /// seller's share as well as their own. Reverts with `NotAuthorized` if
+    /// `caller` is not the primary payee, or `InvalidStateTransition` if the
     /// escrow is not `RefundRequested`. Transitions the escrow to `Refunded`.
     /// Emits `refund_approved`.
     pub fn approve_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
@@ -1708,7 +1669,7 @@ impl Escrow {
             .ok_or(ContractError::IndexOutOfBounds)?
             .address;
         if caller != primary_payee {
-            return Err(ContractError::NotAuthorizedSeller);
+            return Err(ContractError::NotAuthorized);
         }
 
         if escrow.state != EscrowState::RefundRequested {
@@ -1723,11 +1684,14 @@ impl Escrow {
             .clone()
             .ok_or(ContractError::EscrowHasNoBuyer)?;
 
-        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-        increment_counter(&env, &DataKey::TotalRefunded)?;
+        increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
+
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
 
         // ── INTERACTIONS (external token transfers) ──
         payout(&env, &escrow.token, &buyer, escrow.amount);
@@ -1793,9 +1757,15 @@ impl Escrow {
     /// missing or undecodable argument reverts with `InvalidMulticallArg`.
     /// Authorization for each sub-call is enforced exactly as if it were
     /// called directly. Reverts with `ContractPaused` if the contract is
-    /// paused.
+    /// paused, and with `MulticallBatchTooLarge` when the batch exceeds
+    /// `MAX_MULTICALL_BATCH_SIZE` — an unbounded batch could otherwise be used
+    /// to exhaust the transaction's instruction or read/write limits and abort
+    /// midway.
     pub fn multicall(env: Env, calls: Vec<ContractCall>) -> Result<Vec<Val>, ContractError> {
         ensure_not_paused(&env)?;
+        if calls.len() > crate::MAX_MULTICALL_BATCH_SIZE {
+            return Err(ContractError::MulticallBatchTooLarge);
+        }
         let mut results = Vec::new(&env);
 
         let s_initialize = Symbol::new(&env, "initialize");

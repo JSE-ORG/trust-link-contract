@@ -465,6 +465,7 @@ fn test_execute_resolution_transition_rejects_fees_exceeding_amount() {
             resolver.clone(),
             ResolutionType::Release,
             votes,
+            true,
         );
 
         let escrow_after = crate::internal::load_escrow(&env, id).unwrap();

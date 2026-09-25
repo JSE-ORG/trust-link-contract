@@ -161,7 +161,31 @@ pub const MAX_MESSAGES_PER_ESCROW: u32 = 100;
 /// Maximum number of tokens allowed in a basket escrow. Bounds iteration cost
 /// in `save_basket_tokens` and `payout_basket_tokens`, and keeps the basket
 /// well within Soroban storage entry size limits.
-pub const MAX_BASKET_SIZE: u32 = 20;
+///
+/// Lowered from 20 to 5: `fund_basket_escrow` and `payout_basket_tokens` issue
+/// one cross-contract `token::Client::transfer` per entry, and a Soroban
+/// transaction has strict instruction/resource limits. Empirically fewer than
+/// ~10 sequential cross-contract transfers fit comfortably in one transaction,
+/// so 5 leaves headroom for the surrounding escrow lifecycle work rather than
+/// risking a mid-transaction abort.
+pub const MAX_BASKET_SIZE: u32 = 5;
+
+/// Maximum number of calls accepted in a single `multicall` batch.
+///
+/// Each entry dispatches a full contract call, so an unbounded batch lets a
+/// caller construct a transaction that exhausts the instruction or read/write
+/// limits and aborts midway. Capping the batch keeps a multicall within budget
+/// and fails fast (with `MulticallBatchTooLarge`) instead of running out of
+/// resources partway through.
+pub const MAX_MULTICALL_BATCH_SIZE: u32 = 10;
+
+/// Number of escrow ids stored per page of a buyer/vendor index entry.
+///
+/// The index used to be one unbounded `Vec` per address; sharding it into
+/// fixed-size pages keeps every individual storage entry well under Soroban's
+/// per-entry size limit and makes each read/write touch only the page that
+/// changed.
+pub const ESCROW_INDEX_PAGE_SIZE: u32 = 20;
 
 /// Minimum shipping window in seconds (1 second).
 /// A value of 0 would allow an immediate dispute with no shipping time, which is invalid.
@@ -190,6 +214,29 @@ pub struct Escrow;
 /// Maximum number of appeals allowed per dispute.
 pub const MAX_APPEALS: u32 = 3;
 
+/// Default maximum duration (in seconds) a dispute may remain unresolved
+/// before either party can force a refund with `claim_dispute_timeout`.
+/// Default: 30 days. Admins can override with `set_dispute_timeout`.
+const DEFAULT_DISPUTE_TIMEOUT: u64 = 2_592_000;
+
+/// Smallest dispute timeout `set_dispute_timeout` accepts (1 hour). A lower
+/// bound prevents a party from shortening the resolver window to the point
+/// where a legitimate resolver cannot reasonably respond.
+const MIN_DISPUTE_TIMEOUT: u64 = 3_600;
+
+/// Largest dispute timeout `set_dispute_timeout` accepts (365 days).
+const MAX_DISPUTE_TIMEOUT: u64 = 31_536_000;
+
+/// How long (in seconds) a split multi-resolver vote must remain deadlocked
+/// before the permissionless majority-rules fallback
+/// `resolve_deadlocked_dispute` may be used. Default: 7 days.
+const DISPUTE_DEADLOCK_WINDOW: u64 = 604_800;
+
+/// Number of persistent-storage buckets each lifecycle counter is spread
+/// across. Sharding keeps concurrent `create`/`complete`/`dispute`/`refund`
+/// transitions from serializing on one instance-storage entry.
+const COUNTER_SHARDS: u32 = 16;
+
 /// Zero address string for the Stellar network.
 pub const ZERO_ADDRESS_STR: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
@@ -206,7 +253,7 @@ pub(crate) fn next_escrow_id(env: &Env) -> Result<u64, ContractError> {
         .unwrap_or(1u64);
     let next_id = escrow_id
         .checked_add(1)
-        .ok_or(ContractError::ArithmeticError)?;
+        .ok_or(ContractError::EscrowCounterOverflow)?;
     env.storage()
         .instance()
         .set(&DataKey::EscrowCounter, &next_id);
@@ -256,7 +303,15 @@ fn resolve_or_vote_internal(
     );
 
     if let Some(final_resolution) = tally_votes(&votes, threshold)? {
-        execute_resolution_transition(env, escrow_id, escrow, caller, final_resolution, votes)?;
+        execute_resolution_transition(
+            env,
+            escrow_id,
+            escrow,
+            caller,
+            final_resolution,
+            votes,
+            true,
+        )?;
     } else {
         save_resolver_votes(env, escrow_id, &votes);
     }
@@ -280,12 +335,15 @@ mod test_cancel_restrictions;
 mod test_co_signed_release;
 mod test_concurrent_vendor_escrows;
 mod test_contract_config;
+mod test_counter_sharding;
 mod test_create_escrow_boundary;
 mod test_create_escrow_with_expiration;
+mod test_deadlock_fallback;
 mod test_delivery;
 mod test_dispute;
 mod test_dispute_deadline_overflow;
 mod test_dispute_flow;
+mod test_dispute_timeout;
 mod test_dispute_window;
 mod test_edge_cases;
 mod test_emergency_drain;
@@ -315,6 +373,7 @@ mod test_multicall;
 mod test_mutual_cancel;
 mod test_not_found;
 mod test_overflow;
+mod test_pagination_and_limits;
 mod test_pause;
 mod test_pending_expiry;
 mod test_query_improvements;
