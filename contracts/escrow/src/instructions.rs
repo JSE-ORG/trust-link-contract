@@ -469,6 +469,7 @@ impl Escrow {
                 escrow.fee_bps,
                 escrow.resolver_fee_bps,
                 escrow.shipping_window,
+                escrow.expires_at,
                 crate::EscrowState::Pending,
             );
         }
@@ -707,6 +708,7 @@ impl Escrow {
             escrow.fee_bps,
             escrow.resolver_fee_bps,
             escrow.shipping_window,
+            escrow.expires_at,
             crate::EscrowState::Pending,
         );
 

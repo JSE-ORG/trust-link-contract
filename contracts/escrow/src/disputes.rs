@@ -277,6 +277,7 @@ impl Escrow {
             escrow.amount,
             dispute_data.arbitration_fee,
             dispute_data.resolver_fee,
+            platform_fee,
             prev_state,
             new_state,
         );
