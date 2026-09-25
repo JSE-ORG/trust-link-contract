@@ -374,7 +374,7 @@ pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), Cont
 
 pub(crate) fn validate_arbitration_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
     if fee_bps > MAX_ARBITRATION_FEE_BPS {
-        return Err(ContractError::FeeExceedsMax);
+        return Err(ContractError::ArbitrationFeeExceedsMax);
     }
     Ok(())
 }
