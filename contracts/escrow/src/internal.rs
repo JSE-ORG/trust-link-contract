@@ -835,7 +835,8 @@ pub(crate) fn settle_escrow_to_payees(
 /// This function only checks expiry for escrows still in Pending state; the
 /// PendingExpiry key is semantically bound to Pending lifetime. Callers must
 /// ensure they remove DataKey::PendingExpiry when transitioning away from Pending
-/// (e.g., in fund_escrow, fund_basket_escrow, reclaim_expired). Without removal,
+/// (fund_escrow, fund_basket_escrow, reclaim_expired, cancel_escrow,
+/// auto_cancel_pending). Without removal,
 /// this check will incorrectly reject valid operations on funded escrows.
 pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
     let escrow = load_escrow(env, escrow_id)?;

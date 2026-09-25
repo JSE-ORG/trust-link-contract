@@ -244,6 +244,11 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Canceled;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        // The schedule only governs a Pending escrow; drop it rather than
+        // leave an orphaned entry accruing rent.
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingExpiry(escrow_id));
 
         emit_escrow_auto_canceled(&env, escrow_id);
         Ok(())
@@ -766,6 +771,12 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         if escrow.state == EscrowState::Pending {
             escrow.state = EscrowState::Canceled;
+            // The schedule only governs a Pending escrow; drop it rather than
+            // leave an orphaned entry accruing rent. (A Funded escrow already
+            // had it removed by fund_escrow.)
+            env.storage()
+                .persistent()
+                .remove(&DataKey::PendingExpiry(escrow_id));
         } else if escrow.state == EscrowState::Funded && buyer.as_ref() == Some(&caller) {
             let token_client = token::Client::new(&env, &escrow.token);
             token_client.transfer(&env.current_contract_address(), &caller, &escrow.amount);
