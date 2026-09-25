@@ -395,6 +395,50 @@ fn approve_refund_rejects_intruder() {
     );
 }
 
+/// A secondary payee with a minor BPS share must not be able to force a full
+/// refund; only the primary payee (`payees[0]`) can approve.
+#[test]
+fn approve_refund_rejects_secondary_payee() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let seller = Address::generate(&env);
+    let affiliate = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let mut p = Vec::new(&env);
+    p.push_back(Payee {
+        address: seller.clone(),
+        bps: 9_999,
+    });
+    p.push_back(Payee {
+        address: affiliate.clone(),
+        bps: 1,
+    });
+    let p_val = p.into_val(&env);
+    let id = ctx.client.create_escrow_8(
+        &p_val,
+        &None::<Address>,
+        &resolver,
+        &ctx.token,
+        &1_000_i128,
+        &0_u32,
+        &3_600_u64,
+    );
+    mint(&env, &ctx.token, &buyer, 1_000);
+    ctx.client.fund_escrow(&id, &buyer);
+    ctx.client.request_refund(&buyer, &id);
+
+    assert_eq!(
+        ctx.client.try_approve_refund(&affiliate, &id),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+
+    // The primary payee can still approve, and the buyer is made whole.
+    ctx.client.approve_refund(&seller, &id);
+    assert_eq!(token::Client::new(&env, &ctx.token).balance(&buyer), 1_000);
+}
+
 #[test]
 fn cancel_pending_escrow_rejects_resolver() {
     let env = Env::default();

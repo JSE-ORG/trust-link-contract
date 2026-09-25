@@ -463,6 +463,44 @@ fn test_fallback_creation_amount_and_fee_boundaries() {
 }
 
 #[test]
+fn test_fallback_creation_dispute_deadline_bounds() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let now = 1_000_000_u64;
+    setup.env.ledger().set_timestamp(now);
+    let max_deadline = now + crate::MAX_FALLBACK_DEADLINE_OFFSET;
+
+    let create = |deadline: u64| {
+        client.try_create_escrow_with_fallback(
+            &setup.seller,
+            &Some(setup.buyer.clone()),
+            &setup.primary,
+            &setup.backup,
+            &deadline,
+            &setup.token,
+            &1000_i128,
+            &0_u32,
+            &3600_u64,
+        )
+    };
+
+    // A deadline the backup could never reach is rejected.
+    assert_eq!(
+        create(u64::MAX),
+        Err(Ok(ContractError::InvalidFallbackDeadline))
+    );
+    assert_eq!(
+        create(max_deadline + 1),
+        Err(Ok(ContractError::InvalidFallbackDeadline))
+    );
+
+    // The bound itself, and a past deadline (backup co-authorized from the
+    // start), are both accepted.
+    assert!(create(max_deadline).is_ok());
+    assert!(create(0).is_ok());
+}
+
+#[test]
 fn test_fallback_primary_resolves_refund_and_finalizes() {
     let setup = setup();
     let client = EscrowClient::new(&setup.env, &setup.contract_id);

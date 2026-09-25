@@ -558,6 +558,7 @@ impl Escrow {
     /// * `ContractError::ResolverRoleConflict` - `primary_resolver` or `backup_resolver` matches `seller` or `buyer`.
     /// * `ContractError::DuplicateResolver` - `primary_resolver` equals `backup_resolver`.
     /// * `ContractError::ResolverNotApproved` - Strict resolver mode is enabled and a resolver is not on the approved list.
+    /// * `ContractError::InvalidFallbackDeadline` - `dispute_deadline` is more than `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past the current ledger timestamp.
     ///
     /// # Example
     /// ```rust,ignore
@@ -596,9 +597,11 @@ impl Escrow {
     /// - `dispute_deadline` — **absolute ledger timestamp in Unix seconds** at
     ///   which `backup_resolver` becomes authorized. This is unrelated to
     ///   `EscrowData::dispute_deadline` (the buyer's dispute window, computed at
-    ///   funding). It is **not** range-checked: a past value (or `0`) simply
-    ///   co-authorizes the backup from the start; callers normally pass
-    ///   `env.ledger().timestamp() + grace_seconds`.
+    ///   funding). It must be at most `MAX_FALLBACK_DEADLINE_OFFSET` (39
+    ///   days) past the current ledger timestamp (`InvalidFallbackDeadline`),
+    ///   so the backup can always step in eventually. A past value (or `0`)
+    ///   simply co-authorizes the backup from the start; callers normally
+    ///   pass `env.ledger().timestamp() + grace_seconds`.
     /// - `token`, `amount`, `fee_bps`, `shipping_window` — as for
     ///   `create_escrow` (`amount` within `[MIN_ESCROW_AMOUNT,
     ///   MAX_ESCROW_AMOUNT]`, `fee_bps <= MAX_ESCROW_FEE_BPS`).
@@ -1608,31 +1611,25 @@ impl Escrow {
         Ok(())
     }
 
-    /// Seller (any payee) approves a pending refund request, transferring the
-    /// full amount (and any basket tokens) back to the buyer. Reverts with
-    /// `NotAuthorized` if `caller` is not a payee, or
-    /// `InvalidStateTransition` if the escrow is not `RefundRequested`.
-    /// Transitions the escrow to `Refunded`. Emits `refund_approved`.
+    /// Primary payee (`payees[0]`) approves a pending refund request,
+    /// transferring the full amount (and any basket tokens) back to the buyer.
+    /// Secondary payees cannot approve, since a refund forfeits the primary
+    /// seller's share as well as their own. Reverts with `NotAuthorized` if
+    /// `caller` is not the primary payee, or `InvalidStateTransition` if the
+    /// escrow is not `RefundRequested`. Transitions the escrow to `Refunded`.
+    /// Emits `refund_approved`.
     pub fn approve_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
         crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
-        let mut is_payee = false;
-        for i in 0..escrow.payees.len() {
-            if caller
-                == escrow
-                    .payees
-                    .get(i)
-                    .ok_or(ContractError::IndexOutOfBounds)?
-                    .address
-            {
-                is_payee = true;
-                break;
-            }
-        }
-        if !is_payee {
+        let primary_payee = escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address;
+        if caller != primary_payee {
             return Err(ContractError::NotAuthorized);
         }
 

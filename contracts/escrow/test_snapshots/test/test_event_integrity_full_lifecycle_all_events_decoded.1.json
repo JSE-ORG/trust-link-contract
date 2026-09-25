@@ -786,6 +786,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "fees_charged"
+                    },
+                    "val": {
+                      "bool": true
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "reason"
                     },
                     "val": {

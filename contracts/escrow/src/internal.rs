@@ -265,7 +265,9 @@ pub(crate) fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError>
     Ok(())
 }
 
-/// Validates resolver set to ensure no conflicts with seller/buyer.
+/// Validates resolver set to ensure no conflicts with seller/buyer, and for a
+/// `Fallback` set that the backup's `dispute_deadline` is within
+/// `MAX_FALLBACK_DEADLINE_OFFSET` of the current ledger timestamp.
 pub(crate) fn validate_resolvers(
     resolvers: &ResolverSet,
     seller: &Address,
@@ -300,6 +302,19 @@ pub(crate) fn validate_resolvers(
     } else if let ResolverSet::Fallback(f) = resolvers {
         if f.primary == f.backup {
             return Err(ContractError::ConflictingRoles);
+        }
+
+        // An unbounded deadline (e.g. u64::MAX) would never admit the backup,
+        // leaving disputed funds locked if the primary stops responding.
+        let max_deadline = f
+            .primary
+            .env()
+            .ledger()
+            .timestamp()
+            .checked_add(MAX_FALLBACK_DEADLINE_OFFSET)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if f.dispute_deadline > max_deadline {
+            return Err(ContractError::InvalidFallbackDeadline);
         }
     }
 
@@ -981,12 +996,15 @@ pub(crate) fn execute_resolution_transition(
     // Load the dispute record up front. After an appeal the escrow returns to
     // `Disputed` and this transition runs again — but the arbitration and
     // resolver fees are charged to the escrow **once per dispute**, not once
-    // per appeal round. A non-zero fee on the dispute record means a prior
-    // round already deducted and paid it out (`clear_resolution` deliberately
-    // preserves these two fields), so this round reuses the recorded amounts
-    // and skips the deduction, the accounting bump, and the transfers.
+    // per appeal round. `fees_charged` on the dispute record means a prior
+    // round already deducted and paid them out (`clear_resolution`
+    // deliberately preserves it and the recorded amounts), so this round
+    // reuses the recorded amounts and skips the deduction, the accounting
+    // bump, and the transfers. A dedicated flag is required: the recorded
+    // amounts can legitimately be zero, and inferring "not yet charged" from
+    // that would let an appeal pick up a since-raised fee config.
     let mut dispute_data = load_dispute(env, escrow_id)?;
-    let fees_already_charged = dispute_data.arbitration_fee > 0 || dispute_data.resolver_fee > 0;
+    let fees_already_charged = dispute_data.fees_charged;
 
     let (arbitration_fee, resolver_fee) = if fees_already_charged {
         (dispute_data.arbitration_fee, dispute_data.resolver_fee)
@@ -1065,6 +1083,7 @@ pub(crate) fn execute_resolution_transition(
     dispute_data.resolved_at = now;
     dispute_data.arbitration_fee = arbitration_fee;
     dispute_data.resolver_fee = resolver_fee;
+    dispute_data.fees_charged = true;
 
     updated_escrow.state = EscrowState::PendingFinalization;
 

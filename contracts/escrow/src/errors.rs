@@ -106,4 +106,7 @@ pub enum ContractError {
     InvalidTtlExtension = 46,
     /// Returned when multi-resolver threshold is invalid (zero, exceeds resolver count, or resolver list is empty).
     InvalidResolverThreshold = 47,
+    /// Returned when a fallback resolver's `dispute_deadline` is later than
+    /// `MAX_FALLBACK_DEADLINE_OFFSET` past the current ledger timestamp.
+    InvalidFallbackDeadline = 48,
 }

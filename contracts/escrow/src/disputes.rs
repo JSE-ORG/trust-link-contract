@@ -68,6 +68,7 @@ impl Escrow {
             resolved_at: 0,
             arbitration_fee: 0,
             resolver_fee: 0,
+            fees_charged: false,
         };
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));

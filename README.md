@@ -758,7 +758,7 @@ A second call panics in current implementation.
 #### `create_escrow_with_fallback(seller, buyer, primary_resolver, backup_resolver, dispute_deadline, token, amount, fee_bps, shipping_window)`
 
 - **Auth:** `seller.require_auth()`.
-- **Guards:** amount >= `MIN_ESCROW_AMOUNT`, amount <= `MAX_ESCROW_AMOUNT`, fee_bps <= 300, no role conflicts, primary != backup, not paused.
+- **Guards:** amount >= `MIN_ESCROW_AMOUNT`, amount <= `MAX_ESCROW_AMOUNT`, fee_bps <= 300, no role conflicts, primary != backup, `dispute_deadline <= now + MAX_FALLBACK_DEADLINE_OFFSET` (39 days), not paused.
 - **Effects:**
   - creates escrow with `ResolverSet::Fallback(FallbackResolver { primary, backup, dispute_deadline })`,
   - primary resolver can resolve disputes immediately upon dispute,

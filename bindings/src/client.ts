@@ -370,8 +370,9 @@ export class EscrowClient {
   }
 
   /**
-   * Seller approves a pending {@link request_refund}, returning the funds to
-   * the buyer and moving the escrow to `Refunded`.
+   * Primary payee (`payees[0]`) approves a pending {@link request_refund},
+   * returning the funds to the buyer and moving the escrow to `Refunded`.
+   * Secondary payees are rejected with `NotAuthorized`.
    */
   approve_refund(caller: AddressLike, escrowId: bigint): Call<void> {
     return this.transport.invoke("approve_refund", [caller, escrowId]);

@@ -126,6 +126,18 @@ const TTL_THRESHOLD_DIVISOR: u32 = 2;
 /// auto-cancelled.  Default: 7 days.
 const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 
+/// Longest a fallback escrow's primary resolver may hold sole authority over
+/// a dispute before the backup must be allowed to act (2_592_000 = 30 days).
+const FALLBACK_PRIMARY_GRACE: u64 = 2_592_000;
+
+/// Furthest past the creation timestamp a `FallbackResolver::dispute_deadline`
+/// may be set. A dispute can be raised no later than `PENDING_EXPIRY_WINDOW +
+/// DISPUTE_WINDOW` after creation (fund within 7 days, dispute within 48h of
+/// funding), so the backup is always able to act at most
+/// `FALLBACK_PRIMARY_GRACE` after the latest possible dispute.
+const MAX_FALLBACK_DEADLINE_OFFSET: u64 =
+    PENDING_EXPIRY_WINDOW + DISPUTE_WINDOW + FALLBACK_PRIMARY_GRACE;
+
 /// Maximum number of entries kept in an escrow's state history.
 /// Once reached, the oldest entry is dropped for each new one appended,
 /// bounding storage size for high-churn escrows (e.g. disputed <->

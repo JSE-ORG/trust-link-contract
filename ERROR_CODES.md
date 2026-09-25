@@ -53,3 +53,4 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **45** | `TooManyMessages` | The maximum number of messages for an escrow has been reached. | No more messages can be attached to this escrow. |
 | **46** | `InvalidTtlExtension` | The requested TTL extension is below `MIN_TTL_EXTENSION` (1,000 ledgers). | Supply a TTL extension value of at least `MIN_TTL_EXTENSION`. |
 | **47** | `InvalidResolverThreshold` | Multi-resolver threshold is invalid: zero, exceeds resolver count, or resolver list is empty. | Ensure threshold is > 0, ≤ resolver count, and resolver list is non-empty. |
+| **48** | `InvalidFallbackDeadline` | `create_escrow_with_fallback` was given a `dispute_deadline` more than 39 days (`MAX_FALLBACK_DEADLINE_OFFSET`) past the current ledger timestamp, which could lock disputed funds if the primary resolver is unresponsive. | Pass a deadline no later than `now + 3_369_600` seconds; typically `now + a few days`. |

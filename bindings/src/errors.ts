@@ -55,6 +55,7 @@ export const enum ErrorCode {
   TooManyMessages = 45,
   InvalidTtlExtension = 46,
   InvalidResolverThreshold = 47,
+  InvalidFallbackDeadline = 48,
 }
 
 /** Human-readable message for every contract error code. */
@@ -137,6 +138,8 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "The requested TTL extension is below the minimum allowed limit.",
   [ErrorCode.InvalidResolverThreshold]:
     "Multi-resolver threshold is invalid.",
+  [ErrorCode.InvalidFallbackDeadline]:
+    "The fallback resolver's dispute deadline is too far in the future.",
 };
 
 /**
