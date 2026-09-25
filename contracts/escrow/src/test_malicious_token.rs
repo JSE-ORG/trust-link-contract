@@ -228,3 +228,65 @@ fn budget_exhausting_token_reverts_without_side_effects() {
     assert_eq!(f.mclient.balance(&f.seller), 0);
     assert_ne!(f.client.get_escrow(&f.id).state, EscrowState::Completed);
 }
+
+// 8. Re-entrancy during `mutual_cancel` must revert atomically: the CEI
+// ordering flips the escrow to `Canceled` before the payout transfer, so a
+// token that re-enters `mutual_cancel` mid-transfer must be rejected by the
+// host's re-entrancy guard, leaving the escrow `Funded` and every balance
+// untouched (issue #954).
+#[test]
+fn reentrancy_during_mutual_cancel_is_blocked() {
+    // `mutual_cancel` requires a buyer, unlike the shared `setup()` fixture
+    // (which creates a buyer-less escrow), so this test builds its own.
+    let env = Box::leak(Box::new(Env::default()));
+    env.mock_all_auths();
+
+    let contract_id = env.register(Escrow, ());
+    let client = crate::EscrowClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    let fee_collector = Address::generate(env);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let mtoken = env.register(MaliciousToken, ());
+    let mclient = MaliciousTokenClient::new(env, &mtoken);
+
+    let seller = Address::generate(env);
+    let buyer = Address::generate(env);
+    let resolver = Address::generate(env);
+
+    mclient.set_attack(&Attack::None);
+    mclient.mint(&buyer, &AMOUNT);
+
+    let mut payees = Vec::new(env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(env);
+    let id = client.create_escrow(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &mtoken,
+        &AMOUNT,
+        &0_u32,
+        &0_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+    );
+
+    client.fund_escrow(&id, &buyer);
+    assert_eq!(mclient.balance(&contract_id), AMOUNT);
+
+    mclient.set_reentry(&contract_id, &buyer, &id);
+    mclient.set_attack(&Attack::ReenterMutualCancel);
+
+    let result = client.try_mutual_cancel(&id);
+    assert!(result.is_err(), "re-entrant mutual_cancel must revert");
+
+    // Accounting unaffected: still Funded, funds stay escrowed, nobody paid.
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Funded);
+    assert_eq!(mclient.balance(&contract_id), AMOUNT);
+    assert_eq!(mclient.balance(&buyer), 0);
+    assert_eq!(mclient.balance(&seller), 0);
+}

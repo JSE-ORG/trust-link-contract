@@ -198,6 +198,107 @@ fn terminal_state_rejected() {
     assert_eq!(result, Err(Ok(ContractError::InvalidState)));
 }
 
+/// `rotate_resolver`'s authorization check loops over every entry in
+/// `payees`, not just `payees[0]`, so a secondary payee is authorized to
+/// rotate the resolver exactly like the primary payee or admin (issue #952).
+#[test]
+fn secondary_payee_can_rotate_resolver() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let primary_payee = Address::generate(&env);
+    let secondary_payee = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+
+    let sac = env.register_stellar_asset_contract_v2(token_admin);
+    let token_addr = sac.address();
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: primary_payee.clone(),
+        bps: 6_000,
+    });
+    payees.push_back(Payee {
+        address: secondary_payee.clone(),
+        bps: 4_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let escrow_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &500_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
+
+    let new_resolver = Address::generate(&env);
+    client.rotate_resolver(&secondary_payee, &escrow_id, &new_resolver);
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(new_resolver));
+}
+
+/// A non-payee, non-admin address is still rejected on a multi-payee escrow,
+/// confirming the loosened "any payee" check doesn't accidentally admit
+/// arbitrary callers (issue #952).
+#[test]
+fn non_payee_non_admin_cannot_rotate_resolver_multi_payee() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let primary_payee = Address::generate(&env);
+    let secondary_payee = Address::generate(&env);
+    let outsider = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+
+    let sac = env.register_stellar_asset_contract_v2(token_admin);
+    let token_addr = sac.address();
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: primary_payee.clone(),
+        bps: 6_000,
+    });
+    payees.push_back(Payee {
+        address: secondary_payee.clone(),
+        bps: 4_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let escrow_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &500_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
+
+    let new_resolver = Address::generate(&env);
+    let result = client.try_rotate_resolver(&outsider, &escrow_id, &new_resolver);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+}
+
 /// Returns true if the contract emitted a `resolver_rotated` event whose
 /// `old_resolver`/`new_resolver` match the expected addresses.
 fn resolver_rotated_emitted(fx: &Fx, old: &Address, new: &Address) -> bool {
