@@ -109,4 +109,6 @@ pub enum ContractError {
     /// Returned when a fallback resolver's `dispute_deadline` is later than
     /// `MAX_FALLBACK_DEADLINE_OFFSET` past the current ledger timestamp.
     InvalidFallbackDeadline = 48,
+    /// Returned when a `multicall` batch exceeds `MAX_MULTICALL_BATCH_SIZE`.
+    MulticallBatchTooLarge = 49,
 }

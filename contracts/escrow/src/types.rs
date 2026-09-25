@@ -49,6 +49,25 @@ pub enum DataKey {
     BasketTokens(u64),
     DeliveryProposal(u64),
     TimelockOp(u32),
+
+    // Paged storage keys. These shard collections that used to live in a single
+    // unbounded `Vec` entry, so each storage read/write touches a bounded slot
+    // instead of paying for (and eventually exceeding) the whole collection.
+    // Appended at the end so existing variant discriminants are unchanged.
+    /// A single message: `Message(escrow_id, index)`. Replaces the monolithic
+    /// `Messages(escrow_id)` vector for targeted, O(page) reads.
+    Message(u64, u32),
+    /// Number of messages stored for an escrow. Drives the paged `Message`
+    /// reads without loading the collection.
+    MessageCount(u64),
+    /// A bounded page of a buyer's escrow-id index: `(buyer, page_index)`.
+    BuyerEscrow(Address, u32),
+    /// Total number of escrow ids indexed for a buyer.
+    BuyerEscrowCount(Address),
+    /// A bounded page of a vendor's escrow-id index: `(vendor, page_index)`.
+    VendorEscrow(Address, u32),
+    /// Total number of escrow ids indexed for a vendor.
+    VendorEscrowCount(Address),
 }
 
 /// A token-amount pair for multi-token basket escrows.
