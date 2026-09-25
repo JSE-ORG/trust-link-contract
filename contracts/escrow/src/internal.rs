@@ -350,7 +350,7 @@ pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), Cont
 
     let mut total_bps: u32 = 0;
     for i in 0..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+        let payee = payees.get(i).ok_or(ContractError::PayeeIndexOutOfBounds)?;
         let bps = payee.bps;
 
         // Check for overflow
@@ -691,7 +691,7 @@ pub(crate) fn distribute_to_payees(
 
     // Calculate amounts for all payees except the first
     for i in 1..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+        let payee = payees.get(i).ok_or(ContractError::PayeeIndexOutOfBounds)?;
         let payee_amount = amount
             .checked_mul(payee.bps as i128)
             .ok_or(ContractError::ArithmeticError)?
@@ -708,7 +708,7 @@ pub(crate) fn distribute_to_payees(
     }
 
     // First payee gets the remainder (rounding goes to first payee)
-    let first_payee = payees.get(0).ok_or(ContractError::IndexOutOfBounds)?;
+    let first_payee = payees.get(0).ok_or(ContractError::PayeeIndexOutOfBounds)?;
     if remaining > 0 {
         token_client.transfer(&contract_addr, &first_payee.address, &remaining);
     }
@@ -740,7 +740,7 @@ pub(crate) fn payout_basket_tokens(
     for i in 0..basket_tokens.len() {
         let entry = basket_tokens
             .get(i)
-            .ok_or(ContractError::IndexOutOfBounds)?;
+            .ok_or(ContractError::BasketIndexOutOfBounds)?;
         // Skip the primary token — it is always paid out by the calling function.
         if &entry.token == primary_token {
             continue;
@@ -850,7 +850,7 @@ pub(crate) fn settle_escrow_to_payees(
     let first_payee_addr = escrow
         .payees
         .get(0)
-        .ok_or(ContractError::IndexOutOfBounds)?
+        .ok_or(ContractError::PayeeIndexOutOfBounds)?
         .address
         .clone();
 
@@ -989,7 +989,7 @@ pub(crate) fn create_escrow_internal(
     if payees.is_empty() {
         return Err(ContractError::InvalidAddress);
     }
-    let first_payee = payees.get(0).ok_or(ContractError::IndexOutOfBounds)?;
+    let first_payee = payees.get(0).ok_or(ContractError::PayeeIndexOutOfBounds)?;
     first_payee.address.require_auth();
 
     ensure_action_not_paused(env, Symbol::new(env, "CREATE"))?;
@@ -1033,7 +1033,7 @@ pub(crate) fn create_escrow_internal(
 
     // Security: resolver must be distinct from all payees and buyer
     for i in 0..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+        let payee = payees.get(i).ok_or(ContractError::PayeeIndexOutOfBounds)?;
         if resolver == payee.address {
             return Err(ContractError::ConflictingRoles);
         }
@@ -1102,7 +1102,7 @@ pub(crate) fn create_escrow_internal(
 
     let first_payee_addr = payees
         .get(0)
-        .ok_or(ContractError::IndexOutOfBounds)?
+        .ok_or(ContractError::PayeeIndexOutOfBounds)?
         .address
         .clone();
     storage::append_vendor_escrow_index(env, &first_payee_addr, escrow_id);

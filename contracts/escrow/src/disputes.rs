@@ -342,7 +342,7 @@ impl Escrow {
         updated_dispute.appeal_count = updated_dispute
             .appeal_count
             .checked_add(1)
-            .ok_or(ContractError::ArithmeticError)?;
+            .ok_or(ContractError::MaxAppealsReached)?;
 
         // Clear votes so a fresh round begins
         env.storage()

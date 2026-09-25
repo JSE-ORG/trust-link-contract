@@ -125,4 +125,14 @@ pub enum ContractError {
     NoResolverVotes = 52,
     /// Returned when a `multicall` batch exceeds `MAX_MULTICALL_BATCH_SIZE`.
     MulticallBatchTooLarge = 49,
+    /// Returned when the escrow ID counter overflows its maximum `u64` value.
+    EscrowCounterOverflow = 53,
+    /// Returned when checked arithmetic overflows specifically during fee calculation (e.g. basis-point math on fees).
+    FeeCalculationOverflow = 54,
+    /// Returned when checked arithmetic overflows specifically during principal amount calculation (e.g. net payout math).
+    AmountCalculationOverflow = 55,
+    /// Returned when a payee list index is out of bounds, indicating a payee storage or argument invariant was violated.
+    PayeeIndexOutOfBounds = 56,
+    /// Returned when a basket token list index is out of bounds, indicating a basket-token storage or argument invariant was violated.
+    BasketIndexOutOfBounds = 57,
 }

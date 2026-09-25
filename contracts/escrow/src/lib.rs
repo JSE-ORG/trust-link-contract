@@ -253,7 +253,7 @@ pub(crate) fn next_escrow_id(env: &Env) -> Result<u64, ContractError> {
         .unwrap_or(1u64);
     let next_id = escrow_id
         .checked_add(1)
-        .ok_or(ContractError::ArithmeticError)?;
+        .ok_or(ContractError::EscrowCounterOverflow)?;
     env.storage()
         .instance()
         .set(&DataKey::EscrowCounter, &next_id);
