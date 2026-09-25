@@ -40,26 +40,26 @@ pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, ContractError> 
 
     let part1 = amount
         .checked_div(BASIS_POINTS as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?
+        .ok_or(ContractError::FeeCalculationOverflow)?
         .checked_mul(fee_bps as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?;
+        .ok_or(ContractError::FeeCalculationOverflow)?;
 
     let part2 = (amount % BASIS_POINTS as i128)
         .checked_mul(fee_bps as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?
+        .ok_or(ContractError::FeeCalculationOverflow)?
         .checked_div(BASIS_POINTS as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?;
+        .ok_or(ContractError::FeeCalculationOverflow)?;
 
     part1
         .checked_add(part2)
-        .ok_or(ContractError::ArithmeticOverflow)
+        .ok_or(ContractError::FeeCalculationOverflow)
 }
 
 pub fn calculate_protocol_fee(amount: i128, fee_bps: u32) -> Result<(i128, i128), ContractError> {
     let fee = calculate_fee(amount, fee_bps)?;
     let net = amount
         .checked_sub(fee)
-        .ok_or(ContractError::ArithmeticOverflow)?;
+        .ok_or(ContractError::AmountCalculationOverflow)?;
     Ok((fee, net))
 }
 
