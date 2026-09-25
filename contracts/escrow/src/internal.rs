@@ -822,6 +822,11 @@ pub(crate) fn settle_escrow_to_payees(
         .address
         .clone();
 
+    let prev_state = escrow.state.clone();
+    escrow.state = EscrowState::Completed;
+    save_escrow(env, escrow_id, escrow, Some(&prev_state));
+    increment_counter(env, &DataKey::TotalCompleted)?;
+
     let (protocol_fee, net_amount) =
         crate::helpers::payout::calculate_protocol_fee(escrow.amount, fee_bps)?;
     if protocol_fee > 0 {
@@ -833,12 +838,6 @@ pub(crate) fn settle_escrow_to_payees(
     }
     distribute_to_payees(env, &escrow.token, &escrow.payees, net_amount)?;
     payout_basket_tokens(env, escrow_id, &first_payee_addr)?;
-
-    let prev_state = escrow.state.clone();
-    escrow.state = EscrowState::Completed;
-    save_escrow(env, escrow_id, escrow, Some(&prev_state));
-    clear_delivery_proposal(env, escrow_id);
-    increment_counter(env, &DataKey::TotalCompleted)?;
 
     Ok((prev_state, first_payee_addr))
 }
