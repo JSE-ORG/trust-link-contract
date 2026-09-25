@@ -133,6 +133,57 @@ fn test_multicall_two_get_escrow_calls() {
     assert_eq!(results.len(), 2);
 }
 
+/// `batch_create_escrow` has no explicit batch-size cap (unlike `multicall`,
+/// which enforces `MAX_MULTICALL_BATCH_SIZE`), so a large batch is only ever
+/// exercised at the gas-profile scale of 10. This stress-tests a much larger
+/// batch (50 escrows) end-to-end: every escrow in the batch must actually be
+/// created correctly — unique sequential ids, `Pending` state, and the
+/// expected seller/token/amount — not just the first or last one (issue
+/// #951).
+#[test]
+fn test_batch_create_escrow_max_batch_size() {
+    let (env, admin, seller, _buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    const BATCH_SIZE: u32 = 50;
+    let mut inputs: Vec<crate::EscrowInput> = Vec::new(&env);
+    for _ in 0..BATCH_SIZE {
+        inputs.push_back(crate::EscrowInput {
+            buyer: None,
+            resolver: resolver.clone(),
+            token: token.clone(),
+            amount: 1_000_i128,
+            fee_bps: 0,
+            shipping_window: 3600,
+            notes: None,
+        });
+    }
+
+    let ids = client.batch_create_escrow(&seller, &inputs);
+    assert_eq!(ids.len(), BATCH_SIZE);
+
+    // Every id must be unique and strictly increasing.
+    for i in 1..ids.len() {
+        let prev = ids.get(i - 1).unwrap();
+        let cur = ids.get(i).unwrap();
+        assert!(cur > prev, "escrow ids must be strictly increasing");
+    }
+
+    // Every escrow in the batch must be fully and correctly persisted.
+    for i in 0..ids.len() {
+        let id = ids.get(i).unwrap();
+        let escrow = client.get_escrow(&id);
+        assert_eq!(escrow.state, EscrowState::Pending);
+        assert_eq!(escrow.token, token);
+        assert_eq!(escrow.amount, 1_000_i128);
+        assert_eq!(escrow.payees.len(), 1);
+        assert_eq!(escrow.payees.get(0).unwrap().address, seller);
+        assert_eq!(escrow.payees.get(0).unwrap().bps, 10_000);
+    }
+}
+
 /// `multicall` is blocked when the contract is paused.
 #[test]
 fn test_multicall_blocked_when_paused() {

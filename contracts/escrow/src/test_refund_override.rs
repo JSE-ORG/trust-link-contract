@@ -116,3 +116,59 @@ fn mark_shipped_rejects_pending_even_after_refund_request_path() {
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidState)));
 }
+
+/// Only the primary payee (`payees[0]`) may approve a pending refund request.
+/// A secondary payee must be rejected with `NotAuthorized`, and the refund
+/// must not go through as a side effect of the rejected call (issue #953).
+#[test]
+fn secondary_payee_cannot_approve_refund() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, primary_payee, resolver, token, _admin) = setup(&env);
+    let secondary_payee = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let amount = 1_000_i128;
+    token::StellarAssetClient::new(&env, &token).mint(&buyer, &amount);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: primary_payee.clone(),
+        bps: 6_000,
+    });
+    payees.push_back(Payee {
+        address: secondary_payee.clone(),
+        bps: 4_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let escrow_id = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &amount,
+        &0_u32,
+        &3_600_u64,
+    );
+    client.fund_escrow(&escrow_id, &buyer);
+
+    client.request_refund(&buyer, &escrow_id);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::RefundRequested
+    );
+
+    let result = client.try_approve_refund(&secondary_payee, &escrow_id);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+
+    // The rejected call had no side effects: still awaiting approval, and no
+    // funds moved back to the buyer.
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::RefundRequested
+    );
+    assert_eq!(
+        token::StellarAssetClient::new(&env, &token).balance(&buyer),
+        0_i128
+    );
+}
