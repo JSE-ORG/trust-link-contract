@@ -214,6 +214,29 @@ pub struct Escrow;
 /// Maximum number of appeals allowed per dispute.
 pub const MAX_APPEALS: u32 = 3;
 
+/// Default maximum duration (in seconds) a dispute may remain unresolved
+/// before either party can force a refund with `claim_dispute_timeout`.
+/// Default: 30 days. Admins can override with `set_dispute_timeout`.
+const DEFAULT_DISPUTE_TIMEOUT: u64 = 2_592_000;
+
+/// Smallest dispute timeout `set_dispute_timeout` accepts (1 hour). A lower
+/// bound prevents a party from shortening the resolver window to the point
+/// where a legitimate resolver cannot reasonably respond.
+const MIN_DISPUTE_TIMEOUT: u64 = 3_600;
+
+/// Largest dispute timeout `set_dispute_timeout` accepts (365 days).
+const MAX_DISPUTE_TIMEOUT: u64 = 31_536_000;
+
+/// How long (in seconds) a split multi-resolver vote must remain deadlocked
+/// before the permissionless majority-rules fallback
+/// `resolve_deadlocked_dispute` may be used. Default: 7 days.
+const DISPUTE_DEADLOCK_WINDOW: u64 = 604_800;
+
+/// Number of persistent-storage buckets each lifecycle counter is spread
+/// across. Sharding keeps concurrent `create`/`complete`/`dispute`/`refund`
+/// transitions from serializing on one instance-storage entry.
+const COUNTER_SHARDS: u32 = 16;
+
 /// Zero address string for the Stellar network.
 pub const ZERO_ADDRESS_STR: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
@@ -275,7 +298,15 @@ fn resolve_or_vote_internal(
     );
 
     if let Some(final_resolution) = tally_votes(&votes, threshold)? {
-        execute_resolution_transition(env, escrow_id, escrow, caller, final_resolution, votes)?;
+        execute_resolution_transition(
+            env,
+            escrow_id,
+            escrow,
+            caller,
+            final_resolution,
+            votes,
+            true,
+        )?;
     } else {
         save_resolver_votes(env, escrow_id, &votes);
     }
@@ -299,12 +330,15 @@ mod test_cancel_restrictions;
 mod test_co_signed_release;
 mod test_concurrent_vendor_escrows;
 mod test_contract_config;
+mod test_counter_sharding;
 mod test_create_escrow_boundary;
 mod test_create_escrow_with_expiration;
+mod test_deadlock_fallback;
 mod test_delivery;
 mod test_dispute;
 mod test_dispute_deadline_overflow;
 mod test_dispute_flow;
+mod test_dispute_timeout;
 mod test_dispute_window;
 mod test_edge_cases;
 mod test_emergency_drain;

@@ -77,28 +77,18 @@ pub(crate) fn add_or_update_vote(
 /// no additional votes are possible and funds remain frozen in `Disputed`
 /// indefinitely.
 ///
-/// **Recommended on-chain escape hatches** (to be implemented in a future
-/// upgrade — at least one of the following):
+/// **Escape hatches**: The deadlock described above is bounded by two
+/// implemented fallbacks:
 ///
-/// 1. **Admin override**: Allow the platform admin to force a resolution after
-///    the dispute has been in a deadlocked state for a configurable timeout
-///    (e.g. 30 days).  This path should go through the existing 24-hour
-///    timelock to prevent abuse.
+/// 1. [`crate::Escrow::resolve_deadlocked_dispute`] — once a dispute has been
+///    split (threshold not met) for `DISPUTE_DEADLOCK_WINDOW`, anyone may
+///    trigger the simple-majority fallback via [`tally_votes_majority`].
+/// 2. [`crate::Escrow::claim_dispute_timeout`] — if the dispute stays
+///    unresolved for the admin-configured `DisputeTimeout`, either party can
+///    force a Refund.
 ///
-/// 2. **Expiration-based majority-rules fallback**: Once all `N` resolvers have
-///    cast votes *and* a configurable deadline has passed without threshold
-///    being reached, automatically resolve in favour of whichever side holds
-///    the simple majority of votes cast (or trigger a Refund by default when
-///    perfectly tied).
-///
-/// 3. **Escalation mechanism**: Allow either party to escalate a deadlocked
-///    dispute to a higher-authority arbitrator (e.g. a DAO governance vote)
-///    that can break the tie.
-///
-/// Until one of these paths is added, operators should configure thresholds
-/// carefully (e.g. avoid `threshold == N` for `N > 1`) and document the
-/// deadlock risk in user-facing material.  This is a known limitation of the
-/// current M-of-N voting system.
+/// Operators should still configure `Multi` thresholds carefully (e.g. avoid
+/// `threshold == N` for `N > 1`) so that a majority is reachable in practice.
 pub(crate) fn tally_votes(
     votes: &Vec<ResolverVote>,
     threshold: u32,
@@ -133,6 +123,31 @@ pub(crate) fn tally_votes(
         Ok(Some(ResolutionType::Refund))
     } else {
         Ok(None)
+    }
+}
+
+/// Simple-majority fallback used once a multi-resolver vote has been
+/// deadlocked past `DISPUTE_DEADLOCK_WINDOW`. Returns whichever side holds
+/// strictly more votes; a perfect tie (including a vote set with no clear
+/// winner) resolves to `Refund`, which is the conservative default because it
+/// returns the escrowed principal to the buyer rather than paying it out.
+pub(crate) fn tally_votes_majority(votes: &Vec<ResolverVote>) -> ResolutionType {
+    let mut release_count = 0u32;
+    let mut refund_count = 0u32;
+
+    for i in 0..votes.len() {
+        if let Some(vote) = votes.get(i) {
+            match vote.resolution {
+                ResolutionType::Release => release_count = release_count.saturating_add(1),
+                ResolutionType::Refund => refund_count = refund_count.saturating_add(1),
+            }
+        }
+    }
+
+    if release_count > refund_count {
+        ResolutionType::Release
+    } else {
+        ResolutionType::Refund
     }
 }
 
@@ -842,6 +857,7 @@ pub(crate) fn settle_escrow_to_payees(
     let prev_state = escrow.state.clone();
     escrow.state = EscrowState::Completed;
     save_escrow(env, escrow_id, escrow, Some(&prev_state));
+    increment_sharded_counter(env, COUNTER_KIND_COMPLETED, escrow_id)?;
     // A delivery proposal can only exist while the escrow is Shipped, so every
     // completion transition must drop it or the entry is orphaned in storage.
     clear_delivery_proposal(env, escrow_id);
@@ -892,13 +908,67 @@ pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), Contra
     Ok(())
 }
 
-pub(crate) fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
-    let current: u64 = env.storage().instance().get(key).unwrap_or(0);
+/// Counter kind discriminants used by [`increment_sharded_counter`] and
+/// [`read_sharded_counter_total`]. Keep stable: they are persisted in storage.
+pub(crate) const COUNTER_KIND_CREATED: u32 = 0;
+pub(crate) const COUNTER_KIND_COMPLETED: u32 = 1;
+pub(crate) const COUNTER_KIND_DISPUTED: u32 = 2;
+pub(crate) const COUNTER_KIND_REFUNDED: u32 = 3;
+
+/// Increments lifecycle counter `kind` in one of `crate::COUNTER_SHARDS`
+/// persistent-storage buckets, chosen from `seed` (the escrow id). Spreading
+/// writers across distinct keys avoids the serialization a single global
+/// instance-storage counter imposes on every escrow transition.
+pub(crate) fn increment_sharded_counter(
+    env: &Env,
+    kind: u32,
+    seed: u64,
+) -> Result<(), ContractError> {
+    let bucket = (seed % crate::COUNTER_SHARDS as u64) as u32;
+    let key = DataKey::ShardedCounter(kind, bucket);
+    let current: u64 = env.storage().persistent().get(&key).unwrap_or(0);
     let next = current
         .checked_add(1)
         .ok_or(ContractError::ArithmeticError)?;
-    env.storage().instance().set(key, &next);
+    env.storage().persistent().set(&key, &next);
+    let ext = get_ttl_extension(env);
+    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
     Ok(())
+}
+
+/// Sums every shard of lifecycle counter `kind`. Read-only: does not extend
+/// TTL, since these are analytics counters rather than escrow-critical state.
+pub(crate) fn read_sharded_counter_total(env: &Env, kind: u32) -> u64 {
+    let mut total: u64 = 0;
+    for bucket in 0..crate::COUNTER_SHARDS {
+        let key = DataKey::ShardedCounter(kind, bucket);
+        let value: u64 = env.storage().persistent().get(&key).unwrap_or(0);
+        total = total.saturating_add(value);
+    }
+    total
+}
+
+/// Total for a lifecycle counter: the legacy singleton value (written by
+/// deployments before sharding) plus the sum of its shards, so pre-existing
+/// statistics are preserved across the upgrade.
+pub(crate) fn read_counter_total(env: &Env, kind: u32, legacy_key: &DataKey) -> u64 {
+    let legacy: u64 = env.storage().instance().get(legacy_key).unwrap_or(0);
+    legacy.saturating_add(read_sharded_counter_total(env, kind))
+}
+
+/// Reads the admin-configured maximum dispute duration, falling back to
+/// [`crate::DEFAULT_DISPUTE_TIMEOUT`] when the admin has not set one.
+pub(crate) fn read_dispute_timeout(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::DisputeTimeout)
+        .unwrap_or(crate::DEFAULT_DISPUTE_TIMEOUT)
+}
+
+pub(crate) fn write_dispute_timeout(env: &Env, timeout: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::DisputeTimeout, &timeout);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1037,7 +1107,7 @@ pub(crate) fn create_escrow_internal(
         .clone();
     storage::append_vendor_escrow_index(env, &first_payee_addr, escrow_id);
 
-    increment_counter(env, &DataKey::TotalCreated)?;
+    increment_sharded_counter(env, COUNTER_KIND_CREATED, escrow_id)?;
     emit_escrow_created(
         env,
         escrow_id,
@@ -1053,8 +1123,23 @@ pub(crate) fn create_escrow_internal(
     Ok(escrow_id)
 }
 
-/// Execute the resolution transition when threshold is met.
-/// Deducts arbitration and resolver fees, transitions to PendingFinalization.
+/// Execute the resolution transition once a resolution has been determined.
+/// Transitions the escrow to `PendingFinalization`.
+///
+/// When `charge_fees` is true, deducts the arbitration and resolver fees from
+/// the escrow (once per dispute, see below) and pays the resolver fee to
+/// `caller`. Timeout fallbacks pass `false`, since no resolver actually
+/// decided the outcome and charging a resolver fee would be inappropriate.
+///
+/// # Fee timing
+/// Arbitration and resolver fees are charged to the escrow **once per
+/// dispute**, not once per appeal round. `fees_charged` on the dispute record
+/// means a prior round already deducted and paid them out (`clear_resolution`
+/// deliberately preserves it and the recorded amounts), so later rounds reuse
+/// the recorded amounts and skip the deduction, the accounting bump, and the
+/// transfers. A dedicated flag is required: the recorded amounts can
+/// legitimately be zero, and inferring "not yet charged" from that would let
+/// an appeal pick up a since-raised fee config.
 pub(crate) fn execute_resolution_transition(
     env: &Env,
     escrow_id: u64,
@@ -1062,22 +1147,15 @@ pub(crate) fn execute_resolution_transition(
     caller: Address,
     final_resolution: ResolutionType,
     votes: Vec<ResolverVote>,
+    charge_fees: bool,
 ) -> Result<(), ContractError> {
-    // Load the dispute record up front. After an appeal the escrow returns to
-    // `Disputed` and this transition runs again — but the arbitration and
-    // resolver fees are charged to the escrow **once per dispute**, not once
-    // per appeal round. `fees_charged` on the dispute record means a prior
-    // round already deducted and paid them out (`clear_resolution`
-    // deliberately preserves it and the recorded amounts), so this round
-    // reuses the recorded amounts and skips the deduction, the accounting
-    // bump, and the transfers. A dedicated flag is required: the recorded
-    // amounts can legitimately be zero, and inferring "not yet charged" from
-    // that would let an appeal pick up a since-raised fee config.
     let mut dispute_data = load_dispute(env, escrow_id)?;
     let fees_already_charged = dispute_data.fees_charged;
 
     let (arbitration_fee, resolver_fee) = if fees_already_charged {
         (dispute_data.arbitration_fee, dispute_data.resolver_fee)
+    } else if !charge_fees {
+        (0, 0)
     } else {
         let arbitration_fee_bps = read_fee_config(env).arbitration_fee_bps;
         let arbitration_fee =
@@ -1098,7 +1176,7 @@ pub(crate) fn execute_resolution_transition(
     let prev_state = escrow.state.clone();
     let mut updated_escrow = escrow;
 
-    if !fees_already_charged {
+    if !fees_already_charged && charge_fees {
         updated_escrow.amount = updated_escrow
             .amount
             .checked_sub(arbitration_fee)

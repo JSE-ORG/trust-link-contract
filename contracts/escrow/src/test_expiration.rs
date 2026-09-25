@@ -151,13 +151,10 @@ fn test_reclaim_lifecycle() {
     let res = client.try_reclaim_expired(&id);
     assert_eq!(res, Err(Ok(ContractError::InvalidState)));
 
-    // 2. Advance to timestamp 10 (expired, but within grace period) -> should fail with GracePeriodNotElapsed
+    // 2. Advance to timestamp 10 (exactly expires_at). The escrow is Funded
+    //    but unshipped, so it is immediately reclaimable: the grace period
+    //    only covers the pending-funding race and must not trap funds here.
     env.ledger().set_timestamp(10);
-    let res = client.try_reclaim_expired(&id);
-    assert!(matches!(res, Err(Ok(ContractError::GracePeriodNotElapsed))));
-
-    // 3. Advance to timestamp 15 (expired + grace period elapsed) -> should succeed
-    env.ledger().set_timestamp(15);
     client.reclaim_expired(&id);
 
     // Verify state transition to Expired

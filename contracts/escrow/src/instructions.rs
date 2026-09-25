@@ -167,8 +167,11 @@ impl Escrow {
         Ok(escrow_id)
     }
 
-    /// Buyer reclaims tokens from a Funded/Shipped escrow that has passed its
-    /// expiry schedule's grace period. Transitions the escrow to Expired.
+    /// Buyer reclaims tokens from a Funded/Shipped escrow once `expires_at`
+    /// has been reached. Transitions the escrow to Expired. The grace period
+    /// is deliberately *not* applied here: it only covers the funding race for
+    /// a still-Pending escrow, so a funded-but-unshipped escrow is reclaimable
+    /// immediately at `expires_at` rather than being locked in limbo.
     pub fn reclaim_expired(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_action_not_paused(&env, Symbol::new(&env, "RECLAIM"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
@@ -177,18 +180,19 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
+        // `expires_at` is the hard deadline for a funded escrow. `grace_period`
+        // only exists to cover the Pending -> Funded funding race (see
+        // `ExpirySchedule`), so once the escrow is Funded or Shipped the buyer
+        // may reclaim the moment `expires_at` is reached. Previously reclaim
+        // was also gated on `expires_at + grace_period`, which trapped funds
+        // when a seller failed to ship by `expires_at`: `mark_shipped` was
+        // already rejected as expired, yet the buyer still had to wait out the
+        // grace period before recovering their principal.
         let expires_at = escrow.expires_at.ok_or(ContractError::InvalidState)?;
-        let grace_period = escrow.grace_period;
 
         let now = env.ledger().timestamp();
         if now < expires_at {
             return Err(ContractError::InvalidState);
-        }
-        let reclaimable_at = expires_at
-            .checked_add(grace_period)
-            .ok_or(ContractError::ArithmeticOverflow)?;
-        if now < reclaimable_at {
-            return Err(ContractError::GracePeriodNotElapsed);
         }
 
         let buyer = escrow
@@ -446,7 +450,7 @@ impl Escrow {
 
         storage::append_vendor_escrow_index(&env, &seller, escrow_id);
 
-        increment_counter(&env, &DataKey::TotalCreated)?;
+        increment_sharded_counter(&env, COUNTER_KIND_CREATED, escrow_id)?;
 
         // Emit with first resolver for backward compat
         if let ResolverSet::Multi(ref m) = &resolver_set {
@@ -691,7 +695,7 @@ impl Escrow {
 
         storage::append_vendor_escrow_index(&env, &seller, escrow_id);
 
-        increment_counter(&env, &DataKey::TotalCreated)?;
+        increment_sharded_counter(&env, COUNTER_KIND_CREATED, escrow_id)?;
 
         emit_escrow_created(
             &env,
@@ -750,7 +754,7 @@ impl Escrow {
             false
         } else if escrow.state == EscrowState::Funded && buyer.as_ref() == Some(&caller) {
             escrow.state = EscrowState::Refunded;
-            increment_counter(&env, &DataKey::TotalRefunded)?;
+            increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
             true
         } else {
             return Err(ContractError::InvalidState);
@@ -1345,7 +1349,7 @@ impl Escrow {
 
         storage::append_vendor_escrow_index(&env, &seller, escrow_id);
 
-        increment_counter(&env, &DataKey::TotalCreated)?;
+        increment_sharded_counter(&env, COUNTER_KIND_CREATED, escrow_id)?;
         emit_basket_escrow_created(&env, escrow_id, seller, tokens.len());
 
         Ok(escrow_id)
@@ -1635,7 +1639,7 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-        increment_counter(&env, &DataKey::TotalRefunded)?;
+        increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
 
         let token_client = token::Client::new(&env, &escrow.token);
         token_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);

@@ -56,6 +56,10 @@ export const enum ErrorCode {
   InvalidTtlExtension = 46,
   InvalidResolverThreshold = 47,
   InvalidFallbackDeadline = 48,
+  DisputeTimeoutNotElapsed = 49,
+  DisputeNotDeadlocked = 50,
+  InvalidDisputeTimeout = 51,
+  NoResolverVotes = 52,
 }
 
 /** Human-readable message for every contract error code. */
@@ -140,6 +144,14 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "Multi-resolver threshold is invalid.",
   [ErrorCode.InvalidFallbackDeadline]:
     "The fallback resolver's dispute deadline is too far in the future.",
+  [ErrorCode.DisputeTimeoutNotElapsed]:
+    "The dispute has not yet remained unresolved for the maximum dispute duration.",
+  [ErrorCode.DisputeNotDeadlocked]:
+    "The dispute is not yet deadlocked or its resolver threshold was already met.",
+  [ErrorCode.InvalidDisputeTimeout]:
+    "The dispute timeout is outside the supported range.",
+  [ErrorCode.NoResolverVotes]:
+    "No resolver has voted on this dispute yet.",
 };
 
 /**

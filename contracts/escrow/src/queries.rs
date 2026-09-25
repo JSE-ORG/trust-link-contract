@@ -159,28 +159,29 @@ impl Escrow {
     }
 
     /// Returns on-chain counters for escrow lifecycle events.
+    ///
+    /// The counters are stored sharded across persistent-storage buckets (see
+    /// `increment_sharded_counter`) to avoid a single contended instance key;
+    /// this view re-aggregates them, including any value written by a
+    /// pre-sharding deployment.
     pub fn get_stats(env: Env) -> ContractStats {
         ContractStats {
-            total_created: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalCreated)
-                .unwrap_or(0),
-            total_completed: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalCompleted)
-                .unwrap_or(0),
-            total_disputed: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalDisputed)
-                .unwrap_or(0),
-            total_refunded: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalRefunded)
-                .unwrap_or(0),
+            total_created: read_counter_total(&env, COUNTER_KIND_CREATED, &DataKey::TotalCreated),
+            total_completed: read_counter_total(
+                &env,
+                COUNTER_KIND_COMPLETED,
+                &DataKey::TotalCompleted,
+            ),
+            total_disputed: read_counter_total(
+                &env,
+                COUNTER_KIND_DISPUTED,
+                &DataKey::TotalDisputed,
+            ),
+            total_refunded: read_counter_total(
+                &env,
+                COUNTER_KIND_REFUNDED,
+                &DataKey::TotalRefunded,
+            ),
         }
     }
 
