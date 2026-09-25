@@ -49,6 +49,15 @@ pub enum DataKey {
     BasketTokens(u64),
     DeliveryProposal(u64),
     TimelockOp(u32),
+    /// Admin-configured maximum duration (seconds) a dispute may remain
+    /// unresolved before either party can force a refund via
+    /// `claim_dispute_timeout`. Absent means `DEFAULT_DISPUTE_TIMEOUT`.
+    DisputeTimeout,
+    /// Sharded lifecycle counter, keyed by `(kind, bucket)`. Replaces the four
+    /// singleton `Total*` keys, which serialized every create / complete /
+    /// dispute / refund transition on a single instance-storage entry. See
+    /// `internal::increment_sharded_counter`.
+    ShardedCounter(u32, u32),
 }
 
 /// A token-amount pair for multi-token basket escrows.

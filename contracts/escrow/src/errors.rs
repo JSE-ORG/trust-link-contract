@@ -109,4 +109,18 @@ pub enum ContractError {
     /// Returned when a fallback resolver's `dispute_deadline` is later than
     /// `MAX_FALLBACK_DEADLINE_OFFSET` past the current ledger timestamp.
     InvalidFallbackDeadline = 48,
+    /// Returned when `claim_dispute_timeout` is called before the dispute has
+    /// remained unresolved for the configured maximum dispute duration.
+    DisputeTimeoutNotElapsed = 49,
+    /// Returned when `resolve_deadlocked_dispute` is called before the
+    /// multi-resolver deadlock window has elapsed, or when the votes do not
+    /// actually represent a deadlock (threshold met or no votes cast).
+    DisputeNotDeadlocked = 50,
+    /// Returned when `set_dispute_timeout` is given a value outside the
+    /// supported `MIN_DISPUTE_TIMEOUT..=MAX_DISPUTE_TIMEOUT` range.
+    InvalidDisputeTimeout = 51,
+    /// Returned when `resolve_deadlocked_dispute` is attempted while no
+    /// resolver has cast a vote; the resolver-inaction case is handled by
+    /// `claim_dispute_timeout` instead.
+    NoResolverVotes = 52,
 }
