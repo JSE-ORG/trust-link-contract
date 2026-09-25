@@ -639,6 +639,23 @@ pub(crate) fn extend_escrow_ttl(env: &Env, escrow_id: u64) -> Result<(), Contrac
         }
     }
 
+    // Paged messages are stored one key per entry, so extend the count and each
+    // message key individually — otherwise a dormant escrow's thread would be
+    // the one part of its storage allowed to expire.
+    let count_key = DataKey::MessageCount(escrow_id);
+    if persistent.has(&count_key) {
+        persistent.extend_ttl(&count_key, ext, ext);
+    }
+    let count: u32 = persistent.get(&count_key).unwrap_or(0);
+    let mut index = 0;
+    while index < count {
+        let key = DataKey::Message(escrow_id, index);
+        if persistent.has(&key) {
+            persistent.extend_ttl(&key, ext, ext);
+        }
+        index += 1;
+    }
+
     // The escrow is unusable if the instance (config, fee collector, and the
     // contract code it pins) is archived, so keep that alive too.
     env.storage().instance().extend_ttl(ext, ext);
@@ -841,6 +858,10 @@ pub(crate) fn settle_escrow_to_payees(
     escrow.state = EscrowState::Completed;
     save_escrow(env, escrow_id, escrow, Some(&prev_state));
     increment_sharded_counter(env, COUNTER_KIND_COMPLETED, escrow_id)?;
+    // A delivery proposal can only exist while the escrow is Shipped, so every
+    // completion transition must drop it or the entry is orphaned in storage.
+    clear_delivery_proposal(env, escrow_id);
+    increment_counter(env, &DataKey::TotalCompleted)?;
 
     let (protocol_fee, net_amount) =
         crate::helpers::payout::calculate_protocol_fee(escrow.amount, fee_bps)?;
@@ -1084,9 +1105,7 @@ pub(crate) fn create_escrow_internal(
         .ok_or(ContractError::IndexOutOfBounds)?
         .address
         .clone();
-    let mut vendor_escrows = storage::read_vendor_escrow_index(env, &first_payee_addr);
-    vendor_escrows.push_back(escrow_id);
-    storage::write_vendor_escrow_index(env, &first_payee_addr, &vendor_escrows);
+    storage::append_vendor_escrow_index(env, &first_payee_addr, escrow_id);
 
     increment_sharded_counter(env, COUNTER_KIND_CREATED, escrow_id)?;
     emit_escrow_created(

@@ -123,4 +123,6 @@ pub enum ContractError {
     /// resolver has cast a vote; the resolver-inaction case is handled by
     /// `claim_dispute_timeout` instead.
     NoResolverVotes = 52,
+    /// Returned when a `multicall` batch exceeds `MAX_MULTICALL_BATCH_SIZE`.
+    MulticallBatchTooLarge = 49,
 }

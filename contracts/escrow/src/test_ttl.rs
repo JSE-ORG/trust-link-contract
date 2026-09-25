@@ -668,8 +668,8 @@ fn advance_ledgers(env: &Env, ledgers: u32) {
 }
 
 /// Creates a funded, shipped, disputed escrow with a posted message, so the
-/// escrow owns `Escrow`, `EscrowStateHistory`, `Dispute` and `Messages`
-/// entries.
+/// escrow owns `Escrow`, `EscrowStateHistory`, `Dispute`, `Message(index 0)`
+/// and `MessageCount` entries.
 fn disputed_escrow_with_message(env: &Env, client: &crate::EscrowClient) -> u64 {
     let token = register_token(env);
     let seller = Address::generate(env);
@@ -694,12 +694,13 @@ fn disputed_escrow_with_message(env: &Env, client: &crate::EscrowClient) -> u64 
     id
 }
 
-fn escrow_entry_keys(id: u64) -> [DataKey; 4] {
+fn escrow_entry_keys(id: u64) -> [DataKey; 5] {
     [
         DataKey::Escrow(id),
         DataKey::EscrowStateHistory(id),
         DataKey::Dispute(id),
-        DataKey::Messages(id),
+        DataKey::Message(id, 0),
+        DataKey::MessageCount(id),
     ]
 }
 
