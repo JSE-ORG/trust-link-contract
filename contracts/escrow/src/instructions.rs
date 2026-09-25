@@ -331,19 +331,8 @@ impl Escrow {
             .checked_add(DISPUTE_WINDOW)
             .ok_or(ContractError::ArithmeticOverflow)?;
 
-        // Index the buyer for lookup.
-        let mut buyer_escrows: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
-            .unwrap_or(Vec::new(&env));
-        buyer_escrows.push_back(escrow_id);
-        let buyer_key = DataKey::BuyerEscrowIndex(buyer.clone());
-        let ext = get_ttl_extension(&env);
-        env.storage().persistent().set(&buyer_key, &buyer_escrows);
-        env.storage()
-            .persistent()
-            .extend_ttl(&buyer_key, ext / 2, ext);
+        // Index the buyer for lookup (paged, bounded per storage entry).
+        storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
@@ -455,9 +444,7 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow, None);
 
-        let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &seller);
-        vendor_escrows.push_back(escrow_id);
-        storage::write_vendor_escrow_index(&env, &seller, &vendor_escrows);
+        storage::append_vendor_escrow_index(&env, &seller, escrow_id);
 
         increment_counter(&env, &DataKey::TotalCreated)?;
 
@@ -518,19 +505,9 @@ impl Escrow {
             timestamp: env.ledger().timestamp(),
             content,
         };
-        let key = DataKey::Messages(escrow_id);
-        let mut msgs: Vec<Message> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(&env));
-
-        if msgs.len() >= crate::MAX_MESSAGES_PER_ESCROW {
-            return Err(ContractError::TooManyMessages);
-        }
-
-        msgs.push_back(message);
-        env.storage().persistent().set(&key, &msgs);
+        // Store one message per `Message(escrow_id, index)` key so reads are
+        // targeted instead of deserialising the whole thread.
+        storage::append_message(&env, escrow_id, &message, crate::MAX_MESSAGES_PER_ESCROW)?;
         emit_message_posted(&env, escrow_id, sender);
         Ok(())
     }
@@ -712,9 +689,7 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow, None);
 
-        let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &seller);
-        vendor_escrows.push_back(escrow_id);
-        storage::write_vendor_escrow_index(&env, &seller, &vendor_escrows);
+        storage::append_vendor_escrow_index(&env, &seller, escrow_id);
 
         increment_counter(&env, &DataKey::TotalCreated)?;
 
@@ -782,6 +757,12 @@ impl Escrow {
         };
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        // The PendingExpiry schedule only governs a Pending escrow; removing it
+        // on cancellation keeps it from being orphaned (see `ensure_not_expired`
+        // and `extend_escrow_ttl`).
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingExpiry(escrow_id));
 
         if should_refund {
             let token_client = token::Client::new(&env, &escrow.token);
@@ -1147,6 +1128,9 @@ impl Escrow {
         updated.state = EscrowState::Completed;
 
         save_escrow(&env, escrow_id, &updated, Some(&prev_state));
+        // A delivery proposal can only exist while the escrow is Shipped, so
+        // completing it here must drop the orphaned entry.
+        clear_delivery_proposal(&env, escrow_id);
         increment_counter(&env, &DataKey::TotalCompleted)?;
 
         transfer_with_protocol_fee(
@@ -1359,9 +1343,7 @@ impl Escrow {
         }
         save_basket_tokens(&env, escrow_id, &basket_entries);
 
-        let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &seller);
-        vendor_escrows.push_back(escrow_id);
-        storage::write_vendor_escrow_index(&env, &seller, &vendor_escrows);
+        storage::append_vendor_escrow_index(&env, &seller, escrow_id);
 
         increment_counter(&env, &DataKey::TotalCreated)?;
         emit_basket_escrow_created(&env, escrow_id, seller, tokens.len());
@@ -1454,18 +1436,8 @@ impl Escrow {
             .checked_add(DISPUTE_WINDOW)
             .ok_or(ContractError::ArithmeticError)?;
 
-        let mut buyer_escrows: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
-            .unwrap_or(Vec::new(&env));
-        buyer_escrows.push_back(escrow_id);
-        let buyer_key = DataKey::BuyerEscrowIndex(buyer.clone());
-        let ext = get_ttl_extension(&env);
-        env.storage().persistent().set(&buyer_key, &buyer_escrows);
-        env.storage()
-            .persistent()
-            .extend_ttl(&buyer_key, ext / 2, ext);
+        // Index the buyer for lookup (paged, bounded per storage entry).
+        storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
@@ -1729,9 +1701,15 @@ impl Escrow {
     /// missing or undecodable argument reverts with `InvalidMulticallArg`.
     /// Authorization for each sub-call is enforced exactly as if it were
     /// called directly. Reverts with `ContractPaused` if the contract is
-    /// paused.
+    /// paused, and with `MulticallBatchTooLarge` when the batch exceeds
+    /// `MAX_MULTICALL_BATCH_SIZE` — an unbounded batch could otherwise be used
+    /// to exhaust the transaction's instruction or read/write limits and abort
+    /// midway.
     pub fn multicall(env: Env, calls: Vec<ContractCall>) -> Result<Vec<Val>, ContractError> {
         ensure_not_paused(&env)?;
+        if calls.len() > crate::MAX_MULTICALL_BATCH_SIZE {
+            return Err(ContractError::MulticallBatchTooLarge);
+        }
         let mut results = Vec::new(&env);
 
         let s_initialize = Symbol::new(&env, "initialize");

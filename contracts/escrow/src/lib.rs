@@ -161,7 +161,31 @@ pub const MAX_MESSAGES_PER_ESCROW: u32 = 100;
 /// Maximum number of tokens allowed in a basket escrow. Bounds iteration cost
 /// in `save_basket_tokens` and `payout_basket_tokens`, and keeps the basket
 /// well within Soroban storage entry size limits.
-pub const MAX_BASKET_SIZE: u32 = 20;
+///
+/// Lowered from 20 to 5: `fund_basket_escrow` and `payout_basket_tokens` issue
+/// one cross-contract `token::Client::transfer` per entry, and a Soroban
+/// transaction has strict instruction/resource limits. Empirically fewer than
+/// ~10 sequential cross-contract transfers fit comfortably in one transaction,
+/// so 5 leaves headroom for the surrounding escrow lifecycle work rather than
+/// risking a mid-transaction abort.
+pub const MAX_BASKET_SIZE: u32 = 5;
+
+/// Maximum number of calls accepted in a single `multicall` batch.
+///
+/// Each entry dispatches a full contract call, so an unbounded batch lets a
+/// caller construct a transaction that exhausts the instruction or read/write
+/// limits and aborts midway. Capping the batch keeps a multicall within budget
+/// and fails fast (with `MulticallBatchTooLarge`) instead of running out of
+/// resources partway through.
+pub const MAX_MULTICALL_BATCH_SIZE: u32 = 10;
+
+/// Number of escrow ids stored per page of a buyer/vendor index entry.
+///
+/// The index used to be one unbounded `Vec` per address; sharding it into
+/// fixed-size pages keeps every individual storage entry well under Soroban's
+/// per-entry size limit and makes each read/write touch only the page that
+/// changed.
+pub const ESCROW_INDEX_PAGE_SIZE: u32 = 20;
 
 /// Minimum shipping window in seconds (1 second).
 /// A value of 0 would allow an immediate dispute with no shipping time, which is invalid.
@@ -310,6 +334,7 @@ mod test_multicall;
 mod test_mutual_cancel;
 mod test_not_found;
 mod test_overflow;
+mod test_pagination_and_limits;
 mod test_pause;
 mod test_pending_expiry;
 mod test_query_improvements;
