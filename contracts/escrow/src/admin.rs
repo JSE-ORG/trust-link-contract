@@ -63,6 +63,7 @@ fn execute_timelock_op(
         operation as u32,
         proposal.proposer.clone(),
         caller.clone(),
+        proposal.params.clone(),
     );
     Ok(proposal)
 }
