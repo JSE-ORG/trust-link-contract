@@ -135,4 +135,8 @@ pub enum ContractError {
     PayeeIndexOutOfBounds = 56,
     /// Returned when a basket token list index is out of bounds, indicating a basket-token storage or argument invariant was violated.
     BasketIndexOutOfBounds = 57,
+    /// Returned when the global protocol fee exceeds its configured hard cap.
+    ProtocolFeeExceedsMax = 58,
+    /// Returned when the arbitration fee exceeds its configured hard cap.
+    ArbitrationFeeExceedsMax = 59,
 }

@@ -173,7 +173,7 @@ impl Escrow {
 
     /// Sets the arbitration fee (in basis points) deducted from escrows
     /// during dispute resolution. Only callable by admin. Reverts with
-    /// `FeeExceedsMax` if `fee_bps` exceeds `MAX_ARBITRATION_FEE_BPS`, or
+    /// `ArbitrationFeeExceedsMax` if `fee_bps` exceeds `MAX_ARBITRATION_FEE_BPS`, or
     /// with the combined-fee cap if `protocol_fee_bps + fee_bps` would
     /// exceed `MAX_COMBINED_FEE_BPS`. Emits `arbitration_fee_updated`.
     pub fn set_arbitration_fee(
@@ -994,7 +994,7 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
         if fee > MAX_PROTOCOL_FEE_BPS {
-            return Err(ContractError::FeeExceedsMax);
+            return Err(ContractError::ProtocolFeeExceedsMax);
         }
         let mut config = read_fee_config(&env);
         config.protocol_fee_bps = fee;
@@ -1010,7 +1010,7 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
         if fee > MAX_PROTOCOL_FEE_BPS {
-            return Err(ContractError::FeeExceedsMax);
+            return Err(ContractError::ProtocolFeeExceedsMax);
         }
         let mut config = read_fee_config(&env);
         let old_fee = config.protocol_fee_bps;
