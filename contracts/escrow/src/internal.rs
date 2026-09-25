@@ -600,9 +600,11 @@ pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<
 /// `record_delivery` (which consumes it) must call this, or the entry is
 /// orphaned in persistent storage. A no-op when no proposal exists.
 pub(crate) fn clear_delivery_proposal(env: &Env, escrow_id: u64) {
-    env.storage()
-        .persistent()
-        .remove(&DataKey::DeliveryProposal(escrow_id));
+    let key = DataKey::DeliveryProposal(escrow_id);
+    if env.storage().persistent().has(&key) {
+        env.storage().persistent().remove(&key);
+        crate::events::emit_delivery_proposal_cancelled(env, escrow_id);
+    }
 }
 
 /// Tops up the TTL of every persistent entry owned by `escrow_id`, and of the

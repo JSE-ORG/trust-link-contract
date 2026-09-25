@@ -27,7 +27,7 @@ pub use crate::events::{
     emit_dispute_pending_finalization, emit_dispute_raised, emit_dispute_resolved,
     emit_emergency_drain, emit_escrow_auto_canceled, emit_escrow_canceled, emit_escrow_completed,
     emit_escrow_created, emit_escrow_expired, emit_escrow_funded, emit_escrow_shipped,
-    emit_fee_collector_updated, emit_fee_updated, emit_platform_fee_updated,
+    emit_fee_collector_updated, emit_fee_updated, emit_pending_expiry_cleared, emit_platform_fee_updated,
     emit_protocol_fee_updated, emit_refund_approved, emit_refund_requested, emit_resolver_approved,
     emit_resolver_removed, emit_resolver_rotated, emit_resolver_strict_updated,
     emit_resolver_vote_recorded, emit_storage_migrated, emit_timelock_cancelled,
@@ -37,7 +37,7 @@ pub use crate::events::{
     ContractPausedEvent, ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled,
     DeliveryProposed, DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowAutoCanceled,
     EscrowCanceled, EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped,
-    FeeUpdated, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated,
+    FeeUpdated, PendingExpiryClear, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated,
     ResolverStrictUpdated, ResolverVoteRecorded, TimelockCancelled, TimelockExecuted,
     TimelockQueued, TtlExtensionUpdated,
 };
