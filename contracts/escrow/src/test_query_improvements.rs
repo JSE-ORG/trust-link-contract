@@ -3,8 +3,10 @@
 //! Tests for query improvements addressing issues #823, #824, #825, #826
 
 use crate::test_helpers::{create_funded_escrow, setup_contract};
-use crate::Payee;
-use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal, Vec};
+use crate::{Payee, ResolutionType};
+use soroban_sdk::{
+    testutils::Address as _, token, Address, BytesN, Env, IntoVal, String, Symbol, Vec,
+};
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
@@ -192,6 +194,54 @@ fn test_get_basket_tokens_single_token_escrow() {
     let result = client.get_basket_tokens(&id);
     assert!(result.is_some());
     assert_eq!(result.unwrap().len(), 0);
+}
+
+#[test]
+fn test_get_resolver_votes_with_fifty_votes() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let mut resolvers = Vec::new(&env);
+    for _ in 0..50 {
+        resolvers.push_back(Address::generate(&env));
+    }
+
+    mint_tokens(&env, &token, &buyer, 1_000);
+    let escrow_id = client.create_escrow_multi(
+        &seller,
+        &Some(buyer.clone()),
+        &resolvers,
+        &50_u32,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3_600_u64,
+    );
+    client.fund_escrow(&escrow_id, &buyer);
+    client.raise_dispute(
+        &buyer,
+        &escrow_id,
+        &Symbol::new(&env, "item"),
+        &String::from_str(&env, "not received"),
+        &BytesN::from_array(&env, &[0; 32]),
+    );
+
+    for resolver in resolvers.iter() {
+        client.vote(&resolver, &escrow_id, &ResolutionType::Release);
+    }
+
+    let votes = client.get_resolver_votes(&escrow_id);
+    assert_eq!(votes.len(), 50);
+    for index in 0..50 {
+        assert_eq!(
+            votes.get(index).unwrap().resolver,
+            resolvers.get(index).unwrap()
+        );
+    }
 }
 
 // ── Issue #826: get_escrows_by_ids enforces input length cap ─────────────────
