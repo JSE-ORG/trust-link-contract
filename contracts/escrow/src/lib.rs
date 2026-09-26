@@ -2,7 +2,7 @@
 #![allow(clippy::too_many_arguments)]
 use crate::internal::{
     add_or_update_vote, ensure_action_not_paused, execute_resolution_transition, get_ttl_extension,
-    load_escrow, save_resolver_votes, tally_votes,
+    load_escrow, save_resolver_votes, tally_votes, terminal_state_error,
 };
 use soroban_sdk::{contract, contracttype, Address, Env, Symbol, Val, Vec};
 
@@ -264,18 +264,23 @@ pub(crate) fn next_escrow_id(env: &Env) -> Result<u64, ContractError> {
     Ok(escrow_id)
 }
 
+// Does not call `caller.require_auth()` — both callers (`resolve_dispute`,
+// `vote`, in disputes.rs) authenticate `caller` at their own top, per the
+// standardized require_auth-at-entry-point convention.
 fn resolve_or_vote_internal(
     env: &Env,
     caller: Address,
     escrow_id: u64,
     resolution: ResolutionType,
 ) -> Result<(), ContractError> {
-    caller.require_auth();
     ensure_action_not_paused(env, Symbol::new(env, "RESOLVE"))?;
     let escrow = load_escrow(env, escrow_id)?;
 
     if escrow.state != EscrowState::Disputed {
-        return Err(ContractError::InvalidState);
+        return Err(terminal_state_error(
+            &escrow.state,
+            ContractError::InvalidState,
+        ));
     }
 
     if !escrow

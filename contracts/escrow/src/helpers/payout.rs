@@ -77,16 +77,7 @@ pub(crate) fn transfer_with_protocol_fee(
     fee_bps: u32,
 ) -> Result<(i128, i128), ContractError> {
     let (fee, net) = calculate_protocol_fee(amount, fee_bps)?;
-    let token_client = token::Client::new(env, token_addr);
-    let contract_addr = env.current_contract_address();
-
-    if net > 0 {
-        token_client.transfer(&contract_addr, recipient, &net);
-    }
-
-    if fee > 0 {
-        token_client.transfer(&contract_addr, fee_collector, &fee);
-    }
-
+    payout(env, token_addr, recipient, net);
+    payout(env, token_addr, fee_collector, fee);
     Ok((fee, net))
 }

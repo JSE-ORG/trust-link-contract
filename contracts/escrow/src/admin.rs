@@ -13,9 +13,7 @@ use crate::{
     emit_timelock_cancelled, emit_timelock_executed, emit_timelock_queued, ContractError, Escrow,
     EscrowState, TimelockOperation, TimelockProposal, *,
 };
-use soroban_sdk::{
-    contractimpl, token, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
-};
+use soroban_sdk::{contractimpl, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec};
 
 pub const ADMIN_TIMELOCK_DELAY_SECONDS: u64 = 24 * 60 * 60;
 
@@ -182,6 +180,7 @@ impl Escrow {
         caller: Address,
         fee_bps: u32,
     ) -> Result<(), ContractError> {
+        caller.require_auth();
         let old_fee_bps = update_arbitration_fee(&env, &caller, fee_bps)?;
         emit_arbitration_fee_updated(&env, old_fee_bps, fee_bps);
         Ok(())
@@ -403,6 +402,13 @@ impl Escrow {
     }
 
     pub fn execute_set_arbitration_fee(env: Env, caller: Address) -> Result<(), ContractError> {
+        // Preserves this function's existing behavior: unlike its execute_*
+        // siblings (permissionless execution of an already-approved,
+        // timelocked change — see execute_timelock_op), this one has always
+        // ended up admin-gated as a side effect of update_arbitration_fee's
+        // now-removed internal require_auth(). Moved here rather than
+        // silently dropped or left as a no-op equality check.
+        caller.require_auth();
         let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetArbitrationFee)?;
         let fee_bps = u32::try_from_val(
             &env,
@@ -932,7 +938,10 @@ impl Escrow {
                 | EscrowState::PendingFinalization
         );
         if !is_drainable {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         }
 
         let buyer = escrow
@@ -949,13 +958,7 @@ impl Escrow {
         buyer.require_auth();
         seller.require_auth();
 
-        token::Client::new(&env, &escrow.token).transfer(
-            &env.current_contract_address(),
-            &buyer,
-            &escrow.amount,
-        );
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
-
+        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
@@ -970,6 +973,10 @@ impl Escrow {
         // should aggregate these counters or if the accounting should be restructured.
         // For now, TotalRefunded reflects only the amount refunded to buyer, not fees collected.
         increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
+
+        // ── INTERACTIONS (external token transfers) ──
+        payout(&env, &escrow.token, &buyer, escrow.amount);
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
 
         crate::events::emit_emergency_drain(&env, escrow_id, escrow.token.clone(), escrow.amount);
         Ok(())

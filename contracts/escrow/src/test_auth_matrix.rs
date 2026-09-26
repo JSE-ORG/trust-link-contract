@@ -15,8 +15,8 @@
 
 use crate::{ContractError, Escrow, EscrowClient, Payee, ResolutionType};
 use soroban_sdk::{
-    testutils::Address as _, token, Address, BytesN, Env, IntoVal, String as SorobanString, Symbol,
-    Vec,
+    testutils::{Address as _, Ledger as _},
+    token, Address, BytesN, Env, IntoVal, String as SorobanString, Symbol, Vec,
 };
 
 // ─── harness ────────────────────────────────────────────────────────────────
@@ -110,6 +110,24 @@ fn disputed(ctx: &Ctx) -> (u64, Address, Address, Address) {
 fn refund_requested(ctx: &Ctx) -> (u64, Address, Address, Address) {
     let (id, seller, buyer, resolver) = funded(ctx);
     ctx.client.request_refund(&buyer, &id);
+    (id, seller, buyer, resolver)
+}
+
+/// Ships, clears the dispute window, and has the buyer confirm delivery, so
+/// the escrow lands in `Completed`.
+fn completed(ctx: &Ctx) -> (u64, Address, Address, Address) {
+    let (id, seller, buyer, resolver) = shipped(ctx);
+    ctx.env
+        .ledger()
+        .set_timestamp(ctx.env.ledger().timestamp() + crate::DISPUTE_WINDOW + 1);
+    ctx.client.confirm_delivery(&buyer, &id);
+    (id, seller, buyer, resolver)
+}
+
+/// Requests then approves a refund, so the escrow lands in `Refunded`.
+fn refunded(ctx: &Ctx) -> (u64, Address, Address, Address) {
+    let (id, seller, buyer, resolver) = refund_requested(ctx);
+    ctx.client.approve_refund(&seller, &id);
     (id, seller, buyer, resolver)
 }
 
@@ -332,7 +350,7 @@ fn mark_shipped_rejects_buyer() {
     assert_eq!(
         ctx.client
             .try_mark_shipped(&buyer, &id, &SorobanString::from_str(&env, "TRK")),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedSeller))
     );
 }
 
@@ -344,7 +362,7 @@ fn mark_shipped_rejects_resolver() {
     assert_eq!(
         ctx.client
             .try_mark_shipped(&resolver, &id, &SorobanString::from_str(&env, "TRK")),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedSeller))
     );
 }
 
@@ -357,7 +375,7 @@ fn mark_shipped_rejects_intruder() {
     assert_eq!(
         ctx.client
             .try_mark_shipped(&intruder, &id, &SorobanString::from_str(&env, "TRK")),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedSeller))
     );
 }
 
@@ -368,7 +386,7 @@ fn approve_refund_rejects_buyer() {
     let (id, _, buyer, _) = refund_requested(&ctx);
     assert_eq!(
         ctx.client.try_approve_refund(&buyer, &id),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedSeller))
     );
 }
 
@@ -379,7 +397,7 @@ fn approve_refund_rejects_resolver() {
     let (id, _, _, resolver) = refund_requested(&ctx);
     assert_eq!(
         ctx.client.try_approve_refund(&resolver, &id),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedSeller))
     );
 }
 
@@ -391,7 +409,7 @@ fn approve_refund_rejects_intruder() {
     let intruder = Address::generate(&env);
     assert_eq!(
         ctx.client.try_approve_refund(&intruder, &id),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedSeller))
     );
 }
 
@@ -473,7 +491,7 @@ fn confirm_delivery_rejects_seller() {
     let (id, seller, _, _) = shipped(&ctx);
     assert_eq!(
         ctx.client.try_confirm_delivery(&seller, &id),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
 
@@ -484,7 +502,7 @@ fn confirm_delivery_rejects_resolver() {
     let (id, _, _, resolver) = shipped(&ctx);
     assert_eq!(
         ctx.client.try_confirm_delivery(&resolver, &id),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
 
@@ -496,7 +514,7 @@ fn confirm_delivery_rejects_intruder() {
     let intruder = Address::generate(&env);
     assert_eq!(
         ctx.client.try_confirm_delivery(&intruder, &id),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
 
@@ -514,7 +532,7 @@ fn raise_dispute_rejects_seller() {
             &SorobanString::from_str(&env, "desc"),
             &hash,
         ),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
 
@@ -532,7 +550,7 @@ fn raise_dispute_rejects_resolver() {
             &SorobanString::from_str(&env, "desc"),
             &hash,
         ),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
 
@@ -551,7 +569,7 @@ fn raise_dispute_rejects_intruder() {
             &SorobanString::from_str(&env, "desc"),
             &hash,
         ),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
 
@@ -562,7 +580,7 @@ fn request_refund_rejects_seller() {
     let (id, seller, _, _) = funded(&ctx);
     assert_eq!(
         ctx.client.try_request_refund(&seller, &id),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
 
@@ -573,7 +591,7 @@ fn request_refund_rejects_resolver() {
     let (id, _, _, resolver) = funded(&ctx);
     assert_eq!(
         ctx.client.try_request_refund(&resolver, &id),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
 
@@ -585,7 +603,7 @@ fn request_refund_rejects_intruder() {
     let intruder = Address::generate(&env);
     assert_eq!(
         ctx.client.try_request_refund(&intruder, &id),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
 
@@ -806,4 +824,325 @@ fn resolve_dispute_rejects_resolver_in_shipped_state() {
             .try_resolve_dispute(&resolver, &id, &ResolutionType::Release),
         Err(Ok(ContractError::InvalidState))
     );
+}
+
+// ─── Section 6: Terminal-state errors (Completed vs Refunded) ────────────────
+// A lifecycle guard that used to return the generic InvalidState /
+// InvalidStateTransition now returns EscrowAlreadyCompleted / EscrowAlreadyRefunded
+// once the escrow has actually settled, across every module that guards on
+// escrow state (instructions.rs, disputes.rs, lib.rs, internal.rs, admin.rs).
+// Section 5 above pins the generic codes for every *other* wrong state, so
+// together they prove `terminal_state_error` only sharpens these two cases.
+
+#[test]
+fn mark_shipped_rejects_completed_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, seller, _, _) = completed(&ctx);
+    assert_eq!(
+        ctx.client
+            .try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRK")),
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    );
+}
+
+#[test]
+fn mark_shipped_rejects_refunded_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, seller, _, _) = refunded(&ctx);
+    assert_eq!(
+        ctx.client
+            .try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRK")),
+        Err(Ok(ContractError::EscrowAlreadyRefunded))
+    );
+}
+
+#[test]
+fn raise_dispute_rejects_completed_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, _, buyer, _) = completed(&ctx);
+    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    assert_eq!(
+        ctx.client.try_raise_dispute(
+            &buyer,
+            &id,
+            &Symbol::new(&env, "Item"),
+            &SorobanString::from_str(&env, "desc"),
+            &hash,
+        ),
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    );
+}
+
+#[test]
+fn raise_dispute_rejects_refunded_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, _, buyer, _) = refunded(&ctx);
+    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    assert_eq!(
+        ctx.client.try_raise_dispute(
+            &buyer,
+            &id,
+            &Symbol::new(&env, "Item"),
+            &SorobanString::from_str(&env, "desc"),
+            &hash,
+        ),
+        Err(Ok(ContractError::EscrowAlreadyRefunded))
+    );
+}
+
+#[test]
+fn resolve_dispute_rejects_completed_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, _, _, resolver) = completed(&ctx);
+    assert_eq!(
+        ctx.client
+            .try_resolve_dispute(&resolver, &id, &ResolutionType::Release),
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    );
+}
+
+#[test]
+fn vote_rejects_refunded_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, _, _, resolver) = refunded(&ctx);
+    assert_eq!(
+        ctx.client.try_vote(&resolver, &id, &ResolutionType::Refund),
+        Err(Ok(ContractError::EscrowAlreadyRefunded))
+    );
+}
+
+#[test]
+fn rotate_resolver_rejects_completed_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, seller, _, _) = completed(&ctx);
+    let new_resolver = Address::generate(&env);
+    assert_eq!(
+        ctx.client.try_rotate_resolver(&seller, &id, &new_resolver),
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    );
+}
+
+#[test]
+fn rotate_resolver_rejects_refunded_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, seller, _, _) = refunded(&ctx);
+    let new_resolver = Address::generate(&env);
+    assert_eq!(
+        ctx.client.try_rotate_resolver(&seller, &id, &new_resolver),
+        Err(Ok(ContractError::EscrowAlreadyRefunded))
+    );
+}
+
+#[test]
+fn cancel_escrow_rejects_completed_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, seller, _, _) = completed(&ctx);
+    assert_eq!(
+        ctx.client.try_cancel_escrow(&seller, &id),
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    );
+}
+
+#[test]
+fn cancel_escrow_rejects_refunded_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, seller, _, _) = refunded(&ctx);
+    assert_eq!(
+        ctx.client.try_cancel_escrow(&seller, &id),
+        Err(Ok(ContractError::EscrowAlreadyRefunded))
+    );
+}
+
+#[test]
+fn fund_escrow_rejects_completed_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, _, _, _) = completed(&ctx);
+    let intruder = Address::generate(&env);
+    assert_eq!(
+        ctx.client.try_fund_escrow(&id, &intruder),
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    );
+}
+
+#[test]
+fn request_refund_rejects_refunded_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, _, buyer, _) = refunded(&ctx);
+    assert_eq!(
+        ctx.client.try_request_refund(&buyer, &id),
+        Err(Ok(ContractError::EscrowAlreadyRefunded))
+    );
+}
+
+#[test]
+fn approve_refund_rejects_completed_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, seller, _, _) = completed(&ctx);
+    assert_eq!(
+        ctx.client.try_approve_refund(&seller, &id),
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    );
+}
+
+#[test]
+fn auto_release_rejects_refunded_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, _, _, _) = refunded(&ctx);
+    assert_eq!(
+        ctx.client.try_auto_release(&id),
+        Err(Ok(ContractError::EscrowAlreadyRefunded))
+    );
+}
+
+#[test]
+fn emergency_drain_rejects_completed_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, _, _, _) = completed(&ctx);
+    ctx.client.pause_contract(&ctx.admin);
+    assert_eq!(
+        ctx.client.try_emergency_drain(&id),
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    );
+}
+
+#[test]
+fn mutual_cancel_rejects_refunded_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, _, _, _) = refunded(&ctx);
+    assert_eq!(
+        ctx.client.try_mutual_cancel(&id),
+        Err(Ok(ContractError::EscrowAlreadyRefunded))
+    );
+}
+
+#[test]
+fn co_signed_release_rejects_completed_escrow() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, seller, _, _) = completed(&ctx);
+    assert_eq!(
+        ctx.client.try_co_signed_release(&seller, &id),
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    );
+}
+
+// ─── Section 7: require_auth relocated to the entry point ────────────────────
+// These pin the fix for "require_auth buried in a nested helper": each of
+// these entry points used to delegate its only auth check to a shared
+// internal.rs/lib.rs helper (create_escrow_internal, update_arbitration_fee,
+// resolve_or_vote_internal). With no mocked signatures at all, the call must
+// still fail — proving the entry point itself, not just something it happens
+// to call, requires the signature.
+
+#[test]
+fn create_escrow_requires_auth() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let seller = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let p_val = payees(&env, &seller).into_val(&env);
+
+    env.mock_auths(&[]);
+    assert!(ctx
+        .client
+        .try_create_escrow_8(
+            &p_val,
+            &None::<Address>,
+            &resolver,
+            &ctx.token,
+            &1_000_i128,
+            &0_u32,
+            &3_600_u64,
+        )
+        .is_err());
+}
+
+#[test]
+fn create_escrow_with_expiration_requires_auth() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let seller = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    env.mock_auths(&[]);
+    assert!(ctx
+        .client
+        .try_create_escrow_with_expiration(
+            &seller,
+            &None::<Address>,
+            &resolver,
+            &ctx.token,
+            &1_000_i128,
+            &0_u32,
+            &3_600_u64,
+            &None::<u64>,
+            &0_u64,
+        )
+        .is_err());
+}
+
+#[test]
+fn set_arbitration_fee_requires_auth() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    env.mock_auths(&[]);
+    assert!(ctx
+        .client
+        .try_set_arbitration_fee(&ctx.admin, &10_u32)
+        .is_err());
+}
+
+#[test]
+fn execute_set_arbitration_fee_requires_auth() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    ctx.client.queue_set_arbitration_fee(&ctx.admin, &10_u32);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS + 1);
+
+    env.mock_auths(&[]);
+    assert!(ctx
+        .client
+        .try_execute_set_arbitration_fee(&ctx.admin)
+        .is_err());
+}
+
+#[test]
+fn resolve_dispute_requires_auth() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, _, _, resolver) = disputed(&ctx);
+    env.mock_auths(&[]);
+    assert!(ctx
+        .client
+        .try_resolve_dispute(&resolver, &id, &ResolutionType::Release)
+        .is_err());
+}
+
+#[test]
+fn vote_requires_auth() {
+    let env = Env::default();
+    let ctx = setup(&env);
+    let (id, _, _, resolver) = disputed(&ctx);
+    env.mock_auths(&[]);
+    assert!(ctx
+        .client
+        .try_vote(&resolver, &id, &ResolutionType::Release)
+        .is_err());
 }

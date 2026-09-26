@@ -1654,8 +1654,12 @@ fn test_cancel_escrow_completed_escrow_fails() {
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
     client.confirm_delivery(&buyer, &id);
 
+    // Cancelling a Completed escrow now gets the dedicated code (was InvalidState).
     let res = client.try_cancel_escrow(&buyer, &id);
-    assert!(matches!(res, Err(Ok(ContractError::InvalidState))));
+    assert!(matches!(
+        res,
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    ));
 }
 
 #[test]
@@ -1687,8 +1691,10 @@ fn test_cancel_escrow_already_cancelled_fails() {
     client.fund_escrow(&id, &buyer);
     client.cancel_escrow(&buyer, &id);
 
+    // Buyer-cancelling a Funded escrow refunds it, so the second cancel now
+    // sees a Refunded escrow and gets the dedicated code (was InvalidState).
     let res = client.try_cancel_escrow(&buyer, &id);
-    assert!(matches!(res, Err(Ok(ContractError::InvalidState))));
+    assert!(matches!(res, Err(Ok(ContractError::EscrowAlreadyRefunded))));
 }
 
 #[test]

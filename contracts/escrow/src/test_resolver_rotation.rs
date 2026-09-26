@@ -404,11 +404,12 @@ fn rotation_rejected_after_dispute_resolved() {
         EscrowState::Completed
     );
 
+    // Dedicated code for a Completed escrow (was InvalidState).
     let new_resolver = Address::generate(&fx.env);
     let result = fx
         .client
         .try_rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
-    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+    assert_eq!(result, Err(Ok(ContractError::EscrowAlreadyCompleted)));
 }
 
 /// Acceptance: a `resolver_rotated` event is emitted carrying the old and new
