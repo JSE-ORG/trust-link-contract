@@ -330,6 +330,19 @@ fn backup_resolver_vote_allowed_after_deadline() {
 }
 
 #[test]
+fn backup_resolver_vote_rejected_before_deadline() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    // Timeline is BEFORE the deadline (which is now + 100).
+    // The backup should NOT be allowed to vote yet.
+    let result = client.try_vote(&setup.backup, &escrow_id, &ResolutionType::Release);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+}
+
+#[test]
 fn test_fallback_creation_role_conflicts() {
     let setup = setup();
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
