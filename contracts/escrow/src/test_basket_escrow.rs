@@ -882,3 +882,60 @@ fn create_basket_escrow_rejects_duplicate_primary_token() {
     );
     assert_eq!(result, Err(Ok(ContractError::BasketTokenMismatch)));
 }
+
+
+#[test]
+fn fund_basket_escrow_with_maximum_allowed_tokens() {
+    // Test the boundary condition of MAX_BASKET_SIZE (20).
+    // Ensures fund_basket_escrow can handle the maximum basket size without gas exhaustion.
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+
+    // Create exactly 20 distinct tokens.
+    let mut addrs = Vec::new(&fx.env);
+    let mut amounts = Vec::new(&fx.env);
+    let mut token_list = Vec::new(&fx.env);
+
+    for _ in 0..MAX_BASKET_SIZE {
+        let token = make_token(&fx.env);
+        addrs.push_back(token.address.clone());
+        amounts.push_back(1_000_i128);
+        token_list.push_back(token);
+    }
+
+    // Create the basket escrow with all 20 tokens.
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &addrs,
+        &amounts,
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    // Verify all 20 tokens are stored.
+    let stored_tokens = client.get_basket_tokens(&escrow_id).unwrap();
+    assert_eq!(stored_tokens.len(), MAX_BASKET_SIZE);
+
+    // Mint exactly 1_000 of each token to the buyer and fund.
+    for i in 0..token_list.len() {
+        let token = token_list.get(i);
+        token.admin.mint(&fx.buyer, &1_000_i128);
+    }
+
+    // Fund the basket escrow with all 20 tokens.
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    // Verify all tokens transferred to the contract and buyer has none left.
+    for i in 0..token_list.len() {
+        let token = token_list.get(i);
+        assert_eq!(token.token.balance(&fx.buyer), 0);
+        assert_eq!(token.token.balance(&fx.contract_id), 1_000_i128);
+    }
+
+    // Verify escrow state is Funded.
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::Funded);
+    assert_eq!(escrow.buyer, Some(fx.buyer.clone()));
+}

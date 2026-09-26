@@ -166,9 +166,9 @@ pub const MAX_MESSAGES_PER_ESCROW: u32 = 100;
 /// one cross-contract `token::Client::transfer` per entry, and a Soroban
 /// transaction has strict instruction/resource limits. Empirically fewer than
 /// ~10 sequential cross-contract transfers fit comfortably in one transaction,
-/// so 5 leaves headroom for the surrounding escrow lifecycle work rather than
+/// so 20 leaves headroom for the surrounding escrow lifecycle work rather than
 /// risking a mid-transaction abort.
-pub const MAX_BASKET_SIZE: u32 = 5;
+pub const MAX_BASKET_SIZE: u32 = 20;
 
 /// Maximum number of calls accepted in a single `multicall` batch.
 ///
