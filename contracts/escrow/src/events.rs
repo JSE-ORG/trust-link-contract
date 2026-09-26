@@ -170,7 +170,7 @@ pub struct EscrowCreated {
     pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(symbol_short!("Escrow"), symbol_short!("Created"), seller.clone(),)`, data: `EscrowCreated`.
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Created"), seller.clone(), resolver.clone())`, data: `EscrowCreated`.
 #[allow(clippy::too_many_arguments)]
 pub fn emit_escrow_created(
     env: &Env,
@@ -190,6 +190,7 @@ pub fn emit_escrow_created(
             symbol_short!("Escrow"),
             symbol_short!("Created"),
             seller.clone(),
+            resolver.clone(),
         ),
         EscrowCreated {
             schema_version: EVENT_SCHEMA_VERSION,
@@ -223,7 +224,7 @@ pub struct EscrowFunded {
     pub basket_tokens: Option<soroban_sdk::Vec<(Address, i128)>>,
 }
 
-/// Topic: `(symbol_short!("Escrow"), symbol_short!("Funded"), buyer.clone(),)`, data: `EscrowFunded`.
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Funded"), escrow_id, buyer.clone())`, data: `EscrowFunded`.
 pub fn emit_escrow_funded(
     env: &Env,
     escrow_id: u64,
@@ -237,6 +238,7 @@ pub fn emit_escrow_funded(
         (
             symbol_short!("Escrow"),
             symbol_short!("Funded"),
+            escrow_id,
             buyer.clone(),
         ),
         EscrowFunded {
