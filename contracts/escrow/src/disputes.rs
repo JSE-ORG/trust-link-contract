@@ -3,7 +3,7 @@
 
 use crate::internal::*;
 use crate::*;
-use soroban_sdk::{contractimpl, Address, BytesN, Env, String, Symbol, Vec};
+use soroban_sdk::{contractimpl, token, Address, BytesN, Env, String, Symbol, Vec};
 
 /// Returns `(buyer, primary_payee)` for a dispute participant check. The
 /// primary payee is treated as the "seller" side throughout the escrow.
@@ -311,6 +311,15 @@ impl Escrow {
     /// seller. On success, transitions the escrow back to `Disputed`, clears
     /// the prior resolution and any recorded votes, and increments
     /// `appeal_count`. Emits `dispute_appealed`.
+    ///
+    /// # Appeal fee (issue #913)
+    ///
+    /// When the admin has configured a non-zero appeal fee with
+    /// `set_appeal_fee`, the appellant pays
+    /// `floor(escrow.amount * appeal_fee_bps / 10_000)` out of pocket to the
+    /// fee collector on every appeal, so spamming appeals up to `MAX_APPEALS`
+    /// always costs the griefer. A zero fee (the default) preserves the
+    /// historical free-appeal behavior.
     pub fn appeal_dispute(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
@@ -351,6 +360,22 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
+        // Resolve the out-of-pocket appeal fee before mutating state. The
+        // lookup is a plain storage read (a Check, not an Interaction); the
+        // transfer itself happens after the state mutations below, per CEI.
+        let appeal_fee_bps = read_appeal_fee_bps(&env);
+        let appeal_fee = crate::helpers::payout::calculate_fee(escrow.amount, appeal_fee_bps)?;
+        let fee_collector: Option<Address> = if appeal_fee > 0 {
+            Some(
+                env.storage()
+                    .instance()
+                    .get(&DataKey::FeeCollector)
+                    .ok_or(ContractError::NotInitialized)?,
+            )
+        } else {
+            None
+        };
+
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Disputed;
 
@@ -367,8 +392,22 @@ impl Escrow {
             .persistent()
             .remove(&DataKey::ResolverVotes(escrow_id));
 
+        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         save_dispute(&env, escrow_id, &updated_dispute);
+
+        // ── INTERACTIONS (external token transfers) ──
+        // The state transition above is already persisted, so a re-entrant
+        // token cannot re-appeal the same `PendingFinalization` round twice.
+        // A failing transfer (e.g. appellant cannot cover the fee) reverts the
+        // whole invocation, including the state changes.
+        if let Some(fee_collector) = fee_collector {
+            token::Client::new(&env, &escrow.token).transfer(
+                &caller,
+                &fee_collector,
+                &appeal_fee,
+            );
+        }
 
         emit_dispute_appealed(&env, escrow_id, caller);
         Ok(())

@@ -880,6 +880,7 @@ fn gas_profile_batch_create_escrow_10() {
             token: token.clone(),
             amount: 1_000_000,
             fee_bps: 100,
+            resolver_fee_bps: 0,
             shipping_window: 3600,
             notes: None,
         });

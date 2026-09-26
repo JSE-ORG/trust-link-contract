@@ -266,6 +266,163 @@ impl Escrow {
             .unwrap_or(0)
     }
 
+    /// Returns the appeal fee in basis points charged to the appellant on
+    /// every `appeal_dispute` (issue #913). Defaults to
+    /// `DEFAULT_APPEAL_FEE_BPS` (0 = disabled) until the admin sets one.
+    pub fn get_appeal_fee(env: Env) -> u32 {
+        read_appeal_fee_bps(&env)
+    }
+
+    /// Sets the appeal fee immediately (not timelocked). Only callable by the
+    /// current admin. `0` disables the fee; any other value must lie in
+    /// `MIN_APPEAL_FEE_BPS..=MAX_APPEAL_FEE_BPS` so a nominal fee cannot keep
+    /// griefing effectively free. Emits `appeal_fee_updated`.
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn set_appeal_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        validate_appeal_fee_bps(fee_bps)?;
+        let old_fee = read_appeal_fee_bps(&env);
+        write_appeal_fee_bps(&env, fee_bps);
+        emit_appeal_fee_updated(&env, old_fee, fee_bps);
+        Ok(())
+    }
+
+    pub fn queue_set_appeal_fee(
+        env: Env,
+        caller: Address,
+        fee_bps: u32,
+    ) -> Result<(), ContractError> {
+        let mut params = Vec::new(&env);
+        params.push_back(fee_bps.into_val(&env));
+        queue_timelock_op(&env, &caller, TimelockOperation::SetAppealFee, params)
+    }
+
+    pub fn execute_set_appeal_fee(env: Env, caller: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+        let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetAppealFee)?;
+        let fee_bps = u32::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
+
+        validate_appeal_fee_bps(fee_bps)?;
+        let old_fee = read_appeal_fee_bps(&env);
+        write_appeal_fee_bps(&env, fee_bps);
+        emit_appeal_fee_updated(&env, old_fee, fee_bps);
+        Ok(())
+    }
+
+    /// Returns whether recovery mode is enabled (issue #914).
+    pub fn is_recovery_mode(env: Env) -> bool {
+        is_recovery_mode(&env)
+    }
+
+    /// Enables recovery mode: graceful-shutdown flag that opens the
+    /// `recovery_withdraw` escape hatch so buyers can reclaim custodied funds
+    /// without going through the standard state machine — e.g. after a
+    /// protocol sunset or an unpatchable vulnerability where a plain `Paused`
+    /// state would trap funds indefinitely.
+    ///
+    /// Immediate (not timelocked) and admin-only: recovery is an emergency
+    /// path, so it must be usable the moment the admin decides the protocol
+    /// cannot continue safely. Pair with `queue_pause_contract` /
+    /// `execute_pause_contract` to halt new escrows while users exit.
+    /// Emits `recovery_mode_updated` with `enabled = true`.
+    pub fn enable_recovery_mode(env: Env, caller: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        write_recovery_mode(&env, true);
+        emit_recovery_mode_updated(&env, true, caller);
+        Ok(())
+    }
+
+    /// Disables recovery mode, closing the `recovery_withdraw` escape hatch
+    /// and restoring the standard state machine as the only exit path.
+    /// Admin-only. Emits `recovery_mode_updated` with `enabled = false`.
+    pub fn disable_recovery_mode(env: Env, caller: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+        let admin = require_admin(&env)?;
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        write_recovery_mode(&env, false);
+        emit_recovery_mode_updated(&env, false, caller);
+        Ok(())
+    }
+
+    /// Buyer reclaims escrowed funds while recovery mode is enabled (issue
+    /// #914). Deliberately bypasses the contract pause flag and the standard
+    /// state machine: any escrow holding buyer funds (`Funded`, `Shipped`,
+    /// `Disputed`, `PendingFinalization`, or `RefundRequested`) transitions to
+    /// `Refunded` and pays the principal plus any basket tokens to the buyer.
+    ///
+    /// Reverts with `NotInRecoveryMode` unless the admin has called
+    /// `enable_recovery_mode`, with `NotAuthorizedBuyer` if `caller` is not
+    /// the escrow's buyer, or with `InvalidState` for escrows holding no buyer
+    /// funds (`Pending`, `Completed`, `Refunded`, `Canceled`, `Expired`).
+    /// Emits `recovery_withdraw`.
+    pub fn recovery_withdraw(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        if !is_recovery_mode(&env) {
+            return Err(ContractError::NotInRecoveryMode);
+        }
+
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        let is_recoverable = matches!(
+            escrow.state,
+            EscrowState::Funded
+                | EscrowState::Shipped
+                | EscrowState::Disputed
+                | EscrowState::PendingFinalization
+                | EscrowState::RefundRequested
+        );
+        if !is_recoverable {
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
+        }
+
+        let buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
+        if caller != buyer {
+            return Err(ContractError::NotAuthorizedBuyer);
+        }
+
+        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
+        let prev_state = escrow.state.clone();
+        escrow.state = EscrowState::Refunded;
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        crate::internal::clear_delivery_proposal(&env, escrow_id);
+        increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
+
+        // ── INTERACTIONS (external token transfers) ──
+        let amount = escrow.amount;
+        payout(&env, &escrow.token, &buyer, amount);
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
+
+        emit_recovery_withdraw(&env, escrow_id, buyer, amount);
+        Ok(())
+    }
+
     /// Enables or disables the token allowlist. Only callable by admin.
     /// While enabled, `create_escrow` and related entry points reject any
     /// `token` not present in `get_allowed_tokens`. Emits

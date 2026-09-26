@@ -989,7 +989,11 @@ impl Escrow {
         Ok(())
     }
 
-    /// Cancels a pending delivery proposal. Callable by admin.
+    /// Cancels a pending delivery proposal. Callable by the admin or by the
+    /// escrow's buyer (issue #912): if off-chain communication reveals the
+    /// proposed delivery was flawed, the admin and buyer can agree not to
+    /// formalize it without waiting out the 24-hour timelock or escalating to
+    /// a dispute. Any other caller is rejected with `NotAuthorized`.
     pub fn cancel_delivery_proposal(
         env: Env,
         caller: Address,
@@ -1002,11 +1006,43 @@ impl Escrow {
             .get(&DataKey::Admin)
             .ok_or(ContractError::NotAuthorized)?;
 
-        if caller != admin {
+        let escrow = load_escrow(&env, escrow_id)?;
+        let is_buyer = escrow.buyer.as_ref() == Some(&caller);
+
+        if caller != admin && !is_buyer {
             return Err(ContractError::NotAuthorized);
         }
 
-        let _ = load_escrow(&env, escrow_id)?;
+        let key = DataKey::DeliveryProposal(escrow_id);
+        if !env.storage().persistent().has(&key) {
+            return Err(ContractError::DeliveryNotProposed);
+        }
+
+        env.storage().persistent().remove(&key);
+        emit_delivery_proposal_cancelled(&env, escrow_id);
+        Ok(())
+    }
+
+    /// Buyer rejects a pending delivery proposal (issue #912). Explicit,
+    /// buyer-only counterpart to `cancel_delivery_proposal` for the case where
+    /// the buyer — not the admin — determines the proposed delivery should not
+    /// be formalized. Reverts with `NotAuthorizedBuyer` if `caller` is not the
+    /// escrow's buyer, or `DeliveryNotProposed` if no proposal is pending.
+    pub fn reject_delivery_proposal(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        let escrow = load_escrow(&env, escrow_id)?;
+
+        let buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
+        if caller != buyer {
+            return Err(ContractError::NotAuthorizedBuyer);
+        }
 
         let key = DataKey::DeliveryProposal(escrow_id);
         if !env.storage().persistent().has(&key) {
@@ -1724,6 +1760,9 @@ impl Escrow {
     /// described by an `EscrowInput`. Returns the created escrow IDs in the
     /// same order as the input `escrows`. Each escrow still starts in
     /// `Pending` state and must be funded individually via `fund_escrow`.
+    /// Every input carries its own `resolver_fee_bps` (issue #911), validated
+    /// with the same cap as `create_escrow`, so batch-created escrows can use
+    /// compensated resolvers.
     pub fn batch_create_escrow(
         env: Env,
         seller: Address,
@@ -1747,7 +1786,7 @@ impl Escrow {
                 input.token,
                 input.amount,
                 input.fee_bps,
-                0, // resolver_fee_bps
+                input.resolver_fee_bps,
                 input.shipping_window,
                 input.notes,
                 None,

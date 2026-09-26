@@ -1044,6 +1044,56 @@ pub(crate) fn write_dispute_timeout(env: &Env, timeout: u64) {
         .set(&DataKey::DisputeTimeout, &timeout);
 }
 
+/// Reads the appeal fee in basis points charged to the appellant on
+/// `appeal_dispute` (issue #913). Defaults to
+/// [`crate::DEFAULT_APPEAL_FEE_BPS`] (0 = disabled) until the admin sets one
+/// with `set_appeal_fee`.
+pub(crate) fn read_appeal_fee_bps(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::AppealFeeBps)
+        .unwrap_or(crate::DEFAULT_APPEAL_FEE_BPS)
+}
+
+pub(crate) fn write_appeal_fee_bps(env: &Env, fee_bps: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::AppealFeeBps, &fee_bps);
+}
+
+/// Validates an appeal fee: `0` disables the fee, otherwise it must lie in
+/// `MIN_APPEAL_FEE_BPS..=MAX_APPEAL_FEE_BPS` so a nominal fee cannot be used
+/// to keep griefing effectively free.
+pub(crate) fn validate_appeal_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
+    if fee_bps == 0 {
+        return Ok(());
+    }
+    if fee_bps < crate::MIN_APPEAL_FEE_BPS {
+        return Err(ContractError::AppealFeeBelowMinimum);
+    }
+    if fee_bps > crate::MAX_APPEAL_FEE_BPS {
+        return Err(ContractError::AppealFeeExceedsMax);
+    }
+    Ok(())
+}
+
+/// Returns whether recovery mode is enabled (issue #914). When true,
+/// `recovery_withdraw` lets buyers reclaim custodied funds without going
+/// through the standard state machine, e.g. after a sunset or an
+/// unpatchable vulnerability. Defaults to false.
+pub(crate) fn is_recovery_mode(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::RecoveryMode)
+        .unwrap_or(false)
+}
+
+pub(crate) fn write_recovery_mode(env: &Env, enabled: bool) {
+    env.storage()
+        .instance()
+        .set(&DataKey::RecoveryMode, &enabled);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn create_escrow_internal(
     env: &Env,
