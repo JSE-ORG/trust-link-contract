@@ -258,7 +258,7 @@ Branch naming conventions:
 
 **General Rust**
 - Run `cargo fmt --all` before every commit — CI rejects unformatted code.
-- Run `cargo clippy --lib -- -D warnings` — fix all warnings, never suppress them without a comment.
+- Run `make clippy` (`clippy::pedantic` with `-D warnings`) — fix all warnings, never suppress them without a comment.
 - Prefer explicit error returns over `unwrap()` — use `ContractError` variants from `errors.rs`.
 - Comment non-obvious logic. If you had to think about it for more than 30 seconds, leave a comment.
 

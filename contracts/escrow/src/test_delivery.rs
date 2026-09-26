@@ -209,7 +209,7 @@ fn test_confirm_delivery_after_mark_shipped() {
 #[test]
 fn test_delivery_proposal_does_not_expire() {
     // Issue #964: DeliveryProposal expiration is untested.
-    // This test demonstrates that there is NO logical validity/expiry window 
+    // This test demonstrates that there is NO logical validity/expiry window
     // enforced on a delivery proposal within the contract itself.
     // A proposal can be recorded successfully even 10 years after it unlocks.
     let env = Env::default();
@@ -219,21 +219,22 @@ fn test_delivery_proposal_does_not_expire() {
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
     let resolver = Address::generate(&env);
-    
+
     let id = create_funded_escrow(
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK"));
-    
+
     // Propose delivery
     client.propose_record_delivery(&admin, &id);
-    
+
     // Fast-forward 10 years (past any reasonable validity window)
-    env.ledger().set_timestamp(env.ledger().timestamp() + 315_360_000);
-    
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + 315_360_000);
+
     // Admin can STILL record delivery. The proposal has no expiration logic!
     client.record_delivery(&admin, &id);
-    
+
     let escrow = client.get_escrow(&id);
     assert!(escrow.delivered_at.is_some());
 }

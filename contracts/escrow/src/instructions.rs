@@ -282,6 +282,7 @@ impl Escrow {
     }
 
     /// Buyer funds a pending escrow. Transitions Pending → Funded.
+    #[allow(clippy::too_many_lines)]
     pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
         buyer.require_auth();
         ensure_action_not_paused(&env, Symbol::new(&env, "FUND"))?;
@@ -450,7 +451,7 @@ impl Escrow {
             resolvers,
             threshold,
         });
-        validate_resolvers(&resolver_set, &seller, &buyer)?;
+        validate_resolvers(&resolver_set, &seller, buyer.as_ref())?;
 
         let escrow_id = crate::next_escrow_id(&env)?;
 
@@ -691,7 +692,7 @@ impl Escrow {
             backup: backup_resolver,
             dispute_deadline,
         });
-        validate_resolvers(&resolver_set, &seller, &buyer)?;
+        validate_resolvers(&resolver_set, &seller, buyer.as_ref())?;
 
         // Issue #813: Use centralized next_escrow_id helper instead of duplicating
         // counter logic. This ensures TTL extension is always applied and the counter
@@ -1210,10 +1211,8 @@ impl Escrow {
         }
 
         let fee_config = read_fee_config(&env);
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
+        let fee_collector: Address = crate::storage::read_global_config(&env)
+            .fee_collector
             .ok_or(ContractError::NotInitialized)?;
 
         let prev_state = escrow.state.clone();
@@ -1328,16 +1327,8 @@ impl Escrow {
         // Mirrors the three-step check in create_escrow_internal so secondary
         // tokens are subject to the same arithmetic-safety guarantees as the
         // primary token.
-        let max_amount: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::MaxAmount)
-            .unwrap_or(MAX_ESCROW_AMOUNT);
-        let min_amount: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::MinAmount)
-            .unwrap_or(MIN_ESCROW_AMOUNT);
+        let max_amount: i128 = crate::storage::read_global_config(&env).max_amount;
+        let min_amount: i128 = crate::storage::read_global_config(&env).min_amount;
 
         for amount in amounts.iter() {
             if amount <= 0 {
@@ -1362,12 +1353,7 @@ impl Escrow {
 
         // Issue #829: Check resolver strict registry (same as create_escrow_internal).
         // When strict mode is enabled, only approved resolvers may be used.
-        if env
-            .storage()
-            .instance()
-            .get::<DataKey, bool>(&DataKey::ResolverStrict)
-            .unwrap_or(false)
-        {
+        if crate::storage::read_global_config(&env).resolver_strict {
             let approved: soroban_sdk::Vec<Address> = env
                 .storage()
                 .instance()
@@ -1775,7 +1761,7 @@ impl Escrow {
         ensure_not_paused(&env)?;
 
         let mut escrow_ids = Vec::new(&env);
-        for input in escrows.into_iter() {
+        for input in escrows {
             let mut payees = Vec::new(&env);
             payees.push_back(Payee {
                 address: seller.clone(),
@@ -1816,6 +1802,8 @@ impl Escrow {
     /// `MAX_MULTICALL_BATCH_SIZE` — an unbounded batch could otherwise be used
     /// to exhaust the transaction's instruction or read/write limits and abort
     /// midway.
+    // `s_get_*` / `s_set_*` pairs mirror the public function names they match.
+    #[allow(clippy::similar_names)]
     pub fn multicall(env: Env, calls: Vec<ContractCall>) -> Result<Vec<Val>, ContractError> {
         ensure_not_paused(&env)?;
         if calls.len() > crate::MAX_MULTICALL_BATCH_SIZE {
@@ -1841,7 +1829,7 @@ impl Escrow {
         let s_rotate_resolver = Symbol::new(&env, "rotate_resolver");
         let s_cancel_escrow = Symbol::new(&env, "cancel_escrow");
 
-        for call in calls.into_iter() {
+        for call in calls {
             let res_val: Val = if call.function == s_fund_escrow {
                 dispatch_fund_escrow(&env, &call.args)?
             } else if call.function == s_get_escrow {
@@ -1869,11 +1857,11 @@ impl Escrow {
             } else if call.function == s_get_dispute {
                 dispatch_get_dispute(&env, &call.args)?
             } else if call.function == s_get_fee_config {
-                dispatch_get_fee_config(&env, &call.args)?
+                dispatch_get_fee_config(&env, &call.args)
             } else if call.function == s_set_arbitration_fee {
                 dispatch_set_arbitration_fee(&env, &call.args)?
             } else if call.function == s_get_arbitration_fee {
-                dispatch_get_arbitration_fee(&env, &call.args)?
+                dispatch_get_arbitration_fee(&env, &call.args)
             } else if call.function == s_create_escrow {
                 dispatch_create_escrow(&env, &call.args)?
             } else {
@@ -1996,9 +1984,8 @@ fn dispatch_get_dispute(env: &Env, args: &Vec<Val>) -> Result<Val, ContractError
     Ok(res.into_val(env))
 }
 
-fn dispatch_get_fee_config(env: &Env, _args: &Vec<Val>) -> Result<Val, ContractError> {
-    let res = Escrow::get_fee_config(env.clone());
-    Ok(res.into_val(env))
+fn dispatch_get_fee_config(env: &Env, _args: &Vec<Val>) -> Val {
+    Escrow::get_fee_config(env.clone()).into_val(env)
 }
 
 fn dispatch_set_arbitration_fee(env: &Env, args: &Vec<Val>) -> Result<Val, ContractError> {
@@ -2008,9 +1995,8 @@ fn dispatch_set_arbitration_fee(env: &Env, args: &Vec<Val>) -> Result<Val, Contr
     Ok(().into_val(env))
 }
 
-fn dispatch_get_arbitration_fee(env: &Env, _args: &Vec<Val>) -> Result<Val, ContractError> {
-    let res = Escrow::get_arbitration_fee(env.clone());
-    Ok(res.into_val(env))
+fn dispatch_get_arbitration_fee(env: &Env, _args: &Vec<Val>) -> Val {
+    Escrow::get_arbitration_fee(env.clone()).into_val(env)
 }
 
 fn dispatch_create_escrow(env: &Env, args: &Vec<Val>) -> Result<Val, ContractError> {

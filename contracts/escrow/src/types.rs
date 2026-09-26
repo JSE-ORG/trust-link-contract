@@ -85,6 +85,15 @@ pub enum DataKey {
     /// lets buyers reclaim custodied funds without going through the standard
     /// state machine. Absent means false.
     RecoveryMode,
+    /// Every admin-tunable fee, limit and toggle, packed into one
+    /// [`GlobalConfig`] entry so hot paths pay for a single instance-storage
+    /// read instead of one per setting. Supersedes the individual
+    /// `FeeCollector`, `Treasury`, `FeeConfig`, `PlatformFeeBps`,
+    /// `AppealFeeBps`, `MinAmount`, `MaxAmount`, `DisputeTimeout`,
+    /// `TtlExtensionLedgers`, `Paused`, `TokenAllowlistEnabled`,
+    /// `ResolverStrict` and `RecoveryMode` keys, which are kept only so
+    /// pre-v2 deployments can still be read and migrated.
+    GlobalConfig,
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -257,9 +266,8 @@ impl ResolverSet {
     /// of the primary or backup is currently authorized decides alone).
     pub fn threshold(&self) -> u32 {
         match self {
-            ResolverSet::Single(_) => 1,
+            ResolverSet::Single(_) | ResolverSet::Fallback(_) => 1,
             ResolverSet::Multi(m) => m.threshold,
-            ResolverSet::Fallback(_) => 1,
         }
     }
 
@@ -373,6 +381,35 @@ pub enum ResolutionType {
 pub struct FeeConfig {
     pub protocol_fee_bps: u32,
     pub arbitration_fee_bps: u32,
+}
+
+/// Admin-tunable global configuration, stored under [`DataKey::GlobalConfig`].
+///
+/// Fields that were previously optional in storage carry their documented
+/// defaults (see `storage::default_global_config`), so readers never need
+/// per-field fallbacks.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+// Independent admin toggles, not a state machine in disguise.
+#[allow(clippy::struct_excessive_bools)]
+pub struct GlobalConfig {
+    /// Receives protocol and arbitration fees. `None` only before `initialize`.
+    pub fee_collector: Option<Address>,
+    /// Receives platform fees. `None` until the admin sets one.
+    pub treasury: Option<Address>,
+    pub protocol_fee_bps: u32,
+    pub arbitration_fee_bps: u32,
+    pub platform_fee_bps: u32,
+    pub appeal_fee_bps: u32,
+    pub min_amount: i128,
+    pub max_amount: i128,
+    /// Maximum seconds a dispute may stay unresolved before a forced refund.
+    pub dispute_timeout: u64,
+    pub ttl_extension_ledgers: u32,
+    pub paused: bool,
+    pub token_allowlist_enabled: bool,
+    pub resolver_strict: bool,
+    pub recovery_mode: bool,
 }
 
 /// Public-safe contract configuration (no sensitive addresses).
