@@ -16,6 +16,7 @@ use crate::{
 use soroban_sdk::{contractimpl, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec};
 
 pub const ADMIN_TIMELOCK_DELAY_SECONDS: u64 = 24 * 60 * 60;
+const MAX_TIMELOCK_PARAMS: u32 = 5;
 
 fn queue_timelock_op(
     env: &Env,
@@ -25,6 +26,10 @@ fn queue_timelock_op(
 ) -> Result<(), ContractError> {
     caller.require_auth();
     let _admin = require_admin_caller(env, caller)?;
+
+    if params.len() > MAX_TIMELOCK_PARAMS {
+        return Err(ContractError::InputTooLong);
+    }
 
     let now = env.ledger().timestamp();
     let ready_at = now + ADMIN_TIMELOCK_DELAY_SECONDS;
@@ -64,6 +69,39 @@ fn execute_timelock_op(
         proposal.params.clone(),
     );
     Ok(proposal)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, IntoVal};
+
+    #[test]
+    fn queue_timelock_op_rejects_more_than_five_params() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let contract_id = env.register(Escrow, ());
+        let client = crate::EscrowClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0_u32);
+
+        let mut params = Vec::new(&env);
+        for value in 0..6_u32 {
+            params.push_back(value.into_val(&env));
+        }
+
+        let result = env.as_contract(&contract_id, || {
+            queue_timelock_op(&env, &admin, TimelockOperation::SetAdmin, params)
+        });
+
+        assert_eq!(result, Err(ContractError::InputTooLong));
+        let proposal = env.as_contract(&contract_id, || {
+            storage::read_timelock_proposal(&env, TimelockOperation::SetAdmin as u32)
+        });
+        assert!(proposal.is_none());
+    }
 }
 
 #[contractimpl]
