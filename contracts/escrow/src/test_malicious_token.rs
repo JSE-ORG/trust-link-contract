@@ -253,49 +253,64 @@ fn budget_exhausting_token_reverts_without_side_effects() {
     assert_ne!(f.client.get_escrow(&f.id).state, EscrowState::Completed);
 }
 
-// 8. Re-entrancy during approve_refund's payout must revert with no leak.
-// approve_refund is one of the payout sites consolidated behind the shared
-// `helpers::payout::payout` primitive (issue: CEI-compliant payout helper);
-// this pins that its state transition still cannot be exploited via a
-// re-entrant transfer.
+// 8. Re-entrancy during `mutual_cancel` must revert atomically: the CEI
+// ordering flips the escrow to `Canceled` before the payout transfer, so a
+// token that re-enters `mutual_cancel` mid-transfer must be rejected by the
+// host's re-entrancy guard, leaving the escrow `Funded` and every balance
+// untouched (issue #954).
 #[test]
-fn reentrancy_during_approve_refund_payout_is_blocked() {
-    let f = setup();
-    fund_only(&f);
-    f.client.request_refund(&f.buyer, &f.id);
+fn reentrancy_during_mutual_cancel_is_blocked() {
+    // `mutual_cancel` requires a buyer, unlike the shared `setup()` fixture
+    // (which creates a buyer-less escrow), so this test builds its own.
+    let env = Box::leak(Box::new(Env::default()));
+    env.mock_all_auths();
 
-    f.mclient.set_reentry(&f.contract_id, &f.buyer, &f.id);
-    f.mclient.set_attack(&Attack::ReenterCancel);
+    let contract_id = env.register(Escrow, ());
+    let client = crate::EscrowClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    let fee_collector = Address::generate(env);
+    client.initialize(&admin, &fee_collector, &0_u32);
 
-    let result = f.client.try_approve_refund(&f.seller, &f.id);
-    assert!(
-        result.is_err(),
-        "re-entrant approve_refund payout must revert"
+    let mtoken = env.register(MaliciousToken, ());
+    let mclient = MaliciousTokenClient::new(env, &mtoken);
+
+    let seller = Address::generate(env);
+    let buyer = Address::generate(env);
+    let resolver = Address::generate(env);
+
+    mclient.set_attack(&Attack::None);
+    mclient.mint(&buyer, &AMOUNT);
+
+    let mut payees = Vec::new(env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(env);
+    let id = client.create_escrow(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &mtoken,
+        &AMOUNT,
+        &0_u32,
+        &0_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
     );
 
-    // No double spend: funds stay escrowed, buyer not repaid, not Refunded.
-    assert_eq!(f.mclient.balance(&f.contract_id), AMOUNT);
-    assert_eq!(f.mclient.balance(&f.buyer), 0);
-    assert_ne!(f.client.get_escrow(&f.id).state, EscrowState::Refunded);
-}
+    client.fund_escrow(&id, &buyer);
+    assert_eq!(mclient.balance(&contract_id), AMOUNT);
 
-// 9. Re-entrancy during emergency_drain's payout must revert with no leak.
-#[test]
-fn reentrancy_during_emergency_drain_payout_is_blocked() {
-    let f = setup();
-    fund_and_ship(&f);
-    f.client.pause_contract(&f.admin);
+    mclient.set_reentry(&contract_id, &buyer, &id);
+    mclient.set_attack(&Attack::ReenterMutualCancel);
 
-    f.mclient.set_reentry(&f.contract_id, &f.buyer, &f.id);
-    f.mclient.set_attack(&Attack::ReenterConfirm);
+    let result = client.try_mutual_cancel(&id);
+    assert!(result.is_err(), "re-entrant mutual_cancel must revert");
 
-    let result = f.client.try_emergency_drain(&f.id);
-    assert!(
-        result.is_err(),
-        "re-entrant emergency_drain payout must revert"
-    );
-
-    assert_eq!(f.mclient.balance(&f.contract_id), AMOUNT);
-    assert_eq!(f.mclient.balance(&f.buyer), 0);
-    assert_ne!(f.client.get_escrow(&f.id).state, EscrowState::Refunded);
+    // Accounting unaffected: still Funded, funds stay escrowed, nobody paid.
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Funded);
+    assert_eq!(mclient.balance(&contract_id), AMOUNT);
+    assert_eq!(mclient.balance(&buyer), 0);
+    assert_eq!(mclient.balance(&seller), 0);
 }

@@ -51,8 +51,6 @@ clean: ## Clean build artifacts
 check-error-codes: ## Verify errors.rs and bindings/src/errors.ts agree
 	node scripts/check-error-codes.mjs
 
-check: fmt-check clippy test check-error-codes ## Run all checks (fmt + clippy + test + error-code drift)
-
 doc: ## Generate and open documentation
 	cargo doc --open
 

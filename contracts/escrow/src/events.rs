@@ -704,7 +704,6 @@ pub fn emit_resolver_rotated(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TokenAllowlistUpdated {
     pub schema_version: u32,
-    pub token: Address,
     pub added: bool,
     pub timestamp: u64,
 }
@@ -719,7 +718,6 @@ pub fn emit_token_allowlist_updated(env: &Env, token: Address, added: bool) {
         ),
         TokenAllowlistUpdated {
             schema_version: EVENT_SCHEMA_VERSION,
-            token,
             added,
             timestamp: env.ledger().timestamp(),
         },
@@ -1232,18 +1230,20 @@ pub fn emit_resolver_strict_updated(
 pub struct FeeCollectorUpdated {
     pub schema_version: u32,
     pub old_collector: Address,
-    pub new_collector: Address,
     pub timestamp: u64,
 }
 
-/// Topic: `(symbol_short!("FeeColl"), symbol_short!("Updated"),)`, data: `FeeCollectorUpdated`.
+/// Topic: `(symbol_short!("FeeColl"), symbol_short!("Updated"), new_collector.clone(),)`, data: `FeeCollectorUpdated`.
 pub fn emit_fee_collector_updated(env: &Env, old_collector: Address, new_collector: Address) {
     env.events().publish(
-        (symbol_short!("FeeColl"), symbol_short!("Updated")),
+        (
+            symbol_short!("FeeColl"),
+            symbol_short!("Updated"),
+            new_collector.clone(),
+        ),
         FeeCollectorUpdated {
             schema_version: EVENT_SCHEMA_VERSION,
             old_collector,
-            new_collector,
             timestamp: env.ledger().timestamp(),
         },
     );
@@ -1310,6 +1310,26 @@ pub fn emit_delivery_proposal_cancelled(env: &Env, escrow_id: u64) {
     env.events().publish(
         (symbol_short!("Delivery"), symbol_short!("Cancelled")),
         DeliveryProposalCancelled {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingExpiryClear {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("PendingExpiry"), symbol_short!("Cleared"),)`, data: `PendingExpiryClear`.
+pub fn emit_pending_expiry_cleared(env: &Env, escrow_id: u64) {
+    env.events().publish(
+        (symbol_short!("PendingExpiry"), symbol_short!("Cleared")),
+        PendingExpiryClear {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             timestamp: env.ledger().timestamp(),

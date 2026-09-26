@@ -223,6 +223,7 @@ impl Escrow {
         env.storage()
             .persistent()
             .remove(&DataKey::PendingExpiry(escrow_id));
+        emit_pending_expiry_cleared(&env, escrow_id);
         clear_delivery_proposal(&env, escrow_id);
 
         emit_escrow_expired(
@@ -266,6 +267,7 @@ impl Escrow {
         env.storage()
             .persistent()
             .remove(&DataKey::PendingExpiry(escrow_id));
+        emit_pending_expiry_cleared(&env, escrow_id);
 
         emit_escrow_auto_canceled(&env, escrow_id);
         Ok(())
@@ -364,6 +366,7 @@ impl Escrow {
         env.storage()
             .persistent()
             .remove(&DataKey::PendingExpiry(escrow_id));
+        emit_pending_expiry_cleared(&env, escrow_id);
 
         // Build basket_tokens event data if this is a basket escrow
         let basket_event_data = if basket_tokens.len() > 1 {
@@ -785,6 +788,7 @@ impl Escrow {
         env.storage()
             .persistent()
             .remove(&DataKey::PendingExpiry(escrow_id));
+        emit_pending_expiry_cleared(&env, escrow_id);
 
         if should_refund {
             let token_client = token::Client::new(&env, &escrow.token);
@@ -1490,6 +1494,7 @@ impl Escrow {
         env.storage()
             .persistent()
             .remove(&DataKey::PendingExpiry(escrow_id));
+        emit_pending_expiry_cleared(&env, escrow_id);
 
         // Build basket_tokens event data (always Some for basket escrows)
         let mut basket_event_tuples = soroban_sdk::Vec::new(&env);
