@@ -446,7 +446,7 @@ pub(crate) fn validate_combined_fees(
 /// - it may not be a no-op change (`SameAddress`).
 ///
 /// Returns the current collector so the caller can emit
-/// `fee_collector_updated`.
+/// `fee_collector_pending`.
 pub(crate) fn validate_fee_collector_change(
     env: &Env,
     new_collector: &Address,

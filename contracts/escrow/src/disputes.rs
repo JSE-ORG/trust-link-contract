@@ -323,7 +323,7 @@ impl Escrow {
         let dispute_data = load_dispute(&env, escrow_id)?;
         let now = env.ledger().timestamp();
 
-        if dispute_data.appeal_count >= crate::MAX_APPEALS {
+        if dispute_data.appeal_count >= crate::read_max_appeals(&env) {
             return Err(ContractError::MaxAppealsReached);
         }
 
