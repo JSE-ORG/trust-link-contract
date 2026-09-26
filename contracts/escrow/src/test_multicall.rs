@@ -156,6 +156,7 @@ fn test_batch_create_escrow_max_batch_size() {
             token: token.clone(),
             amount: 1_000_i128,
             fee_bps: 0,
+            resolver_fee_bps: 0,
             shipping_window: 3600,
             notes: None,
         });

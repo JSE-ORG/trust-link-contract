@@ -77,6 +77,14 @@ pub enum DataKey {
     VendorEscrow(Address, u32),
     /// Total number of escrow ids indexed for a vendor.
     VendorEscrowCount(Address),
+    // Appended after paging keys so all pre-existing discriminants are unchanged.
+    /// Appeal fee in basis points charged to the appellant on `appeal_dispute`
+    /// (issue #913). Absent means `DEFAULT_APPEAL_FEE_BPS` (0 = disabled).
+    AppealFeeBps,
+    /// Graceful-shutdown flag (issue #914). When true, `recovery_withdraw`
+    /// lets buyers reclaim custodied funds without going through the standard
+    /// state machine. Absent means false.
+    RecoveryMode,
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -418,6 +426,10 @@ pub struct EscrowInput {
     pub token: Address,
     pub amount: i128,
     pub fee_bps: u32,
+    /// Per-escrow resolver fee in basis points (issue #911). Validated with
+    /// the same cap as `create_escrow`'s `resolver_fee_bps`; `0` means the
+    /// resolver serves uncompensated.
+    pub resolver_fee_bps: u32,
     pub shipping_window: u64,
     pub notes: Option<String>,
 }
@@ -488,6 +500,7 @@ pub enum TimelockOperation {
     RemoveAllowedToken = 15,
     PauseContract = 16,
     UnpauseContract = 17,
+    SetAppealFee = 18,
 }
 
 /// A queued admin change awaiting the 24-hour timelock delay before it can be

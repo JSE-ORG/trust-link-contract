@@ -20,19 +20,20 @@ mod queries;
 pub use crate::errors::ContractError;
 pub use crate::events::{
     emit_action_paused, emit_action_unpaused, emit_admin_rotated, emit_allowlist_toggled,
-    emit_amount_limits_updated, emit_arbitration_fee_updated, emit_auto_released,
-    emit_basket_escrow_created, emit_contract_initialized, emit_contract_paused,
-    emit_contract_unpaused, emit_contract_upgraded, emit_delivery_proposal_cancelled,
-    emit_delivery_proposed, emit_delivery_recorded, emit_dispute_appealed,
-    emit_dispute_pending_finalization, emit_dispute_raised, emit_dispute_resolved,
-    emit_emergency_drain, emit_escrow_auto_canceled, emit_escrow_canceled, emit_escrow_completed,
-    emit_escrow_created, emit_escrow_expired, emit_escrow_funded, emit_escrow_shipped,
-    emit_fee_collector_updated, emit_fee_updated, emit_pending_expiry_cleared,
-    emit_platform_fee_updated, emit_protocol_fee_updated, emit_refund_approved,
+    emit_amount_limits_updated, emit_appeal_fee_updated, emit_arbitration_fee_updated,
+    emit_auto_released, emit_basket_escrow_created, emit_contract_initialized,
+    emit_contract_paused, emit_contract_unpaused, emit_contract_upgraded,
+    emit_delivery_proposal_cancelled, emit_delivery_proposed, emit_delivery_recorded,
+    emit_dispute_appealed, emit_dispute_pending_finalization, emit_dispute_raised,
+    emit_dispute_resolved, emit_emergency_drain, emit_escrow_auto_canceled, emit_escrow_canceled,
+    emit_escrow_completed, emit_escrow_created, emit_escrow_expired, emit_escrow_funded,
+    emit_escrow_shipped, emit_fee_collector_updated, emit_fee_updated,
+    emit_pending_expiry_cleared, emit_platform_fee_updated, emit_protocol_fee_updated,
+    emit_recovery_mode_updated, emit_recovery_withdraw, emit_refund_approved,
     emit_refund_requested, emit_resolver_approved, emit_resolver_removed, emit_resolver_rotated,
-    emit_resolver_strict_updated, emit_resolver_vote_recorded, emit_storage_migrated,
-    emit_timelock_cancelled, emit_timelock_executed, emit_timelock_queued,
-    emit_token_allowlist_updated, emit_treasury_updated, emit_ttl_extension_updated,
+    emit_resolver_strict_updated, emit_storage_migrated, emit_timelock_cancelled,
+    emit_timelock_executed, emit_timelock_queued, emit_token_allowlist_updated,
+    emit_treasury_updated, emit_ttl_extension_updated,
     ActionPausedEvent, ActionUnpausedEvent, AdminRotated, AmountLimitsUpdated,
     ArbitrationFeeUpdated, AutoReleased, ContractInitialized, ContractPausedEvent,
     ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled, DeliveryProposed,
@@ -104,6 +105,27 @@ const MAX_PLATFORM_FEE_BPS: u32 = 200;
 ///
 /// After a dispute is resolved, the losing party has this window to appeal.
 const APPEAL_WINDOW: u64 = 86_400;
+
+/// Maximum appeal fee in basis points (500 = 5%).
+///
+/// The appeal fee is charged to the appellant on `appeal_dispute` and
+/// forwarded to the fee collector, so griefing via repeated appeals always
+/// costs the attacker. Capped at 5% so a legitimate appeal stays affordable.
+const MAX_APPEAL_FEE_BPS: u32 = 500;
+
+/// Minimum non-zero appeal fee in basis points (10 = 0.1%).
+///
+/// A non-zero appeal fee below this is rejected with
+/// `AppealFeeBelowMinimum`, preventing a nominal fee that fails to deter
+/// griefing. Zero remains valid and disables the fee entirely.
+const MIN_APPEAL_FEE_BPS: u32 = 10;
+
+/// Default appeal fee in basis points (0 = disabled).
+///
+/// Preserved for backward compatibility: deployments that never call
+/// `set_appeal_fee` keep the historical free-appeal behavior until the admin
+/// opts in.
+const DEFAULT_APPEAL_FEE_BPS: u32 = 0;
 
 /// Minimum escrow amount in stroops.
 /// Keeps the contract from accepting zero or negative escrows.

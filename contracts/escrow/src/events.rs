@@ -1424,3 +1424,71 @@ pub fn emit_timelock_cancelled(env: &Env, operation: u32, proposer: Address, can
         },
     );
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppealFeeUpdated {
+    pub schema_version: u32,
+    pub old_fee_bps: u32,
+    pub new_fee_bps: u32,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("AppealFee"), symbol_short!("Updated"),)`, data: `AppealFeeUpdated`.
+pub fn emit_appeal_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
+    env.events().publish(
+        (symbol_short!("AppealFee"), symbol_short!("Updated")),
+        AppealFeeUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_fee_bps,
+            new_fee_bps,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryModeUpdated {
+    pub schema_version: u32,
+    pub enabled: bool,
+    pub caller: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Recovery"), symbol_short!("Mode"),)`, data: `RecoveryModeUpdated`.
+pub fn emit_recovery_mode_updated(env: &Env, enabled: bool, caller: Address) {
+    env.events().publish(
+        (symbol_short!("Recovery"), symbol_short!("Mode")),
+        RecoveryModeUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
+            enabled,
+            caller,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryWithdraw {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub buyer: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Recovery"), symbol_short!("Withdraw"),)`, data: `RecoveryWithdraw`.
+pub fn emit_recovery_withdraw(env: &Env, escrow_id: u64, buyer: Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("Recovery"), symbol_short!("Withdraw")),
+        RecoveryWithdraw {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            buyer,
+            amount,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
