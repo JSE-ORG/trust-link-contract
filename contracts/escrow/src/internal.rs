@@ -5,6 +5,23 @@
 use crate::*;
 use soroban_sdk::{Address, Env, String, Symbol, Vec};
 
+/// Maps an escrow's terminal state to the most specific rejection error, or
+/// returns `fallback` for states that have no dedicated code.
+///
+/// Call sites read as `return Err(terminal_state_error(&escrow.state,
+/// ContractError::InvalidState));` so that an action rejected because the
+/// escrow is already `Completed`/`Refunded` surfaces `EscrowAlreadyCompleted`/
+/// `EscrowAlreadyRefunded` instead of a generic `InvalidState`. Every other
+/// state (including the other terminals, `Canceled` and `Expired`) keeps the
+/// caller-supplied `fallback`.
+pub(crate) fn terminal_state_error(state: &EscrowState, fallback: ContractError) -> ContractError {
+    match state {
+        EscrowState::Completed => ContractError::EscrowAlreadyCompleted,
+        EscrowState::Refunded => ContractError::EscrowAlreadyRefunded,
+        _ => fallback,
+    }
+}
+
 pub(crate) fn load_resolver_votes(env: &Env, escrow_id: u64) -> Vec<ResolverVote> {
     use crate::DataKey;
     env.storage()
@@ -227,6 +244,39 @@ pub(crate) fn contains(list: &soroban_sdk::Vec<Address>, target: &Address) -> bo
     false
 }
 
+/// Returns whether the token allowlist is currently enforced.
+///
+/// # Security: the allowlist is **off** unless an operator turns it on
+///
+/// The flag defaults to `false`, so out of the box *any* SEP-41 contract can
+/// be used as an escrow token. That is a deliberate backward-compatibility
+/// default, **not** a safe production setting: every payout in this contract is
+/// an external call into the token contract (`payout`, `distribute_to_payees`,
+/// `payout_basket_tokens`, fee transfers), and a hostile token can re-enter the
+/// escrow, burn the budget, or misreport balances while settlement is in
+/// flight. Escrows created against an untrusted token therefore inherit that
+/// token's risk.
+///
+/// # Deployer requirement (do this before accepting real value)
+///
+/// 1. Call
+///    [`Escrow::set_token_allowlist_enabled`](crate::Escrow::set_token_allowlist_enabled)
+///    with `enabled = true` (admin-only; the timelocked pair
+///    `queue_set_token_allowlist_enabled` /
+///    `execute_set_token_allowlist_enabled` is available when the change should
+///    be delayed).
+/// 2. Add every vetted token with
+///    [`Escrow::add_allowed_token`](crate::Escrow::add_allowed_token), and
+///    verify the result with
+///    [`Escrow::get_allowed_tokens`](crate::Escrow::get_allowed_tokens).
+/// 3. Only then open the contract to users.
+///
+/// Once enabled, [`is_token_allowed`] rejects any token that is not present in
+/// the allowlist with [`ContractError::TokenNotAllowed`], and the check is
+/// applied on every escrow-creation path (`create_escrow`,
+/// `create_escrow_with_expiration`, `batch_create_escrow`,
+/// `create_basket_escrow`). See `SECURITY.md` ("Token Allowlisting") for the
+/// full deployment checklist.
 pub(crate) fn is_token_allowlist_enabled(env: &Env) -> bool {
     env.storage()
         .instance()
@@ -234,6 +284,14 @@ pub(crate) fn is_token_allowlist_enabled(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+/// Enforces the token allowlist when it is enabled, otherwise accepts any token.
+///
+/// When [`is_token_allowlist_enabled`] is `true`, `token` must be present in the
+/// admin-managed allowlist ([`DataKey::TokenAllowlist`]) or the call fails with
+/// [`ContractError::TokenNotAllowed`]. When the flag is `false` the check is a
+/// no-op and every token is accepted — see the security notes on
+/// [`is_token_allowlist_enabled`] for why operators should enable it before
+/// mainnet.
 pub(crate) fn is_token_allowed(env: &Env, token: &Address) -> Result<(), ContractError> {
     if !is_token_allowlist_enabled(env) {
         return Ok(());
@@ -667,7 +725,7 @@ pub(crate) fn extend_escrow_ttl(env: &Env, escrow_id: u64) -> Result<(), Contrac
     Ok(())
 }
 
-pub(crate) use crate::helpers::payout::transfer_with_protocol_fee;
+pub(crate) use crate::helpers::payout::{payout, transfer_with_protocol_fee};
 
 /// Distributes the specified `amount` among the `payees` proportionally based on their BPS shares.
 ///
@@ -709,9 +767,7 @@ pub(crate) fn distribute_to_payees(
 
     // First payee gets the remainder (rounding goes to first payee)
     let first_payee = payees.get(0).ok_or(ContractError::PayeeIndexOutOfBounds)?;
-    if remaining > 0 {
-        token_client.transfer(&contract_addr, &first_payee.address, &remaining);
-    }
+    payout(env, token_addr, &first_payee.address, remaining);
 
     Ok(())
 }
@@ -862,6 +918,20 @@ pub(crate) fn settle_escrow_to_payees(
     let (protocol_fee, net_amount) =
         crate::helpers::payout::calculate_protocol_fee(escrow.amount, fee_bps)?;
 
+    // ── INTERACTIONS (external token transfers) ──
+    //
+    // The `Completed` transition, the lifecycle counters, and the delivery
+    // proposal cleanup are all persisted above, so a malicious or re-entrant
+    // token invoked mid-transfer cannot observe an escrow that is still
+    // `Funded`/`Shipped` while its funds are already moving. A re-entrant call
+    // into `cancel_escrow`, `raise_dispute`, or `auto_release` therefore sees a
+    // terminal `Completed` escrow and is rejected.
+    if protocol_fee > 0 {
+        payout(env, &escrow.token, &fee_collector, protocol_fee);
+    }
+    distribute_to_payees(env, &escrow.token, &escrow.payees, net_amount)?;
+    payout_basket_tokens(env, escrow_id, &first_payee_addr)?;
+
     Ok((prev_state, first_payee_addr))
 }
 
@@ -901,6 +971,22 @@ pub(crate) const COUNTER_KIND_CREATED: u32 = 0;
 pub(crate) const COUNTER_KIND_COMPLETED: u32 = 1;
 pub(crate) const COUNTER_KIND_DISPUTED: u32 = 2;
 pub(crate) const COUNTER_KIND_REFUNDED: u32 = 3;
+
+/// Increments the legacy singleton lifecycle counter stored at `key`.
+///
+/// Kept alongside the sharded counters ([`increment_sharded_counter`]) for
+/// backward compatibility: [`read_counter_total`] sums the legacy value and the
+/// shards, so pre-sharding deployments' statistics are preserved while new
+/// transitions spread their writes. Arithmetic overflow is reported as
+/// `ArithmeticError`.
+pub(crate) fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
+    let current: u64 = env.storage().instance().get(key).unwrap_or(0);
+    let next = current
+        .checked_add(1)
+        .ok_or(ContractError::ArithmeticError)?;
+    env.storage().instance().set(key, &next);
+    Ok(())
+}
 
 /// Increments lifecycle counter `kind` in one of `crate::COUNTER_SHARDS`
 /// persistent-storage buckets, chosen from `seed` (the escrow id). Spreading
@@ -981,8 +1067,14 @@ pub(crate) fn create_escrow_internal(
     if payees.is_empty() {
         return Err(ContractError::InvalidAddress);
     }
-    let first_payee = payees.get(0).ok_or(ContractError::PayeeIndexOutOfBounds)?;
-    first_payee.address.require_auth();
+    // Authentication is the entry point's responsibility: `create_escrow`,
+    // `create_escrow_with_expiration`, and `batch_create_escrow` each call
+    // `payees[0].require_auth()` (or `seller.require_auth()`) at their top
+    // before delegating here. Requiring it again inside this helper would be a
+    // second `require_auth` for the same address in the same invocation, which
+    // the host rejects with `Error(Auth, ExistingValue)` ("frame is already
+    // authorized"). Do not call this helper from a new entry point without
+    // adding that check there first.
 
     ensure_action_not_paused(env, Symbol::new(env, "CREATE"))?;
 

@@ -33,14 +33,14 @@ fn test_fee_bounds_are_enforced() {
     let protocol_result = client.try_set_protocol_fee(&admin, &501_u32);
     assert!(matches!(
         protocol_result,
-        Err(Ok(ContractError::FeeExceedsMax))
+        Err(Ok(ContractError::ProtocolFeeExceedsMax))
     ));
 
     // Individual arbitration fee over 500 bps is rejected
     let arbitration_result = client.try_set_arbitration_fee(&admin, &501_u32);
     assert!(matches!(
         arbitration_result,
-        Err(Ok(ContractError::FeeExceedsMax))
+        Err(Ok(ContractError::ArbitrationFeeExceedsMax))
     ));
 
     // Valid individual fees at boundary (500 bps) are accepted
@@ -91,7 +91,10 @@ fn test_combined_fee_cap_is_enforced() {
 
     // Try to set arbitration to 600 bps — should fail due to individual cap
     let result = client.try_set_arbitration_fee(&admin, &600_u32);
-    assert!(matches!(result, Err(Ok(ContractError::FeeExceedsMax))));
+    assert!(matches!(
+        result,
+        Err(Ok(ContractError::ArbitrationFeeExceedsMax))
+    ));
 
     // Verify the individual cap is enforced
     let config = client.get_fee_config();

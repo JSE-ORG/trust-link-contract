@@ -1327,10 +1327,10 @@ pub struct PendingExpiryClear {
     pub timestamp: u64,
 }
 
-/// Topic: `(symbol_short!("PendingExpiry"), symbol_short!("Cleared"),)`, data: `PendingExpiryClear`.
+/// Topic: `(Symbol::new(env, "PendingExpiry"), symbol_short!("Cleared"),)`, data: `PendingExpiryClear`.
 pub fn emit_pending_expiry_cleared(env: &Env, escrow_id: u64) {
     env.events().publish(
-        (symbol_short!("PendingExpiry"), symbol_short!("Cleared")),
+        (Symbol::new(env, "PendingExpiry"), symbol_short!("Cleared")),
         PendingExpiryClear {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,

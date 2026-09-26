@@ -3,7 +3,7 @@
 //!
 //! Covers:
 //! - valid values (0 / 100 / 300 bps) accepted and persisted
-//! - 501 bps rejected with `FeeExceedsMax` (MAX_PROTOCOL_FEE_BPS = 500)
+//! - 501 bps rejected with `ProtocolFeeExceedsMax` (MAX_PROTOCOL_FEE_BPS = 500)
 //! - non-admin caller rejected with `NotAuthorized`
 
 use crate::{ContractError, Escrow, EscrowClient, FeeConfig};
@@ -53,9 +53,9 @@ fn rejects_fee_above_maximum() {
     client.set_fee(&admin, &500_u32);
     assert_eq!(stored_fee(&env, &cid), 500);
 
-    // 501 bps is one above MAX_PROTOCOL_FEE_BPS — rejected with FeeExceedsMax.
+    // 501 bps is one above MAX_PROTOCOL_FEE_BPS — rejected with ProtocolFeeExceedsMax.
     let result = client.try_set_fee(&admin, &501_u32);
-    assert_eq!(result, Err(Ok(ContractError::FeeExceedsMax)));
+    assert_eq!(result, Err(Ok(ContractError::ProtocolFeeExceedsMax)));
 
     // Storage is unchanged at the previously accepted value.
     assert_eq!(stored_fee(&env, &cid), 500);

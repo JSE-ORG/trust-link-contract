@@ -81,7 +81,10 @@ fn test_set_fee_rejects_501_bps() {
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
     let result = client.try_set_protocol_fee(&admin, &501_u32);
-    assert!(matches!(result, Err(Ok(ContractError::FeeExceedsMax))));
+    assert!(matches!(
+        result,
+        Err(Ok(ContractError::ProtocolFeeExceedsMax))
+    ));
 }
 
 /// Test: set_protocol_fee requires admin authentication
