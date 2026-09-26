@@ -1282,7 +1282,7 @@ impl Escrow {
             return Err(ContractError::BasketTokenMismatch);
         }
 
-        if tokens.len() > MAX_BASKET_SIZE {
+        if tokens.len() > crate::read_max_basket_size(&env) {
             return Err(ContractError::BasketTokenMismatch);
         }
 
