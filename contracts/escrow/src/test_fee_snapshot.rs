@@ -88,7 +88,7 @@ mod tests {
             &escrow_id,
             &soroban_sdk::String::from_str(&env, "TRACK-FEE"),
         );
-        client.confirm_delivery(&buyer, &escrow_id);
+        client.confirm_delivery(&buyer, &escrow_id, &false);
 
         let tc = soroban_sdk::token::Client::new(&env, &token_id);
         let seller_balance = tc.balance(&seller);

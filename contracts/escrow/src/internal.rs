@@ -750,11 +750,51 @@ pub(crate) fn distribute_to_payees(
         return Err(ContractError::InvalidAmount);
     }
 
+    // ROUNDING / TRUNCATION PROOF — read before "fixing" anything here.
+    //
+    // Notation: A = `amount` (>= 0), b_i = `payees[i].bps`, N = payees.len(),
+    // with the creation-time invariant sum(b_i for i in 0..N) == 10_000.
+    //
+    // For every non-primary payee (i >= 1) we pay the floor of its exact share:
+    //
+    //     p_i = floor(A * b_i / 10_000)
+    //
+    // Write A * b_i = 10_000 * p_i + r_i with 0 <= r_i < 10_000, so each p_i
+    // under-pays its exact share by r_i / 10_000, i.e. by strictly less than
+    // one stroop. (A and b_i are non-negative, so `/` truncating toward zero
+    // is the same as floor here.)
+    //
+    // The primary payee then receives everything that is left:
+    //
+    //     p_0 = A - sum(p_i for i in 1..N)
+    //
+    // 1. Exact sum: sum(p_i for i in 0..N) == A *by construction* — p_0 is
+    //    defined as the complement. No dust stays in the contract and nothing
+    //    is over-paid, regardless of the bps values.
+    // 2. Non-negative: sum(p_i, i>=1) <= sum(A * b_i / 10_000, i>=1)
+    //    = A * (10_000 - b_0) / 10_000 <= A, so p_0 >= 0 and `remaining`
+    //    never goes negative.
+    // 3. Bounded bias: p_0 - A * b_0 / 10_000 = sum(r_i / 10_000, i>=1)
+    //    < N - 1, so the primary payee gains less than one stroop per
+    //    non-primary payee, and never less than its own exact share.
+    //
+    // Invariants future edits MUST preserve:
+    // - Do NOT compute p_0 as `A * b_0 / 10_000` too. Flooring every share
+    //   independently leaves up to N-1 stroops stranded in the contract and
+    //   breaks the exact-sum invariant that settlement/tests rely on.
+    // - Do NOT switch to round-half-up / ceiling for i >= 1. Rounding up can
+    //   make sum(p_i, i>=1) exceed A - floor(A * b_0 / 10_000), shorting the
+    //   primary payee below its own share, and in edge cases could exceed A.
+    // - Multiply before dividing. `A / 10_000 * b_i` truncates A first and
+    //   loses up to 9_999 * b_i / 10_000 stroops per payee.
+    // - Keep `checked_*` arithmetic: A * b_i can overflow i128 for extreme
+    //   amounts, and that must surface as `ArithmeticError`, not wrap.
     let mut remaining = amount;
 
-    // Calculate amounts for all payees except the first
+    // Pay payees 1..N their floored share (p_i above), tracking what's left.
     for i in 1..payees.len() {
         let payee = payees.get(i).ok_or(ContractError::PayeeIndexOutOfBounds)?;
+        // Multiply first, then divide: floor(A * b_i / 10_000).
         let payee_amount = amount
             .checked_mul(payee.bps as i128)
             .ok_or(ContractError::ArithmeticError)?
@@ -763,12 +803,16 @@ pub(crate) fn distribute_to_payees(
 
         crate::helpers::payout::payout(env, token_addr, &payee.address, payee_amount);
 
+        // By point 2 above this never underflows below zero; checked_sub is a
+        // belt-and-braces guard against a violated bps-sum invariant.
         remaining = remaining
             .checked_sub(payee_amount)
             .ok_or(ContractError::ArithmeticError)?;
     }
 
-    // First payee gets the remainder (rounding goes to first payee)
+    // p_0 = A - sum(p_i, i>=1): the primary payee's exact share plus all the
+    // truncation dust (< N-1 stroops). This line is what makes the payout sum
+    // to exactly `amount`.
     let first_payee = payees.get(0).ok_or(ContractError::PayeeIndexOutOfBounds)?;
     payout(env, token_addr, &first_payee.address, remaining);
 

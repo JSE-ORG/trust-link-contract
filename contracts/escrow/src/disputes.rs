@@ -402,11 +402,7 @@ impl Escrow {
         // A failing transfer (e.g. appellant cannot cover the fee) reverts the
         // whole invocation, including the state changes.
         if let Some(fee_collector) = fee_collector {
-            token::Client::new(&env, &escrow.token).transfer(
-                &caller,
-                &fee_collector,
-                &appeal_fee,
-            );
+            token::Client::new(&env, &escrow.token).transfer(&caller, &fee_collector, &appeal_fee);
         }
 
         emit_dispute_appealed(&env, escrow_id, caller);

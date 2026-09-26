@@ -134,7 +134,7 @@ impl MaliciousToken {
                 // Re-entering the still-executing escrow is forbidden by the
                 // host: this call traps, reverting the whole transfer.
                 let r = Self::reentry(&env);
-                EscrowClient::new(&env, &r.escrow).confirm_delivery(&r.actor, &r.escrow_id);
+                EscrowClient::new(&env, &r.escrow).confirm_delivery(&r.actor, &r.escrow_id, &false);
             }
             Attack::ReenterFund => {
                 let r = Self::reentry(&env);

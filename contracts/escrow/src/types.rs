@@ -167,6 +167,25 @@ pub struct MultiResolver {
 /// The primary is never time-gated — the deadline only *adds* the backup as
 /// an authorized resolver, it never removes the primary.
 ///
+/// # How `dispute_deadline` affects authorization
+///
+/// - **Checked at call time, not dispute time.** The comparison runs every
+///   time `resolve_dispute` / `vote` is invoked, against the ledger timestamp
+///   of *that* call. When the dispute was raised is irrelevant: if the
+///   deadline has already passed when a dispute is raised, the backup may
+///   resolve it immediately.
+/// - **Absolute, not relative.** The deadline is fixed at creation and is not
+///   extended by funding, shipping, raising a dispute, or an appeal. After the
+///   deadline both resolvers stay authorized for the rest of the escrow's
+///   life, including re-resolution after `appeal_dispute`.
+/// - **Single-signer threshold.** [`ResolverSet::threshold`] is `1` for a
+///   fallback set, so whichever authorized resolver acts first moves the
+///   escrow to `PendingFinalization`. There is no co-signing between primary
+///   and backup; once past the deadline they effectively race.
+/// - **Identity checks ignore the deadline.** Creation-time conflict checks
+///   (resolver ≠ seller/buyer) use [`ResolverSet::contains`], which treats
+///   both addresses as members regardless of time.
+///
 /// # Example
 ///
 /// ```ignore
@@ -182,10 +201,13 @@ pub struct MultiResolver {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FallbackResolver {
     /// Resolver expected to handle disputes. Always authorized to resolve,
-    /// regardless of the current ledger time.
+    /// regardless of the current ledger time — before *and* after
+    /// `dispute_deadline`.
     pub primary: Address,
     /// Stand-in resolver. Only authorized once the ledger timestamp has
-    /// reached `dispute_deadline`.
+    /// reached `dispute_deadline`; any earlier `resolve_dispute` / `vote`
+    /// call from this address fails with `NotAuthorized`. Must differ from
+    /// the seller and buyer (checked at creation).
     pub backup: Address,
     /// Absolute ledger timestamp (Unix seconds) at which `backup` becomes an
     /// authorized resolver. The comparison is `now >= dispute_deadline`, so
