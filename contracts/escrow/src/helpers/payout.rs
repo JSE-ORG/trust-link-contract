@@ -1,5 +1,5 @@
 use crate::{ContractError, BASIS_POINTS};
-use soroban_sdk::{token, Address, Env};
+use soroban_sdk::{Address, Env};
 
 /// Computes the protocol fee for `amount` at `fee_bps` basis points.
 ///
@@ -101,9 +101,11 @@ pub(crate) fn payout(env: &Env, token_addr: &Address, recipient: &Address, amoun
     if amount <= 0 {
         return;
     }
-    token::Client::new(env, token_addr).transfer(
+    crate::internal::transfer_helper(
+        env,
+        token_addr,
         &env.current_contract_address(),
         recipient,
-        &amount,
+        amount,
     );
 }

@@ -3,7 +3,7 @@
 //! resolver-vote tallying. Not part of the contract's public interface.
 
 use crate::*;
-use soroban_sdk::{Address, Env, String, Symbol, Vec};
+use soroban_sdk::{token, Address, Env, String, Symbol, Vec};
 
 /// Maps an escrow's terminal state to the most specific rejection error, or
 /// returns `fallback` for states that have no dedicated code.
@@ -706,6 +706,29 @@ pub(crate) fn extend_escrow_ttl(env: &Env, escrow_id: u64) -> Result<(), Contrac
 }
 
 pub(crate) use crate::helpers::payout::{payout, transfer_with_protocol_fee};
+
+/// Transfers `amount` of `token_addr` from `from` to `to`.
+///
+/// This is the only place in the contract that constructs a `token::Client`
+/// and calls `transfer` — every escrow funding, refund, payout, and fee
+/// transfer routes through this one call site, so there is exactly one spot
+/// to audit for the actual cross-contract token transfer, and no call site
+/// can drift from the others' argument order or shape.
+///
+/// This is a thin, direction-agnostic wrapper: unlike [`payout`], it does not
+/// skip non-positive amounts or fix `from`/`to` to the contract's own
+/// address, since it also serves the "collect from caller" direction used by
+/// `fund_escrow`/`fund_basket_escrow`. Callers paying *out* of the contract
+/// should prefer [`payout`], which wraps this with that zero-skip behavior.
+pub(crate) fn transfer_helper(
+    env: &Env,
+    token_addr: &Address,
+    from: &Address,
+    to: &Address,
+    amount: i128,
+) {
+    token::Client::new(env, token_addr).transfer(from, to, &amount);
+}
 
 /// Distributes the specified `amount` among the `payees` proportionally based on their BPS shares.
 ///
