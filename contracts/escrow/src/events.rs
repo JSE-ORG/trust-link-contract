@@ -1235,6 +1235,50 @@ pub struct FeeCollectorUpdated {
     pub timestamp: u64,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeCollectorPending {
+    pub schema_version: u32,
+    pub old_collector: Address,
+    pub pending_collector: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("FeeColl"), symbol_short!("Pending"),)`, data: `FeeCollectorPending`.
+pub fn emit_fee_collector_pending(env: &Env, old_collector: Address, pending_collector: Address) {
+    env.events().publish(
+        (symbol_short!("FeeColl"), symbol_short!("Pending")),
+        FeeCollectorPending {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_collector,
+            pending_collector,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeCollectorAccepted {
+    pub schema_version: u32,
+    pub old_collector: Address,
+    pub new_collector: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("FeeColl"), symbol_short!("Accepted"),)`, data: `FeeCollectorAccepted`.
+pub fn emit_fee_collector_accepted(env: &Env, old_collector: Address, new_collector: Address) {
+    env.events().publish(
+        (symbol_short!("FeeColl"), symbol_short!("Accepted")),
+        FeeCollectorAccepted {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_collector,
+            new_collector,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
 /// Topic: `(symbol_short!("FeeColl"), symbol_short!("Updated"), new_collector.clone(),)`, data: `FeeCollectorUpdated`.
 pub fn emit_fee_collector_updated(env: &Env, old_collector: Address, new_collector: Address) {
     env.events().publish(
@@ -1421,6 +1465,50 @@ pub fn emit_timelock_cancelled(env: &Env, operation: u32, proposer: Address, can
             proposer,
             canceller,
             cancelled_at: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaxAppealsUpdated {
+    pub schema_version: u32,
+    pub old_max: u32,
+    pub new_max: u32,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("MaxAppeal"), symbol_short!("Updated"),)`, data: `MaxAppealsUpdated`.
+pub fn emit_max_appeals_updated(env: &Env, old_max: u32, new_max: u32) {
+    env.events().publish(
+        (symbol_short!("MaxAppeal"), symbol_short!("Updated")),
+        MaxAppealsUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_max,
+            new_max,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaxBasketSizeUpdated {
+    pub schema_version: u32,
+    pub old_max: u32,
+    pub new_max: u32,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("MaxBasket"), symbol_short!("Updated"),)`, data: `MaxBasketSizeUpdated`.
+pub fn emit_max_basket_size_updated(env: &Env, old_max: u32, new_max: u32) {
+    env.events().publish(
+        (symbol_short!("MaxBasket"), symbol_short!("Updated")),
+        MaxBasketSizeUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_max,
+            new_max,
+            timestamp: env.ledger().timestamp(),
         },
     );
 }

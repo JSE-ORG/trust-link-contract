@@ -77,6 +77,12 @@ pub enum DataKey {
     VendorEscrow(Address, u32),
     /// Total number of escrow ids indexed for a vendor.
     VendorEscrowCount(Address),
+    /// Pending fee collector address awaiting acceptance via `accept_fee_collector`.
+    PendingFeeCollector,
+    /// Admin-configured maximum number of appeals per dispute.
+    MaxAppeals,
+    /// Admin-configured maximum number of tokens in a basket escrow.
+    MaxBasketSize,
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -488,6 +494,8 @@ pub enum TimelockOperation {
     RemoveAllowedToken = 15,
     PauseContract = 16,
     UnpauseContract = 17,
+    SetMaxAppeals = 18,
+    SetMaxBasketSize = 19,
 }
 
 /// A queued admin change awaiting the 24-hour timelock delay before it can be

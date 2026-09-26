@@ -27,7 +27,9 @@ pub use crate::events::{
     emit_dispute_pending_finalization, emit_dispute_raised, emit_dispute_resolved,
     emit_emergency_drain, emit_escrow_auto_canceled, emit_escrow_canceled, emit_escrow_completed,
     emit_escrow_created, emit_escrow_expired, emit_escrow_funded, emit_escrow_shipped,
-    emit_fee_collector_updated, emit_fee_updated, emit_pending_expiry_cleared,
+    emit_fee_collector_accepted, emit_fee_collector_pending, emit_fee_collector_updated,
+    emit_fee_updated, emit_max_appeals_updated, emit_max_basket_size_updated,
+    emit_pending_expiry_cleared,
     emit_platform_fee_updated, emit_protocol_fee_updated, emit_refund_approved,
     emit_refund_requested, emit_resolver_approved, emit_resolver_removed, emit_resolver_rotated,
     emit_resolver_strict_updated, emit_resolver_vote_recorded, emit_storage_migrated,
@@ -37,10 +39,11 @@ pub use crate::events::{
     ArbitrationFeeUpdated, AutoReleased, ContractInitialized, ContractPausedEvent,
     ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled, DeliveryProposed,
     DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowAutoCanceled, EscrowCanceled,
-    EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped, FeeUpdated,
-    PendingExpiryClear, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated,
-    ResolverStrictUpdated, ResolverVoteRecorded, TimelockCancelled, TimelockExecuted,
-    TimelockQueued, TtlExtensionUpdated,
+    EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped,
+    FeeCollectorAccepted, FeeCollectorPending, FeeUpdated, MaxAppealsUpdated,
+    MaxBasketSizeUpdated, PendingExpiryClear, ProtocolFeeUpdated,
+    ResolverApproved, ResolverRemoved, ResolverRotated, ResolverStrictUpdated,
+    ResolverVoteRecorded, TimelockCancelled, TimelockExecuted, TimelockQueued, TtlExtensionUpdated,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
@@ -212,8 +215,36 @@ pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 10_000;
 #[contract]
 pub struct Escrow;
 
-/// Maximum number of appeals allowed per dispute.
+/// Default maximum number of appeals allowed per dispute. Admin can override
+/// via `queue_set_max_appeals` / `execute_set_max_appeals`.
 pub const MAX_APPEALS: u32 = 3;
+
+/// Minimum value accepted by `set_max_appeals`.
+pub const MIN_MAX_APPEALS: u32 = 1;
+
+/// Maximum value accepted by `set_max_appeals`.
+pub const MAX_MAX_APPEALS: u32 = 10;
+
+/// Minimum value accepted by `set_max_basket_size`.
+pub const MIN_MAX_BASKET_SIZE: u32 = 1;
+
+/// Returns the admin-configured maximum number of appeals, falling back to
+/// `MAX_APPEALS` if the admin has not overridden it.
+pub(crate) fn read_max_appeals(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxAppeals)
+        .unwrap_or(MAX_APPEALS)
+}
+
+/// Returns the admin-configured maximum basket size, falling back to
+/// `MAX_BASKET_SIZE` if the admin has not overridden it.
+pub(crate) fn read_max_basket_size(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxBasketSize)
+        .unwrap_or(MAX_BASKET_SIZE)
+}
 
 /// Default maximum duration (in seconds) a dispute may remain unresolved
 /// before either party can force a refund with `claim_dispute_timeout`.
