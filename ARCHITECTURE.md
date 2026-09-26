@@ -140,6 +140,26 @@ TrustLink uses the [SEP-41](https://github.com/stellar/stellar-protocol/blob/mas
 
 ---
 
+## Fee Model
+
+TrustLink charges fees along two independent axes:
+
+| Fee | Scope | Set by | Cap | Constant |
+|---|---|---|---|---|
+| `fee_bps` | Per-escrow, set at creation | Escrow creator (seller/payee) | 3% | `MAX_ESCROW_FEE_BPS` |
+| `protocol_fee_bps` | Global default, in `FeeConfig` | Admin | 5% | `MAX_PROTOCOL_FEE_BPS` |
+| `arbitration_fee_bps` | Global default, in `FeeConfig` | Admin | 5% | `MAX_ARBITRATION_FEE_BPS` |
+
+`protocol_fee_bps` and `arbitration_fee_bps` are both *admin*-controlled and both deducted from the same pool of value (an escrow's locked amount) — the protocol fee on ordinary settlement, the arbitration fee specifically when a resolver settles a dispute. Because they're independently capped at 5% each, `validate_combined_fees` (`internal.rs`) additionally enforces `protocol_fee_bps + arbitration_fee_bps <= MAX_COMBINED_FEE_BPS` (1000 bps = **10%**) whenever either one is updated.
+
+### Why a combined cap, and why 10%
+
+- **Defense in depth against a single compromised or malicious admin.** Each individual cap (5% + 5%) already happens to sum to the combined cap today, but the two are enforced independently and could drift apart over time (e.g. a future change that raises `MAX_ARBITRATION_FEE_BPS` without revisiting the other). The combined check is the actual invariant that matters economically: *no combination of admin-set fees can ever take more than 10% of an escrow's value*, regardless of how the individual per-fee ceilings evolve.
+- **10% keeps the protocol's take a minority share.** A buyer and seller are exchanging value for goods/services; the protocol is an intermediary securing that exchange, not a party to it. A 10% combined ceiling caps the admin's worst-case extraction to roughly the range of typical marketplace/payment-processor take rates, so even a fully malicious admin cannot use fee configuration alone to drain a meaningful fraction of escrowed funds — the attack has to go through some other path (and the 24-hour timelock on admin fee changes, `ADMIN_TIMELOCK_DELAY_SECONDS` in `admin.rs`, gives participants a window to react before a new fee takes effect).
+- **Deliberately excludes `fee_bps`.** The per-escrow `fee_bps` is capped separately (3%) and is not part of `MAX_COMBINED_FEE_BPS` because it isn't admin-controlled — it's set by the escrow's own creator at creation time, so it's a term the buyer/seller already agreed to rather than a value an admin can move after the fact.
+
+---
+
 ## Multi-Resolver Dispute Resolution (M-of-N Voting)
 
 An escrow's dispute resolver is not always a single address. `EscrowData.resolvers` holds a `ResolverSet`, which is one of three variants:
