@@ -65,7 +65,7 @@ fn test_confirm_delivery_not_found() {
     env.mock_all_auths();
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
     let buyer = Address::generate(&env);
-    let res = client.try_confirm_delivery(&buyer, &MISSING_ID);
+    let res = client.try_confirm_delivery(&buyer, &MISSING_ID, &false);
     assert!(matches!(res, Err(Ok(ContractError::EscrowNotFound))));
 }
 

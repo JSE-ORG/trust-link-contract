@@ -159,7 +159,7 @@ fn reentrancy_during_payout_cannot_double_release() {
     f.mclient.set_reentry(&f.contract_id, &f.buyer, &f.id);
     f.mclient.set_attack(&Attack::ReenterConfirm);
 
-    let result = f.client.try_confirm_delivery(&f.buyer, &f.id);
+    let result = f.client.try_confirm_delivery(&f.buyer, &f.id, &false);
     assert!(result.is_err(), "re-entrant payout must revert");
 
     // No double spend: funds stay escrowed, nobody is paid, not Completed.
@@ -178,7 +178,7 @@ fn reentrancy_attempting_cancel_during_payout_is_blocked() {
     f.mclient.set_reentry(&f.contract_id, &f.buyer, &f.id);
     f.mclient.set_attack(&Attack::ReenterCancel);
 
-    let result = f.client.try_confirm_delivery(&f.buyer, &f.id);
+    let result = f.client.try_confirm_delivery(&f.buyer, &f.id, &false);
     assert!(result.is_err(), "re-entrant cancel must revert");
 
     assert_eq!(f.mclient.balance(&f.contract_id), AMOUNT);
@@ -212,7 +212,7 @@ fn always_failing_token_on_payout_preserves_escrowed_funds() {
 
     f.mclient.set_attack(&Attack::Fail);
 
-    let result = f.client.try_confirm_delivery(&f.buyer, &f.id);
+    let result = f.client.try_confirm_delivery(&f.buyer, &f.id, &false);
     assert!(
         result.is_err(),
         "payout through a failing token must revert"
@@ -239,7 +239,7 @@ fn budget_exhausting_token_reverts_without_side_effects() {
         .budget()
         .reset_limits(50_000_000, 20_000_000);
 
-    let result = f.client.try_confirm_delivery(&f.buyer, &f.id);
+    let result = f.client.try_confirm_delivery(&f.buyer, &f.id, &false);
     assert!(
         result.is_err(),
         "budget-exhausting token must abort the call"

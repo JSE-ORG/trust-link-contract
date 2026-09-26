@@ -62,7 +62,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_confirm_delivery() {
 
     let escrow = client.get_escrow(&id);
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
 
     let _escrow = client.get_escrow(&id);
     // fee = 1 * 300 / 10_000 = 0  →  net = 1

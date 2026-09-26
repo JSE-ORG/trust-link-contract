@@ -290,14 +290,14 @@ fn test_multi_resolver_split_vote_deadlock() {
 
     // Resolver A votes Release
     client.vote(&resolver_a, &escrow_id, &ResolutionType::Release);
-    
+
     let escrow = client.get_escrow(&escrow_id);
     assert_eq!(escrow.state, EscrowState::Disputed);
 
     // Resolver B votes Refund
     client.vote(&resolver_b, &escrow_id, &ResolutionType::Refund);
 
-    // Both have voted, but threshold is 2 for either outcome. 
+    // Both have voted, but threshold is 2 for either outcome.
     // State MUST remain Disputed (deadlocked).
     let escrow_after = client.get_escrow(&escrow_id);
     assert_eq!(escrow_after.state, EscrowState::Disputed);

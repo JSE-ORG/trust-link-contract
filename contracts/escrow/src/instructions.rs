@@ -829,7 +829,16 @@ impl Escrow {
         Ok(())
     }
 
-    /// Cancels a funded—but not yet shipped—escrow by mutual agreement and refunds the buyer in full.
+    /// Cancels an escrow by mutual agreement and refunds the buyer in full.
+    ///
+    /// Requires auth from both the primary payee (seller) and the buyer in the
+    /// same call. Valid from `Funded` **or** `Shipped` state: once the goods
+    /// are shipped the parties may still agree to unwind the deal (e.g. the
+    /// item is returned), and since both sign there is no one left to
+    /// protect. Any other state — including `Disputed`, which is governed by
+    /// the resolution flow — reverts with `InvalidState` (or the matching
+    /// terminal-state error). Cancelling a `Shipped` escrow also drops any
+    /// pending delivery proposal, which can only exist in that state.
     pub fn mutual_cancel(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_not_paused(&env)?;
         crate::internal::ensure_not_expired(&env, escrow_id)?;
@@ -848,7 +857,7 @@ impl Escrow {
         seller_addr.require_auth();
         buyer.require_auth();
 
-        if escrow.state != EscrowState::Funded {
+        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
             return Err(terminal_state_error(
                 &escrow.state,
                 ContractError::InvalidState,
@@ -858,6 +867,7 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Canceled;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        clear_delivery_proposal(&env, escrow_id);
 
         payout(&env, &escrow.token, &buyer, escrow.amount);
 
@@ -1115,6 +1125,17 @@ impl Escrow {
     /// `now < dispute_deadline` guard so the two entry points never overlap on
     /// the same ledger second.
     ///
+    /// # Waiving the window
+    ///
+    /// Passing `waive_shipping_window = true` lets the buyer skip that wait and
+    /// release immediately (e.g. the goods arrived early and both sides are
+    /// happy). The window exists solely to protect the buyer's right to
+    /// dispute, and only the buyer can call this function, so the buyer is
+    /// the only party able to give that protection up. By waiving, the buyer
+    /// forfeits the chance to `raise_dispute` on this escrow — the funds are
+    /// released and the escrow is `Completed` in the same call. With `false`
+    /// the original behavior (and `DisputeWindowStillOpen` error) applies.
+    ///
     /// On success the protocol fee (using the escrow's snapshotted `fee_bps`)
     /// goes to the fee collector, the remainder is split across `payees`, any
     /// basket tokens are paid to the primary payee, and the escrow moves to
@@ -1123,6 +1144,7 @@ impl Escrow {
         env: Env,
         caller: Address,
         escrow_id: u64,
+        waive_shipping_window: bool,
     ) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_not_paused(&env)?;
@@ -1148,8 +1170,9 @@ impl Escrow {
         // can only confirm once it has closed. `DisputeWindowStillOpen` is the
         // error defined for exactly this case (`DeliveryBeforeDisputeWindow`
         // means the window has not *started*, which cannot happen for a
-        // `Shipped` escrow — it is always funded).
-        if env.ledger().timestamp() < escrow.dispute_deadline {
+        // `Shipped` escrow — it is always funded). The buyer may explicitly
+        // waive the wait, forfeiting their own dispute window.
+        if !waive_shipping_window && env.ledger().timestamp() < escrow.dispute_deadline {
             return Err(ContractError::DisputeWindowStillOpen);
         }
 
@@ -1920,7 +1943,13 @@ fn dispatch_mark_shipped(env: &Env, args: &Vec<Val>) -> Result<Val, ContractErro
 fn dispatch_confirm_delivery(env: &Env, args: &Vec<Val>) -> Result<Val, ContractError> {
     let caller: Address = parse_arg(env, args, 0)?;
     let escrow_id: u64 = parse_arg(env, args, 1)?;
-    Escrow::confirm_delivery(env.clone(), caller, escrow_id)?;
+    // Optional third arg keeps two-arg multicall payloads working unchanged.
+    let waive_shipping_window: bool = if args.len() > 2 {
+        parse_arg(env, args, 2)?
+    } else {
+        false
+    };
+    Escrow::confirm_delivery(env.clone(), caller, escrow_id, waive_shipping_window)?;
     Ok(().into_val(env))
 }
 

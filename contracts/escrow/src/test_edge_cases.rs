@@ -238,7 +238,7 @@ fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
 
         // Move past the dispute window so the buyer can confirm delivery.
         advance_time(&env, DISPUTE_WINDOW_SECS + 1);
-        client.confirm_delivery(&buyer, &id);
+        client.confirm_delivery(&buyer, &id, &false);
 
         let expected_fee = (amount * fee_bps as i128) / 10_000;
         let expected_net = amount - expected_fee;
