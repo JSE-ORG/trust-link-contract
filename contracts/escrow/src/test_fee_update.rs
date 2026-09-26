@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use crate::internal::validate_combined_fees;
 use crate::{test_helpers::setup_contract, ContractError, DataKey, FeeConfig, ProtocolFeeUpdated};
 use soroban_sdk::{
     testutils::{Address as _, Events as _},
@@ -123,6 +124,18 @@ fn test_set_fee_rejects_non_admin_caller() {
             protocol_fee_bps: 0,
             arbitration_fee_bps: 0
         })
+    );
+}
+
+#[test]
+fn test_set_arbitration_fee_rejects_combined_fee_over_cap() {
+    assert_eq!(
+        validate_combined_fees(900, 101),
+        Err(ContractError::FeeExceedsMax)
+    );
+    assert_eq!(
+        validate_combined_fees(500, 501),
+        Err(ContractError::FeeExceedsMax)
     );
 }
 
