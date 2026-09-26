@@ -555,3 +555,86 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     assert_eq!(buyer_transfer.recipient, buyer);
     assert_eq!(buyer_transfer.amount, 950_000); // 1,000,000 - 50,000 arbitration
 }
+
+/// Tests that `calculate_fee` correctly floors sub-stroop remainders when
+/// `amount * fee_bps` is not evenly divisible by `BASIS_POINTS` (10_000).
+///
+/// The algorithm splits the computation to avoid i128 overflow:
+///
+/// ```text
+/// part1 = (amount / 10_000) * fee_bps          -- whole multiple contribution
+/// part2 = (amount % 10_000) * fee_bps / 10_000 -- remainder contribution (floored)
+/// fee   = part1 + part2
+/// net   = amount - fee
+/// ```
+///
+/// Because integer division truncates, any fractional stroop is dropped from
+/// `fee` and stays in `net`. The invariant `net + fee == amount` always holds,
+/// so no stroop is ever stranded in the contract.
+///
+/// Cases chosen to expose the rounding boundary:
+///
+/// | amount | fee_bps | exact fee | floored fee | dropped remainder |
+/// |--------|---------|-----------|-------------|-------------------|
+/// | 1      | 3       | 0.0003    | 0           | 0.0003 stroop     |
+/// | 3_333  | 3       | 0.9999    | 0           | 0.9999 stroop     | ← largest waived fee
+/// | 3_334  | 3       | 1.0002    | 1           | 0.0002 stroop     | ← first amount yielding 1 stroop
+/// | 9_999  | 3       | 2.9997    | 2           | 0.9997 stroop     | ← issue's stated example
+/// | 10_001 | 3       | 3.0003    | 3           | 0.0003 stroop     |
+/// | 99_997 | 3       | 29.9991   | 29          | 0.9991 stroop     |
+#[test]
+fn test_fee_calculation_odd_amounts_sub_stroop_rounding_3bps() {
+    // (amount, expected_fee, expected_net)
+    // Derived via: fee = floor(amount * 3 / 10_000), net = amount - fee.
+    let cases: &[(i128, i128, i128)] = &[
+        // 1 * 3 / 10_000 = 0.0003 → fee = 0, all 1 stroop stays with recipient.
+        (1, 0, 1),
+        // 3_333 * 3 / 10_000 = 0.9999 → fee rounds down to 0 (largest waived fee at 3 bps).
+        (3_333, 0, 3_333),
+        // 3_334 * 3 / 10_000 = 1.0002 → fee = 1 (the first amount where 3 bps charges 1 stroop).
+        (3_334, 1, 3_333),
+        // 9_999 * 3 / 10_000 = 2.9997 → fee = 2, 0.9997 sub-stroop dropped.
+        // This is the canonical example from the issue description.
+        (9_999, 2, 9_997),
+        // 10_001 * 3 / 10_000 = 3.0003 → fee = 3, 0.0003 sub-stroop dropped.
+        (10_001, 3, 9_998),
+        // 99_997 * 3 / 10_000 = 29.9991 → fee = 29, 0.9991 sub-stroop dropped.
+        (99_997, 29, 99_968),
+    ];
+
+    for &(amount, expected_fee, expected_net) in cases {
+        let (fee, net) = calculate_protocol_fee(amount, 3)
+            .unwrap_or_else(|e| panic!("calculate_protocol_fee({amount}, 3) failed: {e:?}"));
+
+        assert_eq!(
+            fee, expected_fee,
+            "fee mismatch for amount={amount} @ 3 bps: \
+             expected {expected_fee}, got {fee}"
+        );
+        assert_eq!(
+            net, expected_net,
+            "net mismatch for amount={amount} @ 3 bps: \
+             expected {expected_net}, got {net}"
+        );
+        // The core invariant: no stroop is ever stranded in the contract.
+        assert_eq!(
+            net + fee,
+            amount,
+            "invariant net+fee==amount violated for amount={amount} @ 3 bps: \
+             net={net}, fee={fee}, sum={}",
+            net + fee
+        );
+        // Rounding is always floor: fee must never exceed the exact rational value.
+        // Equivalently: fee * 10_000 <= amount * 3.
+        assert!(
+            fee * 10_000 <= amount * 3,
+            "fee {fee} exceeds exact rational value for amount={amount} @ 3 bps"
+        );
+        // The truncated remainder is strictly less than 1 stroop:
+        // fee * 10_000 + 10_000 > amount * 3  (i.e. fee+1 would over-charge)
+        assert!(
+            fee * 10_000 + 10_000 > amount * 3,
+            "fee {fee} is not the correct floor for amount={amount} @ 3 bps"
+        );
+    }
+}

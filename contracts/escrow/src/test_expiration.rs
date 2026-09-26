@@ -218,3 +218,66 @@ fn test_reclaim_with_active_dispute() {
     let res2 = client.try_reclaim_expired(&id);
     assert!(matches!(res2, Err(Ok(ContractError::InvalidState))));
 }
+
+#[test]
+fn test_reclaim_expired_grace_period_boundary() {
+    // Verifies the off-by-one boundary at exactly expires_at + grace_period.
+    //
+    // Schedule: expires_at = 100, grace_period = 50 → reclaimable_at = 150.
+    //
+    // Ledger tick 149 (reclaimable_at - 1): still inside grace window → GracePeriodNotElapsed.
+    // Ledger tick 150 (reclaimable_at    ): exactly at boundary        → reclaim succeeds.
+    let (env, _admin, seller, buyer, resolver, token, contract_id) = setup_env();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let expires_at: u64 = 100;
+    let grace_period: u64 = 50;
+    let reclaimable_at = expires_at + grace_period; // 150
+
+    let id = client.create_escrow_with_expiration(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &0_u32,
+        &3600_u64,
+        &Some(expires_at),
+        &grace_period,
+    );
+
+    mint_tokens(&env, &token, &buyer, 1000);
+    client.fund_escrow(&id, &buyer);
+
+    // --- one tick before the boundary: must still be blocked ---
+    env.ledger().set_timestamp(reclaimable_at - 1); // 149
+    let res = client.try_reclaim_expired(&id);
+    assert!(
+        matches!(res, Err(Ok(ContractError::GracePeriodNotElapsed))),
+        "expected GracePeriodNotElapsed at tick {}, got {:?}",
+        reclaimable_at - 1,
+        res
+    );
+
+    // --- exactly at the boundary: must succeed ---
+    env.ledger().set_timestamp(reclaimable_at); // 150
+    client.reclaim_expired(&id);
+
+    let escrow = client.get_escrow(&id);
+    assert_eq!(
+        escrow.state,
+        EscrowState::Expired,
+        "escrow should be Expired after reclaim at boundary tick"
+    );
+
+    assert_eq!(
+        token::Client::new(&env, &token).balance(&buyer),
+        1000,
+        "buyer should have received all funds back"
+    );
+    assert_eq!(
+        token::Client::new(&env, &token).balance(&contract_id),
+        0,
+        "contract should hold zero tokens after reclaim"
+    );
+}
