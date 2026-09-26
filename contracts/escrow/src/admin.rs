@@ -60,6 +60,12 @@ fn execute_timelock_op(
         return Err(ContractError::InvalidState); // Not ready yet
     }
 
+    // Verify that the caller is the original proposer (#975)
+    // This prevents new admins from executing old admin's proposals
+    if *caller != proposal.proposer {
+        return Err(ContractError::NotAuthorized);
+    }
+
     storage::remove_timelock_proposal(env, operation as u32);
     emit_timelock_executed(
         env,
@@ -628,7 +634,7 @@ impl Escrow {
         )
         .map_err(|_| ContractError::IndexOutOfBounds)?;
 
-        if min_amount <= 0 || max_amount < min_amount {
+        if min_amount <= 0 || max_amount <= min_amount {
             return Err(ContractError::InvalidAmount);
         }
         let old_min_amount = env
