@@ -9,7 +9,7 @@ use crate::ResolutionType;
 /// Increment this constant whenever a field is added, removed, or renamed in
 /// any event struct.  Consumers can use it to guard against decoding stale
 /// snapshots with the wrong XDR shape.
-pub const EVENT_SCHEMA_VERSION: u32 = 3;
+pub const EVENT_SCHEMA_VERSION: u32 = 4;
 
 /// Event topic/data schemas used by the escrow contract.
 ///
@@ -165,11 +165,12 @@ pub struct EscrowCreated {
     pub fee_bps: u32,
     pub resolver_fee_bps: u32,
     pub shipping_window: u64,
+    pub expires_at: Option<u64>,
     pub timestamp: u64,
     pub new_state: crate::EscrowState,
 }
 
-/// Topic: `(symbol_short!("Escrow"), symbol_short!("Created"), seller.clone(),)`, data: `EscrowCreated`.
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Created"), seller.clone(), resolver.clone())`, data: `EscrowCreated`.
 #[allow(clippy::too_many_arguments)]
 pub fn emit_escrow_created(
     env: &Env,
@@ -181,6 +182,7 @@ pub fn emit_escrow_created(
     fee_bps: u32,
     resolver_fee_bps: u32,
     shipping_window: u64,
+    expires_at: Option<u64>,
     new_state: crate::EscrowState,
 ) {
     env.events().publish(
@@ -188,6 +190,7 @@ pub fn emit_escrow_created(
             symbol_short!("Escrow"),
             symbol_short!("Created"),
             seller.clone(),
+            resolver.clone(),
         ),
         EscrowCreated {
             schema_version: EVENT_SCHEMA_VERSION,
@@ -199,6 +202,7 @@ pub fn emit_escrow_created(
             fee_bps,
             resolver_fee_bps,
             shipping_window,
+            expires_at,
             timestamp: env.ledger().timestamp(),
             new_state,
         },
@@ -220,7 +224,7 @@ pub struct EscrowFunded {
     pub basket_tokens: Option<soroban_sdk::Vec<(Address, i128)>>,
 }
 
-/// Topic: `(symbol_short!("Escrow"), symbol_short!("Funded"), buyer.clone(),)`, data: `EscrowFunded`.
+/// Topic: `(symbol_short!("Escrow"), symbol_short!("Funded"), escrow_id, buyer.clone())`, data: `EscrowFunded`.
 pub fn emit_escrow_funded(
     env: &Env,
     escrow_id: u64,
@@ -234,6 +238,7 @@ pub fn emit_escrow_funded(
         (
             symbol_short!("Escrow"),
             symbol_short!("Funded"),
+            escrow_id,
             buyer.clone(),
         ),
         EscrowFunded {
@@ -407,6 +412,7 @@ pub struct DisputeResolved {
     pub amount: i128,
     pub arbitration_fee: i128,
     pub resolver_fee: i128,
+    pub platform_fee: i128,
     pub timestamp: u64,
     pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
@@ -423,6 +429,7 @@ pub fn emit_dispute_resolved(
     amount: i128,
     arbitration_fee: i128,
     resolver_fee: i128,
+    platform_fee: i128,
     prev_state: crate::EscrowState,
     new_state: crate::EscrowState,
 ) {
@@ -441,6 +448,7 @@ pub fn emit_dispute_resolved(
             amount,
             arbitration_fee,
             resolver_fee,
+            platform_fee,
             timestamp: env.ledger().timestamp(),
             prev_state,
             new_state,
@@ -698,7 +706,6 @@ pub fn emit_resolver_rotated(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TokenAllowlistUpdated {
     pub schema_version: u32,
-    pub token: Address,
     pub added: bool,
     pub timestamp: u64,
 }
@@ -713,7 +720,6 @@ pub fn emit_token_allowlist_updated(env: &Env, token: Address, added: bool) {
         ),
         TokenAllowlistUpdated {
             schema_version: EVENT_SCHEMA_VERSION,
-            token,
             added,
             timestamp: env.ledger().timestamp(),
         },
@@ -1226,18 +1232,20 @@ pub fn emit_resolver_strict_updated(
 pub struct FeeCollectorUpdated {
     pub schema_version: u32,
     pub old_collector: Address,
-    pub new_collector: Address,
     pub timestamp: u64,
 }
 
-/// Topic: `(symbol_short!("FeeColl"), symbol_short!("Updated"),)`, data: `FeeCollectorUpdated`.
+/// Topic: `(symbol_short!("FeeColl"), symbol_short!("Updated"), new_collector.clone(),)`, data: `FeeCollectorUpdated`.
 pub fn emit_fee_collector_updated(env: &Env, old_collector: Address, new_collector: Address) {
     env.events().publish(
-        (symbol_short!("FeeColl"), symbol_short!("Updated")),
+        (
+            symbol_short!("FeeColl"),
+            symbol_short!("Updated"),
+            new_collector.clone(),
+        ),
         FeeCollectorUpdated {
             schema_version: EVENT_SCHEMA_VERSION,
             old_collector,
-            new_collector,
             timestamp: env.ledger().timestamp(),
         },
     );
@@ -1313,6 +1321,26 @@ pub fn emit_delivery_proposal_cancelled(env: &Env, escrow_id: u64) {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingExpiryClear {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub timestamp: u64,
+}
+
+/// Topic: `(Symbol::new(env, "PendingExpiry"), symbol_short!("Cleared"),)`, data: `PendingExpiryClear`.
+pub fn emit_pending_expiry_cleared(env: &Env, escrow_id: u64) {
+    env.events().publish(
+        (Symbol::new(env, "PendingExpiry"), symbol_short!("Cleared")),
+        PendingExpiryClear {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TimelockQueued {
     pub schema_version: u32,
     pub operation: u32,
@@ -1348,11 +1376,18 @@ pub struct TimelockExecuted {
     pub operation: u32,
     pub proposer: Address,
     pub executor: Address,
+    pub params: soroban_sdk::Vec<soroban_sdk::Val>,
     pub executed_at: u64,
 }
 
 /// Topic: `(symbol_short!("Timelock"), symbol_short!("Executed"), operation as u32,)`, data: `TimelockExecuted`.
-pub fn emit_timelock_executed(env: &Env, operation: u32, proposer: Address, executor: Address) {
+pub fn emit_timelock_executed(
+    env: &Env,
+    operation: u32,
+    proposer: Address,
+    executor: Address,
+    params: soroban_sdk::Vec<soroban_sdk::Val>,
+) {
     env.events().publish(
         (symbol_short!("Timelock"), symbol_short!("Executed")),
         TimelockExecuted {
@@ -1360,6 +1395,7 @@ pub fn emit_timelock_executed(env: &Env, operation: u32, proposer: Address, exec
             operation,
             proposer,
             executor,
+            params,
             executed_at: env.ledger().timestamp(),
         },
     );
@@ -1385,6 +1421,74 @@ pub fn emit_timelock_cancelled(env: &Env, operation: u32, proposer: Address, can
             proposer,
             canceller,
             cancelled_at: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppealFeeUpdated {
+    pub schema_version: u32,
+    pub old_fee_bps: u32,
+    pub new_fee_bps: u32,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("AppealFee"), symbol_short!("Updated"),)`, data: `AppealFeeUpdated`.
+pub fn emit_appeal_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32) {
+    env.events().publish(
+        (symbol_short!("AppealFee"), symbol_short!("Updated")),
+        AppealFeeUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_fee_bps,
+            new_fee_bps,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryModeUpdated {
+    pub schema_version: u32,
+    pub enabled: bool,
+    pub caller: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Recovery"), symbol_short!("Mode"),)`, data: `RecoveryModeUpdated`.
+pub fn emit_recovery_mode_updated(env: &Env, enabled: bool, caller: Address) {
+    env.events().publish(
+        (symbol_short!("Recovery"), symbol_short!("Mode")),
+        RecoveryModeUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
+            enabled,
+            caller,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryWithdraw {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub buyer: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Recovery"), symbol_short!("Withdraw"),)`, data: `RecoveryWithdraw`.
+pub fn emit_recovery_withdraw(env: &Env, escrow_id: u64, buyer: Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("Recovery"), symbol_short!("Withdraw")),
+        RecoveryWithdraw {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            buyer,
+            amount,
+            timestamp: env.ledger().timestamp(),
         },
     );
 }

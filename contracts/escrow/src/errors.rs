@@ -104,4 +104,62 @@ pub enum ContractError {
     TooManyMessages = 45,
     /// Returned when a requested TTL extension is below `MIN_TTL_EXTENSION`.
     InvalidTtlExtension = 46,
+    /// Returned when multi-resolver threshold is invalid (zero, exceeds resolver count, or resolver list is empty).
+    InvalidResolverThreshold = 47,
+    /// Returned when a fallback resolver's `dispute_deadline` is later than
+    /// `MAX_FALLBACK_DEADLINE_OFFSET` past the current ledger timestamp.
+    InvalidFallbackDeadline = 48,
+    /// Returned when `claim_dispute_timeout` is called before the dispute has
+    /// remained unresolved for the configured maximum dispute duration.
+    DisputeTimeoutNotElapsed = 49,
+    /// Returned when `resolve_deadlocked_dispute` is called before the
+    /// multi-resolver deadlock window has elapsed, or when the votes do not
+    /// actually represent a deadlock (threshold met or no votes cast).
+    DisputeNotDeadlocked = 50,
+    /// Returned when `set_dispute_timeout` is given a value outside the
+    /// supported `MIN_DISPUTE_TIMEOUT..=MAX_DISPUTE_TIMEOUT` range.
+    InvalidDisputeTimeout = 51,
+    /// Returned when `resolve_deadlocked_dispute` is attempted while no
+    /// resolver has cast a vote; the resolver-inaction case is handled by
+    /// `claim_dispute_timeout` instead.
+    NoResolverVotes = 52,
+    /// Returned when a `multicall` batch exceeds `MAX_MULTICALL_BATCH_SIZE`.
+    MulticallBatchTooLarge = 60,
+    /// Returned when the escrow ID counter overflows its maximum `u64` value.
+    EscrowCounterOverflow = 53,
+    /// Returned when checked arithmetic overflows specifically during fee calculation (e.g. basis-point math on fees).
+    FeeCalculationOverflow = 54,
+    /// Returned when checked arithmetic overflows specifically during principal amount calculation (e.g. net payout math).
+    AmountCalculationOverflow = 55,
+    /// Returned when a payee list index is out of bounds, indicating a payee storage or argument invariant was violated.
+    PayeeIndexOutOfBounds = 56,
+    /// Returned when a basket token list index is out of bounds, indicating a basket-token storage or argument invariant was violated.
+    BasketIndexOutOfBounds = 57,
+    /// Returned when the global protocol fee exceeds its configured hard cap.
+    ProtocolFeeExceedsMax = 58,
+    /// Returned when the arbitration fee exceeds its configured hard cap.
+    ArbitrationFeeExceedsMax = 59,
+    /// Returned when a buyer-only operation is attempted by a caller that is
+    /// not the escrow's buyer. Kept distinct from the generic
+    /// [`ContractError::NotAuthorized`] so clients can tell a wrong-role call
+    /// apart from a wrong-escrow/unknown-caller call.
+    NotAuthorizedBuyer = 61,
+    /// Returned when a seller-only operation (e.g. `mark_shipped`) is attempted
+    /// by a caller that is not the escrow's primary payee.
+    NotAuthorizedSeller = 62,
+    /// Returned when an action is attempted on an escrow that has already
+    /// reached the terminal `Completed` state.
+    EscrowAlreadyCompleted = 63,
+    /// Returned when an action is attempted on an escrow that has already
+    /// reached the terminal `Refunded` state.
+    EscrowAlreadyRefunded = 64,
+    /// Returned when `set_appeal_fee` (or its timelocked execute step) is given
+    /// a fee above `MAX_APPEAL_FEE_BPS`.
+    AppealFeeExceedsMax = 65,
+    /// Returned when `set_appeal_fee` (or its timelocked execute step) is given
+    /// a non-zero fee below `MIN_APPEAL_FEE_BPS`. Zero disables the appeal fee.
+    AppealFeeBelowMinimum = 66,
+    /// Returned when `recovery_withdraw` is called while recovery mode is not
+    /// enabled via `enable_recovery_mode`.
+    NotInRecoveryMode = 67,
 }

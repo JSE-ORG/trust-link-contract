@@ -184,7 +184,11 @@ fn test_co_signed_release_fails_on_completed_state() {
     advance_time(&env, escrow.dispute_deadline + 1);
     client.confirm_delivery(&buyer, &id);
 
-    // Now the escrow is Completed — co_signed_release must fail
+    // Now the escrow is Completed — co_signed_release must fail with the
+    // dedicated code (was InvalidState).
     let result = client.try_co_signed_release(&buyer, &id);
-    assert!(matches!(result, Err(Ok(ContractError::InvalidState))));
+    assert!(matches!(
+        result,
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    ));
 }

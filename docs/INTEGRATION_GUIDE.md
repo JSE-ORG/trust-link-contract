@@ -1,475 +1,208 @@
 # Frontend Integration Guide
 
-Complete guide for integrating TrustLink escrow contracts into your frontend application.
+Guide for integrating the TrustLink escrow contract into a frontend application
+using the official `@trustlink/contract-bindings` package. For the full API
+surface (all client methods, React hooks, batching, evidence hashing, error
+codes), see [bindings/README.md](../bindings/README.md) — this guide covers
+the create-escrow flow end to end and links out to it for everything else.
 
 ## Table of Contents
 - [Installation](#installation)
-- [Setup](#setup)
-- [Wallet Connection](#wallet-connection)
-- [Contract Calls](#contract-calls)
-- [Event Listening](#event-listening)
-- [Error Handling](#error-handling)
-- [Complete Examples](#complete-examples)
+- [Creating a transport](#creating-a-transport)
+- [Creating an escrow](#creating-an-escrow)
+- [Funding and progressing an escrow](#funding-and-progressing-an-escrow)
+- [Listening for events](#listening-for-events)
+- [Error handling](#error-handling)
+- [Testing on testnet](#testing-on-testnet)
 
 ## Installation
 
 ```bash
-npm install @stellar/stellar-sdk stellar-wallets-kit
-# or
-yarn add @stellar/stellar-sdk stellar-wallets-kit
+npm install @trustlink/contract-bindings
+# peer deps for the Freighter transport used below
+npm install @stellar/stellar-sdk @stellar/freighter-api
 ```
 
-## Setup
+See [bindings/README.md](../bindings/README.md#installation) for the other
+transport options (`@soroban-react/core`) and which peer deps each needs.
 
-### Initialize Stellar SDK
+## Creating a transport
 
-```typescript
-import { SorobanRpc, Contract, Networks, TransactionBuilder } from '@stellar/stellar-sdk';
+The `EscrowClient` talks to the contract through a `ContractTransport`. The
+bundled Freighter factory covers the common browser-extension case:
 
-// Configure RPC server
-const server = new SorobanRpc.Server('https://soroban-testnet.stellar.org');
+```ts
+import { createFreighterTransport, EscrowClient } from "@trustlink/contract-bindings";
 
-// Contract ID (replace with your deployed contract)
-const CONTRACT_ID = 'CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
+const transport = await createFreighterTransport({
+  contractId: "C...YOUR_CONTRACT_ADDRESS",
+  networkPassphrase: "Test SDF Network ; September 2015",
+  rpcUrl: "https://soroban-testnet.stellar.org",
+});
 
-// Initialize contract
-const contract = new Contract(CONTRACT_ID);
+const client = new EscrowClient(transport);
 ```
 
-## Wallet Connection
+## Creating an escrow
 
-### Using Freighter Wallet
+The real contract entry point is a **9-argument** `create_escrow`, not the
+`(recipient, amount, deadline)` shape older drafts of this guide used:
 
-```typescript
-import { isConnected, getPublicKey, signTransaction } from '@stellar/freighter-api';
-
-async function connectWallet(): Promise<string> {
-  // Check if Freighter is installed
-  const hasFreighter = await isConnected();
-  if (!hasFreighter) {
-    throw new Error('Please install Freighter wallet');
-  }
-
-  // Get user's public key
-  const publicKey = await getPublicKey();
-  return publicKey;
-}
+```rust
+pub fn create_escrow(
+    env: Env,
+    seller_or_payees: Val,          // Address, or Vec<Payee> for a split payout
+    buyer: Option<Address>,         // omit to let anyone fund it
+    resolver: Address,
+    token: Address,
+    amount: i128,
+    fee_bps: u32,
+    resolver_fee_bps: u32,
+    shipping_window: u64,
+    notes: Option<String>,
+) -> Result<u64, ContractError>;
 ```
 
-### Using Hardware Wallets (Ledger)
+`seller_or_payees` is polymorphic: pass a single `Address` for a normal escrow,
+or a `Vec<Payee>` (`{ address, bps }` pairs summing to 10,000 bps) to split the
+payout across multiple sellers. The bindings client accepts either as its
+first argument:
 
-```typescript
-import TransportWebUSB from '@ledgerhq/hw-transport-webusb';
-import Stellar from '@ledgerhq/hw-app-str';
+```ts
+// Single seller
+const escrowId = await client.create_escrow(
+  sellerAddress,     // Address — or an array of { address, bps } payees
+  buyerAddress,      // Option<Address> — pass null to leave it open
+  resolverAddress,
+  tokenAddress,
+  1_000_0000000n,    // amount, i128 as bigint (7 decimals for most SEP-41 tokens)
+  250,               // fee_bps — protocol fee, in basis points
+  50,                // resolver_fee_bps
+  86_400n,           // shipping_window, in seconds
+);
 
-async function connectLedger(): Promise<{ publicKey: string; sign: Function }> {
-  // Connect to Ledger device
-  const transport = await TransportWebUSB.create();
-  const stellar = new Stellar(transport);
-
-  // Get public key (using default path: 44'/148'/0')
-  const result = await stellar.getPublicKey("44'/148'/0'");
-  
-  return {
-    publicKey: result.publicKey,
-    sign: async (txXdr: string) => {
-      const signature = await stellar.signTransaction("44'/148'/0'", txXdr);
-      return signature.signature;
-    },
-  };
-}
+// Split payout across two sellers
+const splitEscrowId = await client.create_escrow(
+  [
+    { address: sellerA, bps: 7_000 },
+    { address: sellerB, bps: 3_000 },
+  ],
+  buyerAddress,
+  resolverAddress,
+  tokenAddress,
+  1_000_0000000n,
+  250,
+  50,
+  86_400n,
+);
 ```
 
-## Contract Calls
+For a resolver committee or a primary/backup resolver instead of a single
+resolver, use `create_escrow_multi` or `create_escrow_with_fallback` — see the
+`EscrowClient` method table in
+[bindings/README.md](../bindings/README.md#api-reference).
 
-### Create Escrow
+## Funding and progressing an escrow
 
-```typescript
-import { xdr, Operation, BASE_FEE } from '@stellar/stellar-sdk';
+```ts
+await client.fund_escrow(escrowId, buyerAddress);
+await client.mark_shipped(sellerAddress, escrowId, "TRK-001");
+await client.record_delivery(sellerAddress, escrowId);
+await client.confirm_delivery(buyerAddress, escrowId);
 
-async function createEscrow(
-  publicKey: string,
-  recipient: string,
-  amount: bigint,
-  deadline: number
-): Promise<string> {
-  // Build transaction
-  const account = await server.getAccount(publicKey);
-  
-  const transaction = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(
-      contract.call(
-        'create_escrow',
-        ...[
-          new Address(recipient).toScVal(),
-          nativeToScVal(amount, { type: 'i128' }),
-          nativeToScVal(deadline, { type: 'u64' }),
-        ]
-      )
-    )
-    .setTimeout(180)
-    .build();
-
-  // Simulate transaction
-  const simulated = await server.simulateTransaction(transaction);
-  
-  if (SorobanRpc.Api.isSimulationError(simulated)) {
-    throw new Error(`Simulation failed: ${simulated.error}`);
-  }
-
-  // Prepare and sign transaction
-  const prepared = SorobanRpc.assembleTransaction(transaction, simulated).build();
-  const signedXdr = await signTransaction(prepared.toXDR(), {
-    networkPassphrase: Networks.TESTNET,
-  });
-
-  // Submit transaction
-  const tx = TransactionBuilder.fromXDR(signedXdr, Networks.TESTNET);
-  const result = await server.sendTransaction(tx);
-
-  // Wait for confirmation
-  if (result.status === 'ERROR') {
-    throw new Error(`Transaction failed: ${result.errorResult}`);
-  }
-
-  return result.hash;
-}
+// Read it back
+const escrow = await client.get_escrow(escrowId);
+console.log(escrow.state); // e.g. "Completed"
 ```
 
-### Release Escrow
+The full lifecycle (dispute raising/resolution, refunds, cancellation,
+auto-release, message threads) is documented method-by-method in
+[bindings/README.md](../bindings/README.md#api-reference).
 
-```typescript
-async function releaseEscrow(
-  publicKey: string,
-  escrowId: string
-): Promise<string> {
-  const account = await server.getAccount(publicKey);
-  
-  const transaction = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(
-      contract.call(
-        'release_escrow',
-        nativeToScVal(escrowId, { type: 'string' })
-      )
-    )
-    .setTimeout(180)
-    .build();
+## Listening for events
 
-  // Simulate, sign, and submit (same as above)
-  const simulated = await server.simulateTransaction(transaction);
-  const prepared = SorobanRpc.assembleTransaction(transaction, simulated).build();
-  const signedXdr = await signTransaction(prepared.toXDR(), {
-    networkPassphrase: Networks.TESTNET,
-  });
+Event topics are **not** `escrow_created` / `escrow_released` string topics —
+they are structured `symbol_short!` topic tuples, e.g. escrow creation is
+`(Symbol("Escrow"), Symbol("Created"), seller)`. The full topic and payload
+reference for every event lives in [events.md](events.md); don't duplicate it
+here, as it drifts. A minimal listener:
 
-  const tx = TransactionBuilder.fromXDR(signedXdr, Networks.TESTNET);
-  const result = await server.sendTransaction(tx);
+```ts
+import { xdr, scValToNative } from "@stellar/stellar-sdk";
 
-  return result.hash;
-}
-```
-
-### Query Escrow Details
-
-```typescript
-async function getEscrowDetails(escrowId: string): Promise<EscrowDetails> {
-  const account = await server.getAccount(publicKey); // Any account for read-only
-  
-  const transaction = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(
-      contract.call(
-        'get_escrow',
-        nativeToScVal(escrowId, { type: 'string' })
-      )
-    )
-    .setTimeout(180)
-    .build();
-
-  const simulated = await server.simulateTransaction(transaction);
-  
-  if (SorobanRpc.Api.isSimulationSuccess(simulated)) {
-    return scValToNative(simulated.result.retval);
-  }
-  
-  throw new Error('Failed to fetch escrow details');
-}
-```
-
-## Event Listening
-
-### Listen for Escrow Events
-
-```typescript
-async function listenForEscrowEvents(
-  startLedger: number,
-  callback: (event: ContractEvent) => void
-): Promise<void> {
-  const eventStream = server.getEvents({
+async function listenForEscrowEvents(startLedger: number) {
+  const events = await server.getEvents({
     startLedger,
-    filters: [
-      {
-        type: 'contract',
-        contractIds: [CONTRACT_ID],
-      },
-    ],
+    filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
   });
 
-  for await (const event of eventStream) {
-    const parsedEvent = parseEscrowEvent(event);
-    callback(parsedEvent);
-  }
-}
+  for (const event of events.events) {
+    const topics = event.topic.map((t) => scValToNative(xdr.ScVal.fromXDR(t, "base64")));
+    const payload = scValToNative(xdr.ScVal.fromXDR(event.value, "base64"));
 
-function parseEscrowEvent(event: any): ContractEvent {
-  const topic = event.topic[0];
-  
-  switch (topic) {
-    case 'escrow_created':
-      return {
-        type: 'created',
-        escrowId: scValToNative(event.topic[1]),
-        depositor: scValToNative(event.topic[2]),
-        recipient: scValToNative(event.topic[3]),
-        amount: scValToNative(event.value),
-      };
-    
-    case 'escrow_released':
-      return {
-        type: 'released',
-        escrowId: scValToNative(event.topic[1]),
-        recipient: scValToNative(event.topic[2]),
-      };
-    
-    case 'escrow_refunded':
-      return {
-        type: 'refunded',
-        escrowId: scValToNative(event.topic[1]),
-        depositor: scValToNative(event.topic[2]),
-      };
-    
-    default:
-      return { type: 'unknown', raw: event };
-  }
-}
-```
-
-### Real-time Event Monitoring
-
-```typescript
-// Monitor events from latest ledger
-async function startEventMonitoring() {
-  const latestLedger = await server.getLatestLedger();
-  let currentLedger = latestLedger.sequence;
-
-  setInterval(async () => {
-    const events = await server.getEvents({
-      startLedger: currentLedger,
-      filters: [{ type: 'contract', contractIds: [CONTRACT_ID] }],
-    });
-
-    events.events.forEach((event) => {
-      console.log('New event:', parseEscrowEvent(event));
-    });
-
-    currentLedger = await server.getLatestLedger().then((l) => l.sequence);
-  }, 5000); // Poll every 5 seconds
-}
-```
-
-## Error Handling
-
-### Common Errors and Solutions
-
-```typescript
-async function safeContractCall<T>(
-  operation: () => Promise<T>
-): Promise<{ success: boolean; data?: T; error?: string }> {
-  try {
-    const data = await operation();
-    return { success: true, data };
-  } catch (error) {
-    // Parse error
-    const errorMessage = parseContractError(error);
-    return { success: false, error: errorMessage };
-  }
-}
-
-function parseContractError(error: any): string {
-  const message = error?.message || String(error);
-
-  // Contract-specific errors
-  if (message.includes('EscrowNotFound')) {
-    return 'Escrow does not exist';
-  }
-  if (message.includes('Unauthorized')) {
-    return 'You are not authorized to perform this action';
-  }
-  if (message.includes('DeadlinePassed')) {
-    return 'The escrow deadline has already passed';
-  }
-  if (message.includes('InsufficientBalance')) {
-    return 'Insufficient balance to create escrow';
-  }
-
-  // Network errors
-  if (message.includes('timeout')) {
-    return 'Transaction timed out. Please try again.';
-  }
-  if (message.includes('rejected')) {
-    return 'Transaction was rejected by your wallet';
-  }
-
-  return 'An unexpected error occurred';
-}
-```
-
-### Retry Logic
-
-```typescript
-async function retryOperation<T>(
-  operation: () => Promise<T>,
-  maxRetries = 3
-): Promise<T> {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await operation();
-    } catch (error) {
-      if (i === maxRetries - 1) throw error;
-      
-      // Exponential backoff
-      await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, i)));
+    if (topics[0] === "Escrow" && topics[1] === "Created") {
+      console.log("Escrow created:", payload); // { schema_version, escrow_id, seller, ... }
     }
   }
-  throw new Error('Max retries exceeded');
 }
 ```
 
-## Complete Examples
+Check `payload.schema_version` before relying on field shape — see the
+[Schema Versioning](events.md#schema-versioning) section of `events.md`.
 
-### React Component Example
+## Error handling
 
-```typescript
-import { useState, useEffect } from 'react';
+Contract errors surface as a typed `ContractInvokeError` with an `ErrorCode`,
+not a string you have to pattern-match:
 
-function EscrowManager() {
-  const [publicKey, setPublicKey] = useState<string>('');
-  const [escrows, setEscrows] = useState<any[]>([]);
+```ts
+import { ContractInvokeError, ErrorCode } from "@trustlink/contract-bindings/errors";
 
-  // Connect wallet
-  const handleConnect = async () => {
-    try {
-      const key = await connectWallet();
-      setPublicKey(key);
-    } catch (error) {
-      console.error('Failed to connect:', error);
+try {
+  await client.fund_escrow(escrowId, buyerAddress);
+} catch (err) {
+  if (err instanceof ContractInvokeError) {
+    if (err.code === ErrorCode.EscrowNotFound) {
+      alert("That escrow does not exist.");
+    } else {
+      console.error(err.code, err.message);
     }
-  };
-
-  // Create escrow
-  const handleCreateEscrow = async (recipient: string, amount: bigint) => {
-    try {
-      const deadline = Math.floor(Date.now() / 1000) + 86400; // 24 hours
-      const txHash = await createEscrow(publicKey, recipient, amount, deadline);
-      console.log('Escrow created:', txHash);
-    } catch (error) {
-      const errorMsg = parseContractError(error);
-      alert(errorMsg);
-    }
-  };
-
-  // Listen for events
-  useEffect(() => {
-    if (!publicKey) return;
-
-    const startListening = async () => {
-      const latestLedger = await server.getLatestLedger();
-      await listenForEscrowEvents(latestLedger.sequence, (event) => {
-        console.log('Event received:', event);
-        // Update UI based on event
-      });
-    };
-
-    startListening();
-  }, [publicKey]);
-
-  return (
-    <div>
-      {!publicKey ? (
-        <button onClick={handleConnect}>Connect Wallet</button>
-      ) : (
-        <div>
-          <p>Connected: {publicKey}</p>
-          <button onClick={() => handleCreateEscrow('GXXX...', BigInt(1000000))}>
-            Create Escrow
-          </button>
-        </div>
-      )}
-    </div>
-  );
+  }
 }
 ```
 
-## Testing on Devnet
+To avoid spending fees on a call that would fail, simulate first with
+`simulateAndCatch` — see
+[bindings/README.md](../bindings/README.md#simulating-calls-before-submitting).
 
-### Prerequisites
+## Testing on testnet
+
 ```bash
-# Install Stellar CLI
+# Install the Stellar CLI
 cargo install --locked stellar-cli
 
-# Create test accounts
+# Create and fund test accounts
 stellar keys generate alice --network testnet
 stellar keys generate bob --network testnet
-
-# Fund accounts
 stellar keys fund alice --network testnet
 stellar keys fund bob --network testnet
 ```
 
-### Deploy Contract
 ```bash
-# Build contract
+# Build and deploy the contract
 cd contracts/escrow
-stellar contract build
-
-# Deploy to testnet
+cargo build --target wasm32v1-none --release
 stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/escrow.wasm \
+  --wasm ../../target/wasm32v1-none/release/trustlink_escrow.wasm \
   --source alice \
   --network testnet
 ```
 
-### Test Integration
-```typescript
-// Run integration tests
-const aliceKey = 'GXXX...'; // Alice's public key
-const bobKey = 'GYYY...'; // Bob's public key
-
-// Test escrow flow
-const txHash = await createEscrow(aliceKey, bobKey, BigInt(1000000), deadline);
-console.log('Created:', txHash);
-
-// Wait for confirmation
-await waitForConfirmation(txHash);
-
-// Release escrow
-const releaseTx = await releaseEscrow(aliceKey, escrowId);
-console.log('Released:', releaseTx);
-```
-
-## Additional Resources
-- [Stellar SDK Documentation](https://developers.stellar.org/docs)
-- [Soroban Documentation](https://soroban.stellar.org/docs)
-- [Freighter Wallet](https://www.freighter.app/)
-- [Contract Source Code](../contracts/escrow)
+Regenerate the TypeScript bindings after any contract ABI change — see
+[bindings/README.md](../bindings/README.md#regenerating-bindings) — and run
+the exercised flow above (`create_escrow` → `fund_escrow` → … → `get_escrow`)
+against the deployed contract id.
 
 ## Support
+
 For issues or questions, please open an issue on the GitHub repository.

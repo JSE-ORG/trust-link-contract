@@ -53,6 +53,25 @@ export const enum ErrorCode {
   InvalidMulticallArg = 43,
   PayeeBpsMismatch = 44,
   TooManyMessages = 45,
+  InvalidTtlExtension = 46,
+  InvalidResolverThreshold = 47,
+  InvalidFallbackDeadline = 48,
+  DisputeTimeoutNotElapsed = 49,
+  DisputeNotDeadlocked = 50,
+  InvalidDisputeTimeout = 51,
+  NoResolverVotes = 52,
+  EscrowCounterOverflow = 53,
+  FeeCalculationOverflow = 54,
+  AmountCalculationOverflow = 55,
+  PayeeIndexOutOfBounds = 56,
+  BasketIndexOutOfBounds = 57,
+  ProtocolFeeExceedsMax = 58,
+  ArbitrationFeeExceedsMax = 59,
+  MulticallBatchTooLarge = 60,
+  NotAuthorizedBuyer = 61,
+  NotAuthorizedSeller = 62,
+  EscrowAlreadyCompleted = 63,
+  EscrowAlreadyRefunded = 64,
 }
 
 /** Human-readable message for every contract error code. */
@@ -131,6 +150,44 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.InvalidMulticallArg]: "Invalid multicall argument.",
   [ErrorCode.PayeeBpsMismatch]: "Payee bps mismatch.",
   [ErrorCode.TooManyMessages]: "Too many messages.",
+  [ErrorCode.InvalidTtlExtension]:
+    "The requested TTL extension is below the minimum allowed limit.",
+  [ErrorCode.InvalidResolverThreshold]:
+    "Multi-resolver threshold is invalid.",
+  [ErrorCode.InvalidFallbackDeadline]:
+    "The fallback resolver's dispute deadline is too far in the future.",
+  [ErrorCode.DisputeTimeoutNotElapsed]:
+    "The dispute has not yet remained unresolved for the maximum dispute duration.",
+  [ErrorCode.DisputeNotDeadlocked]:
+    "The dispute is not yet deadlocked or its resolver threshold was already met.",
+  [ErrorCode.InvalidDisputeTimeout]:
+    "The dispute timeout is outside the supported range.",
+  [ErrorCode.NoResolverVotes]:
+    "No resolver has voted on this dispute yet.",
+  [ErrorCode.EscrowCounterOverflow]:
+    "The escrow ID counter overflowed its maximum value.",
+  [ErrorCode.FeeCalculationOverflow]:
+    "Arithmetic overflow while calculating a basis-point fee.",
+  [ErrorCode.AmountCalculationOverflow]:
+    "Arithmetic overflow while calculating a net payout amount.",
+  [ErrorCode.PayeeIndexOutOfBounds]:
+    "A payee list index was out of bounds.",
+  [ErrorCode.BasketIndexOutOfBounds]:
+    "A basket token list index was out of bounds.",
+  [ErrorCode.ProtocolFeeExceedsMax]:
+    "The protocol fee exceeds its configured hard cap.",
+  [ErrorCode.ArbitrationFeeExceedsMax]:
+    "The arbitration fee exceeds its configured hard cap.",
+  [ErrorCode.MulticallBatchTooLarge]:
+    "The multicall batch exceeds the maximum allowed size.",
+  [ErrorCode.NotAuthorizedBuyer]:
+    "Caller is not the escrow's buyer for this buyer-only operation.",
+  [ErrorCode.NotAuthorizedSeller]:
+    "Caller is not the escrow's seller for this seller-only operation.",
+  [ErrorCode.EscrowAlreadyCompleted]:
+    "The escrow has already been completed.",
+  [ErrorCode.EscrowAlreadyRefunded]:
+    "The escrow has already been refunded.",
 };
 
 /**

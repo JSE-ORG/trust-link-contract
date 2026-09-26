@@ -85,10 +85,15 @@ TrustLink is a three-party escrow contract with seller, buyer, and resolver role
 
 **Mitigation**:
 - ✅ Dispute window: 172800s (2 days) from funding
+- ✅ `raise_dispute` checks `now < dispute_deadline` (enforced at `instructions.rs:raise_dispute`)
 - ✅ Shipped state from `mark_shipped` call
 - ✅ `auto_release` checks `funded_at + shipping_window <= now`
 - ✅ Dispute raises new dispute window, separate from shipping window
 - ✅ Can auto-release even with expired dispute window if no active dispute
+
+**Error Code References**: See [ERROR_CODES.md](ERROR_CODES.md):
+- Code 13 (`DeliveryBeforeDisputeWindow`) — `auto_release` called before `dispute_deadline` passes
+- Code 24 (`DisputeWindowStillOpen`) — `confirm_delivery` called before `dispute_deadline`, or `raise_dispute` called after `dispute_deadline`
 
 **Residual Risk**: Low. Separate windows; shipping window is hardcoded.
 

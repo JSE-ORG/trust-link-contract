@@ -49,6 +49,42 @@ pub enum DataKey {
     BasketTokens(u64),
     DeliveryProposal(u64),
     TimelockOp(u32),
+    /// Admin-configured maximum duration (seconds) a dispute may remain
+    /// unresolved before either party can force a refund via
+    /// `claim_dispute_timeout`. Absent means `DEFAULT_DISPUTE_TIMEOUT`.
+    DisputeTimeout,
+    /// Sharded lifecycle counter, keyed by `(kind, bucket)`. Replaces the four
+    /// singleton `Total*` keys, which serialized every create / complete /
+    /// dispute / refund transition on a single instance-storage entry. See
+    /// `internal::increment_sharded_counter`.
+    ShardedCounter(u32, u32),
+
+    // Paged storage keys. These shard collections that used to live in a single
+    // unbounded `Vec` entry, so each storage read/write touches a bounded slot
+    // instead of paying for (and eventually exceeding) the whole collection.
+    // Appended at the end so existing variant discriminants are unchanged.
+    /// A single message: `Message(escrow_id, index)`. Replaces the monolithic
+    /// `Messages(escrow_id)` vector for targeted, O(page) reads.
+    Message(u64, u32),
+    /// Number of messages stored for an escrow. Drives the paged `Message`
+    /// reads without loading the collection.
+    MessageCount(u64),
+    /// A bounded page of a buyer's escrow-id index: `(buyer, page_index)`.
+    BuyerEscrow(Address, u32),
+    /// Total number of escrow ids indexed for a buyer.
+    BuyerEscrowCount(Address),
+    /// A bounded page of a vendor's escrow-id index: `(vendor, page_index)`.
+    VendorEscrow(Address, u32),
+    /// Total number of escrow ids indexed for a vendor.
+    VendorEscrowCount(Address),
+    // Appended after paging keys so all pre-existing discriminants are unchanged.
+    /// Appeal fee in basis points charged to the appellant on `appeal_dispute`
+    /// (issue #913). Absent means `DEFAULT_APPEAL_FEE_BPS` (0 = disabled).
+    AppealFeeBps,
+    /// Graceful-shutdown flag (issue #914). When true, `recovery_withdraw`
+    /// lets buyers reclaim custodied funds without going through the standard
+    /// state machine. Absent means false.
+    RecoveryMode,
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -81,6 +117,31 @@ pub enum DisputeStatus {
     Resolved,
 }
 
+/// An M-of-N resolver committee that votes on dispute resolutions
+/// (`create_escrow_multi`).
+///
+/// # Deadlock risk (Issue #707 / related: #667)
+///
+/// **Known issue**: voting can permanently deadlock when split votes prevent
+/// either side from reaching `threshold`. Example: `threshold=3` with 3
+/// resolvers, getting 1 `Release` + 1 `Refund` + 1 abstention — neither side
+/// reaches 3. Worse, if `threshold == N` (unanimous) and every resolver has
+/// voted but votes are split (e.g. 2 `Release` + 1 `Refund` with
+/// `threshold=3`), no additional votes are possible and funds remain frozen
+/// in `Disputed` indefinitely.
+///
+/// **Escape hatches**: the deadlock above is bounded by two implemented
+/// fallbacks:
+///
+/// 1. [`crate::Escrow::resolve_deadlocked_dispute`] — once a dispute has been
+///    split (threshold not met) for `DISPUTE_DEADLOCK_WINDOW`, anyone may
+///    trigger the simple-majority fallback (`tally_votes_majority`).
+/// 2. [`crate::Escrow::claim_dispute_timeout`] — if the dispute stays
+///    unresolved for the admin-configured `DisputeTimeout`, either party can
+///    force a `Refund`.
+///
+/// Operators should still configure `threshold` carefully (e.g. avoid
+/// `threshold == N` for `N > 1`) so that a majority is reachable in practice.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultiResolver {
@@ -136,9 +197,12 @@ pub struct FallbackResolver {
     /// This field is chosen by the caller of `create_escrow_with_fallback`
     /// and only controls *which resolver* may act.
     ///
-    /// Not range-checked on creation: a value in the past (including `0`)
-    /// simply means the backup is co-authorized with the primary from the
-    /// start.
+    /// Must be no later than `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past
+    /// the creation timestamp, or creation fails with
+    /// `InvalidFallbackDeadline`; otherwise an unresponsive primary could
+    /// lock disputed funds indefinitely. A value in the past (including `0`)
+    /// is allowed and simply means the backup is co-authorized with the
+    /// primary from the start.
     pub dispute_deadline: u64,
 }
 
@@ -154,7 +218,9 @@ pub struct FallbackResolver {
 pub enum ResolverSet {
     /// Single resolver (backward compatible mode)
     Single(Address),
-    /// Multiple resolvers with M-of-N voting threshold
+    /// Multiple resolvers with M-of-N voting threshold. Split votes can
+    /// permanently deadlock a dispute — see [`MultiResolver`] for the
+    /// scenario and the implemented escape hatches.
     Multi(MultiResolver),
     /// Primary resolver with a backup that becomes authorized once the
     /// fallback's `dispute_deadline` (an absolute ledger timestamp) is
@@ -256,6 +322,11 @@ pub struct DisputeData {
     pub arbitration_fee: i128,
     /// Resolver fee paid out when the resolution transition executed
     pub resolver_fee: i128,
+    /// Whether the arbitration and resolver fees have been charged for this
+    /// dispute. Set on the first resolution transition and never cleared, so
+    /// appeal rounds cannot charge again — even when the recorded fees were
+    /// zero and the global fee config has since been raised.
+    pub fees_charged: bool,
 }
 
 impl DisputeData {
@@ -277,19 +348,11 @@ impl DisputeData {
     /// Clears the recorded resolution so a fresh round of voting can begin
     /// after an appeal.
     ///
-    /// `arbitration_fee` and `resolver_fee` are intentionally left in place:
-    /// they record the amounts already deducted from the escrow for this
-    /// dispute. The resolution transition reads them to charge those fees
-    /// **once per dispute** rather than again for every appeal round (see
-    /// `execute_resolution_transition`).
-    /// Clears the recorded resolution so a fresh round of voting can begin
-    /// after an appeal.
-    ///
-    /// `arbitration_fee` and `resolver_fee` are intentionally left in place:
-    /// they record the amounts already deducted from the escrow for this
-    /// dispute. The resolution transition reads them to charge those fees
-    /// **once per dispute** rather than again for every appeal round (see
-    /// `execute_resolution_transition`).
+    /// `fees_charged`, `arbitration_fee` and `resolver_fee` are intentionally
+    /// left in place: they record that (and how much) was already deducted
+    /// from the escrow for this dispute. The resolution transition reads them
+    /// to charge those fees **once per dispute** rather than again for every
+    /// appeal round (see `execute_resolution_transition`).
     pub fn clear_resolution(&mut self) {
         self.resolution = 0;
         self.resolved_by = None;
@@ -351,6 +414,8 @@ pub struct EscrowData {
     pub tracking_id: Option<String>,
     pub state: EscrowState,
     pub notes: Option<String>,
+    pub expires_at: Option<u64>,
+    pub grace_period: u64,
 }
 
 #[contracttype]
@@ -361,6 +426,10 @@ pub struct EscrowInput {
     pub token: Address,
     pub amount: i128,
     pub fee_bps: u32,
+    /// Per-escrow resolver fee in basis points (issue #911). Validated with
+    /// the same cap as `create_escrow`'s `resolver_fee_bps`; `0` means the
+    /// resolver serves uncompensated.
+    pub resolver_fee_bps: u32,
     pub shipping_window: u64,
     pub notes: Option<String>,
 }
@@ -431,6 +500,7 @@ pub enum TimelockOperation {
     RemoveAllowedToken = 15,
     PauseContract = 16,
     UnpauseContract = 17,
+    SetAppealFee = 18,
 }
 
 /// A queued admin change awaiting the 24-hour timelock delay before it can be

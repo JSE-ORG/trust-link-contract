@@ -11,8 +11,9 @@ Two flows, however, require a trusted off-chain actor:
 2. **Auto-release triggering** — any caller (including a backend service) may invoke
    `auto_release` once the shipping window has elapsed.
 
-This document focuses on the resolver as the primary oracle and explains why it exists,
-what trust it requires, and how to manage its key safely.
+This document describes the three resolver models supported by the contract and explains
+what trust each requires, how voting and deadline gating work, and how to manage resolver
+keys safely.
 
 ---
 
@@ -23,9 +24,20 @@ dispute processes. When buyer and seller disagree on delivery, the contract itse
 cannot adjudicate. A neutral third party — the `resolver` — is therefore embedded in
 each escrow at creation time.
 
-The resolver is an account (EOA or multisig smart-contract) whose `require_auth()` call
-in `resolve_dispute` is the only way to move an escrow out of `Disputed` state. This is
-the single centralized trust assumption in the protocol.
+The resolver configuration is selected when an escrow is created:
+
+- **Single** stores one resolver address. That resolver authorizes the outcome directly.
+- **Multi** stores an M-of-N committee. Each committee member may call `vote` with
+  `Release` or `Refund`; once either outcome reaches the configured threshold, the escrow
+  enters pending finalization and the recorded resolution can be finalized.
+- **Fallback** stores a primary and backup resolver. The primary may act immediately;
+  the backup becomes authorized only when the configured absolute `dispute_deadline` is
+  reached. This deadline gates resolver authority, separately from the buyer's dispute
+  window.
+
+For the Single and Fallback primary paths, the authorized resolver's `require_auth()` call
+is the way to move an escrow out of `Disputed` state. Multi uses the same address
+authorization for each vote, followed by threshold-based resolution.
 
 ```
 Disputed ──[resolver signs resolve_dispute]──> Completed | Refunded
@@ -40,7 +52,19 @@ Disputed ──[resolver signs resolve_dispute]──> Completed | Refunded
 | Resolver will not collude with one party | `resolve_dispute` requires resolver auth | Funds stolen or wrongly withheld |
 | Resolver key is not compromised | Resolver signs every dispute settlement | Attacker can drain any disputed escrow |
 | Resolver is liveness-available | Disputes can only be resolved by the resolver | Funds locked indefinitely if resolver goes offline |
+| Multi committee reaches a threshold | Votes are honest and sufficiently available | Split or incomplete votes can deadlock an escrow indefinitely |
+| Fallback deadline is configured correctly | The backup is available when the deadline passes | A bad deadline can delay recovery or authorize the backup too early |
 | Auto-release caller has no privileged access | `auto_release` is permissionless | None — caller cannot redirect funds |
+
+### Multi-Resolver Liveness and Deadlock
+
+Multi-resolver voting is an M-of-N quorum, not a majority rule. A split vote can leave
+neither `Release` nor `Refund` at the threshold. In particular, unanimous configurations
+can freeze an escrow permanently after all resolvers have voted different ways, because no
+additional vote can change the tally. The implementation documents this known limitation
+and the unimplemented escape hatches in the `tally_votes` comments in
+`contracts/escrow/src/internal.rs`. Operators should avoid unanimous thresholds unless
+they have an operational process for resolving a deadlock in a future upgrade.
 
 ---
 

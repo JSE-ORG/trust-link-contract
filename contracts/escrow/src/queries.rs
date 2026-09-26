@@ -9,18 +9,22 @@ use soroban_sdk::{contractimpl, Address, Env, Vec};
 impl Escrow {
     /// Retrieves messages for a given escrow with pagination.
     pub fn get_messages(env: Env, escrow_id: u64, start: u64, limit: u64) -> Vec<Message> {
+        // Issue #827: Validate escrow exists first. If escrow does not exist,
+        // return empty Vec (same as valid escrow with no messages). Callers can
+        // distinguish by checking escrow existence separately via get_escrow.
+        if load_escrow(&env, escrow_id).is_err() {
+            return Vec::new(&env);
+        }
+
         let max_limit = if limit > crate::MAX_MESSAGES_PER_PAGE {
             crate::MAX_MESSAGES_PER_PAGE
         } else {
             limit
         };
-        let key = DataKey::Messages(escrow_id);
-        let msgs: Vec<Message> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(&env));
-        let total = msgs.len() as u64;
+        // Only the message count is loaded up front; each message is then read
+        // through its own `Message(escrow_id, index)` key. Cost is therefore
+        // proportional to the requested page, not the whole thread.
+        let total = storage::read_message_count(&env, escrow_id) as u64;
         let mut result = Vec::new(&env);
         if start >= total {
             return result;
@@ -28,8 +32,8 @@ impl Escrow {
         let end = (start + max_limit).min(total);
         let mut i = start;
         while i < end {
-            if let Some(m) = msgs.get(i as u32) {
-                result.push_back(m.clone());
+            if let Some(message) = storage::read_message_at(&env, escrow_id, i as u32) {
+                result.push_back(message);
             }
             i += 1;
         }
@@ -37,8 +41,16 @@ impl Escrow {
     }
 
     /// Returns the full list of tokens and amounts for a basket escrow.
-    pub fn get_basket_tokens(env: Env, escrow_id: u64) -> Vec<TokenEntry> {
-        load_basket_tokens(&env, escrow_id)
+    /// Returns `None` if the escrow does not exist. Returns `Some(empty Vec)`
+    /// for single-token escrows (created via `create_escrow`). Returns
+    /// `Some(Vec<TokenEntry>)` for basket escrows with additional tokens.
+    pub fn get_basket_tokens(env: Env, escrow_id: u64) -> Option<Vec<TokenEntry>> {
+        // Check if escrow exists first
+        if load_escrow(&env, escrow_id).is_err() {
+            return None;
+        }
+        // Return Some(Vec) - empty for single-token, populated for basket
+        Some(load_basket_tokens(&env, escrow_id))
     }
 
     /// Returns the full escrow record for `escrow_id`. Reverts with
@@ -48,24 +60,27 @@ impl Escrow {
     }
 
     /// Returns the full state transition history for an escrow as
-    /// `(state, ledger_timestamp)` pairs, oldest first. Reverts if the
-    /// escrow does not exist.
+    /// `(state, ledger_timestamp)` pairs, oldest first. Returns
+    /// `EscrowNotFound` if the escrow does not exist.
     pub fn get_state_history(
         env: Env,
         escrow_id: u64,
     ) -> Result<Vec<(EscrowState, u64)>, ContractError> {
+        // Verify escrow exists first - this returns EscrowNotFound if missing
         load_escrow(&env, escrow_id)?;
-        Ok(load_state_history(&env, escrow_id))
+        // Load history without extending TTL for non-matching escrows
+        Ok(load_state_history_no_ttl(&env, escrow_id))
     }
 
     /// Retrieves all escrow IDs associated with a specific buyer.
+    /// Uses the buyer index if available; otherwise falls back to scanning
+    /// up to 1000 most recent escrows (capped to avoid budget exhaustion).
+    /// The fallback scan avoids extending TTL for non-matching escrows.
     pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
-        if let Some(ids) = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
-        {
-            return ids;
+        // Preferred path: the paged buyer index, populated on funding.
+        let indexed = storage::read_buyer_escrow_index(&env, &buyer);
+        if !indexed.is_empty() {
+            return indexed;
         }
         let mut result = Vec::new(&env);
         let counter: u64 = env
@@ -75,27 +90,47 @@ impl Escrow {
             .unwrap_or(1);
 
         let max_iterations = 1000;
-        for (iterations, id) in (1..counter).rev().enumerate() {
-            if iterations >= max_iterations {
-                break;
-            }
-            if let Ok(escrow) = load_escrow(&env, id) {
-                if escrow.buyer.as_ref() == Some(&buyer) {
-                    result.push_back(id);
+        // Scan the most recent max_iterations escrows. `zip` bounds the scan
+        // without a manual counter. The `has` check avoids extending TTL for
+        // non-matching escrows.
+        for (id, _) in (1..counter).rev().zip(0..max_iterations) {
+            // Check if escrow key exists without TTL extension
+            let key = DataKey::Escrow(id);
+            if env.storage().persistent().has(&key) {
+                // Only extend TTL if this escrow matches the buyer
+                if let Ok(escrow) = load_escrow(&env, id) {
+                    if escrow.buyer.as_ref() == Some(&buyer) {
+                        result.push_back(id);
+                    }
                 }
             }
         }
-        result
+        // build in ascending order
+        let mut ascending = Vec::new(&env);
+        for i in (0..result.len()).rev() {
+            if let Some(id) = result.get(i) {
+                ascending.push_back(id);
+            }
+        }
+        ascending
     }
 
     /// Batch view: return escrows for the supplied IDs in the same order.
-    /// Missing IDs return None in the corresponding slot.
+    /// Missing IDs return None in the corresponding slot. Input is capped at
+    /// MAX_MESSAGES_PER_PAGE (50 IDs) to prevent resource exhaustion.
     pub fn get_escrows_by_ids(
         env: Env,
         ids: soroban_sdk::Vec<u64>,
     ) -> soroban_sdk::Vec<Option<EscrowData>> {
         let mut result: soroban_sdk::Vec<Option<EscrowData>> = soroban_sdk::Vec::new(&env);
-        for i in 0..ids.len() {
+        let max_ids = crate::MAX_MESSAGES_PER_PAGE as u32;
+        let limit = if ids.len() > max_ids {
+            max_ids
+        } else {
+            ids.len()
+        };
+
+        for i in 0..limit {
             let Some(id) = ids.get(i) else {
                 result.push_back(None);
                 continue;
@@ -124,34 +159,40 @@ impl Escrow {
     }
 
     /// Returns on-chain counters for escrow lifecycle events.
+    ///
+    /// The counters are stored sharded across persistent-storage buckets (see
+    /// `increment_sharded_counter`) to avoid a single contended instance key;
+    /// this view re-aggregates them, including any value written by a
+    /// pre-sharding deployment.
     pub fn get_stats(env: Env) -> ContractStats {
         ContractStats {
-            total_created: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalCreated)
-                .unwrap_or(0),
-            total_completed: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalCompleted)
-                .unwrap_or(0),
-            total_disputed: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalDisputed)
-                .unwrap_or(0),
-            total_refunded: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalRefunded)
-                .unwrap_or(0),
+            total_created: read_counter_total(&env, COUNTER_KIND_CREATED, &DataKey::TotalCreated),
+            total_completed: read_counter_total(
+                &env,
+                COUNTER_KIND_COMPLETED,
+                &DataKey::TotalCompleted,
+            ),
+            total_disputed: read_counter_total(
+                &env,
+                COUNTER_KIND_DISPUTED,
+                &DataKey::TotalDisputed,
+            ),
+            total_refunded: read_counter_total(
+                &env,
+                COUNTER_KIND_REFUNDED,
+                &DataKey::TotalRefunded,
+            ),
         }
     }
 
     /// Returns publicly-readable contract configuration: protocol fee,
     /// arbitration fee, pause state, and total escrow count. Callable by anyone.
     pub fn get_public_config(env: Env) -> PublicContractConfig {
+        // Issue #828: Extend instance TTL to prevent archival during frequent
+        // read-only queries. All mutating entry points extend TTL, and this
+        // read-only query must do the same to keep singleton config alive.
+        storage::extend_instance_ttl(&env);
+
         let fee_config = read_fee_config(&env);
         let paused: bool = env
             .storage()

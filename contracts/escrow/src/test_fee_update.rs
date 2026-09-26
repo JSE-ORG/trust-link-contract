@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use crate::internal::validate_combined_fees;
 use crate::{test_helpers::setup_contract, ContractError, DataKey, FeeConfig, ProtocolFeeUpdated};
 use soroban_sdk::{
     testutils::{Address as _, Events as _},
@@ -75,14 +76,16 @@ fn test_set_fee_max_500_bps() {
 
 /// Test: set_protocol_fee rejects 501 bps (exceeds cap of 500)
 #[test]
-#[ignore]
 fn test_set_fee_rejects_501_bps() {
     let env = Env::default();
     env.mock_all_auths();
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
     let result = client.try_set_protocol_fee(&admin, &501_u32);
-    assert!(matches!(result, Err(Ok(ContractError::FeeExceedsMax))));
+    assert!(matches!(
+        result,
+        Err(Ok(ContractError::ProtocolFeeExceedsMax))
+    ));
 }
 
 /// Test: set_protocol_fee requires admin authentication
@@ -124,9 +127,20 @@ fn test_set_fee_rejects_non_admin_caller() {
     );
 }
 
+#[test]
+fn test_set_arbitration_fee_rejects_combined_fee_over_cap() {
+    assert_eq!(
+        validate_combined_fees(900, 101),
+        Err(ContractError::FeeExceedsMax)
+    );
+    assert_eq!(
+        validate_combined_fees(500, 501),
+        Err(ContractError::FeeExceedsMax)
+    );
+}
+
 /// Test: set_protocol_fee emits ProtocolFeeUpdated event with old and new values
 #[test]
-#[ignore]
 fn test_set_fee_emits_event() {
     let env = Env::default();
     env.mock_all_auths();

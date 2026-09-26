@@ -1,4 +1,4 @@
-# TrustLink Contract — Invariants
+# TrustLink Contract ? Invariants
 
 ## Core Invariants
 
@@ -13,6 +13,7 @@ These invariants must hold at the end of every transaction.
 - Contract only sends via terminal states (removes from balance)
 - Every escrow has exactly one terminal state (Completed, Refunded, Cancelled)
 - Fees are deducted atomically with payout
+- Multi-payee rounding dust is assigned to the first payee, bounded by `N - 1` stroops for `N` payees
 - No tokens created or destroyed
 
 **Implementation**:
@@ -51,13 +52,13 @@ save_escrow(escrow_id, escrow_data)
 
 **Approved Transitions**:
 ```
-Pending → Funded | Cancelled
-Funded → Completed | Disputed | RefundRequested | Shipped | Cancelled
-Disputed → Completed | Refunded | PendingFinalization
-RefundRequested → Funded | Refunded
-Shipped → Completed
-PendingFinalization → Completed | Refunded
-Completed, Refunded, Cancelled → (terminal, no transitions)
+Pending ? Funded | Cancelled
+Funded ? Completed | Disputed | RefundRequested | Shipped | Cancelled
+Disputed ? Completed | Refunded | PendingFinalization
+RefundRequested ? Funded | Refunded
+Shipped ? Completed
+PendingFinalization ? Completed | Refunded
+Completed, Refunded, Cancelled ? (terminal, no transitions)
 ```
 
 **Implementation**: All state-modifying functions guard with:
@@ -73,7 +74,7 @@ if escrow.state != expected_state {
 
 ### I4: Role Separation
 
-**Statement**: At the time of funding, `buyer ≠ seller` and `buyer ≠ resolver` and `seller ≠ resolver`.
+**Statement**: At the time of funding, `buyer ? seller` and `buyer ? resolver` and `seller ? resolver`.
 
 **Proof**:
 - Check performed in `fund_escrow` before state change
@@ -149,6 +150,7 @@ adjusted_amount = amount - arbitration_fee
 protocol_fee = adjusted_amount * protocol_fee_bps / 10000
 payout = adjusted_amount - protocol_fee
 verify: payout + arbitration_fee + protocol_fee == amount
+multi_payee_dust <= payees.len() - 1
 ```
 
 **Verification**: Test all fee combinations; verify arithmetic.
@@ -311,6 +313,28 @@ fn confirm_delivery(...) -> Result<(), Error> {
 
 ---
 
+### I16: State History Bounded Storage (Issue #812)
+
+**Statement**: An escrow's state history is capped at MAX_STATE_HISTORY_ENTRIES=50; oldest entries are evicted when limit is reached.
+
+**Proof**:
+- State history appended in `append_state_history` every time state changes
+- Before pushing a new entry, check `history.len() > MAX_STATE_HISTORY_ENTRIES`
+- If true, pop_front (evict oldest) until len == MAX_STATE_HISTORY_ENTRIES
+- Ensures on-chain history never exceeds 50 entries per escrow
+
+**Implementation**:
+```rust
+while history.len() > MAX_STATE_HISTORY_ENTRIES {
+    history.pop_front();
+}
+history.push_back((state, timestamp));
+```
+
+**Verification**: Create an escrow and cycle through 100 state transitions; verify get_state_history returns at most 50 entries, all the most recent ones.
+
+---
+
 ## Derived Invariants
 
 ### D1: Terminal States Prevent Further Operations
@@ -323,7 +347,7 @@ fn confirm_delivery(...) -> Result<(), Error> {
 ### D2: Fees Cannot Exceed Principal
 
 **From**: I7 (Amount Conservation in Disputes)
-**Consequence**: With fee caps (max 10% each), payout is always positive.
+**Consequence**: With fee caps (max 10% each), payout remains conserved; any split dust is deterministically included in the first payee payout.
 
 ---
 

@@ -441,9 +441,12 @@ fn test_dispute_from_completed_state() {
     let description = soroban_sdk::String::from_str(&env, "desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
 
-    // Attempt dispute from Completed
+    // Attempt dispute from Completed — dedicated code (was InvalidState).
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
-    assert_eq!(result, Err(Ok(crate::ContractError::InvalidState)));
+    assert_eq!(
+        result,
+        Err(Ok(crate::ContractError::EscrowAlreadyCompleted))
+    );
 }
 
 #[test]

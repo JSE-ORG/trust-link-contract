@@ -7,5 +7,5 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-quote = "1"
-syn = { version = "2", features = ["full", "extra-traits"] }
+soroban-sdk = "21.0.0"
+soroban-sdk-macros = "21.0.0"

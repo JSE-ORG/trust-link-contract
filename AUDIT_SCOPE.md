@@ -162,18 +162,36 @@ Funded ──request_refund──> RefundRequested ──approve/deny──> Com
 
 ## Fee Model
 
+The contract enforces strict fee caps to prevent abuse. All fee constants are defined in `contracts/escrow/src/lib.rs` (lines 60-92).
+
+### Fee Constants (Source of Truth: lib.rs)
+
+| Constant | Value | Purpose | Error Code |
+|----------|-------|---------|------------|
+| `MAX_ESCROW_FEE_BPS` | 300 (3%) | Per-escrow protocol fee cap | [FeeExceedsMax (7)](ERROR_CODES.md#7) |
+| `MAX_ARBITRATION_FEE_BPS` | 500 (5%) | Dispute resolution fee cap | [FeeExceedsMax (7)](ERROR_CODES.md#7) |
+| `MAX_COMBINED_FEE_BPS` | 1000 (10%) | Combined protocol + arbitration cap | [FeeExceedsMax (7)](ERROR_CODES.md#7) |
+| `MAX_PLATFORM_FEE_BPS` | 200 (2%) | Platform treasury fee cap | [PlatformFeeExceedsMax (32)](ERROR_CODES.md#32) |
+
+See also: [INVARIANTS.md](INVARIANTS.md) section D2 for fee invariant documentation.
+
 ### Protocol Fee (Variable)
 - Applied on fund amount after arbitration fee (if any)
 - Default: 0 BPS (0%)
-- Maximum: 1000 BPS (10%)
+- Maximum: 300 BPS (3%) — enforced by `MAX_ESCROW_FEE_BPS`
 - Collected to `fee_collector`
 
 ### Arbitration Fee (Per-Escrow)
 - Fixed at escrow creation time via `fee_bps` parameter
 - Deducted from escrow amount in dispute resolution
 - Default: 0 BPS (0%)
-- Maximum: 1000 BPS (10%)
+- Maximum: 500 BPS (5%) — enforced by `MAX_ARBITRATION_FEE_BPS`
 - Collected to `fee_collector`
+
+### Combined Fee Protection
+- The contract enforces `protocol_fee_bps + arbitration_fee_bps <= MAX_COMBINED_FEE_BPS` (1000 BPS / 10%)
+- This prevents malicious admin attacks where both fees are set to maximum, draining escrows
+- Validation occurs in `internal.rs::validate_combined_fees()`
 
 ### Fee Arithmetic
 ```

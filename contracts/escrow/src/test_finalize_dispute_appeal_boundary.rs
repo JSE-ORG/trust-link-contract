@@ -130,3 +130,73 @@ fn finalize_succeeds_one_tick_after_deadline() {
 
     assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Completed);
 }
+
+#[test]
+fn finalize_dispute_without_treasury_returns_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+
+    let token_admin = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(token_admin);
+    let token_address = sac.address();
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &50_u32);
+
+    // Set platform fee so treasury will be required during finalize_dispute
+    client.set_platform_fee(&admin, &100_u32); // 1% platform fee
+
+    // Create escrow and reach PendingFinalization state
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let escrow_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token_address,
+        &AMOUNT,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
+
+    let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
+    token_admin_client.mint(&buyer, &AMOUNT);
+    client.fund_escrow(&escrow_id, &buyer);
+
+    // Raise and resolve dispute
+    let reason = Symbol::new(&env, "non_delivery");
+    let description = String::from_str(&env, "Item never arrived");
+    let evidence = BytesN::from_array(&env, &[0xab; 32]);
+    client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
+    client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Release);
+
+    // Advance past appeal window
+    let dispute = client.get_dispute(&escrow_id).expect("dispute exists");
+    let appeal_deadline = dispute.resolved_at + crate::APPEAL_WINDOW;
+    env.ledger().set_timestamp(appeal_deadline + 1);
+
+    // Note: treasury was never set via set_treasury, so read_treasury should
+    // return NotInitialized (35) instead of NotAuthorized (5).
+    // Since platform_fee > 0, treasury will be read and should fail with NotInitialized.
+    let res = client.try_finalize_dispute(&resolver, &escrow_id);
+    assert_eq!(res, Err(Ok(ContractError::NotInitialized)));
+
+    // Escrow should still be in PendingFinalization (no state change on error)
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization,
+    );
+}

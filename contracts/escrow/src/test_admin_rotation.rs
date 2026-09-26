@@ -70,7 +70,6 @@ fn old_admin_cannot_authorise_admin_functions_after_rotation() {
 
 #[test]
 #[should_panic]
-#[ignore]
 fn rotation_requires_current_admin_authorisation() {
     let (env, client, _admin) = setup();
     let new_admin = Address::generate(&env);

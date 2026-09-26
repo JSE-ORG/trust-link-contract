@@ -43,3 +43,5 @@ pub fn derive_paste(_item: TokenStream) -> TokenStream {
 pub fn derive_pastey(_item: TokenStream) -> TokenStream {
     TokenStream::new()
 }
+
+mod arbitration_test;

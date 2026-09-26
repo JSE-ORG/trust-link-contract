@@ -112,7 +112,6 @@ fn test_buyer_index_populated_on_fund() {
 }
 
 #[test]
-#[ignore]
 fn test_get_escrows_by_buyer_fallback_scan() {
     let env = Env::default();
     env.mock_all_auths();
@@ -174,7 +173,6 @@ fn test_get_escrows_by_buyer_fallback_scan() {
 }
 
 #[test]
-#[ignore]
 fn test_get_escrows_by_buyer_fallback_scan_many_escrows() {
     let env = Env::default();
     env.mock_all_auths();

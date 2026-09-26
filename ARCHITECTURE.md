@@ -11,29 +11,70 @@ TrustLink is a Soroban smart contract on the Stellar network that implements a t
 ```mermaid
 stateDiagram-v2
     [*] --> Pending : create_escrow
+
     Pending --> Funded : fund_escrow
-    Funded --> Completed : confirm_delivery
-    Funded --> Completed : auto_release
-    Funded --> Disputed : raise_dispute
+    Pending --> Canceled : cancel_escrow
+    Pending --> Expired : reclaim_expired
+
+    Funded --> Shipped : mark_shipped
+    Funded --> Completed : confirm_delivery (after dispute_deadline)
+    Funded --> Completed : auto_release (after dispute_deadline + shipping_window)
+    Funded --> Disputed : raise_dispute (before dispute_deadline)
+    Funded --> RefundRequested : request_refund
+
+    Shipped --> Completed : confirm_delivery (after dispute_deadline)
+    Shipped --> Completed : auto_release (after shipped_at + shipping_window AND dispute_deadline)
+    Shipped --> Disputed : raise_dispute (before dispute_deadline)
+
+    RefundRequested --> Refunded : approve_refund
+    RefundRequested --> Funded : deny_refund
+
     Disputed --> PendingFinalization : resolve_dispute / vote (threshold met)
-    PendingFinalization --> Completed : finalize_dispute (release, appeal window elapsed)
-    PendingFinalization --> Refunded : finalize_dispute (refund, appeal window elapsed)
-    PendingFinalization --> Disputed : appeal_dispute (within appeal window)
+
+    PendingFinalization --> Completed : finalize_dispute (Release, after appeal_window)
+    PendingFinalization --> Refunded : finalize_dispute (Refund, after appeal_window)
+    PendingFinalization --> Disputed : appeal_dispute (within appeal_window)
+
     Completed --> [*]
     Refunded --> [*]
+    Canceled --> [*]
+    Expired --> [*]
 ```
 
 ### Valid Transitions
 
-| From | To | Trigger |
-|---|---|---|
-| `Pending` | `Funded` | `fund_escrow` |
-| `Funded` | `Completed` | `confirm_delivery` or `auto_release` |
-| `Funded` | `Disputed` | `raise_dispute` |
-| `Disputed` | `PendingFinalization` | `resolve_dispute` / `vote` once the resolver threshold is met (see [Multi-Resolver Dispute Resolution](#multi-resolver-dispute-resolution-m-of-n-voting)) |
-| `PendingFinalization` | `Completed` | `finalize_dispute`, resolution was `Release`, appeal window elapsed |
-| `PendingFinalization` | `Refunded` | `finalize_dispute`, resolution was `Refund`, appeal window elapsed |
-| `PendingFinalization` | `Disputed` | `appeal_dispute`, called by buyer or seller before the appeal window elapses (see [Appeal Flow](#appeal-flow)) |
+| From | To | Trigger | Guard Conditions |
+|---|---|---|---|
+| `Pending` | `Funded` | `fund_escrow` | Buyer authorizes |
+| `Pending` | `Canceled` | `cancel_escrow` | Seller authorizes |
+| `Pending` | `Expired` | `reclaim_expired` | `now > expiration` (if set) |
+| `Funded` | `Shipped` | `mark_shipped` | Seller authorizes |
+| `Funded` | `Completed` | `confirm_delivery` | Buyer authorizes, `now >= dispute_deadline` |
+| `Funded` | `Completed` | `auto_release` | Permissionless, `now >= dispute_deadline`, `now >= funded_at + shipping_window` |
+| `Funded` | `Disputed` | `raise_dispute` | Buyer authorizes, `now < dispute_deadline` |
+| `Funded` | `RefundRequested` | `request_refund` | Buyer authorizes |
+| `Shipped` | `Completed` | `confirm_delivery` | Buyer authorizes, `now >= dispute_deadline` |
+| `Shipped` | `Completed` | `auto_release` | Permissionless, `now >= dispute_deadline`, `now >= shipped_at + shipping_window` |
+| `Shipped` | `Disputed` | `raise_dispute` | Buyer authorizes, `now < dispute_deadline` |
+| `RefundRequested` | `Refunded` | `approve_refund` | Seller authorizes |
+| `RefundRequested` | `Funded` | `deny_refund` | Seller authorizes |
+| `Disputed` | `PendingFinalization` | `resolve_dispute` / `vote` | Resolver(s) authorize, voting threshold met (see [Multi-Resolver Dispute Resolution](#multi-resolver-dispute-resolution-m-of-n-voting)) |
+| `PendingFinalization` | `Completed` | `finalize_dispute` | Permissionless, resolution=Release, `now >= resolved_at + APPEAL_WINDOW` (24h) |
+| `PendingFinalization` | `Refunded` | `finalize_dispute` | Permissionless, resolution=Refund, `now >= resolved_at + APPEAL_WINDOW` (24h) |
+| `PendingFinalization` | `Disputed` | `appeal_dispute` | Buyer or seller authorizes, `now < resolved_at + APPEAL_WINDOW` (24h) |
+
+**Terminal States:** `Completed`, `Refunded`, `Canceled`, `Expired` — no further transitions are possible.
+
+**Guard Condition Details** (see `contracts/escrow/src/instructions.rs`):
+- `auto_release` timing: lines 1157-1181
+  - For `Funded` escrows: requires `now >= dispute_deadline` AND `now >= funded_at + shipping_window`
+  - For `Shipped` escrows: requires `now >= dispute_deadline` AND `now >= shipped_at + shipping_window`
+  - Returns error code 13 (`DeliveryBeforeDisputeWindow`) if `dispute_deadline` not yet passed
+  - Returns error code 9 (`ShippingWindowNotElapsed`) if `shipping_window` not yet elapsed
+- `confirm_delivery` timing: lines 1016+
+  - Requires `now >= dispute_deadline`
+  - Returns error code 24 (`DisputeWindowStillOpen`) if called too early
+- `raise_dispute` timing: must be called before `dispute_deadline` (typically 48 hours after funding)
 
 `Completed` and `Refunded` are terminal states — no further transitions are possible. A dispute can be appealed and re-resolved any number of times; each appeal increments `DisputeData.appeal_count` and, for multi-resolver escrows, clears prior votes so a fresh voting round begins.
 
@@ -96,6 +137,26 @@ flowchart LR
 ```
 
 TrustLink uses the [SEP-41](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0041.md) token interface (`soroban_sdk::token::Client`). The contract never holds more than one escrow's tokens per escrow ID. Multiple concurrent escrows each lock their own `amount` independently.
+
+---
+
+## Fee Model
+
+TrustLink charges fees along two independent axes:
+
+| Fee | Scope | Set by | Cap | Constant |
+|---|---|---|---|---|
+| `fee_bps` | Per-escrow, set at creation | Escrow creator (seller/payee) | 3% | `MAX_ESCROW_FEE_BPS` |
+| `protocol_fee_bps` | Global default, in `FeeConfig` | Admin | 5% | `MAX_PROTOCOL_FEE_BPS` |
+| `arbitration_fee_bps` | Global default, in `FeeConfig` | Admin | 5% | `MAX_ARBITRATION_FEE_BPS` |
+
+`protocol_fee_bps` and `arbitration_fee_bps` are both *admin*-controlled and both deducted from the same pool of value (an escrow's locked amount) — the protocol fee on ordinary settlement, the arbitration fee specifically when a resolver settles a dispute. Because they're independently capped at 5% each, `validate_combined_fees` (`internal.rs`) additionally enforces `protocol_fee_bps + arbitration_fee_bps <= MAX_COMBINED_FEE_BPS` (1000 bps = **10%**) whenever either one is updated.
+
+### Why a combined cap, and why 10%
+
+- **Defense in depth against a single compromised or malicious admin.** Each individual cap (5% + 5%) already happens to sum to the combined cap today, but the two are enforced independently and could drift apart over time (e.g. a future change that raises `MAX_ARBITRATION_FEE_BPS` without revisiting the other). The combined check is the actual invariant that matters economically: *no combination of admin-set fees can ever take more than 10% of an escrow's value*, regardless of how the individual per-fee ceilings evolve.
+- **10% keeps the protocol's take a minority share.** A buyer and seller are exchanging value for goods/services; the protocol is an intermediary securing that exchange, not a party to it. A 10% combined ceiling caps the admin's worst-case extraction to roughly the range of typical marketplace/payment-processor take rates, so even a fully malicious admin cannot use fee configuration alone to drain a meaningful fraction of escrowed funds — the attack has to go through some other path (and the 24-hour timelock on admin fee changes, `ADMIN_TIMELOCK_DELAY_SECONDS` in `admin.rs`, gives participants a window to react before a new fee takes effect).
+- **Deliberately excludes `fee_bps`.** The per-escrow `fee_bps` is capped separately (3%) and is not part of `MAX_COMBINED_FEE_BPS` because it isn't admin-controlled — it's set by the escrow's own creator at creation time, so it's a term the buyer/seller already agreed to rather than a value an admin can move after the fact.
 
 ---
 
@@ -239,12 +300,25 @@ All storage uses Soroban **instance** storage (entries share the contract instan
 |---|---|---|
 | `EscrowCounter` | `u64` | Monotonically increasing counter; also the ID of the most-recently created escrow |
 | `Escrow(id: u64)` | `EscrowData` | Full escrow record keyed by its numeric ID |
+| `EscrowStateHistory(id: u64)` | `Vec<(EscrowState, u64)>` | Audit trail of state transitions with timestamps; capped at MAX_STATE_HISTORY_ENTRIES=50 to bound storage for high-churn escrows. When limit reached, oldest entry is evicted (FIFO). See [State History Capping](#state-history-capping). |
 | `Admin` | `Address` | Contract administrator |
 | `FeeCollector` | `Address` | Address receiving platform fees |
 | `DefaultFeeBps` | `u32` | Default fee in basis points |
 | `Paused` | `bool` | Global pause flag |
 
 IDs start at `1`. The counter is read, incremented, and stored atomically inside `create_escrow`.
+
+### State History Capping
+
+Each escrow maintains a queryable audit trail of state transitions in `EscrowStateHistory(escrow_id)`. To prevent unbounded storage growth for escrows that cycle through states frequently (e.g., repeated disputes → appeal → re-dispute), the history is capped at `MAX_STATE_HISTORY_ENTRIES = 50` entries. When an escrow accumulates more than 50 transitions:
+
+- The oldest entry is evicted (pop_front) before the new entry is appended
+- Only the most recent 50 transitions are retained
+- Off-chain indexers querying `get_state_history(escrow_id)` will see a truncated tail; the full history is not preserved on-chain
+
+Indexers expecting complete history for high-churn escrows should either:
+1. Poll frequently to capture all transitions before the 50-entry window rotates
+2. Be aware that early transitions may be missing from long-lived disputed escrows
 
 ---
 

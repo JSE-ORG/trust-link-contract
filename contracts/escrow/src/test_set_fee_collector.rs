@@ -2,6 +2,10 @@
 //! `set_fee_collector` must reject the all-zero (empty) Stellar account address
 //! and report a clear `ContractError::InvalidAddress` rather than persisting a
 //! collector that can never sign for or receive fee withdrawals (#434).
+//!
+//! It must also reject the current admin address: `initialize` enforces that
+//! the admin and fee-collector roles are held by different keys, and the
+//! update paths must not be able to collapse them afterwards.
 
 use crate::test_helpers::setup_contract;
 use crate::{ContractError, DataKey};
@@ -44,4 +48,26 @@ fn set_fee_collector_accepts_a_valid_address() {
         })
         .expect("fee collector set");
     assert_eq!(stored, new_collector);
+}
+
+#[test]
+fn set_fee_collector_rejects_the_admin_address() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, fee_collector) = setup_contract(&env);
+
+    let res = client.try_set_fee_collector(&admin);
+    assert_eq!(
+        res,
+        Err(Ok(ContractError::InvalidAddress)),
+        "set_fee_collector must reject the admin address with InvalidAddress",
+    );
+
+    // The collector must be unchanged after the rejected call.
+    let stored: Address = env
+        .as_contract(&client.address, || {
+            env.storage().instance().get(&DataKey::FeeCollector)
+        })
+        .expect("fee collector still set");
+    assert_eq!(stored, fee_collector);
 }

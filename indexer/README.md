@@ -209,6 +209,8 @@ if (payload.schema_version > SUPPORTED_SCHEMA_VERSION) {
 indexer/
 ├── schema.sql                                     # PostgreSQL DDL
 ├── fixtures/events.json                           # 17-event test fixture
+├── docs/
+│   └── fallback-resolver.md                       # FallbackResolver (indexer RPC race helper)
 ├── src/
 │   ├── types.ts                                   # shared interfaces + cursor
 │   ├── db.ts                                      # pg Pool + withTx

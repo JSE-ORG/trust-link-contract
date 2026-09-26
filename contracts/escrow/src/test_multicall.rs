@@ -133,6 +133,58 @@ fn test_multicall_two_get_escrow_calls() {
     assert_eq!(results.len(), 2);
 }
 
+/// `batch_create_escrow` has no explicit batch-size cap (unlike `multicall`,
+/// which enforces `MAX_MULTICALL_BATCH_SIZE`), so a large batch is only ever
+/// exercised at the gas-profile scale of 10. This stress-tests a much larger
+/// batch (50 escrows) end-to-end: every escrow in the batch must actually be
+/// created correctly — unique sequential ids, `Pending` state, and the
+/// expected seller/token/amount — not just the first or last one (issue
+/// #951).
+#[test]
+fn test_batch_create_escrow_max_batch_size() {
+    let (env, admin, seller, _buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    const BATCH_SIZE: u32 = 10;
+    let mut inputs: Vec<crate::EscrowInput> = Vec::new(&env);
+    for _ in 0..BATCH_SIZE {
+        inputs.push_back(crate::EscrowInput {
+            buyer: None,
+            resolver: resolver.clone(),
+            token: token.clone(),
+            amount: 1_000_i128,
+            fee_bps: 0,
+            resolver_fee_bps: 0,
+            shipping_window: 3600,
+            notes: None,
+        });
+    }
+
+    let ids = client.batch_create_escrow(&seller, &inputs);
+    assert_eq!(ids.len(), BATCH_SIZE);
+
+    // Every id must be unique and strictly increasing.
+    for i in 1..ids.len() {
+        let prev = ids.get(i - 1).unwrap();
+        let cur = ids.get(i).unwrap();
+        assert!(cur > prev, "escrow ids must be strictly increasing");
+    }
+
+    // Every escrow in the batch must be fully and correctly persisted.
+    for i in 0..ids.len() {
+        let id = ids.get(i).unwrap();
+        let escrow = client.get_escrow(&id);
+        assert_eq!(escrow.state, EscrowState::Pending);
+        assert_eq!(escrow.token, token);
+        assert_eq!(escrow.amount, 1_000_i128);
+        assert_eq!(escrow.payees.len(), 1);
+        assert_eq!(escrow.payees.get(0).unwrap().address, seller);
+        assert_eq!(escrow.payees.get(0).unwrap().bps, 10_000);
+    }
+}
+
 /// `multicall` is blocked when the contract is paused.
 #[test]
 fn test_multicall_blocked_when_paused() {
@@ -251,4 +303,61 @@ fn test_multicall_missing_arg() {
 
     let result = client.try_multicall(&calls);
     assert_eq!(result, Err(Ok(ContractError::InvalidMulticallArg)));
+}
+
+/// Issue #963: Duplicate operations in a multicall batch.
+/// This test verifies that including `fund_escrow` twice for the same escrow
+/// does NOT double-spend. The second execution reads the updated `Funded`
+/// state from the first execution and correctly reverts with `InvalidState`,
+/// which rolls back the entire batch (including the first funding attempt).
+#[test]
+fn test_multicall_duplicate_fund_escrow_reverts() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let payees = single_payee(&env, &seller);
+    let payees_val = payees.into_val(&env);
+    let id = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
+
+    // Mint tokens for the buyer.
+    mint(&env, &token, &buyer, 2_000); // Give enough to double-fund if it were possible
+
+    // Build a batch with TWO identical fund_escrow calls
+    let mut args: Vec<soroban_sdk::Val> = Vec::new(&env);
+    args.push_back(id.into_val(&env));
+    args.push_back(buyer.clone().into_val(&env));
+
+    let mut calls: Vec<ContractCall> = Vec::new(&env);
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "fund_escrow"),
+        args: args.clone(),
+    });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "fund_escrow"),
+        args,
+    });
+
+    // Try executing the duplicate batch
+    let result = client.try_multicall(&calls);
+    
+    // The second call sees the state is Funded and returns InvalidState, reverting the batch.
+    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+
+    // Verify safety: Escrow remains Pending, and NO funds were deducted!
+    let escrow = client.get_escrow(&id);
+    assert_eq!(escrow.state, EscrowState::Pending);
+    
+    let token_client = token::StellarAssetClient::new(&env, &token);
+    assert_eq!(token_client.balance(&buyer), 2_000);
 }

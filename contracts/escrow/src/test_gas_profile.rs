@@ -1,9 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::{advance_time, mint_token, setup_contract};
-use crate::{
-    Escrow, EscrowClient, EscrowState, Payee, ResolutionType, ResolverSet, TokenEntry,
-};
+use crate::{Escrow, EscrowClient, EscrowState, Payee, ResolutionType, ResolverSet, TokenEntry};
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{token, Address, Env, IntoVal, String as SorobanString, Vec};
 
@@ -882,6 +880,7 @@ fn gas_profile_batch_create_escrow_10() {
             token: token.clone(),
             amount: 1_000_000,
             fee_bps: 100,
+            resolver_fee_bps: 0,
             shipping_window: 3600,
             notes: None,
         });

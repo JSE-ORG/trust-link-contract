@@ -240,8 +240,11 @@ impl<'d> Reader<'d> {
         buf
     }
 
+    /// A uniformly distributed boolean: the low bit of a fuzzed byte. `u8` is
+    /// drawn uniformly from the input (zero-padded past the end), so `% 2 == 0`
+    /// yields an exact 50/50 split across both branches.
     pub fn bool(&mut self) -> bool {
-        self.u8().is_multiple_of(2)
+        self.u8() % 2 == 0
     }
 
     /// A ledger timestamp bounded to 63 bits. Full-width `u64::MAX` timestamps

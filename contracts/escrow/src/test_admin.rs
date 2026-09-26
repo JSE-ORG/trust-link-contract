@@ -43,7 +43,6 @@ fn test_set_fee_updates_default_fee() {
 }
 
 #[test]
-#[ignore]
 fn test_set_fee_exceeds_max_fails() {
     let env = Env::default();
     env.mock_all_auths();
@@ -51,7 +50,10 @@ fn test_set_fee_exceeds_max_fails() {
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
     let result = client.try_set_protocol_fee(&admin, &10_001_u32);
-    assert!(matches!(result, Err(Ok(ContractError::FeeExceedsMax))));
+    assert!(matches!(
+        result,
+        Err(Ok(ContractError::ProtocolFeeExceedsMax))
+    ));
 }
 
 #[test]
@@ -80,12 +82,51 @@ fn test_admin_rotated_event_emitted() {
 }
 
 #[test]
+fn test_cancel_timelock_op_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let intruder = Address::generate(&env);
+    client.queue_set_arbitration_fee(&admin, &100_u32);
+
+    let result = client.try_cancel_timelock_op(&intruder, &4_u32);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+}
+
+#[test]
+fn test_remove_allowed_token_when_token_not_in_list() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let missing = Address::generate(&env);
+
+    let result = client.try_remove_allowed_token(&admin, &missing);
+    assert_eq!(result, Err(Ok(ContractError::TokenNotAllowed)));
+}
+
+#[test]
 fn test_set_ttl_extension() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
     client.set_ttl_extension(&admin, &60_480_u32);
+}
+
+#[test]
+fn test_set_platform_fee_cap_matches_production_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    client.set_platform_fee(&admin, &200_u32);
+    assert_eq!(
+        client.try_set_platform_fee(&admin, &201_u32),
+        Err(Ok(ContractError::PlatformFeeExceedsMax))
+    );
 }
 
 #[test]

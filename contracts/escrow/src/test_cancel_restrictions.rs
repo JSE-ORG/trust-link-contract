@@ -126,9 +126,10 @@ fn cancel_fails_in_completed_state() {
     fx.env.ledger().set_timestamp(escrow.dispute_deadline + 1);
     fx.client.confirm_delivery(&fx.buyer, &fx.escrow_id);
 
+    // Cancelling a Completed escrow now gets the dedicated code (was InvalidState).
     assert_eq!(
         fx.client.try_cancel_escrow(&fx.seller, &fx.escrow_id),
-        Err(Ok(ContractError::InvalidState)),
+        Err(Ok(ContractError::EscrowAlreadyCompleted)),
     );
 }
 
@@ -223,9 +224,10 @@ fn buyer_cancel_fails_in_completed_state() {
     fx.env.ledger().set_timestamp(escrow.dispute_deadline + 1);
     fx.client.confirm_delivery(&fx.buyer, &fx.escrow_id);
 
+    // Cancelling a Completed escrow now gets the dedicated code (was InvalidState).
     assert_eq!(
         fx.client.try_cancel_escrow(&fx.buyer, &fx.escrow_id),
-        Err(Ok(ContractError::InvalidState)),
+        Err(Ok(ContractError::EscrowAlreadyCompleted)),
     );
 }
 

@@ -9,7 +9,7 @@ declare var expect: (actual: any) => {
     };
 };
 
-import { FallbackResolver } from './fallback';
+import { FallbackResolver } from './fallback.js';
 
 describe('FallbackResolver Deadline Tests', () => {
     it('should fall back safely to default value when no deadline is specified', () => {
