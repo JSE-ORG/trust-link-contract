@@ -821,3 +821,73 @@ fn reclaim_expired_clears_delivery_proposal() {
     assert_eq!(client.get_escrow(&id).state, EscrowState::Expired);
     assert!(!has_delivery_proposal(&env, &client, id));
 }
+
+#[test]
+fn test_propose_record_delivery_then_raise_dispute_blocks_execute() {
+    // Verifies the state-machine interaction between the delivery timelock and
+    // the dispute flow:
+    //
+    // 1. Admin proposes delivery while the escrow is Shipped — proposal is
+    //    stored but the escrow stays in Shipped state.
+    // 2. Buyer raises a dispute (still within the dispute window) — escrow
+    //    transitions to Disputed; the DeliveryProposal record is orphaned in
+    //    storage (raise_dispute does not clear it).
+    // 3. After the timelock would have elapsed, admin attempts record_delivery —
+    //    must fail with InvalidState because the escrow is now Disputed, not
+    //    Shipped. The timelock check is never reached.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    // fee_bps = 100, shipping_window = 3600; dispute_deadline = funded_at + 172_800
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+    );
+
+    // Step 0: seller marks the escrow as shipped.
+    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DISP"));
+
+    // Step 1: admin proposes delivery (timelock unlock = now + 86_400).
+    // Escrow stays in Shipped state.
+    env.ledger().set_timestamp(1_000);
+    client.propose_record_delivery(&admin, &id);
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
+
+    // Step 2: buyer raises a dispute — must happen before dispute_deadline
+    // (funded_at + 172_800). funded_at ≈ 0, so the window is 0..172_800.
+    // Current ledger time is 1_000, well within the window.
+    env.ledger().set_timestamp(2_000);
+    let hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &Symbol::new(&env, "dispute"),
+        &SorobanString::from_str(&env, "buyer raises dispute after delivery proposed"),
+        &hash,
+    );
+
+    // Escrow must now be Disputed; delivery proposal is orphaned in storage.
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Disputed);
+
+    // Step 3: advance past the timelock (1_000 + 86_400 = 87_400) and attempt
+    // to execute record_delivery — must fail with InvalidState because the
+    // escrow is Disputed, not Shipped. The timelock guard is never reached.
+    env.ledger().set_timestamp(1_000 + crate::DELIVERY_TIMELOCK + 1); // 87_401
+    let res = client.try_record_delivery(&admin, &id);
+    assert_eq!(
+        res,
+        Err(Ok(ContractError::InvalidState)),
+        "record_delivery must return InvalidState when escrow is Disputed"
+    );
+
+    // Escrow remains Disputed with no funds moved.
+    let escrow = client.get_escrow(&id);
+    assert_eq!(escrow.state, EscrowState::Disputed);
+    assert_eq!(escrow.delivered_at, None);
+}
