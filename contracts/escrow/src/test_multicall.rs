@@ -303,3 +303,60 @@ fn test_multicall_missing_arg() {
     let result = client.try_multicall(&calls);
     assert_eq!(result, Err(Ok(ContractError::InvalidMulticallArg)));
 }
+
+/// Issue #963: Duplicate operations in a multicall batch.
+/// This test verifies that including `fund_escrow` twice for the same escrow
+/// does NOT double-spend. The second execution reads the updated `Funded`
+/// state from the first execution and correctly reverts with `InvalidState`,
+/// which rolls back the entire batch (including the first funding attempt).
+#[test]
+fn test_multicall_duplicate_fund_escrow_reverts() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let payees = single_payee(&env, &seller);
+    let payees_val = payees.into_val(&env);
+    let id = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
+
+    // Mint tokens for the buyer.
+    mint(&env, &token, &buyer, 2_000); // Give enough to double-fund if it were possible
+
+    // Build a batch with TWO identical fund_escrow calls
+    let mut args: Vec<soroban_sdk::Val> = Vec::new(&env);
+    args.push_back(id.into_val(&env));
+    args.push_back(buyer.clone().into_val(&env));
+
+    let mut calls: Vec<ContractCall> = Vec::new(&env);
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "fund_escrow"),
+        args: args.clone(),
+    });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "fund_escrow"),
+        args,
+    });
+
+    // Try executing the duplicate batch
+    let result = client.try_multicall(&calls);
+    
+    // The second call sees the state is Funded and returns InvalidState, reverting the batch.
+    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+
+    // Verify safety: Escrow remains Pending, and NO funds were deducted!
+    let escrow = client.get_escrow(&id);
+    assert_eq!(escrow.state, EscrowState::Pending);
+    
+    let token_client = token::StellarAssetClient::new(&env, &token);
+    assert_eq!(token_client.balance(&buyer), 2_000);
+}
