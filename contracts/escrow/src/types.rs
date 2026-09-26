@@ -109,6 +109,31 @@ pub enum DisputeStatus {
     Resolved,
 }
 
+/// An M-of-N resolver committee that votes on dispute resolutions
+/// (`create_escrow_multi`).
+///
+/// # Deadlock risk (Issue #707 / related: #667)
+///
+/// **Known issue**: voting can permanently deadlock when split votes prevent
+/// either side from reaching `threshold`. Example: `threshold=3` with 3
+/// resolvers, getting 1 `Release` + 1 `Refund` + 1 abstention — neither side
+/// reaches 3. Worse, if `threshold == N` (unanimous) and every resolver has
+/// voted but votes are split (e.g. 2 `Release` + 1 `Refund` with
+/// `threshold=3`), no additional votes are possible and funds remain frozen
+/// in `Disputed` indefinitely.
+///
+/// **Escape hatches**: the deadlock above is bounded by two implemented
+/// fallbacks:
+///
+/// 1. [`crate::Escrow::resolve_deadlocked_dispute`] — once a dispute has been
+///    split (threshold not met) for `DISPUTE_DEADLOCK_WINDOW`, anyone may
+///    trigger the simple-majority fallback (`tally_votes_majority`).
+/// 2. [`crate::Escrow::claim_dispute_timeout`] — if the dispute stays
+///    unresolved for the admin-configured `DisputeTimeout`, either party can
+///    force a `Refund`.
+///
+/// Operators should still configure `threshold` carefully (e.g. avoid
+/// `threshold == N` for `N > 1`) so that a majority is reachable in practice.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultiResolver {
@@ -185,7 +210,9 @@ pub struct FallbackResolver {
 pub enum ResolverSet {
     /// Single resolver (backward compatible mode)
     Single(Address),
-    /// Multiple resolvers with M-of-N voting threshold
+    /// Multiple resolvers with M-of-N voting threshold. Split votes can
+    /// permanently deadlock a dispute — see [`MultiResolver`] for the
+    /// scenario and the implemented escape hatches.
     Multi(MultiResolver),
     /// Primary resolver with a backup that becomes authorized once the
     /// fallback's `dispute_deadline` (an absolute ledger timestamp) is

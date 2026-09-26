@@ -6,8 +6,7 @@ use crate::internal::*;
 use crate::types::Message;
 use crate::*;
 use soroban_sdk::{
-    contractimpl, token, Address, BytesN, Env, IntoVal, String, Symbol, TryFromVal, TryIntoVal,
-    Val, Vec,
+    contractimpl, Address, BytesN, Env, IntoVal, String, Symbol, TryFromVal, TryIntoVal, Val, Vec,
 };
 
 #[contractimpl]
@@ -334,8 +333,13 @@ impl Escrow {
             }
         }
 
-        let token_client = token::Client::new(&env, &escrow.token);
-        token_client.transfer(&buyer, env.current_contract_address(), &escrow.amount);
+        transfer_helper(
+            &env,
+            &escrow.token,
+            &buyer,
+            &env.current_contract_address(),
+            escrow.amount,
+        );
 
         // Transfer additional basket tokens if this is a basket escrow
         let basket_tokens = load_basket_tokens(&env, escrow_id);
@@ -344,10 +348,12 @@ impl Escrow {
                 .get(i)
                 .ok_or(ContractError::IndexOutOfBounds)?;
             if entry.token != escrow.token && entry.amount > 0 {
-                token::Client::new(&env, &entry.token).transfer(
+                transfer_helper(
+                    &env,
+                    &entry.token,
                     &buyer,
-                    env.current_contract_address(),
-                    &entry.amount,
+                    &env.current_contract_address(),
+                    entry.amount,
                 );
             }
         }
@@ -803,8 +809,7 @@ impl Escrow {
         emit_pending_expiry_cleared(&env, escrow_id);
 
         if should_refund {
-            let token_client = token::Client::new(&env, &escrow.token);
-            token_client.transfer(&env.current_contract_address(), &caller, &escrow.amount);
+            payout(&env, &escrow.token, &caller, escrow.amount);
             payout_basket_tokens(&env, escrow_id, &caller)?;
         }
         let first_payee_addr = escrow
@@ -854,11 +859,7 @@ impl Escrow {
         escrow.state = EscrowState::Canceled;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
-        token::Client::new(&env, &escrow.token).transfer(
-            &env.current_contract_address(),
-            &buyer,
-            &escrow.amount,
-        );
+        payout(&env, &escrow.token, &buyer, escrow.amount);
 
         payout_basket_tokens(&env, escrow_id, &buyer)?;
 
@@ -1479,10 +1480,12 @@ impl Escrow {
                 .get(i)
                 .ok_or(ContractError::IndexOutOfBounds)?;
             if entry.amount > 0 {
-                token::Client::new(&env, &entry.token).transfer(
+                transfer_helper(
+                    &env,
+                    &entry.token,
                     &buyer,
-                    env.current_contract_address(),
-                    &entry.amount,
+                    &env.current_contract_address(),
+                    entry.amount,
                 );
             }
         }

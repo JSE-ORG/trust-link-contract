@@ -3,7 +3,7 @@
 //! resolver-vote tallying. Not part of the contract's public interface.
 
 use crate::*;
-use soroban_sdk::{Address, Env, String, Symbol, Vec};
+use soroban_sdk::{token, Address, Env, String, Symbol, Vec};
 
 /// Maps an escrow's terminal state to the most specific rejection error, or
 /// returns `fallback` for states that have no dedicated code.
@@ -81,31 +81,11 @@ pub(crate) fn add_or_update_vote(
     votes
 }
 
-/// Tally votes and determine if resolution should be executed
-/// Returns the winning resolution if threshold is met
+/// Tally votes and determine if resolution should be executed.
+/// Returns the winning resolution if threshold is met.
 ///
-/// # Deadlock Scenario (Issue #707 / related: #667)
-///
-/// **Known Issue**: Voting can permanently deadlock when split votes prevent
-/// either side from reaching the threshold.  Example: `threshold=3` with
-/// 3 resolvers, getting 1 Release + 1 Refund + 1 abstention — neither side
-/// reaches 3.  Worse, if `threshold=N` (unanimous) and every resolver has
-/// voted but votes are split (e.g. 2 Release + 1 Refund with `threshold=3`),
-/// no additional votes are possible and funds remain frozen in `Disputed`
-/// indefinitely.
-///
-/// **Escape hatches**: The deadlock described above is bounded by two
-/// implemented fallbacks:
-///
-/// 1. [`crate::Escrow::resolve_deadlocked_dispute`] — once a dispute has been
-///    split (threshold not met) for `DISPUTE_DEADLOCK_WINDOW`, anyone may
-///    trigger the simple-majority fallback via [`tally_votes_majority`].
-/// 2. [`crate::Escrow::claim_dispute_timeout`] — if the dispute stays
-///    unresolved for the admin-configured `DisputeTimeout`, either party can
-///    force a Refund.
-///
-/// Operators should still configure `Multi` thresholds carefully (e.g. avoid
-/// `threshold == N` for `N > 1`) so that a majority is reachable in practice.
+/// See [`crate::types::MultiResolver`] for the deadlock risk this threshold
+/// check is subject to, and the escape hatches that bound it.
 pub(crate) fn tally_votes(
     votes: &Vec<ResolverVote>,
     threshold: u32,
@@ -726,6 +706,29 @@ pub(crate) fn extend_escrow_ttl(env: &Env, escrow_id: u64) -> Result<(), Contrac
 }
 
 pub(crate) use crate::helpers::payout::{payout, transfer_with_protocol_fee};
+
+/// Transfers `amount` of `token_addr` from `from` to `to`.
+///
+/// This is the only place in the contract that constructs a `token::Client`
+/// and calls `transfer` — every escrow funding, refund, payout, and fee
+/// transfer routes through this one call site, so there is exactly one spot
+/// to audit for the actual cross-contract token transfer, and no call site
+/// can drift from the others' argument order or shape.
+///
+/// This is a thin, direction-agnostic wrapper: unlike [`payout`], it does not
+/// skip non-positive amounts or fix `from`/`to` to the contract's own
+/// address, since it also serves the "collect from caller" direction used by
+/// `fund_escrow`/`fund_basket_escrow`. Callers paying *out* of the contract
+/// should prefer [`payout`], which wraps this with that zero-skip behavior.
+pub(crate) fn transfer_helper(
+    env: &Env,
+    token_addr: &Address,
+    from: &Address,
+    to: &Address,
+    amount: i128,
+) {
+    token::Client::new(env, token_addr).transfer(from, to, &amount);
+}
 
 /// Distributes the specified `amount` among the `payees` proportionally based on their BPS shares.
 ///
