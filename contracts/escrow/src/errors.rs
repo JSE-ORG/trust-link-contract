@@ -60,7 +60,7 @@ pub enum ContractError {
     DisputeWindowStillOpen = 24,
     /// Returned when a resolver is not in the approved registry and strict mode is enabled.
     UnauthorizedResolver = 25,
-    /// Returned when emergency_drain is called but the contract is not paused.
+    /// Returned when `emergency_drain` is called but the contract is not paused.
     ContractNotPaused = 26,
     /// Returned when a token is not in the allowlist and the allowlist is enabled.
     TokenNotAllowed = 27,
@@ -68,13 +68,13 @@ pub enum ContractError {
     EscrowExpired = 28,
     /// Returned when an escrow amount is below the configured minimum.
     AmountBelowMinimum = 29,
-    /// Returned when an action requires the escrow to be in PendingFinalization state.
+    /// Returned when an action requires the escrow to be in `PendingFinalization` state.
     NotPendingFinalization = 30,
     /// Returned when finalization is attempted while the appeal window is still active.
     AppealWindowActive = 31,
     /// Returned when the platform fee exceeds its allowed maximum.
     PlatformFeeExceedsMax = 32,
-    /// Returned when shipping_window is zero or exceeds the maximum allowed value.
+    /// Returned when `shipping_window` is zero or exceeds the maximum allowed value.
     InvalidShippingWindow = 33,
     /// Returned when `record_delivery` is called on an escrow that already has delivery recorded.
     DeliveryAlreadyRecorded = 34,
@@ -98,7 +98,7 @@ pub enum ContractError {
     BasketTokenMismatch = 42,
     /// Returned when a `multicall` call argument is missing or fails to decode into the expected type.
     InvalidMulticallArg = 43,
-    /// Returned when a `Payee` list's basis points do not sum to exactly `BASIS_POINTS` (10_000).
+    /// Returned when a `Payee` list's basis points do not sum to exactly `BASIS_POINTS` (`10_000`).
     PayeeBpsMismatch = 44,
     /// Returned when the maximum number of messages for an escrow has been reached.
     TooManyMessages = 45,

@@ -220,7 +220,7 @@ pub struct EscrowFunded {
     pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
     /// Basket token addresses and amounts (optional, for basket escrows).
-    /// Field added in schema_version 3 for issue #668.
+    /// Field added in `schema_version` 3 for issue #668.
     pub basket_tokens: Option<soroban_sdk::Vec<(Address, i128)>>,
 }
 
@@ -919,7 +919,7 @@ pub struct RefundRequestedEvent {
     pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
     /// Basket token addresses and amounts (optional, for basket escrows).
-    /// Field added in schema_version 3 for issue #669.
+    /// Field added in `schema_version` 3 for issue #669.
     pub basket_tokens: Option<soroban_sdk::Vec<(Address, i128)>>,
 }
 

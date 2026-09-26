@@ -16,7 +16,7 @@ use soroban_sdk::{Address, Env};
 ///
 /// Consequence of flooring: for amounts where `amount * fee_bps < 10_000` the
 /// fee rounds down to `0` and is effectively waived. The `MIN_ESCROW_AMOUNT`
-/// guard (1_000_000 stroops) in `create_escrow` keeps escrows large enough that
+/// guard (`1_000_000` stroops) in `create_escrow` keeps escrows large enough that
 /// a non-zero `fee_bps` always yields a meaningful, non-zero fee.
 ///
 /// Floor is chosen deliberately over ceiling/round-half-up: it guarantees the
@@ -39,15 +39,15 @@ pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, ContractError> 
     }
 
     let part1 = amount
-        .checked_div(BASIS_POINTS as i128)
+        .checked_div(i128::from(BASIS_POINTS))
         .ok_or(ContractError::FeeCalculationOverflow)?
-        .checked_mul(fee_bps as i128)
+        .checked_mul(i128::from(fee_bps))
         .ok_or(ContractError::FeeCalculationOverflow)?;
 
-    let part2 = (amount % BASIS_POINTS as i128)
-        .checked_mul(fee_bps as i128)
+    let part2 = (amount % i128::from(BASIS_POINTS))
+        .checked_mul(i128::from(fee_bps))
         .ok_or(ContractError::FeeCalculationOverflow)?
-        .checked_div(BASIS_POINTS as i128)
+        .checked_div(i128::from(BASIS_POINTS))
         .ok_or(ContractError::FeeCalculationOverflow)?;
 
     part1

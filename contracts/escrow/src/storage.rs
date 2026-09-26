@@ -2,8 +2,9 @@ use soroban_sdk::{Address, Env, Vec};
 
 use crate::types::Message;
 use crate::{
-    ContractError, DataKey, EscrowData, FeeConfig, TimelockProposal, DEFAULT_TTL_EXTENSION,
-    TTL_THRESHOLD_DIVISOR,
+    ContractError, DataKey, EscrowData, FeeConfig, GlobalConfig, TimelockProposal,
+    DEFAULT_APPEAL_FEE_BPS, DEFAULT_DISPUTE_TIMEOUT, DEFAULT_TTL_EXTENSION, MAX_ESCROW_AMOUNT,
+    MIN_ESCROW_AMOUNT, TTL_THRESHOLD_DIVISOR,
 };
 
 // ============================================================================
@@ -22,17 +23,131 @@ use crate::{
 
 /// Get the configured TTL extension from the contract, or use the default.
 pub fn get_ttl_extension(env: &Env) -> u32 {
-    use crate::DataKey;
+    read_global_config(env).ttl_extension_ledgers
+}
+
+// ── Global admin configuration ──────────────────────────────────────────────
+
+/// Configuration a contract has before any admin setting is written. Each
+/// value matches what the matching pre-v2 key fell back to when absent.
+pub fn default_global_config() -> GlobalConfig {
+    GlobalConfig {
+        fee_collector: None,
+        treasury: None,
+        protocol_fee_bps: 0,
+        arbitration_fee_bps: 0,
+        platform_fee_bps: 0,
+        appeal_fee_bps: DEFAULT_APPEAL_FEE_BPS,
+        min_amount: MIN_ESCROW_AMOUNT,
+        max_amount: MAX_ESCROW_AMOUNT,
+        dispute_timeout: DEFAULT_DISPUTE_TIMEOUT,
+        ttl_extension_ledgers: DEFAULT_TTL_EXTENSION,
+        paused: false,
+        token_allowlist_enabled: false,
+        resolver_strict: false,
+        recovery_mode: false,
+    }
+}
+
+/// Reads the global configuration in one storage access.
+///
+/// Falls back to assembling it from the pre-v2 per-setting keys for
+/// contracts that were upgraded but have not yet run `migrate`; the first
+/// write after that persists the combined entry.
+pub fn read_global_config(env: &Env) -> GlobalConfig {
     env.storage()
         .instance()
-        .get(&DataKey::TtlExtensionLedgers)
-        .unwrap_or(DEFAULT_TTL_EXTENSION)
+        .get(&DataKey::GlobalConfig)
+        .unwrap_or_else(|| read_legacy_global_config(env))
+}
+
+pub fn write_global_config(env: &Env, config: &GlobalConfig) {
+    env.storage().instance().set(&DataKey::GlobalConfig, config);
+}
+
+/// Read-modify-write of the global configuration.
+pub fn update_global_config(env: &Env, f: impl FnOnce(&mut GlobalConfig)) {
+    let mut config = read_global_config(env);
+    f(&mut config);
+    write_global_config(env, &config);
+}
+
+/// Pre-v2 keys whose values now live in [`GlobalConfig`].
+fn legacy_global_config_keys() -> [DataKey; 13] {
+    [
+        DataKey::FeeCollector,
+        DataKey::Treasury,
+        DataKey::FeeConfig,
+        DataKey::PlatformFeeBps,
+        DataKey::AppealFeeBps,
+        DataKey::MinAmount,
+        DataKey::MaxAmount,
+        DataKey::DisputeTimeout,
+        DataKey::TtlExtensionLedgers,
+        DataKey::Paused,
+        DataKey::TokenAllowlistEnabled,
+        DataKey::ResolverStrict,
+        DataKey::RecoveryMode,
+    ]
+}
+
+fn read_legacy_global_config(env: &Env) -> GlobalConfig {
+    let storage = env.storage().instance();
+    let defaults = default_global_config();
+    let fees: Option<FeeConfig> = storage.get(&DataKey::FeeConfig);
+    GlobalConfig {
+        fee_collector: storage.get(&DataKey::FeeCollector),
+        treasury: storage.get(&DataKey::Treasury),
+        protocol_fee_bps: fees.as_ref().map_or(0, |f| f.protocol_fee_bps),
+        arbitration_fee_bps: fees.map_or(0, |f| f.arbitration_fee_bps),
+        platform_fee_bps: storage
+            .get(&DataKey::PlatformFeeBps)
+            .unwrap_or(defaults.platform_fee_bps),
+        appeal_fee_bps: storage
+            .get(&DataKey::AppealFeeBps)
+            .unwrap_or(defaults.appeal_fee_bps),
+        min_amount: storage
+            .get(&DataKey::MinAmount)
+            .unwrap_or(defaults.min_amount),
+        max_amount: storage
+            .get(&DataKey::MaxAmount)
+            .unwrap_or(defaults.max_amount),
+        dispute_timeout: storage
+            .get(&DataKey::DisputeTimeout)
+            .unwrap_or(defaults.dispute_timeout),
+        ttl_extension_ledgers: storage
+            .get(&DataKey::TtlExtensionLedgers)
+            .unwrap_or(defaults.ttl_extension_ledgers),
+        paused: storage.get(&DataKey::Paused).unwrap_or(defaults.paused),
+        token_allowlist_enabled: storage
+            .get(&DataKey::TokenAllowlistEnabled)
+            .unwrap_or(defaults.token_allowlist_enabled),
+        resolver_strict: storage
+            .get(&DataKey::ResolverStrict)
+            .unwrap_or(defaults.resolver_strict),
+        recovery_mode: storage
+            .get(&DataKey::RecoveryMode)
+            .unwrap_or(defaults.recovery_mode),
+    }
+}
+
+/// v1 -> v2 migration step: folds the per-setting keys into a single
+/// [`DataKey::GlobalConfig`] entry and deletes them. If `GlobalConfig`
+/// already exists (a setter ran after the upgrade), it is authoritative and
+/// the stale legacy keys are just removed.
+pub fn migrate_legacy_global_config(env: &Env) {
+    let config = read_global_config(env);
+    write_global_config(env, &config);
+    let storage = env.storage().instance();
+    for key in legacy_global_config_keys() {
+        storage.remove(&key);
+    }
 }
 
 /// Extend the instance-storage TTL.
 ///
 /// Called on every public entry point so the singleton configuration keys
-/// (Admin, FeeConfig, EscrowCounter, etc.) never expire between interactions.
+/// (Admin, `FeeConfig`, `EscrowCounter`, etc.) never expire between interactions.
 pub fn extend_instance_ttl(env: &Env) {
     let ext = get_ttl_extension(env);
     env.storage()
@@ -155,13 +270,18 @@ pub fn read_admin_address(env: &Env) -> Option<Address> {
 }
 
 pub fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
-    env.storage()
-        .instance()
-        .set(&DataKey::FeeConfig, fee_config);
+    update_global_config(env, |c| {
+        c.protocol_fee_bps = fee_config.protocol_fee_bps;
+        c.arbitration_fee_bps = fee_config.arbitration_fee_bps;
+    });
 }
 
-pub fn read_fee_config(env: &Env) -> Option<FeeConfig> {
-    env.storage().instance().get(&DataKey::FeeConfig)
+pub fn read_fee_config(env: &Env) -> FeeConfig {
+    let config = read_global_config(env);
+    FeeConfig {
+        protocol_fee_bps: config.protocol_fee_bps,
+        arbitration_fee_bps: config.arbitration_fee_bps,
+    }
 }
 
 pub fn write_escrow_counter(env: &Env, counter: u64) {

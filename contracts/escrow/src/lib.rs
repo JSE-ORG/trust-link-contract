@@ -27,26 +27,25 @@ pub use crate::events::{
     emit_dispute_appealed, emit_dispute_pending_finalization, emit_dispute_raised,
     emit_dispute_resolved, emit_emergency_drain, emit_escrow_auto_canceled, emit_escrow_canceled,
     emit_escrow_completed, emit_escrow_created, emit_escrow_expired, emit_escrow_funded,
-    emit_escrow_shipped, emit_fee_collector_updated, emit_fee_updated,
-    emit_pending_expiry_cleared, emit_platform_fee_updated, emit_protocol_fee_updated,
-    emit_recovery_mode_updated, emit_recovery_withdraw, emit_refund_approved,
-    emit_refund_requested, emit_resolver_approved, emit_resolver_removed, emit_resolver_rotated,
-    emit_resolver_strict_updated, emit_storage_migrated, emit_timelock_cancelled,
+    emit_escrow_shipped, emit_fee_collector_updated, emit_fee_updated, emit_pending_expiry_cleared,
+    emit_platform_fee_updated, emit_protocol_fee_updated, emit_recovery_mode_updated,
+    emit_recovery_withdraw, emit_refund_approved, emit_refund_requested, emit_resolver_approved,
+    emit_resolver_removed, emit_resolver_rotated, emit_resolver_strict_updated,
+    emit_resolver_vote_recorded, emit_storage_migrated, emit_timelock_cancelled,
     emit_timelock_executed, emit_timelock_queued, emit_token_allowlist_updated,
-    emit_treasury_updated, emit_ttl_extension_updated,
-    ActionPausedEvent, ActionUnpausedEvent, AdminRotated, AmountLimitsUpdated,
-    ArbitrationFeeUpdated, AutoReleased, ContractInitialized, ContractPausedEvent,
-    ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled, DeliveryProposed,
-    DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowAutoCanceled, EscrowCanceled,
-    EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped, FeeUpdated,
-    PendingExpiryClear, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated,
-    ResolverStrictUpdated, ResolverVoteRecorded, TimelockCancelled, TimelockExecuted,
-    TimelockQueued, TtlExtensionUpdated,
+    emit_treasury_updated, emit_ttl_extension_updated, ActionPausedEvent, ActionUnpausedEvent,
+    AdminRotated, AmountLimitsUpdated, ArbitrationFeeUpdated, AutoReleased, ContractInitialized,
+    ContractPausedEvent, ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled,
+    DeliveryProposed, DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowAutoCanceled,
+    EscrowCanceled, EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped,
+    FeeUpdated, PendingExpiryClear, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved,
+    ResolverRotated, ResolverStrictUpdated, ResolverVoteRecorded, TimelockCancelled,
+    TimelockExecuted, TimelockQueued, TtlExtensionUpdated,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
-    EscrowState, ExpirySchedule, FeeConfig, Payee, PublicContractConfig, ResolutionType,
-    ResolverSet, ResolverVote, TimelockOperation, TimelockProposal, TokenEntry,
+    EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee, PublicContractConfig,
+    ResolutionType, ResolverSet, ResolverVote, TimelockOperation, TimelockProposal, TokenEntry,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
@@ -81,7 +80,7 @@ const MAX_PROTOCOL_FEE_BPS: u32 = 500;
 
 /// Maximum combined protocol + arbitration fee in basis points (1000 = 10%).
 ///
-/// Ensures that protocol_fee_bps + arbitration_fee_bps cannot exceed 10%,
+/// Ensures that `protocol_fee_bps` + `arbitration_fee_bps` cannot exceed 10%,
 /// preventing the malicious admin attack where combined fees drain entire escrows.
 const MAX_COMBINED_FEE_BPS: u32 = 1_000;
 
@@ -93,7 +92,7 @@ pub const CONTRACT_VERSION: u32 = 1;
 /// Bump this whenever the layout of a stored type changes, and extend
 /// [`Escrow::migrate`] with the corresponding step. Contracts deployed before
 /// versioning existed report `0`; see `docs/UPGRADES.md`.
-pub const STORAGE_VERSION: u32 = 1;
+pub const STORAGE_VERSION: u32 = 2;
 
 /// Maximum platform fee in basis points (200 = 2%).
 ///
@@ -131,7 +130,7 @@ const DEFAULT_APPEAL_FEE_BPS: u32 = 0;
 /// Keeps the contract from accepting zero or negative escrows.
 pub const MIN_ESCROW_AMOUNT: i128 = 1;
 
-/// Length of the dispute window in seconds (172_800 = 48 hours).
+/// Length of the dispute window in seconds (`172_800` = 48 hours).
 ///
 /// On `fund_escrow` the contract sets `dispute_deadline = funded_at +
 /// DISPUTE_WINDOW`. Until that deadline the buyer may `raise_dispute`, and
@@ -150,7 +149,7 @@ const TTL_THRESHOLD_DIVISOR: u32 = 2;
 const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 
 /// Longest a fallback escrow's primary resolver may hold sole authority over
-/// a dispute before the backup must be allowed to act (2_592_000 = 30 days).
+/// a dispute before the backup must be allowed to act (`2_592_000` = 30 days).
 const FALLBACK_PRIMARY_GRACE: u64 = 2_592_000;
 
 /// Furthest past the creation timestamp a `FallbackResolver::dispute_deadline`
@@ -164,10 +163,10 @@ const MAX_FALLBACK_DEADLINE_OFFSET: u64 =
 /// Maximum number of entries kept in an escrow's state history.
 /// Once reached, the oldest entry is dropped for each new one appended,
 /// bounding storage size for high-churn escrows (e.g. disputed <->
-/// pending_finalization cycles).
+/// `pending_finalization` cycles).
 const MAX_STATE_HISTORY_ENTRIES: u32 = 50;
 
-/// Basis points denominator (100% = 10_000 basis points).
+/// Basis points denominator (100% = `10_000` basis points).
 pub const BASIS_POINTS: u32 = 10_000;
 pub const DELIVERY_TIMELOCK: u64 = 86_400;
 
@@ -215,7 +214,7 @@ pub const ESCROW_INDEX_PAGE_SIZE: u32 = 20;
 pub const MIN_SHIPPING_WINDOW: u64 = 1;
 
 /// Maximum shipping window in seconds (approximately 2 years).
-/// Prevents accidental or malicious use of u64::MAX which would lock funds indefinitely.
+/// Prevents accidental or malicious use of `u64::MAX` which would lock funds indefinitely.
 pub const MAX_SHIPPING_WINDOW: u64 = 63_072_000;
 
 /// Default shipping window in seconds (3600 = 1 hour), used as a fallback by

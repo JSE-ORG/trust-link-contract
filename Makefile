@@ -25,8 +25,19 @@ fmt: ## Format all code
 fmt-check: ## Check formatting without modifying files
 	cargo fmt --all -- --check
 
-clippy: ## Run clippy lints
-	cargo clippy --lib -- -D warnings
+# Pedantic lints that conflict with Soroban conventions rather than flag bugs:
+# - needless_pass_by_value: #[contractimpl] entry points must take Env/Address by value.
+# - missing_errors_doc: every entry point returns ContractError; codes are documented in errors.rs.
+# - must_use_candidate: fires on every read-only contract query.
+# - wildcard_imports: modules intentionally share the crate prelude via `use crate::*`.
+CLIPPY_PEDANTIC_ALLOW := \
+	-A clippy::needless_pass_by_value \
+	-A clippy::missing_errors_doc \
+	-A clippy::must_use_candidate \
+	-A clippy::wildcard_imports
+
+clippy: ## Run clippy lints, including clippy::pedantic
+	cargo clippy --lib -- -D warnings -W clippy::pedantic $(CLIPPY_PEDANTIC_ALLOW)
 
 check: fmt-check clippy test check-error-codes ## Run all checks (fmt + clippy + test + error-code drift)
 
