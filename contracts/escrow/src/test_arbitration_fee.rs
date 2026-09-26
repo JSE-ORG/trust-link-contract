@@ -80,18 +80,17 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id);
 
-    // Calculation:
+    // Calculation (all fees charged on the original funded principal, 1000):
     // 1. amount = 1000
     // 2. arbitration_fee = 50 (5% of 1000)
-    // 3. remaining = 1000 - 50 = 950
-    // 4. protocol_fee (2% of 950) = 950 * 200 / 10000 = 19
-    // 5. final_net = 950 - 19 = 931
+    // 3. protocol_fee = 20 (2% of 1000, *not* of the 950 remainder)
+    // 4. seller payout = 1000 - 50 - 20 = 930
 
-    assert_eq!(balance(&env, &token, &seller), 931);
+    assert_eq!(balance(&env, &token, &seller), 930);
 
-    // arbitration fee (50) and protocol fee (19) go to fee_collector
+    // arbitration fee (50) and protocol fee (20) go to fee_collector
     assert_eq!(balance(&env, &token, &contract_id), 0);
-    assert_eq!(balance(&env, &token, &fee_collector), 69);
+    assert_eq!(balance(&env, &token, &fee_collector), 70);
 
     // Dedicated tracking variable should be updated
     assert_eq!(client.get_total_arbitration_fees(&token), 50);
@@ -144,16 +143,15 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id);
 
-    // Calculation:
+    // Calculation (all fees charged on the original funded principal, 1000):
     // 1. amount = 1000
     // 2. arbitration_fee = 50 (5% of 1000)
-    // 3. remaining = 1000 - 50 = 950
-    // 4. protocol_fee (3% of 950) = 950 * 300 / 10000 = 28 (floor)
-    // 5. final_net = 950 - 28 = 922
+    // 3. protocol_fee = 30 (3% of 1000, *not* of the 950 remainder)
+    // 4. buyer refund = 1000 - 50 - 30 = 920
 
-    assert_eq!(balance(&env, &token, &buyer), 922);
+    assert_eq!(balance(&env, &token, &buyer), 920);
     assert_eq!(balance(&env, &token, &contract_id), 0);
-    assert_eq!(balance(&env, &token, &fee_collector), 78);
+    assert_eq!(balance(&env, &token, &fee_collector), 80);
     assert_eq!(client.get_total_arbitration_fees(&token), 50);
 }
 

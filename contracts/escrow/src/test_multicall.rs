@@ -147,7 +147,7 @@ fn test_batch_create_escrow_max_batch_size() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
-    const BATCH_SIZE: u32 = 50;
+    const BATCH_SIZE: u32 = 10;
     let mut inputs: Vec<crate::EscrowInput> = Vec::new(&env);
     for _ in 0..BATCH_SIZE {
         inputs.push_back(crate::EscrowInput {

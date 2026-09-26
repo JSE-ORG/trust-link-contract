@@ -116,6 +116,25 @@ impl Escrow {
         CONTRACT_VERSION
     }
 
+    /// One-time contract setup: stores the admin, fee collector, arbitration
+    /// fee, protocol-fee snapshot, escrow counter, pause flag, and storage
+    /// version.
+    ///
+    /// # Security: enable the token allowlist before accepting real value
+    ///
+    /// `initialize` intentionally leaves the token allowlist **disabled** for
+    /// backward compatibility, which means any SEP-41 token can be used to
+    /// create an escrow until an operator opts in. Untrusted token contracts
+    /// can re-enter or otherwise misbehave during the payouts this contract
+    /// performs. After initializing, an operator MUST, before opening the
+    /// contract to users:
+    ///
+    /// 1. `set_token_allowlist_enabled(true)` (or queue/execute the timelocked
+    ///    `SetTokenAllowlistEnabled` operation), and
+    /// 2. register each vetted token with `add_allowed_token`.
+    ///
+    /// See `SECURITY.md` ("Token Allowlisting") and the docs on
+    /// [`crate::internal::is_token_allowlist_enabled`].
     pub fn initialize(
         env: Env,
         admin: Address,

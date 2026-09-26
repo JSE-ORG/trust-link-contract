@@ -214,8 +214,25 @@ impl Escrow {
             .ok_or(ContractError::NotInitialized)?;
 
         let platform_fee_bps = read_platform_fee_bps(&env);
+
+        // ── FEE BASIS (original funded principal) ──
+        // `execute_resolution_transition` has already paid the arbitration and
+        // resolver fees out of the contract and subtracted them from
+        // `escrow.amount`. Charging the platform and protocol fees on that
+        // reduced remainder would compound every fee on a shrinking base and
+        // under-collect relative to the configured rates, so reconstruct the
+        // original funded principal by adding the two recorded fees back. They
+        // are recorded exactly once per dispute (guarded by `fees_charged`) and
+        // preserved across appeals, so this reconstruction is exact.
+        let fee_basis = escrow
+            .amount
+            .checked_add(dispute_data.arbitration_fee)
+            .ok_or(ContractError::ArithmeticError)?
+            .checked_add(dispute_data.resolver_fee)
+            .ok_or(ContractError::ArithmeticError)?;
+
         let platform_fee = if platform_fee_bps > 0 {
-            crate::helpers::payout::calculate_fee(escrow.amount, platform_fee_bps)?
+            crate::helpers::payout::calculate_fee(fee_basis, platform_fee_bps)?
         } else {
             0
         };
@@ -226,9 +243,18 @@ impl Escrow {
             None
         };
 
-        let seller_amount = escrow
+        // The protocol fee is a flat percentage of the same principal and is
+        // independent of the platform fee — no compounding on a reduced base.
+        let protocol_fee = crate::helpers::payout::calculate_fee(fee_basis, escrow.fee_bps)?;
+
+        // What is still custodied for this escrow: the principal minus the
+        // arbitration/resolver fees already paid, minus the platform and
+        // protocol fees settled here.
+        let payout_amount = escrow
             .amount
             .checked_sub(platform_fee)
+            .ok_or(ContractError::ArithmeticError)?
+            .checked_sub(protocol_fee)
             .ok_or(ContractError::ArithmeticError)?;
 
         // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
@@ -255,15 +281,8 @@ impl Escrow {
         if let Some(ref treasury_addr) = treasury {
             payout(&env, &escrow.token, treasury_addr, platform_fee);
         }
-
-        transfer_with_protocol_fee(
-            &env,
-            &escrow.token,
-            &recipient,
-            &fee_collector,
-            seller_amount,
-            escrow.fee_bps,
-        )?;
+        payout(&env, &escrow.token, &recipient, payout_amount);
+        payout(&env, &escrow.token, &fee_collector, protocol_fee);
         payout_basket_tokens(&env, escrow_id, &recipient)?;
 
         emit_dispute_resolved(

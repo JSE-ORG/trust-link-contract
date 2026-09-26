@@ -226,6 +226,15 @@ impl Escrow {
         emit_pending_expiry_cleared(&env, escrow_id);
         clear_delivery_proposal(&env, escrow_id);
 
+        // ── INTERACTIONS (external token transfers) ──
+        //
+        // The escrow is already persisted as `Expired`, so a re-entrant token
+        // that calls back into `reclaim_expired` (or any other entry point)
+        // during the refund finds a terminal state and is rejected instead of
+        // draining the same escrow twice.
+        payout(&env, &escrow.token, &buyer, escrow.amount);
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
+
         emit_escrow_expired(
             &env,
             escrow_id,
@@ -778,7 +787,10 @@ impl Escrow {
             increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
             true
         } else {
-            return Err(ContractError::InvalidState);
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
         };
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
@@ -1658,8 +1670,8 @@ impl Escrow {
     /// Primary payee (`payees[0]`) approves a pending refund request,
     /// transferring the full amount (and any basket tokens) back to the buyer.
     /// Secondary payees cannot approve, since a refund forfeits the primary
-    /// seller's share as well as their own. Reverts with `NotAuthorized` if
-    /// `caller` is not the primary payee, or `InvalidStateTransition` if the
+    /// seller's share as well as their own. Reverts with `NotAuthorizedSeller`
+    /// if `caller` is not the primary payee, or `InvalidStateTransition` if the
     /// escrow is not `RefundRequested`. Transitions the escrow to `Refunded`.
     /// Emits `refund_approved`.
     pub fn approve_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
@@ -1674,7 +1686,7 @@ impl Escrow {
             .ok_or(ContractError::IndexOutOfBounds)?
             .address;
         if caller != primary_payee {
-            return Err(ContractError::NotAuthorized);
+            return Err(ContractError::NotAuthorizedSeller);
         }
 
         if escrow.state != EscrowState::RefundRequested {
@@ -1693,10 +1705,6 @@ impl Escrow {
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
-
-        let token_client = token::Client::new(&env, &escrow.token);
-        token_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
 
         // ── INTERACTIONS (external token transfers) ──
         payout(&env, &escrow.token, &buyer, escrow.amount);

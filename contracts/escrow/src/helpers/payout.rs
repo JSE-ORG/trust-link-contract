@@ -81,3 +81,29 @@ pub(crate) fn transfer_with_protocol_fee(
     payout(env, token_addr, fee_collector, fee);
     Ok((fee, net))
 }
+
+/// Transfers `amount` of `token_addr` from this contract to `recipient`.
+///
+/// This is the single choke point every payout path shares — protocol and
+/// arbitration fees, treasury platform fees, payee distributions, basket
+/// tokens, refunds, and emergency drains — so the "only move funds when there
+/// is actually something to move" rule lives in exactly one place. Non-positive
+/// amounts (a fee that rounded down to zero, a zero-share basket entry, an
+/// already-fully-deducted remainder) are skipped instead of issuing a
+/// zero-value `transfer`, which keeps the emitted token events clean and saves
+/// the cross-contract call.
+///
+/// A failing transfer panics, which reverts the whole invocation: there is no
+/// partial-payout path, and callers are expected to have persisted their
+/// `EscrowState` transition *before* calling this helper (see the CEI ordering
+/// in `settle_escrow_to_payees`, `reclaim_expired`, and `finalize_dispute`).
+pub(crate) fn payout(env: &Env, token_addr: &Address, recipient: &Address, amount: i128) {
+    if amount <= 0 {
+        return;
+    }
+    token::Client::new(env, token_addr).transfer(
+        &env.current_contract_address(),
+        recipient,
+        &amount,
+    );
+}

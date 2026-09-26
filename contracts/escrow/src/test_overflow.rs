@@ -259,7 +259,7 @@ fn test_addition_overflow_escrow_counter() {
         &3600_u64,
         &None::<String>,
     );
-    assert_eq!(res, Err(Ok(ContractError::ArithmeticError)));
+    assert_eq!(res, Err(Ok(ContractError::EscrowCounterOverflow)));
 }
 
 #[test]

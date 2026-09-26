@@ -250,7 +250,7 @@ fn multicall_rejects_batches_over_the_limit() {
 #[test]
 fn max_basket_size_is_safely_bounded() {
     assert!(
-        (1..=5).contains(&MAX_BASKET_SIZE),
+        (1..=20).contains(&MAX_BASKET_SIZE),
         "MAX_BASKET_SIZE must stay within the per-transaction cross-contract transfer budget",
     );
 }

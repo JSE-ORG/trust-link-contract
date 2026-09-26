@@ -313,15 +313,14 @@ fn test_sep41_dispute_and_release() {
         .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
     client.finalize_dispute(&admin, &id);
 
-    // Calculations:
+    // Calculations (all fees charged on the original funded principal, 1000):
     // arbitration_fee = 1000 * 50 / 10000 = 5 → fee_collector
-    // remaining = 995
-    // escrow_fee = 995 * 100 / 10000 = 9 → fee_collector
-    // net payout = 995 - 9 = 986 → seller
-    // fee_collector total = 5 + 9 = 14
-    assert_eq!(balance(&env, &token, &seller), 986);
+    // escrow_fee = 1000 * 100 / 10000 = 10 (flat 1% of the principal, not of 995)
+    // net payout = 1000 - 5 - 10 = 985 → seller
+    // fee_collector total = 5 + 10 = 15
+    assert_eq!(balance(&env, &token, &seller), 985);
     assert_eq!(balance(&env, &token, &buyer), 0);
-    assert_eq!(balance(&env, &token, &fee_collector), 14);
+    assert_eq!(balance(&env, &token, &fee_collector), 15);
     assert_eq!(balance(&env, &token, &contract_id), 0);
     assert_eq!(client.get_escrow(&id).state, EscrowState::Completed);
 

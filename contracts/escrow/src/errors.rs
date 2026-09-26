@@ -124,7 +124,7 @@ pub enum ContractError {
     /// `claim_dispute_timeout` instead.
     NoResolverVotes = 52,
     /// Returned when a `multicall` batch exceeds `MAX_MULTICALL_BATCH_SIZE`.
-    MulticallBatchTooLarge = 49,
+    MulticallBatchTooLarge = 60,
     /// Returned when the escrow ID counter overflows its maximum `u64` value.
     EscrowCounterOverflow = 53,
     /// Returned when checked arithmetic overflows specifically during fee calculation (e.g. basis-point math on fees).
@@ -139,4 +139,18 @@ pub enum ContractError {
     ProtocolFeeExceedsMax = 58,
     /// Returned when the arbitration fee exceeds its configured hard cap.
     ArbitrationFeeExceedsMax = 59,
+    /// Returned when a buyer-only operation is attempted by a caller that is
+    /// not the escrow's buyer. Kept distinct from the generic
+    /// [`ContractError::NotAuthorized`] so clients can tell a wrong-role call
+    /// apart from a wrong-escrow/unknown-caller call.
+    NotAuthorizedBuyer = 61,
+    /// Returned when a seller-only operation (e.g. `mark_shipped`) is attempted
+    /// by a caller that is not the escrow's primary payee.
+    NotAuthorizedSeller = 62,
+    /// Returned when an action is attempted on an escrow that has already
+    /// reached the terminal `Completed` state.
+    EscrowAlreadyCompleted = 63,
+    /// Returned when an action is attempted on an escrow that has already
+    /// reached the terminal `Refunded` state.
+    EscrowAlreadyRefunded = 64,
 }
