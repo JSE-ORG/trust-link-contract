@@ -13,7 +13,8 @@
 //! escrow written by a pre-versioning build looks like to the new code.
 
 use crate::{
-    ContractError, DataKey, Escrow, EscrowClient, EscrowData, EscrowState, Payee, STORAGE_VERSION,
+    ContractError, DataKey, Escrow, EscrowClient, EscrowData, EscrowState, FeeConfig, Payee,
+    STORAGE_VERSION,
 };
 use soroban_sdk::{
     testutils::Address as _, token, Address, Env, IntoVal, String as SorobanString, Vec,
@@ -179,4 +180,104 @@ fn migrate_rejects_non_admin() {
     );
     // The failed attempt must leave the version marker absent.
     assert_eq!(f.client.get_storage_version(), 0);
+}
+
+/// Rewrites the admin config as a v1 build stored it: one instance key per
+/// setting and no `GlobalConfig` entry.
+fn downgrade_to_v1_config_layout(env: &Env, contract_id: &Address, treasury: &Address) {
+    env.as_contract(contract_id, || {
+        let config = crate::storage::read_global_config(env);
+        let storage = env.storage().instance();
+        storage.remove(&DataKey::GlobalConfig);
+        storage.set(&DataKey::StorageVersion, &1_u32);
+        storage.set(&DataKey::FeeCollector, &config.fee_collector.unwrap());
+        storage.set(&DataKey::Treasury, treasury);
+        storage.set(
+            &DataKey::FeeConfig,
+            &FeeConfig {
+                protocol_fee_bps: 75,
+                arbitration_fee_bps: 120,
+            },
+        );
+        storage.set(&DataKey::PlatformFeeBps, &40_u32);
+        storage.set(&DataKey::MinAmount, &10_i128);
+        storage.set(&DataKey::MaxAmount, &5_000_i128);
+        storage.set(&DataKey::DisputeTimeout, &86_400_u64);
+        storage.set(&DataKey::Paused, &false);
+        storage.set(&DataKey::ResolverStrict, &true);
+    });
+}
+
+#[test]
+fn v1_config_keys_are_readable_before_migrate_and_folded_by_it() {
+    let env = Env::default();
+    let f = setup(&env);
+    let treasury = Address::generate(&env);
+    let fee_collector = f.client.get_contract_config().fee_collector;
+
+    downgrade_to_v1_config_layout(&env, &f.contract_id, &treasury);
+    assert_eq!(f.client.get_storage_version(), 1);
+
+    // Before `migrate`, reads fall back to the per-setting keys.
+    assert_eq!(f.client.get_arbitration_fee(), 120);
+    assert_eq!(f.client.get_dispute_timeout(), 86_400);
+    assert!(f.client.is_resolver_strict());
+
+    f.client.migrate(&f.admin);
+    assert_eq!(f.client.get_storage_version(), STORAGE_VERSION);
+
+    env.as_contract(&f.contract_id, || {
+        let storage = env.storage().instance();
+        let config: crate::GlobalConfig = storage
+            .get(&DataKey::GlobalConfig)
+            .expect("migrate must write GlobalConfig");
+        assert_eq!(config.fee_collector, Some(fee_collector));
+        assert_eq!(config.treasury, Some(treasury));
+        assert_eq!(config.protocol_fee_bps, 75);
+        assert_eq!(config.arbitration_fee_bps, 120);
+        assert_eq!(config.platform_fee_bps, 40);
+        assert_eq!(config.min_amount, 10);
+        assert_eq!(config.max_amount, 5_000);
+        assert_eq!(config.dispute_timeout, 86_400);
+        assert!(config.resolver_strict);
+        // Settings that were never written keep their defaults.
+        assert_eq!(
+            config.ttl_extension_ledgers,
+            crate::storage::default_global_config().ttl_extension_ledgers,
+        );
+        assert!(!config.recovery_mode);
+
+        for key in [
+            DataKey::FeeCollector,
+            DataKey::Treasury,
+            DataKey::FeeConfig,
+            DataKey::PlatformFeeBps,
+            DataKey::MinAmount,
+            DataKey::MaxAmount,
+            DataKey::DisputeTimeout,
+            DataKey::Paused,
+            DataKey::ResolverStrict,
+        ] {
+            assert!(!storage.has(&key), "legacy config key must be removed");
+        }
+    });
+}
+
+#[test]
+fn setter_before_migrate_persists_global_config_without_losing_v1_values() {
+    let env = Env::default();
+    let f = setup(&env);
+    let treasury = Address::generate(&env);
+
+    downgrade_to_v1_config_layout(&env, &f.contract_id, &treasury);
+
+    // A write before `migrate` must carry every other v1 value across.
+    f.client.set_dispute_timeout(&f.admin, &172_800_u64);
+    assert_eq!(f.client.get_dispute_timeout(), 172_800);
+    assert_eq!(f.client.get_arbitration_fee(), 120);
+    assert!(f.client.is_resolver_strict());
+
+    f.client.migrate(&f.admin);
+    assert_eq!(f.client.get_dispute_timeout(), 172_800);
+    assert_eq!(f.client.get_arbitration_fee(), 120);
 }

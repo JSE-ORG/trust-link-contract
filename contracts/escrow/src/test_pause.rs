@@ -155,7 +155,7 @@ fn test_confirm_delivery_blocked_when_paused() {
     client.fund_escrow(&id, &buyer);
     env.ledger().set_timestamp(DISPUTE_WINDOW + 1);
     client.pause_contract(&admin);
-    let result = client.try_confirm_delivery(&buyer, &id);
+    let result = client.try_confirm_delivery(&buyer, &id, &false);
     assert!(matches!(result, Err(Ok(ContractError::ContractPaused))));
 }
 
@@ -379,7 +379,9 @@ fn test_unpause_resumes_operations() {
         .is_err());
 
     assert!(client.try_fund_escrow(&escrow_id, &buyer).is_err());
-    assert!(client.try_confirm_delivery(&buyer, &escrow_id).is_err());
+    assert!(client
+        .try_confirm_delivery(&buyer, &escrow_id, &false)
+        .is_err());
     assert!(client
         .try_raise_dispute(
             &buyer,
@@ -414,4 +416,58 @@ fn test_unpause_resumes_operations() {
         &3600_u64,
     );
     assert_eq!(second_id, 3);
+}
+
+
+#[test]
+fn test_granular_pause_functionality() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let contract_id = env.register(Escrow, ());
+    let client = crate::EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let create_action = Symbol::new(&env, "create_escrow");
+    let cancel_action = Symbol::new(&env, "cancel_escrow");
+
+    // Pause create_escrow
+    let res = env.as_contract(&contract_id, || {
+        Escrow::pause_action(env.clone(), admin.clone(), create_action.clone())
+    });
+    assert!(res.is_ok());
+
+    // verify it is paused
+    let is_create_paused = client.is_action_paused(&create_action);
+    assert!(is_create_paused);
+
+    // cancel_escrow should not be paused
+    let is_cancel_paused = client.is_action_paused(&cancel_action);
+    assert!(!is_cancel_paused);
+
+    // Global pause should halt everything. So we pause global.
+    let res_global = env.as_contract(&contract_id, || {
+        Escrow::pause_contract(env.clone(), admin.clone())
+    });
+    assert!(res_global.is_ok());
+
+    // Both should be considered paused by ensure_action_not_paused
+    // We can test this by checking `ensure_action_not_paused` directly, or just rely on global pause flag.
+    assert!(client.is_paused());
+
+    // Unpause global
+    let res_unpause_global = env.as_contract(&contract_id, || {
+        Escrow::unpause_contract(env.clone(), admin.clone())
+    });
+    assert!(res_unpause_global.is_ok());
+
+    // Unpause create_escrow
+    let res_unpause_action = env.as_contract(&contract_id, || {
+        Escrow::unpause_action(env.clone(), admin.clone(), create_action.clone())
+    });
+    assert!(res_unpause_action.is_ok());
+
+    assert!(!client.is_action_paused(&create_action));
 }

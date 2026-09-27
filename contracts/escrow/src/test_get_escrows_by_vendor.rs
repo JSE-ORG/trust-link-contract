@@ -161,7 +161,7 @@ fn test_vendor_escrow_data_integrity_and_state_transitions() {
 
     // Confirm delivery
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
 
     // Assert final completed state
     let escrow = client.get_escrow(&id);
