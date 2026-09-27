@@ -182,7 +182,7 @@ fn test_co_signed_release_fails_on_completed_state() {
     // Complete the escrow via confirm_delivery after the dispute window passes
     let escrow = client.get_escrow(&id);
     advance_time(&env, escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
 
     // Now the escrow is Completed — co_signed_release must fail with the
     // dedicated code (was InvalidState).

@@ -138,7 +138,7 @@ impl Escrow {
     }
 
     /// Cast or change a vote on a disputed escrow.
-    /// When threshold is reached, automatically transitions to PendingFinalization.
+    /// When threshold is reached, automatically transitions to `PendingFinalization`.
     pub fn vote(
         env: Env,
         caller: Address,
@@ -207,10 +207,8 @@ impl Escrow {
                 .ok_or(ContractError::EscrowHasNoBuyer)?,
         };
 
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
+        let fee_collector: Address = crate::storage::read_global_config(&env)
+            .fee_collector
             .ok_or(ContractError::NotInitialized)?;
 
         let platform_fee_bps = read_platform_fee_bps(&env);
@@ -270,12 +268,12 @@ impl Escrow {
 
         match resolution {
             ResolutionType::Release => {
-                increment_sharded_counter(&env, COUNTER_KIND_COMPLETED, escrow_id)?
+                increment_sharded_counter(&env, COUNTER_KIND_COMPLETED, escrow_id)?;
             }
             ResolutionType::Refund => {
-                increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?
+                increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
             }
-        };
+        }
 
         // ── INTERACTIONS (external token transfers) ──
         if let Some(ref treasury_addr) = treasury {
@@ -367,9 +365,8 @@ impl Escrow {
         let appeal_fee = crate::helpers::payout::calculate_fee(escrow.amount, appeal_fee_bps)?;
         let fee_collector: Option<Address> = if appeal_fee > 0 {
             Some(
-                env.storage()
-                    .instance()
-                    .get(&DataKey::FeeCollector)
+                crate::storage::read_global_config(&env)
+                    .fee_collector
                     .ok_or(ContractError::NotInitialized)?,
             )
         } else {
@@ -402,11 +399,7 @@ impl Escrow {
         // A failing transfer (e.g. appellant cannot cover the fee) reverts the
         // whole invocation, including the state changes.
         if let Some(fee_collector) = fee_collector {
-            token::Client::new(&env, &escrow.token).transfer(
-                &caller,
-                &fee_collector,
-                &appeal_fee,
-            );
+            token::Client::new(&env, &escrow.token).transfer(&caller, &fee_collector, &appeal_fee);
         }
 
         emit_dispute_appealed(&env, escrow_id, caller);

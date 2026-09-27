@@ -155,7 +155,7 @@ fn test_confirm_delivery_blocked_when_paused() {
     client.fund_escrow(&id, &buyer);
     env.ledger().set_timestamp(DISPUTE_WINDOW + 1);
     client.pause_contract(&admin);
-    let result = client.try_confirm_delivery(&buyer, &id);
+    let result = client.try_confirm_delivery(&buyer, &id, &false);
     assert!(matches!(result, Err(Ok(ContractError::ContractPaused))));
 }
 
@@ -379,7 +379,9 @@ fn test_unpause_resumes_operations() {
         .is_err());
 
     assert!(client.try_fund_escrow(&escrow_id, &buyer).is_err());
-    assert!(client.try_confirm_delivery(&buyer, &escrow_id).is_err());
+    assert!(client
+        .try_confirm_delivery(&buyer, &escrow_id, &false)
+        .is_err());
     assert!(client
         .try_raise_dispute(
             &buyer,

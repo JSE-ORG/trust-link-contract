@@ -120,7 +120,7 @@ fn completed(ctx: &Ctx) -> (u64, Address, Address, Address) {
     ctx.env
         .ledger()
         .set_timestamp(ctx.env.ledger().timestamp() + crate::DISPUTE_WINDOW + 1);
-    ctx.client.confirm_delivery(&buyer, &id);
+    ctx.client.confirm_delivery(&buyer, &id, &false);
     (id, seller, buyer, resolver)
 }
 
@@ -490,7 +490,7 @@ fn confirm_delivery_rejects_seller() {
     let ctx = setup(&env);
     let (id, seller, _, _) = shipped(&ctx);
     assert_eq!(
-        ctx.client.try_confirm_delivery(&seller, &id),
+        ctx.client.try_confirm_delivery(&seller, &id, &false),
         Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
@@ -501,7 +501,7 @@ fn confirm_delivery_rejects_resolver() {
     let ctx = setup(&env);
     let (id, _, _, resolver) = shipped(&ctx);
     assert_eq!(
-        ctx.client.try_confirm_delivery(&resolver, &id),
+        ctx.client.try_confirm_delivery(&resolver, &id, &false),
         Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
@@ -513,7 +513,7 @@ fn confirm_delivery_rejects_intruder() {
     let (id, _, _, _) = shipped(&ctx);
     let intruder = Address::generate(&env);
     assert_eq!(
-        ctx.client.try_confirm_delivery(&intruder, &id),
+        ctx.client.try_confirm_delivery(&intruder, &id, &false),
         Err(Ok(ContractError::NotAuthorizedBuyer))
     );
 }
@@ -756,7 +756,7 @@ fn confirm_delivery_rejects_buyer_in_funded_state() {
     let ctx = setup(&env);
     let (id, _, buyer, _) = funded(&ctx);
     assert_eq!(
-        ctx.client.try_confirm_delivery(&buyer, &id),
+        ctx.client.try_confirm_delivery(&buyer, &id, &false),
         Err(Ok(ContractError::InvalidStateTransition))
     );
 }

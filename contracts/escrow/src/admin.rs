@@ -319,18 +319,15 @@ impl Escrow {
         }
 
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::FeeCollector, &fee_collector);
-        storage::write_fee_config(
+        storage::write_global_config(
             &env,
-            &FeeConfig {
-                protocol_fee_bps: 0,
+            &GlobalConfig {
+                fee_collector: Some(fee_collector.clone()),
                 arbitration_fee_bps,
+                ..storage::default_global_config()
             },
         );
         env.storage().instance().set(&DataKey::EscrowCounter, &1u64);
-        env.storage().instance().set(&DataKey::Paused, &false);
         env.storage()
             .instance()
             .set(&DataKey::StorageVersion, &STORAGE_VERSION);
@@ -355,6 +352,13 @@ impl Escrow {
             return Err(ContractError::AlreadyInitialized);
         }
 
+        if from < 2 {
+            // v1 -> v2: fold the per-setting admin config keys into the single
+            // `GlobalConfig` entry. Until this runs, reads fall back to the
+            // legacy keys, so the contract stays fully operable in between.
+            storage::migrate_legacy_global_config(&env);
+        }
+
         env.storage()
             .instance()
             .set(&DataKey::StorageVersion, &STORAGE_VERSION);
@@ -365,10 +369,7 @@ impl Escrow {
     }
 
     pub fn is_paused(env: Env) -> bool {
-        env.storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
+        storage::read_global_config(&env).paused
     }
 
     pub fn is_action_paused(env: Env, action: Symbol) -> bool {
@@ -390,9 +391,7 @@ impl Escrow {
 
         let old_collector = validate_fee_collector_change(&env, &new_collector)?;
 
-        env.storage()
-            .instance()
-            .set(&DataKey::FeeCollector, &new_collector);
+        storage::update_global_config(&env, |c| c.fee_collector = Some(new_collector.clone()));
         emit_fee_collector_updated(&env, old_collector, new_collector);
         Ok(())
     }
@@ -415,12 +414,7 @@ impl Escrow {
 
     /// Returns the current arbitration fee in basis points.
     pub fn get_arbitration_fee(env: Env) -> u32 {
-        storage::read_fee_config(&env)
-            .unwrap_or(FeeConfig {
-                protocol_fee_bps: 0,
-                arbitration_fee_bps: 0,
-            })
-            .arbitration_fee_bps
+        storage::read_fee_config(&env).arbitration_fee_bps
     }
 
     pub fn get_total_arbitration_fees(env: Env, token: Address) -> i128 {
@@ -596,9 +590,7 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        env.storage()
-            .instance()
-            .set(&DataKey::TokenAllowlistEnabled, &enabled);
+        storage::update_global_config(&env, |c| c.token_allowlist_enabled = enabled);
         emit_allowlist_toggled(&env, enabled);
         Ok(())
     }
@@ -853,9 +845,7 @@ impl Escrow {
 
         let old_collector = validate_fee_collector_change(&env, &new_collector)?;
 
-        env.storage()
-            .instance()
-            .set(&DataKey::FeeCollector, &new_collector);
+        storage::update_global_config(&env, |c| c.fee_collector = Some(new_collector.clone()));
         emit_fee_collector_updated(&env, old_collector, new_collector);
         Ok(())
     }
@@ -881,9 +871,7 @@ impl Escrow {
         }
 
         let old_ledgers = storage::get_ttl_extension(&env);
-        env.storage()
-            .instance()
-            .set(&DataKey::TtlExtensionLedgers, &ledgers);
+        storage::update_global_config(&env, |c| c.ttl_extension_ledgers = ledgers);
         emit_ttl_extension_updated(&env, old_ledgers, ledgers, caller);
         Ok(())
     }
@@ -910,23 +898,17 @@ impl Escrow {
         if min_amount <= 0 || max_amount <= min_amount {
             return Err(ContractError::InvalidAmount);
         }
-        let old_min_amount = env
-            .storage()
-            .instance()
-            .get(&DataKey::MinAmount)
-            .unwrap_or(MIN_ESCROW_AMOUNT);
-        let old_max_amount = env
-            .storage()
-            .instance()
-            .get(&DataKey::MaxAmount)
-            .unwrap_or(MAX_ESCROW_AMOUNT);
+        let config = storage::read_global_config(&env);
+        let (old_min_amount, old_max_amount) = (config.min_amount, config.max_amount);
 
-        env.storage()
-            .instance()
-            .set(&DataKey::MinAmount, &min_amount);
-        env.storage()
-            .instance()
-            .set(&DataKey::MaxAmount, &max_amount);
+        storage::write_global_config(
+            &env,
+            &GlobalConfig {
+                min_amount,
+                max_amount,
+                ..config
+            },
+        );
         emit_amount_limits_updated(
             &env,
             old_min_amount,
@@ -1032,14 +1014,8 @@ impl Escrow {
         params.push_back(strict.into_val(&env));
         let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetResolverStrict, params)?;
 
-        let old_strict = env
-            .storage()
-            .instance()
-            .get(&DataKey::ResolverStrict)
-            .unwrap_or(false);
-        env.storage()
-            .instance()
-            .set(&DataKey::ResolverStrict, &strict);
+        let old_strict = storage::read_global_config(&env).resolver_strict;
+        storage::update_global_config(&env, |c| c.resolver_strict = strict);
         emit_resolver_strict_updated(&env, old_strict, strict, caller);
         Ok(())
     }
@@ -1063,9 +1039,7 @@ impl Escrow {
         let _proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetTokenAllowlistEnabled, params)?;
 
-        env.storage()
-            .instance()
-            .set(&DataKey::TokenAllowlistEnabled, &enabled);
+        storage::update_global_config(&env, |c| c.token_allowlist_enabled = enabled);
         emit_allowlist_toggled(&env, enabled);
         Ok(())
     }
@@ -1149,7 +1123,7 @@ impl Escrow {
         execute_timelock_op(&env, &caller, TimelockOperation::PauseContract, Vec::new(&env))?;
 
         let admin = require_admin(&env)?;
-        env.storage().instance().set(&DataKey::Paused, &true);
+        storage::update_global_config(&env, |c| c.paused = true);
         emit_contract_paused(&env, admin);
         Ok(())
     }
@@ -1164,7 +1138,7 @@ impl Escrow {
         execute_timelock_op(&env, &caller, TimelockOperation::UnpauseContract, Vec::new(&env))?;
 
         let admin = require_admin(&env)?;
-        env.storage().instance().set(&DataKey::Paused, &false);
+        storage::update_global_config(&env, |c| c.paused = false);
         emit_contract_unpaused(&env, admin);
         Ok(())
     }
@@ -1192,11 +1166,7 @@ impl Escrow {
     /// documentation and Terms of Service.
     #[allow(deprecated)]
     pub fn emergency_drain(env: Env, escrow_id: u64) -> Result<(), ContractError> {
-        let paused: bool = env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false);
+        let paused: bool = storage::read_global_config(&env).paused;
         if !paused {
             return Err(ContractError::ContractNotPaused);
         }
@@ -1316,9 +1286,7 @@ impl Escrow {
             return Err(ContractError::InvalidTtlExtension);
         }
         let old_ledgers = storage::get_ttl_extension(&env);
-        env.storage()
-            .instance()
-            .set(&DataKey::TtlExtensionLedgers, &extension_seconds);
+        storage::update_global_config(&env, |c| c.ttl_extension_ledgers = extension_seconds);
         emit_ttl_extension_updated(&env, old_ledgers, extension_seconds, caller);
         Ok(())
     }
@@ -1359,7 +1327,7 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        env.storage().instance().set(&DataKey::Paused, &true);
+        storage::update_global_config(&env, |c| c.paused = true);
         emit_contract_paused(&env, admin);
         Ok(())
     }
@@ -1371,7 +1339,7 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        env.storage().instance().set(&DataKey::Paused, &false);
+        storage::update_global_config(&env, |c| c.paused = false);
         emit_contract_unpaused(&env, admin);
         Ok(())
     }
@@ -1388,18 +1356,16 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        let old_min_amount = env
-            .storage()
-            .instance()
-            .get(&DataKey::MinAmount)
-            .unwrap_or(MIN_ESCROW_AMOUNT);
-        let old_max_amount = env
-            .storage()
-            .instance()
-            .get(&DataKey::MaxAmount)
-            .unwrap_or(MAX_ESCROW_AMOUNT);
-        env.storage().instance().set(&DataKey::MinAmount, &min);
-        env.storage().instance().set(&DataKey::MaxAmount, &max);
+        let config = storage::read_global_config(&env);
+        let (old_min_amount, old_max_amount) = (config.min_amount, config.max_amount);
+        storage::write_global_config(
+            &env,
+            &GlobalConfig {
+                min_amount: min,
+                max_amount: max,
+                ..config
+            },
+        );
         emit_amount_limits_updated(&env, old_min_amount, min, old_max_amount, max, caller);
         Ok(())
     }
@@ -1415,14 +1381,8 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        let old_strict = env
-            .storage()
-            .instance()
-            .get(&DataKey::ResolverStrict)
-            .unwrap_or(false);
-        env.storage()
-            .instance()
-            .set(&DataKey::ResolverStrict, &strict);
+        let old_strict = storage::read_global_config(&env).resolver_strict;
+        storage::update_global_config(&env, |c| c.resolver_strict = strict);
         emit_resolver_strict_updated(&env, old_strict, strict, caller);
         Ok(())
     }
@@ -1500,10 +1460,7 @@ impl Escrow {
 
     #[cfg(any(test, feature = "testutils"))]
     pub fn is_resolver_strict(env: Env) -> bool {
-        env.storage()
-            .instance()
-            .get(&DataKey::ResolverStrict)
-            .unwrap_or(false)
+        storage::read_global_config(&env).resolver_strict
     }
 
     #[cfg(any(test, feature = "testutils"))]
@@ -1567,7 +1524,7 @@ impl Escrow {
         if fee > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::PlatformFeeExceedsMax);
         }
-        env.storage().instance().set(&DataKey::PlatformFeeBps, &fee);
+        storage::update_global_config(&env, |c| c.platform_fee_bps = fee);
         Ok(())
     }
 
@@ -1578,7 +1535,7 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        env.storage().instance().set(&DataKey::Treasury, &treasury);
+        storage::update_global_config(&env, |c| c.treasury = Some(treasury.clone()));
         Ok(())
     }
 

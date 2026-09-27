@@ -435,7 +435,7 @@ fn test_dispute_from_completed_state() {
 
     // Force completion by confirm_delivery
     env.ledger().set_timestamp(1_700_172_801);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
 
     let reason = soroban_sdk::Symbol::new(&env, "reason");
     let description = soroban_sdk::String::from_str(&env, "desc");
