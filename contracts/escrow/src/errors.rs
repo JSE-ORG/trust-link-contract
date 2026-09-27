@@ -162,4 +162,6 @@ pub enum ContractError {
     /// Returned when `recovery_withdraw` is called while recovery mode is not
     /// enabled via `enable_recovery_mode`.
     NotInRecoveryMode = 67,
+    /// Returned when an arbitrary u32 operation ID does not map to a valid `TimelockOperation`.
+    InvalidOperation = 68,
 }
