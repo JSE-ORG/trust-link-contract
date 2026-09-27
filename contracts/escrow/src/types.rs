@@ -224,7 +224,7 @@ pub struct FallbackResolver {
     /// authorized resolver. The comparison is `now >= dispute_deadline`, so
     /// the backup is authorized *exactly* at this instant.
     ///
-    /// This is **not** the same value as `EscrowData::dispute_deadline`,
+    /// This is **not** the same value as `Escrow::dispute_deadline`,
     /// which the contract computes at funding time (`funded_at +
     /// DISPUTE_WINDOW`) to bound the *buyer's* window to raise a dispute.
     /// This field is chosen by the caller of `create_escrow_with_fallback`
@@ -459,7 +459,7 @@ pub struct ContractConfig {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EscrowData {
+pub struct Escrow {
     pub payees: Vec<Payee>,
     pub buyer: Option<Address>,
     pub resolvers: ResolverSet,

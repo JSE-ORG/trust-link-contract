@@ -957,7 +957,7 @@ pub(crate) fn settle_escrow_to_payees(
 pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
     let escrow = load_escrow(env, escrow_id)?;
 
-    // Check custom expiration stored in EscrowData
+    // Check custom expiration stored in Escrow
     if let Some(expires_at) = escrow.expires_at {
         if env.ledger().timestamp() >= expires_at {
             return Err(ContractError::EscrowExpired);
@@ -991,13 +991,13 @@ pub(crate) const COUNTER_KIND_REFUNDED: u32 = 3;
 /// shards, so pre-sharding deployments' statistics are preserved while new
 /// transitions spread their writes. Arithmetic overflow is reported as
 /// `ArithmeticError`.
-pub(crate) fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
+pub(crate) fn increment_counter(env: &Env, key: &DataKey) -> Result<u64, ContractError> {
     let current: u64 = env.storage().instance().get(key).unwrap_or(0);
     let next = current
         .checked_add(1)
         .ok_or(ContractError::ArithmeticError)?;
     env.storage().instance().set(key, &next);
-    Ok(())
+    Ok(next)
 }
 
 /// Increments lifecycle counter `kind` in one of `crate::COUNTER_SHARDS`

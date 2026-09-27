@@ -45,8 +45,8 @@ pub use crate::events::{
     TimelockExecuted, TimelockQueued, TtlExtensionUpdated,
 };
 pub use crate::types::{
-    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
-    EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee, PublicContractConfig,
+    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, Escrow as EscrowData,
+    EscrowInput, EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee, PublicContractConfig,
     ResolutionType, ResolverSet, ResolverVote, TimelockOperation, TimelockProposal, TokenEntry,
 };
 

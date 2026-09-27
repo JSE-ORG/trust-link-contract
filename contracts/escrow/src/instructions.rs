@@ -9,6 +9,12 @@ use soroban_sdk::{
     contractimpl, Address, BytesN, Env, IntoVal, String, Symbol, TryFromVal, TryIntoVal, Val, Vec,
 };
 
+macro_rules! auth {
+    ($caller:expr) => {
+        $caller.require_auth();
+    };
+}
+
 #[contractimpl]
 impl Escrow {
     /// Modern 9-argument production interface accepting either Address or Payee array variants.
@@ -41,11 +47,10 @@ impl Escrow {
         } else {
             return Err(ContractError::InvalidAddress);
         };
-        payees
+        auth!(payees
             .get(0)
             .ok_or(ContractError::IndexOutOfBounds)?
-            .address
-            .require_auth();
+            .address);
 
         ensure_action_not_paused(&env, Symbol::new(&env, "create_escrow"))?;
 
@@ -133,7 +138,7 @@ impl Escrow {
         expires_at: Option<u64>,
         grace_period: u64,
     ) -> Result<u64, ContractError> {
-        seller.require_auth();
+        auth!(seller);
 
         if let Some(exp_time) = expires_at {
             if exp_time <= env.ledger().timestamp() {
@@ -213,7 +218,7 @@ impl Escrow {
             .buyer
             .clone()
             .ok_or(ContractError::EscrowHasNoBuyer)?;
-        buyer.require_auth();
+        auth!(buyer);
 
         // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
@@ -284,7 +289,7 @@ impl Escrow {
     /// Buyer funds a pending escrow. Transitions Pending → Funded.
     #[allow(clippy::too_many_lines)]
     pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
-        buyer.require_auth();
+        auth!(buyer);
         ensure_action_not_paused(&env, Symbol::new(&env, "FUND"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
@@ -424,7 +429,7 @@ impl Escrow {
     ) -> Result<u64, ContractError> {
         // SECURITY:
         // Authenticate before any state reads.
-        seller.require_auth();
+        auth!(seller);
 
         ensure_action_not_paused(&env, Symbol::new(&env, "create_escrow_multi"))?;
 
@@ -518,7 +523,7 @@ impl Escrow {
         sender: Address,
         content: String,
     ) -> Result<(), ContractError> {
-        sender.require_auth();
+        auth!(sender);
         ensure_action_not_paused(&env, Symbol::new(&env, "post_message"))?;
         let escrow = load_escrow(&env, escrow_id)?;
 
@@ -618,7 +623,7 @@ impl Escrow {
     ///   may equal `seller` or `buyer` (`ConflictingRoles`).
     /// - `dispute_deadline` — **absolute ledger timestamp in Unix seconds** at
     ///   which `backup_resolver` becomes authorized. This is unrelated to
-    ///   `EscrowData::dispute_deadline` (the buyer's dispute window, computed at
+    ///   `Escrow::dispute_deadline` (the buyer's dispute window, computed at
     ///   funding). It must be at most `MAX_FALLBACK_DEADLINE_OFFSET` (39
     ///   days) past the current ledger timestamp (`InvalidFallbackDeadline`),
     ///   so the backup can always step in eventually. A past value (or `0`)
@@ -671,7 +676,7 @@ impl Escrow {
     ) -> Result<u64, ContractError> {
         // SECURITY:
         // Authenticate before any state reads.
-        seller.require_auth();
+        auth!(seller);
 
         ensure_action_not_paused(&env, Symbol::new(&env, "create_escrow_with_fallback"))?;
 
@@ -757,7 +762,7 @@ impl Escrow {
     /// buyer, or `InvalidState` for any other escrow state. Emits
     /// `escrow_canceled`.
     pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
-        caller.require_auth();
+        auth!(caller);
         ensure_action_not_paused(&env, Symbol::new(&env, "cancel_escrow"))?;
         crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
@@ -855,8 +860,8 @@ impl Escrow {
             .ok_or(ContractError::IndexOutOfBounds)?
             .address
             .clone();
-        seller_addr.require_auth();
-        buyer.require_auth();
+        auth!(seller_addr);
+        auth!(buyer);
 
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
             return Err(terminal_state_error(
@@ -892,7 +897,7 @@ impl Escrow {
         escrow_id: u64,
         tracking_id: String,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
+        auth!(caller);
         ensure_action_not_paused(&env, Symbol::new(&env, "mark_shipped"))?;
         crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
@@ -965,7 +970,7 @@ impl Escrow {
         caller: Address,
         escrow_id: u64,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
+        auth!(caller);
         let admin: Address = env
             .storage()
             .instance()
@@ -1011,7 +1016,7 @@ impl Escrow {
         caller: Address,
         escrow_id: u64,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
+        auth!(caller);
         let admin: Address = env
             .storage()
             .instance()
@@ -1045,7 +1050,7 @@ impl Escrow {
         caller: Address,
         escrow_id: u64,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
+        auth!(caller);
         let escrow = load_escrow(&env, escrow_id)?;
 
         let buyer = escrow
@@ -1068,7 +1073,7 @@ impl Escrow {
 
     /// Records the delivery of an escrow after the 24-hour timelock has elapsed. Callable by admin.
     pub fn record_delivery(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
-        caller.require_auth();
+        auth!(caller);
         let admin: Address = env
             .storage()
             .instance()
@@ -1147,7 +1152,7 @@ impl Escrow {
         escrow_id: u64,
         waive_shipping_window: bool,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
+        auth!(caller);
         ensure_action_not_paused(&env, Symbol::new(&env, "confirm_delivery"))?;
         crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
@@ -1203,7 +1208,7 @@ impl Escrow {
         caller: Address,
         escrow_id: u64,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
+        auth!(caller);
 
         ensure_action_not_paused(&env, Symbol::new(&env, "co_signed_release"))?;
         let escrow = load_escrow(&env, escrow_id)?;
@@ -1214,12 +1219,12 @@ impl Escrow {
             .ok_or(ContractError::IndexOutOfBounds)?
             .address
             .clone();
-        first_payee.require_auth();
+        auth!(first_payee);
         let buyer = escrow
             .buyer
             .clone()
             .ok_or(ContractError::EscrowHasNoBuyer)?;
-        buyer.require_auth();
+        auth!(buyer);
 
         // Allow early release from Funded or Shipped states, but not if disputed.
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
@@ -1320,7 +1325,7 @@ impl Escrow {
     /// `tokens` and `amounts` must be the same non-empty length and every
     /// token must pass the allowlist check (if enabled). Every amount is
     /// validated: must be > 0 and within `[MinAmount, MaxAmount]`. The primary
-    /// `EscrowData` record tracks `tokens[0]`/`amounts[0]`; the full basket
+    /// `Escrow` record tracks `tokens[0]`/`amounts[0]`; the full basket
     /// is stored separately and readable via `get_basket_tokens`. Must be
     /// funded with `fund_basket_escrow`. Emits `basket_escrow_created`.
     pub fn create_basket_escrow(
@@ -1333,7 +1338,7 @@ impl Escrow {
         fee_bps: u32,
         shipping_window: u64,
     ) -> Result<u64, ContractError> {
-        seller.require_auth();
+        auth!(seller);
         ensure_action_not_paused(&env, Symbol::new(&env, "create_basket_escrow"))?;
 
         if tokens.len() != amounts.len() || tokens.is_empty() {
@@ -1436,7 +1441,7 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow, None);
 
-        // Persist all basket tokens/amounts alongside the primary EscrowData
+        // Persist all basket tokens/amounts alongside the primary Escrow
         let mut basket_entries: Vec<TokenEntry> = Vec::new(&env);
         for i in 0..tokens.len() {
             let token = tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
@@ -1460,7 +1465,7 @@ impl Escrow {
         escrow_id: u64,
         buyer: Address,
     ) -> Result<(), ContractError> {
-        buyer.require_auth();
+        auth!(buyer);
         ensure_action_not_paused(&env, Symbol::new(&env, "FUND"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
@@ -1585,7 +1590,7 @@ impl Escrow {
         escrow_id: u64,
         new_resolver: Address,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
+        auth!(caller);
         ensure_action_not_paused(&env, Symbol::new(&env, "rotate_resolver"))?;
 
         let mut escrow = load_escrow(&env, escrow_id)?;
@@ -1665,7 +1670,7 @@ impl Escrow {
     /// `InvalidStateTransition` if the escrow is not `Funded`. Emits
     /// `refund_requested`.
     pub fn request_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
-        caller.require_auth();
+        auth!(caller);
         ensure_action_not_paused(&env, Symbol::new(&env, "request_refund"))?;
         crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
@@ -1723,7 +1728,7 @@ impl Escrow {
     /// escrow is not `RefundRequested`. Transitions the escrow to `Refunded`.
     /// Emits `refund_approved`.
     pub fn approve_refund(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
-        caller.require_auth();
+        auth!(caller);
         ensure_action_not_paused(&env, Symbol::new(&env, "approve_refund"))?;
         crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
@@ -1780,7 +1785,7 @@ impl Escrow {
         seller: Address,
         escrows: Vec<EscrowInput>,
     ) -> Result<Vec<u64>, ContractError> {
-        seller.require_auth();
+        auth!(seller);
         ensure_action_not_paused(&env, Symbol::new(&env, "batch_create_escrow"))?;
 
         let mut escrow_ids = Vec::new(&env);
