@@ -112,7 +112,7 @@ fn test_dispute_stored_in_persistent_storage() {
     client.raise_dispute(
         &buyer,
         &id,
-        &soroban_sdk::Symbol::new(&env, "test"),
+        &soroban_sdk::Symbol::new(&env, "OTHER"),
         &soroban_sdk::String::from_str(&env, "desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0xab; 32]),
     );
@@ -387,7 +387,7 @@ fn test_resolver_votes_ttl_extended() {
     client.raise_dispute(
         &buyer,
         &id,
-        &soroban_sdk::Symbol::new(&env, "defect"),
+        &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::String::from_str(&env, "item broken"),
         &soroban_sdk::BytesN::from_array(&env, &[0xcd; 32]),
     );
@@ -686,7 +686,7 @@ fn disputed_escrow_with_message(env: &Env, client: &crate::EscrowClient) -> u64 
     client.raise_dispute(
         &buyer,
         &id,
-        &soroban_sdk::Symbol::new(env, "defect"),
+        &soroban_sdk::Symbol::new(env, "DEFECTIVE"),
         &soroban_sdk::String::from_str(env, "item broken"),
         &soroban_sdk::BytesN::from_array(env, &[0xee; 32]),
     );

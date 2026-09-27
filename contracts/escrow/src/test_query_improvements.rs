@@ -225,7 +225,7 @@ fn test_get_resolver_votes_with_fifty_votes() {
     client.raise_dispute(
         &buyer,
         &escrow_id,
-        &Symbol::new(&env, "item"),
+        &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
         &String::from_str(&env, "not received"),
         &BytesN::from_array(&env, &[0; 32]),
     );

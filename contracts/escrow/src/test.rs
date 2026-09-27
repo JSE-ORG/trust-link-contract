@@ -184,7 +184,7 @@ fn test_confirm_delivery() {
 
     let escrow = client.get_escrow(&id);
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Completed);
@@ -223,7 +223,7 @@ fn test_raise_and_resolve_dispute_release_to_seller() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -269,7 +269,7 @@ fn test_raise_and_resolve_dispute_refund_buyer() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -413,14 +413,14 @@ fn test_raise_dispute_only_once() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
     let res = client.try_raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -537,7 +537,7 @@ fn test_fund_and_confirm_delivery_with_non_usdc_token() {
 
     let escrow = client.get_escrow(&id);
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
     assert_eq!(get_balance(&env, &alt_token, &seller), 297);
     assert_eq!(get_balance(&env, &alt_token, &fee_collector), 3);
     assert_eq!(get_balance(&env, &alt_token, &contract_id), 0);
@@ -579,7 +579,7 @@ fn test_dispute_resolved_to_seller_with_non_usdc_token() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -633,7 +633,7 @@ fn test_dispute_refunded_to_buyer_with_non_usdc_token() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -765,7 +765,7 @@ fn test_multi_asset_concurrent_escrows_different_tokens() {
     client.raise_dispute(
         &buyer_b,
         &id2,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -817,7 +817,7 @@ fn test_sequential_escrows_same_non_usdc_token() {
         client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-SEQ"));
         let escrow = client.get_escrow(&id);
         env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-        client.confirm_delivery(&buyer, &id);
+        client.confirm_delivery(&buyer, &id, &false);
 
         let escrow = client.get_escrow(&id);
         assert_eq!(escrow.state, EscrowState::Completed);
@@ -859,7 +859,7 @@ fn test_zero_fee_no_collector_transfer() {
 
     let escrow = client.get_escrow(&id);
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
     assert_eq!(get_balance(&env, &token, &seller), 1000);
     assert_eq!(get_balance(&env, &token, &fee_collector), 0);
     assert_eq!(get_balance(&env, &token, &contract_id), 0);
@@ -935,7 +935,7 @@ fn test_dispute_after_shipping_succeeds() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -976,7 +976,7 @@ fn test_dispute_requires_shipped_state() {
     let res = client.try_raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -1068,7 +1068,7 @@ fn test_fee_change_does_not_affect_funded_escrow() {
     );
     let escrow = client.get_escrow(&escrow_id);
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &escrow_id);
+    client.confirm_delivery(&buyer, &escrow_id, &false);
 
     let escrow_state = client.get_escrow(&escrow_id);
     assert_eq!(escrow_state.fee_bps, 100);
@@ -1184,7 +1184,7 @@ fn test_event_integrity_escrow_completed_via_confirm_delivery() {
 
     let escrow = client.get_escrow(&escrow_id);
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &escrow_id);
+    client.confirm_delivery(&buyer, &escrow_id, &false);
 
     assert!(has_event::<EscrowCompleted, _>(
         &env,
@@ -1235,7 +1235,7 @@ fn test_event_integrity_dispute_raised() {
     client.raise_dispute(
         &buyer,
         &escrow_id,
-        &Symbol::new(&env, "non_delivery"),
+        &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
         &SorobanString::from_str(&env, "Item never arrived"),
         &evidence,
     );
@@ -1280,7 +1280,7 @@ fn test_event_integrity_dispute_resolved_release_to_seller() {
     client.raise_dispute(
         &buyer,
         &escrow_id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -1337,7 +1337,7 @@ fn test_event_integrity_dispute_resolved_refund_buyer() {
     client.raise_dispute(
         &buyer,
         &escrow_id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -1464,7 +1464,7 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
     client.mark_shipped(&seller, &id1, &SorobanString::from_str(&env, "TRK-LIFE-1"));
     let escrow1 = client.get_escrow(&id1);
     env.ledger().set_timestamp(escrow1.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id1);
+    client.confirm_delivery(&buyer, &id1, &false);
     assert!(has_event::<EscrowCompleted, _>(
         &env,
         &cid,
@@ -1481,7 +1481,7 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
     client.raise_dispute(
         &buyer,
         &id2,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -1652,7 +1652,7 @@ fn test_cancel_escrow_completed_escrow_fails() {
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRK-CANCEL"));
     let escrow = client.get_escrow(&id);
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
 
     // Cancelling a Completed escrow now gets the dedicated code (was InvalidState).
     let res = client.try_cancel_escrow(&buyer, &id);

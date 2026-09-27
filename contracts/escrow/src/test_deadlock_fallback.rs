@@ -56,7 +56,7 @@ fn setup(env: &Env, threshold: u32, resolver_count: u32) -> MultiSetup {
     client.raise_dispute(
         &buyer,
         &id,
-        &symbol_short!("item"),
+        &symbol_short!("OTHER"),
         &String::from_str(env, "split committee"),
         &BytesN::from_array(env, &[0; 32]),
     );

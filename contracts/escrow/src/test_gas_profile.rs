@@ -318,7 +318,7 @@ fn gas_profile_confirm_delivery() {
     advance_time(&env, 172_800 + 1);
 
     let before = take_budget_snapshot(&env);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
     let sample = diff(&env, &before);
     print_gas("confirm_delivery", &sample);
 }

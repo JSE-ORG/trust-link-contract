@@ -62,7 +62,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_confirm_delivery() {
 
     let escrow = client.get_escrow(&id);
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
 
     let _escrow = client.get_escrow(&id);
     // fee = 1 * 300 / 10_000 = 0  →  net = 1
@@ -151,7 +151,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_release() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "fraud"),
+        &Symbol::new(&env, "FRAUD"),
         &SorobanString::from_str(&env, "desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -198,7 +198,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_refund() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "fraud"),
+        &Symbol::new(&env, "FRAUD"),
         &SorobanString::from_str(&env, "desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );

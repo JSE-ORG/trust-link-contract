@@ -81,7 +81,7 @@ fn dispute_can_be_opened_while_shipped() {
     // Stay within the dispute window (dispute_deadline = 1_700_000_000 + 172_800)
     fx.env.ledger().set_timestamp(fx.delivered_at + 10);
 
-    let reason = Symbol::new(&fx.env, "non_delivery");
+    let reason = Symbol::new(&fx.env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&fx.env, "missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
 
@@ -117,7 +117,7 @@ fn auto_release_rejects_when_dispute_exists() {
     let fx = setup_funded_and_shipped();
     // Stay within the dispute window (dispute_deadline = 1_700_000_000 + 172_800)
     fx.env.ledger().set_timestamp(fx.delivered_at + 10);
-    let reason = Symbol::new(&fx.env, "non_delivery");
+    let reason = Symbol::new(&fx.env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&fx.env, "missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
 

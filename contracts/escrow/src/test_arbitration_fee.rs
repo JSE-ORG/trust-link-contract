@@ -67,7 +67,7 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -134,7 +134,7 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -200,7 +200,7 @@ fn test_arbitration_fee_charged_once_across_appeal() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -273,7 +273,7 @@ fn test_zero_fee_dispute_not_charged_on_appeal_after_fee_increase() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -369,7 +369,7 @@ fn test_resolution_transition_min_amount_max_fees_does_not_underflow() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -440,7 +440,7 @@ fn test_execute_resolution_transition_rejects_fees_exceeding_amount() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );

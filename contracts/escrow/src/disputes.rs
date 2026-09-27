@@ -5,6 +5,25 @@ use crate::internal::*;
 use crate::*;
 use soroban_sdk::{contractimpl, token, Address, BytesN, Env, String, Symbol, Vec};
 
+/// Dispute reason symbols accepted by `raise_dispute`. Clients parse the
+/// stored `DisputeData::reason` against this fixed set, so anything outside it
+/// is rejected with `InvalidDisputeReason`.
+pub const DISPUTE_REASONS: [&str; 6] = [
+    "ITEM_NOT_RECEIVED",
+    "NOT_AS_DESCRIBED",
+    "DAMAGED",
+    "DEFECTIVE",
+    "FRAUD",
+    "OTHER",
+];
+
+/// Returns true if `reason` is one of [`DISPUTE_REASONS`].
+fn is_valid_dispute_reason(env: &Env, reason: &Symbol) -> bool {
+    DISPUTE_REASONS
+        .iter()
+        .any(|allowed| Symbol::new(env, allowed) == *reason)
+}
+
 /// Returns `(buyer, primary_payee)` for a dispute participant check. The
 /// primary payee is treated as the "seller" side throughout the escrow.
 fn buyer_and_seller(escrow: &EscrowData) -> Result<(Address, Address), ContractError> {
@@ -45,6 +64,9 @@ impl Escrow {
     /// *content*, so consumers must re-hash the evidence and compare it against
     /// the stored digest before treating it as proof. The all-zero digest is
     /// accepted and conventionally means "no evidence attached".
+    ///
+    /// `reason` must be one of [`DISPUTE_REASONS`]; any other symbol reverts
+    /// with `InvalidDisputeReason`.
     pub fn raise_dispute(
         env: Env,
         caller: Address,
@@ -54,7 +76,7 @@ impl Escrow {
         evidence_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "raise_dispute"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         let buyer = escrow
@@ -77,6 +99,10 @@ impl Escrow {
             // and confirm_delivery (window still open, too early) to maintain ABI stability.
             // See ERROR_CODES.md for both use cases.
             return Err(ContractError::DisputeWindowStillOpen);
+        }
+
+        if !is_valid_dispute_reason(&env, &reason) {
+            return Err(ContractError::InvalidDisputeReason);
         }
 
         if description.len() > MAX_DESCRIPTION_LEN {
@@ -138,7 +164,7 @@ impl Escrow {
     }
 
     /// Cast or change a vote on a disputed escrow.
-    /// When threshold is reached, automatically transitions to PendingFinalization.
+    /// When threshold is reached, automatically transitions to `PendingFinalization`.
     pub fn vote(
         env: Env,
         caller: Address,
@@ -167,7 +193,7 @@ impl Escrow {
         escrow_id: u64,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "finalize_dispute"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::PendingFinalization {
@@ -207,10 +233,8 @@ impl Escrow {
                 .ok_or(ContractError::EscrowHasNoBuyer)?,
         };
 
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
+        let fee_collector: Address = crate::storage::read_global_config(&env)
+            .fee_collector
             .ok_or(ContractError::NotInitialized)?;
 
         let platform_fee_bps = read_platform_fee_bps(&env);
@@ -270,12 +294,12 @@ impl Escrow {
 
         match resolution {
             ResolutionType::Release => {
-                increment_sharded_counter(&env, COUNTER_KIND_COMPLETED, escrow_id)?
+                increment_sharded_counter(&env, COUNTER_KIND_COMPLETED, escrow_id)?;
             }
             ResolutionType::Refund => {
-                increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?
+                increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
             }
-        };
+        }
 
         // ── INTERACTIONS (external token transfers) ──
         if let Some(ref treasury_addr) = treasury {
@@ -322,7 +346,7 @@ impl Escrow {
     /// historical free-appeal behavior.
     pub fn appeal_dispute(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "appeal_dispute"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::PendingFinalization {
@@ -367,9 +391,8 @@ impl Escrow {
         let appeal_fee = crate::helpers::payout::calculate_fee(escrow.amount, appeal_fee_bps)?;
         let fee_collector: Option<Address> = if appeal_fee > 0 {
             Some(
-                env.storage()
-                    .instance()
-                    .get(&DataKey::FeeCollector)
+                crate::storage::read_global_config(&env)
+                    .fee_collector
                     .ok_or(ContractError::NotInitialized)?,
             )
         } else {
@@ -434,7 +457,7 @@ impl Escrow {
         escrow_id: u64,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "claim_dispute_timeout"))?;
         let escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Disputed {
@@ -478,7 +501,7 @@ impl Escrow {
     /// already meet the threshold, or `NoResolverVotes` when no resolver voted
     /// (that resolver-inaction case is handled by `claim_dispute_timeout`).
     pub fn resolve_deadlocked_dispute(env: Env, escrow_id: u64) -> Result<(), ContractError> {
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "resolve_deadlocked_dispute"))?;
         let escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Disputed {

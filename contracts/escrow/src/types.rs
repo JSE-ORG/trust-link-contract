@@ -85,6 +85,17 @@ pub enum DataKey {
     /// lets buyers reclaim custodied funds without going through the standard
     /// state machine. Absent means false.
     RecoveryMode,
+    /// Configurable 24-hour timelock delay for privileged admin operations.
+    AdminTimelockDelay,
+    /// Every admin-tunable fee, limit and toggle, packed into one
+    /// [`GlobalConfig`] entry so hot paths pay for a single instance-storage
+    /// read instead of one per setting. Supersedes the individual
+    /// `FeeCollector`, `Treasury`, `FeeConfig`, `PlatformFeeBps`,
+    /// `AppealFeeBps`, `MinAmount`, `MaxAmount`, `DisputeTimeout`,
+    /// `TtlExtensionLedgers`, `Paused`, `TokenAllowlistEnabled`,
+    /// `ResolverStrict` and `RecoveryMode` keys, which are kept only so
+    /// pre-v2 deployments can still be read and migrated.
+    GlobalConfig,
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -167,6 +178,25 @@ pub struct MultiResolver {
 /// The primary is never time-gated — the deadline only *adds* the backup as
 /// an authorized resolver, it never removes the primary.
 ///
+/// # How `dispute_deadline` affects authorization
+///
+/// - **Checked at call time, not dispute time.** The comparison runs every
+///   time `resolve_dispute` / `vote` is invoked, against the ledger timestamp
+///   of *that* call. When the dispute was raised is irrelevant: if the
+///   deadline has already passed when a dispute is raised, the backup may
+///   resolve it immediately.
+/// - **Absolute, not relative.** The deadline is fixed at creation and is not
+///   extended by funding, shipping, raising a dispute, or an appeal. After the
+///   deadline both resolvers stay authorized for the rest of the escrow's
+///   life, including re-resolution after `appeal_dispute`.
+/// - **Single-signer threshold.** [`ResolverSet::threshold`] is `1` for a
+///   fallback set, so whichever authorized resolver acts first moves the
+///   escrow to `PendingFinalization`. There is no co-signing between primary
+///   and backup; once past the deadline they effectively race.
+/// - **Identity checks ignore the deadline.** Creation-time conflict checks
+///   (resolver ≠ seller/buyer) use [`ResolverSet::contains`], which treats
+///   both addresses as members regardless of time.
+///
 /// # Example
 ///
 /// ```ignore
@@ -182,16 +212,19 @@ pub struct MultiResolver {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FallbackResolver {
     /// Resolver expected to handle disputes. Always authorized to resolve,
-    /// regardless of the current ledger time.
+    /// regardless of the current ledger time — before *and* after
+    /// `dispute_deadline`.
     pub primary: Address,
     /// Stand-in resolver. Only authorized once the ledger timestamp has
-    /// reached `dispute_deadline`.
+    /// reached `dispute_deadline`; any earlier `resolve_dispute` / `vote`
+    /// call from this address fails with `NotAuthorized`. Must differ from
+    /// the seller and buyer (checked at creation).
     pub backup: Address,
     /// Absolute ledger timestamp (Unix seconds) at which `backup` becomes an
     /// authorized resolver. The comparison is `now >= dispute_deadline`, so
     /// the backup is authorized *exactly* at this instant.
     ///
-    /// This is **not** the same value as `EscrowData::dispute_deadline`,
+    /// This is **not** the same value as `Escrow::dispute_deadline`,
     /// which the contract computes at funding time (`funded_at +
     /// DISPUTE_WINDOW`) to bound the *buyer's* window to raise a dispute.
     /// This field is chosen by the caller of `create_escrow_with_fallback`
@@ -257,9 +290,8 @@ impl ResolverSet {
     /// of the primary or backup is currently authorized decides alone).
     pub fn threshold(&self) -> u32 {
         match self {
-            ResolverSet::Single(_) => 1,
+            ResolverSet::Single(_) | ResolverSet::Fallback(_) => 1,
             ResolverSet::Multi(m) => m.threshold,
-            ResolverSet::Fallback(_) => 1,
         }
     }
 
@@ -375,6 +407,35 @@ pub struct FeeConfig {
     pub arbitration_fee_bps: u32,
 }
 
+/// Admin-tunable global configuration, stored under [`DataKey::GlobalConfig`].
+///
+/// Fields that were previously optional in storage carry their documented
+/// defaults (see `storage::default_global_config`), so readers never need
+/// per-field fallbacks.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+// Independent admin toggles, not a state machine in disguise.
+#[allow(clippy::struct_excessive_bools)]
+pub struct GlobalConfig {
+    /// Receives protocol and arbitration fees. `None` only before `initialize`.
+    pub fee_collector: Option<Address>,
+    /// Receives platform fees. `None` until the admin sets one.
+    pub treasury: Option<Address>,
+    pub protocol_fee_bps: u32,
+    pub arbitration_fee_bps: u32,
+    pub platform_fee_bps: u32,
+    pub appeal_fee_bps: u32,
+    pub min_amount: i128,
+    pub max_amount: i128,
+    /// Maximum seconds a dispute may stay unresolved before a forced refund.
+    pub dispute_timeout: u64,
+    pub ttl_extension_ledgers: u32,
+    pub paused: bool,
+    pub token_allowlist_enabled: bool,
+    pub resolver_strict: bool,
+    pub recovery_mode: bool,
+}
+
 /// Public-safe contract configuration (no sensitive addresses).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -398,7 +459,7 @@ pub struct ContractConfig {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EscrowData {
+pub struct Escrow {
     pub payees: Vec<Payee>,
     pub buyer: Option<Address>,
     pub resolvers: ResolverSet,
@@ -501,6 +562,7 @@ pub enum TimelockOperation {
     PauseContract = 16,
     UnpauseContract = 17,
     SetAppealFee = 18,
+    SetTimelockDelay = 19,
 }
 
 /// A queued admin change awaiting the 24-hour timelock delay before it can be
@@ -512,7 +574,7 @@ pub enum TimelockOperation {
 pub struct TimelockProposal {
     pub operation: TimelockOperation,
     pub proposer: Address,
-    pub params: Vec<soroban_sdk::Val>,
+    pub params_hash: BytesN<32>,
     pub queued_at: u64,
     pub ready_at: u64,
 }

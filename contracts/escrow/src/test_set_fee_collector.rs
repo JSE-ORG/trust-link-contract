@@ -27,7 +27,7 @@ fn set_fee_collector_rejects_zero_address() {
     // The collector must be unchanged after the rejected call.
     let stored: Address = env
         .as_contract(&client.address, || {
-            env.storage().instance().get(&DataKey::FeeCollector)
+            crate::storage::read_global_config(&env).fee_collector
         })
         .expect("fee collector still set");
     assert_eq!(stored, fee_collector);
@@ -44,7 +44,7 @@ fn set_fee_collector_accepts_a_valid_address() {
 
     let stored: Address = env
         .as_contract(&client.address, || {
-            env.storage().instance().get(&DataKey::FeeCollector)
+            crate::storage::read_global_config(&env).fee_collector
         })
         .expect("fee collector set");
     assert_eq!(stored, new_collector);
@@ -66,7 +66,7 @@ fn set_fee_collector_rejects_the_admin_address() {
     // The collector must be unchanged after the rejected call.
     let stored: Address = env
         .as_contract(&client.address, || {
-            env.storage().instance().get(&DataKey::FeeCollector)
+            crate::storage::read_global_config(&env).fee_collector
         })
         .expect("fee collector still set");
     assert_eq!(stored, fee_collector);
