@@ -227,9 +227,7 @@ fn dispute_resolution_with_zero_resolver_fee_and_appeal() {
     // Escrow amount is untouched — no deductions were made.
     let escrow_after_r1: EscrowData = env
         .as_contract(&contract_id, || {
-            env.storage()
-                .persistent()
-                .get(&DataKey::Escrow(escrow_id))
+            env.storage().persistent().get(&DataKey::Escrow(escrow_id))
         })
         .expect("escrow record must exist");
     assert_eq!(
@@ -249,9 +247,7 @@ fn dispute_resolution_with_zero_resolver_fee_and_appeal() {
 
     let dispute_after_appeal: DisputeData = env
         .as_contract(&contract_id, || {
-            env.storage()
-                .persistent()
-                .get(&DataKey::Dispute(escrow_id))
+            env.storage().persistent().get(&DataKey::Dispute(escrow_id))
         })
         .expect("dispute record must exist after appeal");
     assert_eq!(
@@ -270,9 +266,7 @@ fn dispute_resolution_with_zero_resolver_fee_and_appeal() {
 
     let escrow_after_appeal: EscrowData = env
         .as_contract(&contract_id, || {
-            env.storage()
-                .persistent()
-                .get(&DataKey::Escrow(escrow_id))
+            env.storage().persistent().get(&DataKey::Escrow(escrow_id))
         })
         .expect("escrow record must exist after appeal");
     assert_eq!(
@@ -290,9 +284,7 @@ fn dispute_resolution_with_zero_resolver_fee_and_appeal() {
 
     let dispute_after_r2: DisputeData = env
         .as_contract(&contract_id, || {
-            env.storage()
-                .persistent()
-                .get(&DataKey::Dispute(escrow_id))
+            env.storage().persistent().get(&DataKey::Dispute(escrow_id))
         })
         .expect("dispute record must exist after round-2 resolve");
     assert_eq!(

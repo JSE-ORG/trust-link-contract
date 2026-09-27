@@ -1,8 +1,8 @@
 #![cfg(test)]
 
-use crate::ContractError;
 use crate::helpers::payout::calculate_protocol_fee;
 use crate::types::{Payee, ResolverSet};
+use crate::ContractError;
 
 /// Parameterized test that verifies fee calculation is mathematically correct
 /// for various fee_bps values: 0, 50, 100, 150, 200, 250, 300.
@@ -368,7 +368,6 @@ fn test_fee_calculation_no_rounding_loss_various_amounts() {
         );
     }
 }
-
 #[test]
 fn test_fee_calculation_edge_case_amounts() {
     // Test edge cases with amounts that might cause rounding issues
