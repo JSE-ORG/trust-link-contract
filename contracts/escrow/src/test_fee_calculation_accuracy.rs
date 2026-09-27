@@ -632,8 +632,7 @@ fn test_fee_calculation_odd_amounts_sub_stroop_rounding_3bps() {
         // fee * 10_000 + 10_000 > amount * 3  (i.e. fee+1 would over-charge)
         assert!(
             fee * 10_000 + 10_000 > amount * 3,
-            "fee {fee} is not the correct floor for amount={amount} @ 3 bps"
+            "incorrect fee floor for amount={amount} @ 3 bps: {fee}"
         );
     }
 }
-
