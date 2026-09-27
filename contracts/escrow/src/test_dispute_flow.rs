@@ -307,9 +307,7 @@ fn dispute_resolution_with_zero_resolver_fee_and_appeal() {
     // Escrow amount must still be the original 1_000 — no fees on either round.
     let escrow_after_r2: EscrowData = env
         .as_contract(&contract_id, || {
-            env.storage()
-                .persistent()
-                .get(&DataKey::Escrow(escrow_id))
+            env.storage().persistent().get(&DataKey::Escrow(escrow_id))
         })
         .expect("escrow record must exist after round-2 resolve");
     assert_eq!(
@@ -343,9 +341,7 @@ fn dispute_resolution_with_zero_resolver_fee_and_appeal() {
     // Escrow state must be Completed.
     let escrow_final: EscrowData = env
         .as_contract(&contract_id, || {
-            env.storage()
-                .persistent()
-                .get(&DataKey::Escrow(escrow_id))
+            env.storage().persistent().get(&DataKey::Escrow(escrow_id))
         })
         .expect("escrow record must exist after finalize");
     assert_eq!(

@@ -1,7 +1,8 @@
 #![cfg(test)]
 
-use crate::helpers::payout::calculate_protocol_fee;
 use crate::ContractError;
+use crate::helpers::payout::calculate_protocol_fee;
+use crate::types::{Payee, ResolverSet};
 
 /// Parameterized test that verifies fee calculation is mathematically correct
 /// for various fee_bps values: 0, 50, 100, 150, 200, 250, 300.
@@ -417,7 +418,6 @@ fn test_fee_calculation_invalid_amount() {
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), ContractError::InvalidAmount);
 }
-
 
 // Regression test for issue #201: Verify dispute resolution fee is not discarded
 #[test]
