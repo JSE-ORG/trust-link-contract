@@ -371,16 +371,16 @@ pub enum ResolutionType {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FeeConfig {
-    pub protocol_fee_bps: u32,
-    pub arbitration_fee_bps: u32,
+    pub protocol_fee_bps: u16,
+    pub arbitration_fee_bps: u16,
 }
 
 /// Public-safe contract configuration (no sensitive addresses).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicContractConfig {
-    pub fee_bps: u32,
-    pub arbitration_fee_bps: u32,
+    pub fee_bps: u16,
+    pub arbitration_fee_bps: u16,
     pub paused: bool,
     pub escrow_count: u64,
 }
@@ -390,8 +390,8 @@ pub struct PublicContractConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractConfig {
     pub admin: Address,
-    pub fee_bps: u32,
-    pub arbitration_fee_bps: u32,
+    pub fee_bps: u16,
+    pub arbitration_fee_bps: u16,
     pub fee_collector: Address,
     pub escrow_count: u64,
 }
@@ -404,8 +404,8 @@ pub struct EscrowData {
     pub resolvers: ResolverSet,
     pub token: Address,
     pub amount: i128,
-    pub fee_bps: u32,
-    pub resolver_fee_bps: u32,
+    pub fee_bps: u16,
+    pub resolver_fee_bps: u16,
     pub shipping_window: u64,
     pub funded_at: u64,
     pub dispute_deadline: u64,
@@ -425,11 +425,11 @@ pub struct EscrowInput {
     pub resolver: Address,
     pub token: Address,
     pub amount: i128,
-    pub fee_bps: u32,
+    pub fee_bps: u16,
     /// Per-escrow resolver fee in basis points (issue #911). Validated with
     /// the same cap as `create_escrow`'s `resolver_fee_bps`; `0` means the
     /// resolver serves uncompensated.
-    pub resolver_fee_bps: u32,
+    pub resolver_fee_bps: u16,
     pub shipping_window: u64,
     pub notes: Option<String>,
 }
