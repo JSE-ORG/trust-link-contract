@@ -164,4 +164,8 @@ pub enum ContractError {
     NotInRecoveryMode = 67,
     /// Returned when an arbitrary u32 operation ID does not map to a valid `TimelockOperation`.
     InvalidOperation = 68,
+    /// Returned when setting a timelock delay outside the allowed bounds.
+    InvalidTimelockDelay = 69,
+    /// Returned when the executed parameters do not match the queued proposal hash.
+    InvalidProposalHash = 70,
 }

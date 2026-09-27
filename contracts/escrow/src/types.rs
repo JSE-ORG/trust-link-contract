@@ -515,7 +515,7 @@ pub enum TimelockOperation {
 pub struct TimelockProposal {
     pub operation: TimelockOperation,
     pub proposer: Address,
-    pub params: Vec<soroban_sdk::Val>,
+    pub params_hash: BytesN<32>,
     pub queued_at: u64,
     pub ready_at: u64,
 }
