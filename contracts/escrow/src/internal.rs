@@ -522,16 +522,44 @@ pub(crate) fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractErro
     Ok(escrow)
 }
 
+/// Number of low bits of a packed history entry given to the timestamp; the
+/// remaining high bits hold the `EscrowState` discriminant. 56 bits of Unix
+/// seconds vastly outlives any escrow, so this loses no practical range
+/// while letting each history entry be stored as a single `u64` instead of
+/// a `(EscrowState, u64)` tuple.
+const HISTORY_TIMESTAMP_BITS: u32 = 56;
+const HISTORY_TIMESTAMP_MASK: u64 = (1u64 << HISTORY_TIMESTAMP_BITS) - 1;
+
+fn pack_history_entry(state: &EscrowState, timestamp: u64) -> u64 {
+    ((state.to_history_code() as u64) << HISTORY_TIMESTAMP_BITS) | (timestamp & HISTORY_TIMESTAMP_MASK)
+}
+
+fn unpack_history_entry(packed: u64) -> (EscrowState, u64) {
+    let code = (packed >> HISTORY_TIMESTAMP_BITS) as u8;
+    (
+        EscrowState::from_history_code(code),
+        packed & HISTORY_TIMESTAMP_MASK,
+    )
+}
+
+fn decode_history(env: &Env, packed: &Vec<u64>) -> Vec<(EscrowState, u64)> {
+    let mut result = Vec::new(env);
+    for entry in packed.iter() {
+        result.push_back(unpack_history_entry(entry));
+    }
+    result
+}
+
 pub(crate) fn append_state_history(env: &Env, id: u64, state: &EscrowState) {
     let key = DataKey::EscrowStateHistory(id);
     let ext = get_ttl_extension(env);
-    let mut history: Vec<(EscrowState, u64)> = env
+    let mut history: Vec<u64> = env
         .storage()
         .persistent()
         .get(&key)
         .unwrap_or_else(|| Vec::new(env));
 
-    history.push_back((state.clone(), env.ledger().timestamp()));
+    history.push_back(pack_history_entry(state, env.ledger().timestamp()));
     while history.len() > MAX_STATE_HISTORY_ENTRIES {
         history.pop_front();
     }
@@ -542,26 +570,28 @@ pub(crate) fn append_state_history(env: &Env, id: u64, state: &EscrowState) {
 pub(crate) fn load_state_history(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
     let key = DataKey::EscrowStateHistory(id);
     let ext = get_ttl_extension(env);
-    let history = env
+    let packed: Vec<u64> = env
         .storage()
         .persistent()
         .get(&key)
         .unwrap_or_else(|| Vec::new(env));
 
-    if !history.is_empty() {
+    if !packed.is_empty() {
         env.storage().persistent().extend_ttl(&key, ext / 2, ext);
     }
-    history
+    decode_history(env, &packed)
 }
 
 /// Load state history without extending TTL - used by query functions that
 /// should not have side effects on storage rent.
 pub(crate) fn load_state_history_no_ttl(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
     let key = DataKey::EscrowStateHistory(id);
-    env.storage()
+    let packed: Vec<u64> = env
+        .storage()
         .persistent()
         .get(&key)
-        .unwrap_or_else(|| Vec::new(env))
+        .unwrap_or_else(|| Vec::new(env));
+    decode_history(env, &packed)
 }
 
 pub(crate) fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
