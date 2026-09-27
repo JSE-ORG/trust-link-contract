@@ -1492,3 +1492,28 @@ pub fn emit_recovery_withdraw(env: &Env, escrow_id: u64, buyer: Address, amount:
         },
     );
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimelockDelayUpdated {
+    pub schema_version: u32,
+    pub old_delay: u64,
+    pub new_delay: u64,
+    pub caller: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Admin"), symbol_short!("DelayUpd"),)`, data: `TimelockDelayUpdated`.
+pub fn emit_timelock_delay_updated(env: &Env, old_delay: u64, new_delay: u64, caller: Address) {
+    env.events().publish(
+        (symbol_short!("Admin"), symbol_short!("DelayUpd")),
+        TimelockDelayUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_delay,
+            new_delay,
+            caller,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+

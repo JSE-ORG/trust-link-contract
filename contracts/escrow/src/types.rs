@@ -85,6 +85,8 @@ pub enum DataKey {
     /// lets buyers reclaim custodied funds without going through the standard
     /// state machine. Absent means false.
     RecoveryMode,
+    /// Configurable 24-hour timelock delay for privileged admin operations.
+    AdminTimelockDelay,
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -501,6 +503,7 @@ pub enum TimelockOperation {
     PauseContract = 16,
     UnpauseContract = 17,
     SetAppealFee = 18,
+    SetTimelockDelay = 19,
 }
 
 /// A queued admin change awaiting the 24-hour timelock delay before it can be

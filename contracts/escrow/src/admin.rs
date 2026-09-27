@@ -16,6 +16,8 @@ use crate::{
 use soroban_sdk::{contractimpl, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec};
 
 pub const ADMIN_TIMELOCK_DELAY_SECONDS: u64 = 24 * 60 * 60;
+pub const MIN_TIMELOCK_DELAY_SECONDS: u64 = 12 * 60 * 60; // 12 hours
+pub const MAX_TIMELOCK_DELAY_SECONDS: u64 = 30 * 24 * 60 * 60; // 30 days
 const MAX_TIMELOCK_PARAMS: u32 = 5;
 
 fn queue_timelock_op(
@@ -34,7 +36,8 @@ fn queue_timelock_op(
     }
 
     let now = env.ledger().timestamp();
-    let ready_at = now + ADMIN_TIMELOCK_DELAY_SECONDS;
+    let delay: u64 = env.storage().instance().get(&DataKey::AdminTimelockDelay).unwrap_or(ADMIN_TIMELOCK_DELAY_SECONDS);
+    let ready_at = now + delay;
 
     let proposal = TimelockProposal {
         operation,
@@ -134,6 +137,73 @@ mod tests {
             queue_timelock_op(&env, &admin, 999, params)
         });
         assert_eq!(res_invalid, Err(ContractError::InvalidOperation));
+    }
+
+    #[test]
+    fn set_timelock_delay_flow_and_validation() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let contract_id = env.register(Escrow, ());
+        let client = crate::EscrowClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0_u32);
+
+        // Queue invalid delay (too low)
+        let res_low = env.as_contract(&contract_id, || {
+            Escrow::queue_set_timelock_delay(env.clone(), admin.clone(), MIN_TIMELOCK_DELAY_SECONDS - 1)
+        });
+        assert_eq!(res_low, Err(ContractError::InvalidTimelockDelay));
+
+        // Queue invalid delay (too high)
+        let res_high = env.as_contract(&contract_id, || {
+            Escrow::queue_set_timelock_delay(env.clone(), admin.clone(), MAX_TIMELOCK_DELAY_SECONDS + 1)
+        });
+        assert_eq!(res_high, Err(ContractError::InvalidTimelockDelay));
+
+        // Valid delay
+        let new_delay = 48 * 60 * 60; // 48 hours
+        let res = env.as_contract(&contract_id, || {
+            Escrow::queue_set_timelock_delay(env.clone(), admin.clone(), new_delay)
+        });
+        assert!(res.is_ok());
+
+        // Fast forward 24h
+        env.ledger().with_mut(|li| {
+            li.timestamp += ADMIN_TIMELOCK_DELAY_SECONDS;
+        });
+
+        // Execute
+        let res_exec = env.as_contract(&contract_id, || {
+            Escrow::execute_set_timelock_delay(env.clone(), admin.clone())
+        });
+        assert!(res_exec.is_ok());
+
+        // Confirm new delay takes effect for subsequently queued operations
+        let res_queue2 = env.as_contract(&contract_id, || {
+            Escrow::queue_pause_contract(env.clone(), admin.clone())
+        });
+        assert!(res_queue2.is_ok());
+
+        // Fast forward 24h - should NOT be enough now
+        env.ledger().with_mut(|li| {
+            li.timestamp += ADMIN_TIMELOCK_DELAY_SECONDS;
+        });
+
+        let res_exec2_early = env.as_contract(&contract_id, || {
+            Escrow::execute_pause_contract(env.clone(), admin.clone())
+        });
+        assert_eq!(res_exec2_early, Err(ContractError::InvalidState));
+
+        // Fast forward remaining 24h (total 48h)
+        env.ledger().with_mut(|li| {
+            li.timestamp += ADMIN_TIMELOCK_DELAY_SECONDS;
+        });
+
+        let res_exec2 = env.as_contract(&contract_id, || {
+            Escrow::execute_pause_contract(env.clone(), admin.clone())
+        });
+        assert!(res_exec2.is_ok());
     }
 }
 
@@ -1544,6 +1614,41 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
         env.storage().instance().set(&DataKey::Treasury, &treasury);
+        Ok(())
+    }
+
+    // 19. SetTimelockDelay
+    pub fn queue_set_timelock_delay(
+        env: Env,
+        caller: Address,
+        delay_seconds: u64,
+    ) -> Result<(), ContractError> {
+        if delay_seconds < MIN_TIMELOCK_DELAY_SECONDS || delay_seconds > MAX_TIMELOCK_DELAY_SECONDS {
+            return Err(ContractError::InvalidTimelockDelay);
+        }
+        let mut params = Vec::new(&env);
+        params.push_back(delay_seconds.into_val(&env));
+        queue_timelock_op(&env, &caller, TimelockOperation::SetTimelockDelay as u32, params)
+    }
+
+    pub fn execute_set_timelock_delay(env: Env, caller: Address) -> Result<(), ContractError> {
+        let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTimelockDelay)?;
+        let delay_seconds = u64::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
+
+        if delay_seconds < MIN_TIMELOCK_DELAY_SECONDS || delay_seconds > MAX_TIMELOCK_DELAY_SECONDS {
+            return Err(ContractError::InvalidTimelockDelay);
+        }
+
+        let old_delay = env.storage().instance().get(&DataKey::AdminTimelockDelay).unwrap_or(ADMIN_TIMELOCK_DELAY_SECONDS);
+        env.storage().instance().set(&DataKey::AdminTimelockDelay, &delay_seconds);
+        crate::events::emit_timelock_delay_updated(&env, old_delay, delay_seconds, caller);
         Ok(())
     }
 }
