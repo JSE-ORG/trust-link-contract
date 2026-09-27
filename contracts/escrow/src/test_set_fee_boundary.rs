@@ -20,14 +20,7 @@ fn deploy(env: &Env) -> (EscrowClient<'static>, Address, Address) {
 
 fn stored_fee(env: &Env, contract_id: &Address) -> u32 {
     env.as_contract(contract_id, || {
-        env.storage()
-            .instance()
-            .get::<_, FeeConfig>(&crate::DataKey::FeeConfig)
-            .unwrap_or(FeeConfig {
-                protocol_fee_bps: 0,
-                arbitration_fee_bps: 0,
-            })
-            .protocol_fee_bps
+        crate::storage::read_fee_config(env).protocol_fee_bps
     })
 }
 

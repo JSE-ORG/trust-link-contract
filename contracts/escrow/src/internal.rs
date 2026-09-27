@@ -149,11 +149,7 @@ pub(crate) fn tally_votes_majority(votes: &Vec<ResolverVote>) -> ResolutionType 
 }
 
 pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
-    let paused: bool = env
-        .storage()
-        .instance()
-        .get(&DataKey::Paused)
-        .unwrap_or(false);
+    let paused: bool = crate::storage::read_global_config(env).paused;
     if paused {
         return Err(ContractError::ContractPaused);
     }
@@ -161,11 +157,7 @@ pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
 }
 
 pub(crate) fn ensure_action_not_paused(env: &Env, action: Symbol) -> Result<(), ContractError> {
-    let paused: bool = env
-        .storage()
-        .instance()
-        .get(&DataKey::Paused)
-        .unwrap_or(false);
+    let paused: bool = crate::storage::read_global_config(env).paused;
     if paused {
         return Err(ContractError::ContractPaused);
     }
@@ -195,24 +187,12 @@ pub(crate) fn require_admin_caller(env: &Env, caller: &Address) -> Result<Addres
     Ok(admin)
 }
 
-pub(crate) fn default_fee_config() -> FeeConfig {
-    FeeConfig {
-        protocol_fee_bps: 0,
-        arbitration_fee_bps: 0,
-    }
-}
-
 pub(crate) fn read_fee_config(env: &Env) -> FeeConfig {
-    env.storage()
-        .instance()
-        .get(&DataKey::FeeConfig)
-        .unwrap_or_else(default_fee_config)
+    crate::storage::read_fee_config(env)
 }
 
 pub(crate) fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
-    env.storage()
-        .instance()
-        .set(&DataKey::FeeConfig, fee_config);
+    crate::storage::write_fee_config(env, fee_config);
 }
 
 pub(crate) fn contains(list: &soroban_sdk::Vec<Address>, target: &Address) -> bool {
@@ -258,10 +238,7 @@ pub(crate) fn contains(list: &soroban_sdk::Vec<Address>, target: &Address) -> bo
 /// `create_basket_escrow`). See `SECURITY.md` ("Token Allowlisting") for the
 /// full deployment checklist.
 pub(crate) fn is_token_allowlist_enabled(env: &Env) -> bool {
-    env.storage()
-        .instance()
-        .get(&DataKey::TokenAllowlistEnabled)
-        .unwrap_or(false)
+    crate::storage::read_global_config(env).token_allowlist_enabled
 }
 
 /// Enforces the token allowlist when it is enabled, otherwise accepts any token.
@@ -288,27 +265,21 @@ pub(crate) fn is_token_allowed(env: &Env, token: &Address) -> Result<(), Contrac
 }
 
 pub(crate) fn read_platform_fee_bps(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::PlatformFeeBps)
-        .unwrap_or(0)
+    crate::storage::read_global_config(env).platform_fee_bps
 }
 
 pub(crate) fn write_platform_fee_bps(env: &Env, fee_bps: u32) {
-    env.storage()
-        .instance()
-        .set(&DataKey::PlatformFeeBps, &fee_bps);
+    crate::storage::update_global_config(env, |c| c.platform_fee_bps = fee_bps);
 }
 
 pub(crate) fn read_treasury(env: &Env) -> Result<Address, ContractError> {
-    env.storage()
-        .instance()
-        .get(&DataKey::Treasury)
+    crate::storage::read_global_config(env)
+        .treasury
         .ok_or(ContractError::NotInitialized)
 }
 
 pub(crate) fn write_treasury(env: &Env, treasury: &Address) {
-    env.storage().instance().set(&DataKey::Treasury, treasury);
+    crate::storage::update_global_config(env, |c| c.treasury = Some(treasury.clone()));
 }
 
 pub(crate) fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
@@ -324,14 +295,14 @@ pub(crate) fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError>
 pub(crate) fn validate_resolvers(
     resolvers: &ResolverSet,
     seller: &Address,
-    buyer: &Option<Address>,
+    buyer: Option<&Address>,
 ) -> Result<(), ContractError> {
     // Ensure resolvers are distinct from seller and buyer
     if resolvers.contains(seller) {
         return Err(ContractError::ConflictingRoles);
     }
 
-    if let Some(ref b) = buyer {
+    if let Some(b) = buyer {
         if resolvers.contains(b) {
             return Err(ContractError::ConflictingRoles);
         }
@@ -417,7 +388,7 @@ pub(crate) fn validate_arbitration_fee_bps(fee_bps: u32) -> Result<(), ContractE
     Ok(())
 }
 
-/// Validates that the combined protocol + arbitration fees don't exceed MAX_COMBINED_FEE_BPS.
+/// Validates that the combined protocol + arbitration fees don't exceed `MAX_COMBINED_FEE_BPS`.
 ///
 /// This prevents the attack where an admin sets both fees to their maximum values,
 /// draining entire escrows through fees.
@@ -460,10 +431,8 @@ pub(crate) fn validate_fee_collector_change(
         return Err(ContractError::InvalidAddress);
     }
 
-    let old_collector: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::FeeCollector)
+    let old_collector: Address = crate::storage::read_global_config(env)
+        .fee_collector
         .ok_or(ContractError::NotAuthorized)?;
 
     if *new_collector == old_collector {
@@ -524,15 +493,13 @@ pub(crate) fn save_escrow(
 ) {
     let key = DataKey::Escrow(id);
     let ext = get_ttl_extension(env);
-    let state_changed = match prev_state {
-        Some(prev) => *prev != escrow.state,
-        None => {
-            let previous: Option<EscrowData> = env.storage().persistent().get(&key);
-            previous
-                .as_ref()
-                .map(|existing| existing.state != escrow.state)
-                .unwrap_or(true)
-        }
+    let state_changed = if let Some(prev) = prev_state {
+        *prev != escrow.state
+    } else {
+        let previous: Option<EscrowData> = env.storage().persistent().get(&key);
+        previous
+            .as_ref()
+            .is_none_or(|existing| existing.state != escrow.state)
     };
 
     env.storage().persistent().set(&key, escrow);
@@ -756,7 +723,7 @@ pub(crate) fn distribute_to_payees(
     for i in 1..payees.len() {
         let payee = payees.get(i).ok_or(ContractError::PayeeIndexOutOfBounds)?;
         let payee_amount = amount
-            .checked_mul(payee.bps as i128)
+            .checked_mul(i128::from(payee.bps))
             .ok_or(ContractError::ArithmeticError)?
             .checked_div(10_000)
             .ok_or(ContractError::ArithmeticError)?;
@@ -896,10 +863,8 @@ pub(crate) fn settle_escrow_to_payees(
     escrow_id: u64,
     fee_bps: u32,
 ) -> Result<(EscrowState, Address), ContractError> {
-    let fee_collector: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::FeeCollector)
+    let fee_collector: Address = crate::storage::read_global_config(env)
+        .fee_collector
         .ok_or(ContractError::NotInitialized)?;
 
     let first_payee_addr = escrow
@@ -938,12 +903,12 @@ pub(crate) fn settle_escrow_to_payees(
     Ok((prev_state, first_payee_addr))
 }
 
-/// Check if an escrow has an active PendingExpiry scheduled (Issue #811).
+/// Check if an escrow has an active `PendingExpiry` scheduled (Issue #811).
 /// This function only checks expiry for escrows still in Pending state; the
-/// PendingExpiry key is semantically bound to Pending lifetime. Callers must
-/// ensure they remove DataKey::PendingExpiry when transitioning away from Pending
-/// (fund_escrow, fund_basket_escrow, reclaim_expired, cancel_escrow,
-/// auto_cancel_pending). Without removal,
+/// `PendingExpiry` key is semantically bound to Pending lifetime. Callers must
+/// ensure they remove `DataKey::PendingExpiry` when transitioning away from Pending
+/// (`fund_escrow`, `fund_basket_escrow`, `reclaim_expired`, `cancel_escrow`,
+/// `auto_cancel_pending`). Without removal,
 /// this check will incorrectly reject valid operations on funded escrows.
 pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
     let escrow = load_escrow(env, escrow_id)?;
@@ -1000,7 +965,8 @@ pub(crate) fn increment_sharded_counter(
     kind: u32,
     seed: u64,
 ) -> Result<(), ContractError> {
-    let bucket = (seed % crate::COUNTER_SHARDS as u64) as u32;
+    // The remainder is < COUNTER_SHARDS (a u32), so the conversion never fails.
+    let bucket = u32::try_from(seed % u64::from(crate::COUNTER_SHARDS)).unwrap_or(0);
     let key = DataKey::ShardedCounter(kind, bucket);
     let current: u64 = env.storage().persistent().get(&key).unwrap_or(0);
     let next = current
@@ -1035,16 +1001,11 @@ pub(crate) fn read_counter_total(env: &Env, kind: u32, legacy_key: &DataKey) -> 
 /// Reads the admin-configured maximum dispute duration, falling back to
 /// [`crate::DEFAULT_DISPUTE_TIMEOUT`] when the admin has not set one.
 pub(crate) fn read_dispute_timeout(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get(&DataKey::DisputeTimeout)
-        .unwrap_or(crate::DEFAULT_DISPUTE_TIMEOUT)
+    crate::storage::read_global_config(env).dispute_timeout
 }
 
 pub(crate) fn write_dispute_timeout(env: &Env, timeout: u64) {
-    env.storage()
-        .instance()
-        .set(&DataKey::DisputeTimeout, &timeout);
+    crate::storage::update_global_config(env, |c| c.dispute_timeout = timeout);
 }
 
 /// Reads the appeal fee in basis points charged to the appellant on
@@ -1052,16 +1013,11 @@ pub(crate) fn write_dispute_timeout(env: &Env, timeout: u64) {
 /// [`crate::DEFAULT_APPEAL_FEE_BPS`] (0 = disabled) until the admin sets one
 /// with `set_appeal_fee`.
 pub(crate) fn read_appeal_fee_bps(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::AppealFeeBps)
-        .unwrap_or(crate::DEFAULT_APPEAL_FEE_BPS)
+    crate::storage::read_global_config(env).appeal_fee_bps
 }
 
 pub(crate) fn write_appeal_fee_bps(env: &Env, fee_bps: u32) {
-    env.storage()
-        .instance()
-        .set(&DataKey::AppealFeeBps, &fee_bps);
+    crate::storage::update_global_config(env, |c| c.appeal_fee_bps = fee_bps);
 }
 
 /// Validates an appeal fee: `0` disables the fee, otherwise it must lie in
@@ -1085,16 +1041,11 @@ pub(crate) fn validate_appeal_fee_bps(fee_bps: u32) -> Result<(), ContractError>
 /// through the standard state machine, e.g. after a sunset or an
 /// unpatchable vulnerability. Defaults to false.
 pub(crate) fn is_recovery_mode(env: &Env) -> bool {
-    env.storage()
-        .instance()
-        .get(&DataKey::RecoveryMode)
-        .unwrap_or(false)
+    crate::storage::read_global_config(env).recovery_mode
 }
 
 pub(crate) fn write_recovery_mode(env: &Env, enabled: bool) {
-    env.storage()
-        .instance()
-        .set(&DataKey::RecoveryMode, &enabled);
+    crate::storage::update_global_config(env, |c| c.recovery_mode = enabled);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1135,20 +1086,12 @@ pub(crate) fn create_escrow_internal(
         return Err(ContractError::InvalidAmount);
     }
 
-    let max_amount = env
-        .storage()
-        .instance()
-        .get(&DataKey::MaxAmount)
-        .unwrap_or(MAX_ESCROW_AMOUNT);
+    let max_amount = crate::storage::read_global_config(env).max_amount;
     if amount > max_amount {
         return Err(ContractError::AmountExceedsMaximum);
     }
 
-    let min_amount = env
-        .storage()
-        .instance()
-        .get(&DataKey::MinAmount)
-        .unwrap_or(MIN_ESCROW_AMOUNT);
+    let min_amount = crate::storage::read_global_config(env).min_amount;
     if amount < min_amount {
         return Err(ContractError::AmountBelowMinimum);
     }
@@ -1187,12 +1130,7 @@ pub(crate) fn create_escrow_internal(
     }
 
     // Issue #393: resolver registry — reject unknown resolvers in strict mode
-    if env
-        .storage()
-        .instance()
-        .get::<DataKey, bool>(&DataKey::ResolverStrict)
-        .unwrap_or(false)
-    {
+    if crate::storage::read_global_config(env).resolver_strict {
         let approved: soroban_sdk::Vec<Address> = env
             .storage()
             .instance()
@@ -1318,9 +1256,8 @@ pub(crate) fn execute_resolution_transition(
         None
     } else {
         Some(
-            env.storage()
-                .instance()
-                .get(&DataKey::FeeCollector)
+            crate::storage::read_global_config(env)
+                .fee_collector
                 .ok_or(ContractError::NotInitialized)?,
         )
     };
@@ -1389,6 +1326,5 @@ pub(crate) fn execute_resolution_transition(
 pub(crate) fn escrow_created_at(env: &Env, escrow_id: u64) -> u64 {
     load_state_history(env, escrow_id)
         .get(0)
-        .map(|(_, ts)| ts)
-        .unwrap_or(0)
+        .map_or(0, |(_, ts)| ts)
 }
