@@ -210,9 +210,7 @@ fn dispute_resolution_with_zero_resolver_fee_and_appeal() {
     // Verify no fees were deducted and the stored amounts are both 0.
     let dispute_after_r1: DisputeData = env
         .as_contract(&contract_id, || {
-            env.storage()
-                .persistent()
-                .get(&DataKey::Dispute(escrow_id))
+            env.storage().persistent().get(&DataKey::Dispute(escrow_id))
         })
         .expect("dispute record must exist");
     assert_eq!(

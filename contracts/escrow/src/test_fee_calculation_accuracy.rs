@@ -406,7 +406,6 @@ fn test_fee_calculation_edge_case_amounts() {
         );
     }
 }
-
 #[test]
 fn test_fee_calculation_invalid_amount() {
     // Test that negative amounts return an error

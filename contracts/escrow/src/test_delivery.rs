@@ -229,7 +229,8 @@ fn test_delivery_proposal_does_not_expire() {
     client.propose_record_delivery(&admin, &id);
 
     // Fast-forward 10 years (past any reasonable validity window)
-    env.ledger().set_timestamp(env.ledger().timestamp() + 315_360_000);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + 315_360_000);
 
     // Admin can STILL record delivery. The proposal has no expiration logic!
     client.record_delivery(&admin, &id);
@@ -878,7 +879,8 @@ fn test_propose_record_delivery_then_raise_dispute_blocks_execute() {
     // Step 3: advance past the timelock (1_000 + 86_400 = 87_400) and attempt
     // to execute record_delivery — must fail with InvalidState because the
     // escrow is Disputed, not Shipped. The timelock guard is never reached.
-    env.ledger().set_timestamp(1_000 + crate::DELIVERY_TIMELOCK + 1); // 87_401
+    env.ledger()
+        .set_timestamp(1_000 + crate::DELIVERY_TIMELOCK + 1); // 87_401
     let res = client.try_record_delivery(&admin, &id);
     assert_eq!(
         res,
