@@ -128,7 +128,7 @@ fn test_mutual_cancel_rejected_after_shipping() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-001"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-001"));
 
     let res = client.try_mutual_cancel(&id);
     assert!(matches!(res, Err(Ok(ContractError::InvalidState))));

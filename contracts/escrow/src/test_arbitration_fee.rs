@@ -59,7 +59,7 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
 
     mint(&env, &token, &buyer, amount);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-ARB-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-ARB-1"));
 
     // Advance time to allow dispute
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
@@ -68,7 +68,7 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
         &buyer,
         &id,
         &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -129,14 +129,14 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
 
     mint(&env, &token, &buyer, amount);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-ARB-2"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-ARB-2"));
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
     client.raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 

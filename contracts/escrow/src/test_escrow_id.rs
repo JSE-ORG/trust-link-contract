@@ -104,7 +104,7 @@ fn test_escrow_ids_monotonic_and_unique() {
         &0_u32,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
     assert_eq!(next_id, 11);
 }

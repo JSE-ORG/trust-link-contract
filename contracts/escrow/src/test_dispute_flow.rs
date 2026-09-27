@@ -55,7 +55,7 @@ fn full_dispute_release_to_vendor() {
         &0_u32,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     // Fund the buyer and the escrow.
@@ -71,7 +71,7 @@ fn full_dispute_release_to_vendor() {
 
     // Buyer raises a dispute.
     let reason = Symbol::new(&env, "non_delivery");
-    let description = String::from_str(&env, "Item never arrived");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item never arrived");
     let evidence = BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
 

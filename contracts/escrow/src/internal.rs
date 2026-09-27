@@ -307,14 +307,18 @@ pub(crate) fn validate_resolver_fee_bps(fee_bps: u32) -> Result<(), ContractErro
     Ok(())
 }
 
-pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), ContractError> {
-    if payees.is_empty() {
+pub(crate) fn validate_payees(env: &Env, payees: &BoundedPayees) -> Result<(), ContractError> {
+    if payees.inner.is_empty() {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    if payees.inner.len() > crate::types::MAX_PAYEES {
         return Err(ContractError::InvalidAddress);
     }
 
     let mut total_bps: u32 = 0;
-    for i in 0..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+    for i in 0..payees.inner.len() {
+        let payee = payees.inner.get(i).ok_or(ContractError::IndexOutOfBounds)?;
         let bps = payee.bps;
 
         // Check for overflow
@@ -562,16 +566,16 @@ pub(crate) fn transfer_with_protocol_fee(
 ///
 /// **Rounding Strategy Documented:**
 /// To ensure the exact `amount` is fully distributed without leaving dust in the contract,
-/// the function calculates the truncated (floor) amount for payees 1 through N, subtracting 
-/// each from a `remaining` accumulator. The primary payee (index 0) receives the entire 
-/// `remaining` balance. Because integer division truncates, this strategy intentionally 
-/// accumulates all rounding dust and awards it to the primary payee. While this silently 
-/// favors the first payee by up to `N-1` stroops, it guarantees exactly 100% of the funds 
+/// the function calculates the truncated (floor) amount for payees 1 through N, subtracting
+/// each from a `remaining` accumulator. The primary payee (index 0) receives the entire
+/// `remaining` balance. Because integer division truncates, this strategy intentionally
+/// accumulates all rounding dust and awards it to the primary payee. While this silently
+/// favors the first payee by up to `N-1` stroops, it guarantees exactly 100% of the funds
 /// are distributed and avoids complex sub-stroop accounting.
 pub(crate) fn distribute_to_payees(
     env: &Env,
     token_addr: &Address,
-    payees: &Vec<Payee>,
+    payees: &BoundedPayees,
     amount: i128,
 ) -> Result<(), ContractError> {
     if amount < 0 {
@@ -584,8 +588,8 @@ pub(crate) fn distribute_to_payees(
     let mut remaining = amount;
 
     // Calculate amounts for all payees except the first
-    for i in 1..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+    for i in 1..payees.inner.len() {
+        let payee = payees.inner.get(i).ok_or(ContractError::IndexOutOfBounds)?;
         let payee_amount = amount
             .checked_mul(payee.bps as i128)
             .ok_or(ContractError::ArithmeticError)?
@@ -602,7 +606,7 @@ pub(crate) fn distribute_to_payees(
     }
 
     // First payee gets the remainder (rounding goes to first payee)
-    let first_payee = payees.get(0).ok_or(ContractError::IndexOutOfBounds)?;
+    let first_payee = payees.inner.get(0).ok_or(ContractError::IndexOutOfBounds)?;
     if remaining > 0 {
         token_client.transfer(&contract_addr, &first_payee.address, &remaining);
     }
@@ -660,7 +664,7 @@ pub(crate) fn increment_counter(env: &Env, key: &DataKey) -> Result<(), Contract
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn create_escrow_internal(
     env: &Env,
-    payees: Vec<Payee>,
+    payees: BoundedPayees,
     buyer: Option<Address>,
     resolver: Address,
     token: Address,
@@ -668,12 +672,12 @@ pub(crate) fn create_escrow_internal(
     fee_bps: u32,
     resolver_fee_bps: u32,
     shipping_window: u64,
-    notes: Option<String>,
+    notes: String,
 ) -> Result<u64, ContractError> {
-    if payees.is_empty() {
+    if payees.inner.is_empty() {
         return Err(ContractError::InvalidAddress);
     }
-    let first_payee = payees.get(0).ok_or(ContractError::IndexOutOfBounds)?;
+    let first_payee = payees.inner.get(0).ok_or(ContractError::IndexOutOfBounds)?;
     first_payee.address.require_auth();
 
     ensure_action_not_paused(env, Symbol::new(env, "CREATE"))?;
@@ -708,16 +712,14 @@ pub(crate) fn create_escrow_internal(
     validate_resolver_fee_bps(resolver_fee_bps)?;
     validate_payees(env, &payees)?;
 
-    // Validate notes length if present
-    if let Some(ref n) = notes {
-        if n.len() > MAX_NOTES_LEN {
-            return Err(ContractError::InputTooLong);
-        }
+    // Validate notes length
+    if notes.len() > MAX_NOTES_LEN {
+        return Err(ContractError::InputTooLong);
     }
 
     // Security: resolver must be distinct from all payees and buyer
-    for i in 0..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+    for i in 0..payees.inner.len() {
+        let payee = payees.inner.get(i).ok_or(ContractError::IndexOutOfBounds)?;
         if resolver == payee.address {
             return Err(ContractError::ConflictingRoles);
         }
@@ -778,8 +780,7 @@ pub(crate) fn create_escrow_internal(
         fee_bps,
         resolver_fee_bps,
         shipping_window,
-        funded_at: 0,
-        dispute_deadline: 0,
+        packed_timestamps: 0,
         state: EscrowState::Pending,
         shipped_at: 0,
         delivered_at: None,
@@ -790,6 +791,7 @@ pub(crate) fn create_escrow_internal(
     save_escrow(env, escrow_id, &escrow, None);
 
     let first_payee_addr = payees
+        .inner
         .get(0)
         .ok_or(ContractError::IndexOutOfBounds)?
         .address

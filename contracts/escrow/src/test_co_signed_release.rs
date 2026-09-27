@@ -103,7 +103,7 @@ fn test_co_signed_release_from_shipped() {
     );
 
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-SHIP"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-SHIP"));
 
     // co_signed_release should succeed from Shipped state
     client.co_signed_release(&buyer, &id);
@@ -138,11 +138,11 @@ fn test_co_signed_release_fails_on_active_dispute() {
     );
 
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DISP"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-DISP"));
 
     // Buyer raises a dispute
     let reason = Symbol::new(&env, "defective");
-    let description = SorobanString::from_str(&env, "Item is defective");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item is defective");
     let evidence_hash = BytesN::from_array(&env, &[0xcd; 32]);
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
 
@@ -177,11 +177,11 @@ fn test_co_signed_release_fails_on_completed_state() {
     );
 
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-COMP"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-COMP"));
 
     // Complete the escrow via confirm_delivery after the dispute window passes
     let escrow = client.get_escrow(&id);
-    advance_time(&env, escrow.dispute_deadline + 1);
+    advance_time(&env, (escrow.packed_timestamps & 0xFFFF_FFFF) + 1);
     client.confirm_delivery(&buyer, &id);
 
     // Now the escrow is Completed — co_signed_release must fail

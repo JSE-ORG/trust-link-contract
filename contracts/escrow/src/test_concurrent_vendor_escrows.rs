@@ -69,7 +69,7 @@ fn same_vendor_can_create_multiple_escrows_without_collision() {
         let escrow = client.get_escrow(&(i as u64));
         let expected_amount = 100_i128 + (i as i128);
 
-        assert_eq!(escrow.payees.get(0).unwrap().address, seller);
+        assert_eq!(escrow.payees.inner.get(0).unwrap().address, seller);
         assert_eq!(escrow.amount, expected_amount);
         assert_eq!(escrow.state, EscrowState::Pending);
     }

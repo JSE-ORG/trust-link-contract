@@ -65,7 +65,7 @@ fn test_fee_calculation_max_escrow_amount() {
         &fee_bps,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     mint_tokens(&env, &token, &buyer, amount);
@@ -78,7 +78,7 @@ fn test_fee_calculation_max_escrow_amount() {
     );
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    env.ledger().set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + 1);
     client.confirm_delivery(&buyer, &id);
 
     let escrow = client.get_escrow(&id);
@@ -121,7 +121,7 @@ fn test_create_escrow_amount_exceeds_maximum() {
         &300,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
     assert_eq!(res, Err(Ok(ContractError::AmountExceedsMaximum)));
 
@@ -135,7 +135,7 @@ fn test_create_escrow_amount_exceeds_maximum() {
         &300,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
     assert_eq!(res2, Err(Ok(ContractError::AmountExceedsMaximum)));
 }
@@ -165,7 +165,7 @@ fn test_create_escrow_invalid_amount() {
         &200,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
     assert!(matches!(res, Err(Ok(ContractError::InvalidAmount))));
 
@@ -179,7 +179,7 @@ fn test_create_escrow_invalid_amount() {
         &200,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
     assert!(matches!(res2, Err(Ok(ContractError::InvalidAmount))));
 }
@@ -209,7 +209,7 @@ fn test_fee_exceeds_max_clean_error() {
         &301,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     let payees_val = payees.into_val(&env);
@@ -222,7 +222,7 @@ fn test_fee_exceeds_max_clean_error() {
         &10_001,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
     assert!(matches!(res, Err(Ok(ContractError::FeeExceedsMax))));
 }
@@ -257,7 +257,7 @@ fn test_addition_overflow_escrow_counter() {
         &300,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
     assert_eq!(res, Err(Ok(ContractError::ArithmeticError)));
 }
@@ -289,7 +289,7 @@ fn test_addition_overflow_shipping_window() {
         &300,
         &0_u32,
         &MAX_SHIPPING_WINDOW,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
     env.ledger().set_timestamp(1000);
 
@@ -309,7 +309,7 @@ fn test_addition_overflow_shipping_window() {
         &300,
         &0_u32,
         &MAX_SHIPPING_WINDOW,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
     client.fund_escrow(&escrow_id_2, &buyer);
     client.mark_shipped(

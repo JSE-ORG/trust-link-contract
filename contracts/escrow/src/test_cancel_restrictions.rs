@@ -50,7 +50,7 @@ fn setup() -> Fx {
         &0_u32,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
     Fx {
@@ -123,7 +123,7 @@ fn cancel_fails_in_completed_state() {
                 .get(&DataKey::Escrow(fx.escrow_id))
         })
         .expect("escrow exists");
-    fx.env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    fx.env.ledger().set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + 1);
     fx.client.confirm_delivery(&fx.buyer, &fx.escrow_id);
 
     assert_eq!(
@@ -139,7 +139,7 @@ fn cancel_fails_in_disputed_state() {
     ship(&fx);
 
     let reason = Symbol::new(&fx.env, "non_delivery");
-    let description = String::from_str(&fx.env, "missing");
+    let description = soroban_sdk::Bytes::from_slice(&fx.env, b"missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
     fx.client
         .raise_dispute(&fx.buyer, &fx.escrow_id, &reason, &description, &evidence);
@@ -160,7 +160,7 @@ fn cancel_fails_in_refunded_state() {
     ship(&fx);
 
     let reason = Symbol::new(&fx.env, "non_delivery");
-    let description = String::from_str(&fx.env, "missing");
+    let description = soroban_sdk::Bytes::from_slice(&fx.env, b"missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
     fx.client
         .raise_dispute(&fx.buyer, &fx.escrow_id, &reason, &description, &evidence);
@@ -220,7 +220,7 @@ fn buyer_cancel_fails_in_completed_state() {
                 .get(&DataKey::Escrow(fx.escrow_id))
         })
         .expect("escrow exists");
-    fx.env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    fx.env.ledger().set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + 1);
     fx.client.confirm_delivery(&fx.buyer, &fx.escrow_id);
 
     assert_eq!(
@@ -236,7 +236,7 @@ fn buyer_cancel_fails_in_disputed_state() {
     ship(&fx);
 
     let reason = Symbol::new(&fx.env, "non_delivery");
-    let description = String::from_str(&fx.env, "missing");
+    let description = soroban_sdk::Bytes::from_slice(&fx.env, b"missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
     fx.client
         .raise_dispute(&fx.buyer, &fx.escrow_id, &reason, &description, &evidence);
@@ -254,7 +254,7 @@ fn buyer_cancel_fails_in_refunded_state() {
     ship(&fx);
 
     let reason = Symbol::new(&fx.env, "non_delivery");
-    let description = String::from_str(&fx.env, "missing");
+    let description = soroban_sdk::Bytes::from_slice(&fx.env, b"missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
     fx.client
         .raise_dispute(&fx.buyer, &fx.escrow_id, &reason, &description, &evidence);

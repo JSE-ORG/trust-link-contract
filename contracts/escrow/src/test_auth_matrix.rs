@@ -90,7 +90,7 @@ fn funded(ctx: &Ctx) -> (u64, Address, Address, Address) {
 fn shipped(ctx: &Ctx) -> (u64, Address, Address, Address) {
     let (id, seller, buyer, resolver) = funded(ctx);
     ctx.client
-        .mark_shipped(&seller, &id, &SorobanString::from_str(ctx.env, "TRK001"));
+        .mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(ctx.env, b"TRK001"));
     (id, seller, buyer, resolver)
 }
 
@@ -101,7 +101,7 @@ fn disputed(ctx: &Ctx) -> (u64, Address, Address, Address) {
         &buyer,
         &id,
         &Symbol::new(ctx.env, "Item"),
-        &SorobanString::from_str(ctx.env, "not received"),
+        &soroban_sdk::Bytes::from_slice(ctx.env, b"not received"),
         &hash,
     );
     (id, seller, buyer, resolver)
@@ -331,7 +331,7 @@ fn mark_shipped_rejects_buyer() {
     let (id, _, buyer, _) = funded(&ctx);
     assert_eq!(
         ctx.client
-            .try_mark_shipped(&buyer, &id, &SorobanString::from_str(&env, "TRK")),
+            .try_mark_shipped(&buyer, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRK")),
         Err(Ok(ContractError::NotAuthorized))
     );
 }
@@ -343,7 +343,7 @@ fn mark_shipped_rejects_resolver() {
     let (id, _, _, resolver) = funded(&ctx);
     assert_eq!(
         ctx.client
-            .try_mark_shipped(&resolver, &id, &SorobanString::from_str(&env, "TRK")),
+            .try_mark_shipped(&resolver, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRK")),
         Err(Ok(ContractError::NotAuthorized))
     );
 }
@@ -356,7 +356,7 @@ fn mark_shipped_rejects_intruder() {
     let intruder = Address::generate(&env);
     assert_eq!(
         ctx.client
-            .try_mark_shipped(&intruder, &id, &SorobanString::from_str(&env, "TRK")),
+            .try_mark_shipped(&intruder, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRK")),
         Err(Ok(ContractError::NotAuthorized))
     );
 }
@@ -467,7 +467,7 @@ fn raise_dispute_rejects_seller() {
             &seller,
             &id,
             &Symbol::new(&env, "Item"),
-            &SorobanString::from_str(&env, "desc"),
+            &soroban_sdk::Bytes::from_slice(&env, b"desc"),
             &hash,
         ),
         Err(Ok(ContractError::NotAuthorized))
@@ -485,7 +485,7 @@ fn raise_dispute_rejects_resolver() {
             &resolver,
             &id,
             &Symbol::new(&env, "Item"),
-            &SorobanString::from_str(&env, "desc"),
+            &soroban_sdk::Bytes::from_slice(&env, b"desc"),
             &hash,
         ),
         Err(Ok(ContractError::NotAuthorized))
@@ -504,7 +504,7 @@ fn raise_dispute_rejects_intruder() {
             &intruder,
             &id,
             &Symbol::new(&env, "Item"),
-            &SorobanString::from_str(&env, "desc"),
+            &soroban_sdk::Bytes::from_slice(&env, b"desc"),
             &hash,
         ),
         Err(Ok(ContractError::NotAuthorized))
@@ -683,7 +683,7 @@ fn mark_shipped_rejects_seller_in_pending_state() {
     let (id, seller, _, _) = pending(&ctx);
     assert_eq!(
         ctx.client
-            .try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRK")),
+            .try_mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRK")),
         Err(Ok(ContractError::InvalidState))
     );
 }
@@ -713,7 +713,7 @@ fn raise_dispute_rejects_buyer_in_pending_state() {
             &buyer,
             &id,
             &Symbol::new(&env, "Item"),
-            &SorobanString::from_str(&env, "desc"),
+            &soroban_sdk::Bytes::from_slice(&env, b"desc"),
             &hash,
         )
         .is_err());

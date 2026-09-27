@@ -42,7 +42,7 @@ fn auto_release_without_delivery_is_rejected() {
     client.mark_shipped(
         &seller,
         &escrow_id,
-        &SorobanString::from_str(&env, "TRACK-X"),
+        &soroban_sdk::Bytes::from_slice(&env, b"TRACK-X"),
     );
 
     // Do NOT call record_delivery. Now auto_release must reject with DeliveryNotRecorded.

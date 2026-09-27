@@ -87,7 +87,7 @@ fn test_get_escrows_by_vendor_multiple() {
         &0_u32,
         &0_u32,    // resolver fee bps
         &3600_u64, // Shipping window
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     // Check escrows for vendor 1
@@ -130,12 +130,12 @@ fn test_vendor_escrow_data_integrity_and_state_transitions() {
         &0_u32,
         &0_u32,    // resolver fee bps
         &3600_u64, // Shipping window
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     // Assert initial state and data integrity
     let escrow = client.get_escrow(&id);
-    assert_eq!(escrow.payees.get(0).unwrap().address, vendor);
+    assert_eq!(escrow.payees.inner.get(0).unwrap().address, vendor);
     assert_eq!(escrow.state, EscrowState::Pending);
     assert_eq!(escrow.amount, 1000);
 
@@ -160,7 +160,7 @@ fn test_vendor_escrow_data_integrity_and_state_transitions() {
     crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
 
     // Confirm delivery
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    env.ledger().set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + 1);
     client.confirm_delivery(&buyer, &id);
 
     // Assert final completed state

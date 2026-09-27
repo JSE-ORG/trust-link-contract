@@ -49,7 +49,7 @@ fn test_get_escrows_by_seller_single() {
         &0_u32,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     let escrows = client.get_escrows_by_seller(&seller);
@@ -85,7 +85,7 @@ fn test_get_escrows_by_seller_multiple() {
         &0_u32,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     let mut payees2 = soroban_sdk::Vec::new(&env);
@@ -104,7 +104,7 @@ fn test_get_escrows_by_seller_multiple() {
         &0_u32,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     let mut payees3 = soroban_sdk::Vec::new(&env);
@@ -123,7 +123,7 @@ fn test_get_escrows_by_seller_multiple() {
         &0_u32,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     let s1_escrows = client.get_escrows_by_seller(&seller1);
@@ -163,7 +163,7 @@ fn test_get_escrows_by_seller_matches_vendor() {
         &0_u32,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     let by_seller = client.get_escrows_by_seller(&seller);

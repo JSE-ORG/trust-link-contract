@@ -48,7 +48,7 @@ fn test_multi_resolver_threshold_met() {
     client.fund_escrow(&escrow_id, &buyer);
 
     // Raise dispute
-    client.raise_dispute(&buyer, &escrow_id, &symbol_short!("item"), &String::from_str(&env, "broken"), &BytesN::from_array(&env, &[0; 32]));
+    client.raise_dispute(&buyer, &escrow_id, &symbol_short!("item"), &soroban_sdk::Bytes::from_slice(&env, b"broken"), &BytesN::from_array(&env, &[0; 32]));
 
     // Resolver A votes Release
     client.resolve_dispute(&resolver_a, &escrow_id, &ResolutionType::Release);

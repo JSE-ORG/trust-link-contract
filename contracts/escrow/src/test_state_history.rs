@@ -99,7 +99,7 @@ fn state_history_ignores_non_state_updates() {
     client.mark_shipped(
         &seller,
         &escrow_id,
-        &SorobanString::from_str(&env, "TRACK-HISTORY-002"),
+        &soroban_sdk::Bytes::from_slice(&env, b"TRACK-HISTORY-002"),
     );
 
     env.ledger().set_timestamp(1_300);

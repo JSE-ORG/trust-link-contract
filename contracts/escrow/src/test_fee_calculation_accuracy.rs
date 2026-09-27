@@ -3,6 +3,7 @@
 use crate::helpers::payout::calculate_protocol_fee;
 use crate::Payee;
 use crate::{ContractError, ResolverSet};
+use soroban_sdk::String;
 
 /// Parameterized test that verifies fee calculation is mathematically correct
 /// for various fee_bps values: 0, 50, 100, 150, 200, 250, 300.
@@ -446,21 +447,20 @@ fn test_dispute_allocations_include_protocol_fee() {
     });
 
     let escrow = EscrowData {
-        payees: payees_53, // Changed from seller: seller.clone()
+        payees: crate::types::BoundedPayees { inner: payees_53 },
         buyer: Some(buyer.clone()),
         resolvers: ResolverSet::Single(resolver.clone()),
         token: token.clone(),
         amount: 1_000_000_i128,
-        fee_bps: 100_u32,        // 1%
-        resolver_fee_bps: 0_u32, // Added missing field
+        fee_bps: 100_u32,
+        resolver_fee_bps: 0_u32,
         state: EscrowState::Disputed,
         shipping_window: 3600,
-        funded_at: 0,
-        dispute_deadline: 0,
+        packed_timestamps: 0,
         shipped_at: 0,
         delivered_at: None,
         tracking_id: None,
-        notes: None, // Added missing field
+        notes: String::from_str(&env, ""),
     };
 
     let arbitration_fee = 50_000_i128; // 5% arbitration fee
@@ -522,21 +522,20 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     });
 
     let escrow = EscrowData {
-        payees: payees_52,
+        payees: crate::types::BoundedPayees { inner: payees_52 },
         buyer: Some(buyer.clone()),
         resolvers: ResolverSet::Single(resolver.clone()),
         token: token.clone(),
         amount: 1_000_000_i128,
-        fee_bps: 0_u32,          // 0% fee
-        resolver_fee_bps: 0_u32, // Added missing field
+        fee_bps: 0_u32,
+        resolver_fee_bps: 0_u32,
         state: EscrowState::Disputed,
         shipping_window: 3600,
-        funded_at: 0,
-        dispute_deadline: 0,
+        packed_timestamps: 0,
         shipped_at: 0,
         delivered_at: None,
         tracking_id: None,
-        notes: None, // Added missing field
+        notes: String::from_str(&env, ""),
     };
 
     let arbitration_fee = 50_000_i128;

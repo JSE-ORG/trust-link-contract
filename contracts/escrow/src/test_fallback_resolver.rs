@@ -76,7 +76,7 @@ fn create_funded_shipped_disputed(setup: &Setup) -> u64 {
     client.mark_shipped(&setup.seller, &escrow_id, &String::from_str(&setup.env, "TRK"));
 
     let reason = Symbol::new(&setup.env, "reason");
-    let description = String::from_str(&setup.env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&setup.env, b"desc");
     let evidence_hash = BytesN::from_array(&setup.env, &[0xab; 32]);
     client.raise_dispute(
         &setup.buyer,
@@ -112,7 +112,7 @@ fn test_create_escrow_with_fallback_success() {
 
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Pending);
-    assert_eq!(escrow.payees.get(0).unwrap().address, setup.seller);
+    assert_eq!(escrow.payees.inner.get(0).unwrap().address, setup.seller);
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn single_resolver_set_is_unaffected_by_fallback_deadline_logic() {
     client.mark_shipped(&seller, &escrow_id, &String::from_str(&env, "TRK-SINGLE"));
 
     let reason = Symbol::new(&env, "defective");
-    let description = String::from_str(&env, "Item is defective");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item is defective");
     let evidence = BytesN::from_array(&env, &[0xef; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
 

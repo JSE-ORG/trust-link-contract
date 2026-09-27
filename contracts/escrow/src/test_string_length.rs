@@ -76,7 +76,7 @@ fn test_description_at_limit_succeeds() {
     );
     // Exactly MAX_DESCRIPTION_LEN characters — must succeed
     let desc = make_string(&env, MAX_DESCRIPTION_LEN);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DESC"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-DESC"));
     client.raise_dispute(
         &buyer,
         &id,
@@ -98,7 +98,7 @@ fn test_description_over_limit_reverts() {
     let id = create_funded_escrow(
         &env, &client, &seller, &buyer, &resolver, &token, 100, 0, 3600,
     );
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DESC"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-DESC"));
     // One character over the limit — must revert
     let desc = make_string(&env, MAX_DESCRIPTION_LEN + 1);
     let res = client.try_raise_dispute(

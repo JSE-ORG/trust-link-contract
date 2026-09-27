@@ -222,7 +222,7 @@ fn payout_pays_each_basket_token_to_seller() {
     let escrow = client.get_escrow(&escrow_id);
     fx.env
         .ledger()
-        .set_timestamp(escrow.dispute_deadline + SHIPPING_WINDOW + 1);
+        .set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + SHIPPING_WINDOW + 1);
     client.auto_release(&escrow_id);
 
     // With protocol fee at its default 0, the seller receives every token in
@@ -268,7 +268,7 @@ fn zero_amount_token_is_skipped_on_fund_and_payout() {
     let escrow = client.get_escrow(&escrow_id);
     fx.env
         .ledger()
-        .set_timestamp(escrow.dispute_deadline + SHIPPING_WINDOW + 1);
+        .set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + SHIPPING_WINDOW + 1);
     client.auto_release(&escrow_id);
 
     // Seller receives the two funded tokens; the zero-amount token stays at 0.

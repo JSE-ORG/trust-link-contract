@@ -81,8 +81,8 @@ fn test_dispute_stored_in_persistent_storage() {
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "test"),
-        &soroban_sdk::String::from_str(&env, "desc"),
-        &soroban_sdk::BytesN::from_array(&env, &[0xab; 32]),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
+        &soroban_sdk::BytesNBytesN::from_array(&env, &[0xab; 32]),
     );
 
     // Dispute is readable from persistent storage after write + TTL extension.
@@ -350,8 +350,8 @@ fn test_resolver_votes_ttl_extended() {
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "defect"),
-        &soroban_sdk::String::from_str(&env, "item broken"),
-        &soroban_sdk::BytesN::from_array(&env, &[0xcd; 32]),
+        &soroban_sdk::Bytes::from_slice(&env, b"item broken"),
+        &soroban_sdk::BytesNBytesN::from_array(&env, &[0xcd; 32]),
     );
 
     // Advance ledger to near-TTL.

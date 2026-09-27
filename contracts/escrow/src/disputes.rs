@@ -3,7 +3,7 @@
 
 use crate::internal::*;
 use crate::*;
-use soroban_sdk::{contractimpl, token, Address, BytesN, Env, String, Symbol, Vec};
+use soroban_sdk::{contractimpl, token, Address, Bytes, BytesN, Env, Symbol, Vec};
 
 #[contractimpl]
 impl Escrow {
@@ -13,7 +13,7 @@ impl Escrow {
         caller: Address,
         escrow_id: u64,
         reason: Symbol,
-        description: String,
+        description: Bytes,
         evidence_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
         caller.require_auth();
@@ -32,7 +32,7 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        if env.ledger().timestamp() >= escrow.dispute_deadline {
+        if env.ledger().timestamp() >= (escrow.packed_timestamps & 0xFFFF_FFFF) {
             return Err(ContractError::DisputeWindowStillOpen);
         }
 
@@ -148,6 +148,7 @@ impl Escrow {
         let recipient = match resolution {
             ResolutionType::Release => escrow
                 .payees
+                .inner
                 .get(0)
                 .ok_or(ContractError::IndexOutOfBounds)?
                 .address
@@ -277,6 +278,7 @@ impl Escrow {
             .ok_or(ContractError::EscrowHasNoBuyer)?;
         let seller_addr = escrow
             .payees
+            .inner
             .get(0)
             .ok_or(ContractError::IndexOutOfBounds)?
             .address

@@ -151,7 +151,7 @@ fn fund_escrow_rejects_buyer_equal_to_seller() {
         &0_u32,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     assert_eq!(
@@ -187,7 +187,7 @@ fn fund_escrow_rejects_buyer_equal_to_resolver() {
         &0_u32,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     assert_eq!(

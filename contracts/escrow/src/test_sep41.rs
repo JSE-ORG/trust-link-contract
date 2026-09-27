@@ -48,14 +48,14 @@ fn test_sep41_fund_and_confirm_delivery() {
     let payees1_val = payees1.into_val(&env);
     let id = client.create_escrow_8(&payees1_val, &None::<Address>, &resolver, &token, &500_i128, &100_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK001"));
 
     assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
     assert_eq!(balance(&env, &token, &buyer), 0);
     assert_eq!(balance(&env, &token, &contract_id), 500);
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    env.ledger().set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + 1);
     client.confirm_delivery(&buyer, &id);
 
     // 1% fee on 500 = 5 routed to the fee collector; 495 to seller
@@ -84,7 +84,7 @@ fn test_sep41_auto_release() {
     let payees2_val = payees2.into_val(&env);
     let id = client.create_escrow_8(&payees2_val, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-AUTO"));
     env.ledger().set_timestamp(1_700_000_000);
     record_delivery_timelocked(&env, &client, &admin, id);
 
@@ -117,13 +117,13 @@ fn test_sep41_dispute_and_refund() {
     let payees3_val = payees3.into_val(&env);
     let id = client.create_escrow_8(&payees3_val, &None::<Address>, &resolver, &token, &800_i128, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DISPUTE"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-DISPUTE"));
 
     client.raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "defective"),
-        &SorobanString::from_str(&env, "item was broken"),
+        &soroban_sdk::Bytes::from_slice(&env, b"item was broken"),
         &BytesN::from_array(&env, &[0xde; 32]),
     );
 
@@ -215,14 +215,14 @@ fn test_sep41_dispute_and_release() {
     let payees6_val = payees6.into_val(&env);
     let id = client.create_escrow_8(&payees6_val, &None::<Address>, &resolver, &token, &1000_i128, &100_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-RELEASE"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-RELEASE"));
 
     // Buyer raises a dispute
     client.raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "defective"),
-        &SorobanString::from_str(&env, "item was defective"),
+        &soroban_sdk::Bytes::from_slice(&env, b"item was defective"),
         &BytesN::from_array(&env, &[0xdf; 32]),
     );
 
@@ -271,7 +271,7 @@ fn test_sep41_auto_release_with_fees() {
     let payees7_val = payees7.into_val(&env);
     let id = client.create_escrow_8(&payees7_val, &None::<Address>, &resolver, &token, &1000_i128, &0_u32, &3600_u64);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO-FEES"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-AUTO-FEES"));
     env.ledger().set_timestamp(1_700_000_000);
     record_delivery_timelocked(&env, &client, &admin, id);
 

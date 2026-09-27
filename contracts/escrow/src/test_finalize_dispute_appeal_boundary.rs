@@ -57,7 +57,7 @@ fn setup_pending_finalization() -> (Env, Address, Address, u64, u64) {
         &0_u32,
         &0_u32,
         &3600_u64,
-        &None::<String>,
+        &String::from_str(&env, ""),
     );
 
     let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
@@ -67,7 +67,7 @@ fn setup_pending_finalization() -> (Env, Address, Address, u64, u64) {
     // Raise + resolve the dispute (single resolver → threshold 1 → resolves
     // immediately and records `resolved_at`).
     let reason = Symbol::new(&env, "non_delivery");
-    let description = String::from_str(&env, "Item never arrived");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item never arrived");
     let evidence = BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
     client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Release);

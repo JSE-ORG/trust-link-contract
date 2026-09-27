@@ -65,7 +65,7 @@ fn test_mark_shipped_transitions_state() {
     );
 
     let expected_ts = env.ledger().timestamp();
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-001"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-001"));
 
     assert!(has_event::<crate::EscrowShipped, _>(
         &env,
@@ -104,7 +104,7 @@ fn test_mark_shipped_rejects_empty_tracking_id() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    let res = client.try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, ""));
+    let res = client.try_mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b""));
     assert!(matches!(res, Err(Ok(ContractError::InvalidTrackingId))));
 
     let escrow = client.get_escrow(&id);
@@ -127,7 +127,7 @@ fn test_record_delivery_sets_timestamp() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-002"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-002"));
 
     advance_time(&env, 60);
     client.propose_record_delivery(&admin, &id);
@@ -184,10 +184,10 @@ fn test_confirm_delivery_after_mark_shipped() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-003"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-003"));
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    env.ledger().set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + 1);
     client.confirm_delivery(&buyer, &id);
 
     assert!(has_event::<crate::EscrowCompleted, _>(
@@ -222,10 +222,10 @@ fn test_confirm_delivery_by_vendor_reverts() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-004"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-004"));
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    env.ledger().set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + 1);
 
     assert_eq!(
         client.try_confirm_delivery(&seller, &id),
@@ -250,10 +250,10 @@ fn test_confirm_delivery_by_third_party_reverts() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-005"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-005"));
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    env.ledger().set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + 1);
 
     assert_eq!(
         client.try_confirm_delivery(&intruder, &id),
@@ -280,7 +280,7 @@ fn test_record_delivery_timestamp_matches_ledger_timestamp() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK001"));
 
     advance_time(&env, 60);
     client.propose_record_delivery(&admin, &id);
@@ -318,7 +318,7 @@ fn test_record_delivery_rejects_zero_timestamp() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK001"));
 
     let _escrow_before = client.get_escrow(&id);
     env.ledger().set_timestamp(0);
@@ -347,7 +347,7 @@ fn test_record_delivery_accepts_maximum_valid_timestamp() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK001"));
 
     let max_ts: u64 = 100_000_000_000;
     env.ledger()
@@ -377,7 +377,7 @@ fn test_record_delivery_rejects_duplicate_call() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK001"));
 
     env.ledger()
         .set_timestamp(1_700_000_100 - crate::DELIVERY_TIMELOCK);
@@ -417,7 +417,7 @@ fn test_record_delivery_timelock_flow() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-TIMELOCK"),
+        &soroban_sdk::Bytes::from_slice(&env, b"TRACK-TIMELOCK"),
     );
 
     // Propose delivery
@@ -461,7 +461,7 @@ fn test_cancel_delivery_proposal() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-CANCEL"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-CANCEL"));
 
     client.propose_record_delivery(&admin, &id);
     client.cancel_delivery_proposal(&admin, &id);
@@ -547,7 +547,7 @@ fn test_confirm_delivery_from_disputed_state_fails() {
         &buyer,
         &id,
         &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "dispute description"),
+        &soroban_sdk::Bytes::from_slice(&env, b"dispute description"),
         &soroban_sdk::BytesN::from_array(&env, &[0; 32]),
     );
 
@@ -608,10 +608,10 @@ fn test_confirm_delivery_from_completed_state_fails() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-001"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-001"));
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    env.ledger().set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + 1);
 
     client.confirm_delivery(&buyer, &id);
 

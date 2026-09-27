@@ -140,7 +140,7 @@ fn migrated_escrow_remains_operable() {
     f.client.mark_shipped(
         &f.seller,
         &escrow_id,
-        &SorobanString::from_str(&env, "TRACK-1"),
+        &soroban_sdk::Bytes::from_slice(&env, b"TRACK-1"),
     );
     assert_eq!(f.client.get_escrow(&escrow_id).state, EscrowState::Shipped);
 }

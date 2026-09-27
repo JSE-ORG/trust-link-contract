@@ -288,7 +288,7 @@ fn gas_profile_mark_shipped() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-ABC-123"),
+        &soroban_sdk::Bytes::from_slice(&env, b"TRACK-ABC-123"),
     );
     let sample = diff(&env, &before);
     print_gas("mark_shipped", &sample);
@@ -316,7 +316,7 @@ fn gas_profile_confirm_delivery() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"T-1"));
     advance_time(&env, 172_800 + 1);
 
     let before = take_budget_snapshot(&env);
@@ -461,7 +461,7 @@ fn gas_profile_raise_dispute() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"T-1"));
     advance_time(&env, 1);
 
     let before = take_budget_snapshot(&env);
@@ -469,7 +469,7 @@ fn gas_profile_raise_dispute() {
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "item not as described"),
+        &soroban_sdk::Bytes::from_slice(&env, b"item not as described"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
     let sample = diff(&env, &before);
@@ -498,13 +498,13 @@ fn gas_profile_resolve_dispute_release() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"T-1"));
     advance_time(&env, 1);
     client.raise_dispute(
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "x"),
+        &soroban_sdk::Bytes::from_slice(&env, b"x"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -536,13 +536,13 @@ fn gas_profile_resolve_dispute_refund() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"T-1"));
     advance_time(&env, 1);
     client.raise_dispute(
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "x"),
+        &soroban_sdk::Bytes::from_slice(&env, b"x"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -580,13 +580,13 @@ fn gas_profile_vote_multi_resolver() {
         &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"T-1"));
     advance_time(&env, 1);
     client.raise_dispute(
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "x"),
+        &soroban_sdk::Bytes::from_slice(&env, b"x"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -618,13 +618,13 @@ fn gas_profile_finalize_dispute() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"T-1"));
     advance_time(&env, 1);
     client.raise_dispute(
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "x"),
+        &soroban_sdk::Bytes::from_slice(&env, b"x"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
@@ -658,13 +658,13 @@ fn gas_profile_appeal_dispute() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"T-1"));
     advance_time(&env, 1);
     client.raise_dispute(
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "x"),
+        &soroban_sdk::Bytes::from_slice(&env, b"x"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
@@ -702,7 +702,7 @@ fn gas_profile_post_message() {
     client.post_message(
         &id,
         &buyer,
-        &SorobanString::from_str(&env, "Hello! Is this item still available?"),
+        &soroban_sdk::Bytes::from_slice(&env, b"Hello! Is this item still available?"),
     );
     let sample = diff(&env, &before);
     print_gas("post_message", &sample);
@@ -883,7 +883,7 @@ fn gas_profile_batch_create_escrow_10() {
             amount: 1_000_000,
             fee_bps: 100,
             shipping_window: 3600,
-            notes: None,
+            notes: soroban_sdk::String::from_str(&env, ""),
         });
     }
 

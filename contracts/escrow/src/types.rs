@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, String, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, String, Symbol, Vec};
 
 /// Single unified storage key enum for all contract storage entries.
 ///
@@ -173,7 +173,9 @@ pub struct ResolverVote {
 pub struct DisputeData {
     pub escrow_id: u64,
     pub reason: Symbol,
-    pub description: String,
+    /// Raw bytes — UTF-8 validation is deferred to off-chain consumers.
+    /// Avoids the per-load UTF-8 check that `String` incurs in the Soroban host.
+    pub description: Bytes,
     pub evidence_hash: BytesN<32>,
     pub status: DisputeStatus,
     pub disputed_at: u64,
@@ -248,7 +250,7 @@ pub struct ContractConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowData {
-    pub payees: Vec<Payee>,
+    pub payees: BoundedPayees,
     pub buyer: Option<Address>,
     pub resolvers: ResolverSet,
     pub token: Address,
@@ -256,13 +258,20 @@ pub struct EscrowData {
     pub fee_bps: u32,
     pub resolver_fee_bps: u32,
     pub shipping_window: u64,
-    pub funded_at: u64,
-    pub dispute_deadline: u64,
+    /// Packed timestamp field: high 32 bits = `funded_at`, low 32 bits = `dispute_deadline`.
+    ///
+    /// Both timestamps fit in 32 bits until year 2106 (Unix epoch < 2^32).
+    /// Pack/unpack helpers:
+    ///   funded_at        = packed_timestamps >> 32
+    ///   dispute_deadline = packed_timestamps & 0xFFFF_FFFF
+    pub packed_timestamps: u64,
     pub shipped_at: u64,
     pub delivered_at: Option<u64>,
     pub tracking_id: Option<String>,
     pub state: EscrowState,
-    pub notes: Option<String>,
+    /// Free-form notes. Empty string is the "no notes" sentinel, avoiding the
+    /// XDR option-wrapper overhead that `Option<String>` requires.
+    pub notes: String,
 }
 
 #[contracttype]
@@ -274,7 +283,8 @@ pub struct EscrowInput {
     pub amount: i128,
     pub fee_bps: u32,
     pub shipping_window: u64,
-    pub notes: Option<String>,
+    /// Empty string is the "no notes" sentinel (see `EscrowData.notes`).
+    pub notes: String,
 }
 
 #[contracttype]
@@ -301,6 +311,22 @@ pub struct ContractStats {
 pub struct Payee {
     pub address: Address,
     pub bps: u32,
+}
+
+/// Maximum number of payees allowed in a single escrow.
+/// Enforced by `BoundedPayees` to eliminate the unbounded Vec length-prefix
+/// overhead and to cap storage cost at creation time.
+pub const MAX_PAYEES: u32 = 10;
+
+/// A Vec<Payee> wrapper that enforces a fixed upper bound of `MAX_PAYEES`.
+///
+/// Stored as a `#[contracttype]` struct so the XDR shape is a single-field
+/// struct (equivalent overhead to the bare `Vec` field it replaces, but with
+/// explicit capacity enforcement in the contract rather than at the caller).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundedPayees {
+    pub inner: Vec<Payee>,
 }
 
 /// Lifecycle states of an escrow transaction.

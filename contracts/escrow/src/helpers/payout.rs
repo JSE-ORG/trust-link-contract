@@ -99,6 +99,7 @@ pub fn calculate_dispute_allocations(
     let recipient = match resolution {
         ResolutionType::Release => escrow
             .payees
+            .inner
             .get(0)
             .ok_or(ContractError::IndexOutOfBounds)?
             .address

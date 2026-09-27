@@ -88,7 +88,7 @@ fn fund_and_ship(f: &Fixture) {
     f.client.mark_shipped(
         &f.seller,
         &f.id,
-        &SorobanString::from_str(f.env, "TRACK-402"),
+        &soroban_sdk::Bytes::from_slice(f.env, b"TRACK-402"),
     );
     assert_eq!(f.mclient.balance(&f.contract_id), AMOUNT);
 }

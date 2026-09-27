@@ -58,10 +58,10 @@ fn test_fee_rounds_to_zero_on_one_stroop_confirm_delivery() {
         &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-ONE"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK-ONE"));
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    env.ledger().set_timestamp((escrow.packed_timestamps & 0xFFFF_FFFF) + 1);
     client.confirm_delivery(&buyer, &id);
 
     let _escrow = client.get_escrow(&id);
@@ -101,7 +101,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_auto_release() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-FEE-AUTO"),
+        &soroban_sdk::Bytes::from_slice(&env, b"TRACK-FEE-AUTO"),
     );
     env.ledger().set_timestamp(1_700_000_000);
     crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
@@ -146,13 +146,13 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_release() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-FEE-REL"),
+        &soroban_sdk::Bytes::from_slice(&env, b"TRACK-FEE-REL"),
     );
     client.raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "fraud"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
@@ -193,13 +193,13 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_refund() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-FEE-REF"),
+        &soroban_sdk::Bytes::from_slice(&env, b"TRACK-FEE-REF"),
     );
     client.raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "fraud"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund);

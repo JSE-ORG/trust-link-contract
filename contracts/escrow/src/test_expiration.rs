@@ -118,7 +118,7 @@ fn test_cannot_ship_expired_escrow() {
     env.ledger().set_timestamp(10);
 
     // Shipping should fail with EscrowExpired.
-    let res = client.try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    let res = client.try_mark_shipped(&seller, &id, &soroban_sdk::Bytes::from_slice(&env, b"TRACK001"));
     assert!(matches!(res, Err(Ok(ContractError::EscrowExpired))));
 }
 
@@ -197,7 +197,7 @@ fn test_reclaim_with_active_dispute() {
         &buyer,
         &id,
         &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "description"),
+        &soroban_sdk::Bytes::from_slice(&env, b"description"),
         &hash,
     );
 
