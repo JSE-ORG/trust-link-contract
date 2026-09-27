@@ -206,7 +206,7 @@ impl Escrow {
         let escrow_count = current_counter.saturating_sub(1);
 
         PublicContractConfig {
-            fee_bps: fee_config.protocol_fee_bps,
+            fee_bps: fee_config.protocol_fee_bps as u16,
             arbitration_fee_bps: fee_config.arbitration_fee_bps,
             paused,
             escrow_count,
@@ -233,7 +233,7 @@ impl Escrow {
             .saturating_sub(1);
         Ok(ContractConfig {
             admin,
-            fee_bps: fee_config.protocol_fee_bps,
+            fee_bps: fee_config.protocol_fee_bps as u16,
             arbitration_fee_bps: fee_config.arbitration_fee_bps,
             fee_collector,
             escrow_count,
