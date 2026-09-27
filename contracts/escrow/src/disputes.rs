@@ -54,7 +54,7 @@ impl Escrow {
         evidence_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "raise_dispute"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         let buyer = escrow
@@ -167,7 +167,7 @@ impl Escrow {
         escrow_id: u64,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "finalize_dispute"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::PendingFinalization {
@@ -322,7 +322,7 @@ impl Escrow {
     /// historical free-appeal behavior.
     pub fn appeal_dispute(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "appeal_dispute"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::PendingFinalization {
@@ -438,7 +438,7 @@ impl Escrow {
         escrow_id: u64,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "claim_dispute_timeout"))?;
         let escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Disputed {
@@ -482,7 +482,7 @@ impl Escrow {
     /// already meet the threshold, or `NoResolverVotes` when no resolver voted
     /// (that resolver-inaction case is handled by `claim_dispute_timeout`).
     pub fn resolve_deadlocked_dispute(env: Env, escrow_id: u64) -> Result<(), ContractError> {
-        ensure_not_paused(&env)?;
+        ensure_action_not_paused(&env, Symbol::new(&env, "resolve_deadlocked_dispute"))?;
         let escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Disputed {
