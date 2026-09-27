@@ -189,7 +189,7 @@
                   "u64": "1"
                 },
                 {
-                  "symbol": "fraud"
+                  "symbol": "FRAUD"
                 },
                 {
                   "string": "desc"
@@ -538,7 +538,7 @@
                       "symbol": "reason"
                     },
                     "val": {
-                      "symbol": "fraud"
+                      "symbol": "FRAUD"
                     }
                   },
                   {

@@ -189,7 +189,7 @@
                   "u64": "1"
                 },
                 {
-                  "symbol": "damaged"
+                  "symbol": "DAMAGED"
                 },
                 {
                   "string": "item arrived damaged"
@@ -419,7 +419,7 @@
                       "symbol": "reason"
                     },
                     "val": {
-                      "symbol": "damaged"
+                      "symbol": "DAMAGED"
                     }
                   },
                   {

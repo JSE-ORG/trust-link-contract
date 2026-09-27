@@ -223,7 +223,7 @@ fn test_raise_and_resolve_dispute_release_to_seller() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -269,7 +269,7 @@ fn test_raise_and_resolve_dispute_refund_buyer() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -413,14 +413,14 @@ fn test_raise_dispute_only_once() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
     let res = client.try_raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -579,7 +579,7 @@ fn test_dispute_resolved_to_seller_with_non_usdc_token() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -633,7 +633,7 @@ fn test_dispute_refunded_to_buyer_with_non_usdc_token() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -765,7 +765,7 @@ fn test_multi_asset_concurrent_escrows_different_tokens() {
     client.raise_dispute(
         &buyer_b,
         &id2,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -935,7 +935,7 @@ fn test_dispute_after_shipping_succeeds() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -976,7 +976,7 @@ fn test_dispute_requires_shipped_state() {
     let res = client.try_raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -1235,7 +1235,7 @@ fn test_event_integrity_dispute_raised() {
     client.raise_dispute(
         &buyer,
         &escrow_id,
-        &Symbol::new(&env, "non_delivery"),
+        &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
         &SorobanString::from_str(&env, "Item never arrived"),
         &evidence,
     );
@@ -1280,7 +1280,7 @@ fn test_event_integrity_dispute_resolved_release_to_seller() {
     client.raise_dispute(
         &buyer,
         &escrow_id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -1337,7 +1337,7 @@ fn test_event_integrity_dispute_resolved_refund_buyer() {
     client.raise_dispute(
         &buyer,
         &escrow_id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -1481,7 +1481,7 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
     client.raise_dispute(
         &buyer,
         &id2,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );

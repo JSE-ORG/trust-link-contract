@@ -440,7 +440,7 @@ fn test_auto_release_invalid_states_rejected() {
     fix.client.fund_escrow(&escrow_id, &fix.buyer);
 
     // 2. Disputed state:
-    let reason = Symbol::new(&fix.env, "issue");
+    let reason = Symbol::new(&fix.env, "OTHER");
     let desc = SorobanString::from_str(&fix.env, "broken");
     let evidence = BytesN::from_array(&fix.env, &[1u8; 32]);
     fix.client

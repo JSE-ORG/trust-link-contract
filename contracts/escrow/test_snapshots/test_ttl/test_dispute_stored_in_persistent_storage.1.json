@@ -189,7 +189,7 @@
                   "u64": "1"
                 },
                 {
-                  "symbol": "test"
+                  "symbol": "OTHER"
                 },
                 {
                   "string": "desc"
@@ -419,7 +419,7 @@
                       "symbol": "reason"
                     },
                     "val": {
-                      "symbol": "test"
+                      "symbol": "OTHER"
                     }
                   },
                   {

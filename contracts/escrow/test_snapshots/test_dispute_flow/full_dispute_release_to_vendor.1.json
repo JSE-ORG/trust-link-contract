@@ -193,7 +193,7 @@
                   "u64": "1"
                 },
                 {
-                  "symbol": "non_delivery"
+                  "symbol": "ITEM_NOT_RECEIVED"
                 },
                 {
                   "string": "Item never arrived"
@@ -598,7 +598,7 @@
                       "symbol": "reason"
                     },
                     "val": {
-                      "symbol": "non_delivery"
+                      "symbol": "ITEM_NOT_RECEIVED"
                     }
                   },
                   {

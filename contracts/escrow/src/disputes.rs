@@ -5,6 +5,25 @@ use crate::internal::*;
 use crate::*;
 use soroban_sdk::{contractimpl, token, Address, BytesN, Env, String, Symbol, Vec};
 
+/// Dispute reason symbols accepted by `raise_dispute`. Clients parse the
+/// stored `DisputeData::reason` against this fixed set, so anything outside it
+/// is rejected with `InvalidDisputeReason`.
+pub const DISPUTE_REASONS: [&str; 6] = [
+    "ITEM_NOT_RECEIVED",
+    "NOT_AS_DESCRIBED",
+    "DAMAGED",
+    "DEFECTIVE",
+    "FRAUD",
+    "OTHER",
+];
+
+/// Returns true if `reason` is one of [`DISPUTE_REASONS`].
+fn is_valid_dispute_reason(env: &Env, reason: &Symbol) -> bool {
+    DISPUTE_REASONS
+        .iter()
+        .any(|allowed| Symbol::new(env, allowed) == *reason)
+}
+
 /// Returns `(buyer, primary_payee)` for a dispute participant check. The
 /// primary payee is treated as the "seller" side throughout the escrow.
 fn buyer_and_seller(escrow: &EscrowData) -> Result<(Address, Address), ContractError> {
@@ -45,6 +64,9 @@ impl Escrow {
     /// *content*, so consumers must re-hash the evidence and compare it against
     /// the stored digest before treating it as proof. The all-zero digest is
     /// accepted and conventionally means "no evidence attached".
+    ///
+    /// `reason` must be one of [`DISPUTE_REASONS`]; any other symbol reverts
+    /// with `InvalidDisputeReason`.
     pub fn raise_dispute(
         env: Env,
         caller: Address,
@@ -77,6 +99,10 @@ impl Escrow {
             // and confirm_delivery (window still open, too early) to maintain ABI stability.
             // See ERROR_CODES.md for both use cases.
             return Err(ContractError::DisputeWindowStillOpen);
+        }
+
+        if !is_valid_dispute_reason(&env, &reason) {
+            return Err(ContractError::InvalidDisputeReason);
         }
 
         if description.len() > MAX_DESCRIPTION_LEN {
@@ -402,11 +428,7 @@ impl Escrow {
         // A failing transfer (e.g. appellant cannot cover the fee) reverts the
         // whole invocation, including the state changes.
         if let Some(fee_collector) = fee_collector {
-            token::Client::new(&env, &escrow.token).transfer(
-                &caller,
-                &fee_collector,
-                &appeal_fee,
-            );
+            token::Client::new(&env, &escrow.token).transfer(&caller, &fee_collector, &appeal_fee);
         }
 
         emit_dispute_appealed(&env, escrow_id, caller);

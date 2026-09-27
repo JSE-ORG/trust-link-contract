@@ -66,7 +66,7 @@ fn disputed_single_resolver_escrow(
     client.raise_dispute(
         buyer,
         &id,
-        &symbol_short!("item"),
+        &symbol_short!("OTHER"),
         &String::from_str(env, "never arrived"),
         &BytesN::from_array(env, &[0; 32]),
     );

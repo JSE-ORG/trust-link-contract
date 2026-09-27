@@ -57,7 +57,7 @@ fn test_multi_resolver_threshold_met() {
     client.raise_dispute(
         &buyer,
         &escrow_id,
-        &symbol_short!("item"),
+        &symbol_short!("OTHER"),
         &String::from_str(&env, "broken"),
         &BytesN::from_array(&env, &[0; 32]),
     );
@@ -283,21 +283,21 @@ fn test_multi_resolver_split_vote_deadlock() {
     client.fund_escrow(&escrow_id, &buyer);
     client.mark_shipped(&seller, &escrow_id, &String::from_str(&env, "TRK-001"));
 
-    let reason = symbol_short!("wrong");
+    let reason = symbol_short!("OTHER");
     let description = String::from_str(&env, "Item broken");
     let evidence_hash = BytesN::from_array(&env, &[0u8; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence_hash);
 
     // Resolver A votes Release
     client.vote(&resolver_a, &escrow_id, &ResolutionType::Release);
-    
+
     let escrow = client.get_escrow(&escrow_id);
     assert_eq!(escrow.state, EscrowState::Disputed);
 
     // Resolver B votes Refund
     client.vote(&resolver_b, &escrow_id, &ResolutionType::Refund);
 
-    // Both have voted, but threshold is 2 for either outcome. 
+    // Both have voted, but threshold is 2 for either outcome.
     // State MUST remain Disputed (deadlocked).
     let escrow_after = client.get_escrow(&escrow_id);
     assert_eq!(escrow_after.state, EscrowState::Disputed);

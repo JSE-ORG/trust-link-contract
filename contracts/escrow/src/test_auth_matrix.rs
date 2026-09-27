@@ -100,7 +100,7 @@ fn disputed(ctx: &Ctx) -> (u64, Address, Address, Address) {
     ctx.client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(ctx.env, "Item"),
+        &Symbol::new(ctx.env, "ITEM_NOT_RECEIVED"),
         &SorobanString::from_str(ctx.env, "not received"),
         &hash,
     );
@@ -528,7 +528,7 @@ fn raise_dispute_rejects_seller() {
         ctx.client.try_raise_dispute(
             &seller,
             &id,
-            &Symbol::new(&env, "Item"),
+            &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
             &SorobanString::from_str(&env, "desc"),
             &hash,
         ),
@@ -546,7 +546,7 @@ fn raise_dispute_rejects_resolver() {
         ctx.client.try_raise_dispute(
             &resolver,
             &id,
-            &Symbol::new(&env, "Item"),
+            &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
             &SorobanString::from_str(&env, "desc"),
             &hash,
         ),
@@ -565,7 +565,7 @@ fn raise_dispute_rejects_intruder() {
         ctx.client.try_raise_dispute(
             &intruder,
             &id,
-            &Symbol::new(&env, "Item"),
+            &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
             &SorobanString::from_str(&env, "desc"),
             &hash,
         ),
@@ -774,7 +774,7 @@ fn raise_dispute_rejects_buyer_in_pending_state() {
         .try_raise_dispute(
             &buyer,
             &id,
-            &Symbol::new(&env, "Item"),
+            &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
             &SorobanString::from_str(&env, "desc"),
             &hash,
         )
@@ -868,7 +868,7 @@ fn raise_dispute_rejects_completed_escrow() {
         ctx.client.try_raise_dispute(
             &buyer,
             &id,
-            &Symbol::new(&env, "Item"),
+            &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
             &SorobanString::from_str(&env, "desc"),
             &hash,
         ),
@@ -886,7 +886,7 @@ fn raise_dispute_rejects_refunded_escrow() {
         ctx.client.try_raise_dispute(
             &buyer,
             &id,
-            &Symbol::new(&env, "Item"),
+            &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
             &SorobanString::from_str(&env, "desc"),
             &hash,
         ),

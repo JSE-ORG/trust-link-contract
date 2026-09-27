@@ -189,7 +189,7 @@
                   "u64": "1"
                 },
                 {
-                  "symbol": "reason"
+                  "symbol": "OTHER"
                 },
                 {
                   "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -418,7 +418,7 @@
                       "symbol": "reason"
                     },
                     "val": {
-                      "symbol": "reason"
+                      "symbol": "OTHER"
                     }
                   },
                   {
@@ -1372,7 +1372,7 @@
                     "symbol": "reason"
                   },
                   "val": {
-                    "symbol": "reason"
+                    "symbol": "OTHER"
                   }
                 },
                 {

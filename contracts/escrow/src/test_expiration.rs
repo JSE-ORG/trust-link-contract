@@ -193,7 +193,7 @@ fn test_reclaim_with_active_dispute() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "description"),
         &hash,
     );

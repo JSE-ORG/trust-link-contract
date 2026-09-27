@@ -141,7 +141,7 @@ fn test_co_signed_release_fails_on_active_dispute() {
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DISP"));
 
     // Buyer raises a dispute
-    let reason = Symbol::new(&env, "defective");
+    let reason = Symbol::new(&env, "DEFECTIVE");
     let description = SorobanString::from_str(&env, "Item is defective");
     let evidence_hash = BytesN::from_array(&env, &[0xcd; 32]);
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);

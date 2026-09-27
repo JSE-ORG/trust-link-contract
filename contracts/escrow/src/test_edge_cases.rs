@@ -331,7 +331,7 @@ fn test_record_delivery_on_disputed_escrow_reverts() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "damaged"),
+        &Symbol::new(&env, "DAMAGED"),
         &SorobanString::from_str(&env, "item arrived damaged"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );

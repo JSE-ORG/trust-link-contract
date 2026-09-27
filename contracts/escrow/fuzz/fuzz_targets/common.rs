@@ -29,9 +29,8 @@ pub const VALID_SHIPPING_WINDOW: u64 = 86_400;
 
 /// Reason symbols accepted by `raise_dispute`. `Symbol::new` panics on
 /// characters outside the Soroban symbol alphabet, so the reason is selected
-/// from this fixed set rather than built from raw fuzz bytes.
-pub const DISPUTE_REASONS: [&str; 4] =
-    ["ITEM_NOT_RECEIVED", "NOT_AS_DESCRIBED", "DAMAGED", "OTHER"];
+/// from the contract's fixed set rather than built from raw fuzz bytes.
+pub use trustlink_escrow::DISPUTE_REASONS;
 
 pub struct Harness {
     pub env: Env,

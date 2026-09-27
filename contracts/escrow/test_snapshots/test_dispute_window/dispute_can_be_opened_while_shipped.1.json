@@ -233,7 +233,7 @@
                   "u64": "1"
                 },
                 {
-                  "symbol": "non_delivery"
+                  "symbol": "ITEM_NOT_RECEIVED"
                 },
                 {
                   "string": "missing"
@@ -584,7 +584,7 @@
                       "symbol": "reason"
                     },
                     "val": {
-                      "symbol": "non_delivery"
+                      "symbol": "ITEM_NOT_RECEIVED"
                     }
                   },
                   {

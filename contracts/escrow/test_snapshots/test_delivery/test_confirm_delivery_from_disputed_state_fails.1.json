@@ -164,7 +164,7 @@
                   "u64": "1"
                 },
                 {
-                  "symbol": "reason"
+                  "symbol": "OTHER"
                 },
                 {
                   "string": "dispute description"
@@ -394,7 +394,7 @@
                       "symbol": "reason"
                     },
                     "val": {
-                      "symbol": "reason"
+                      "symbol": "OTHER"
                     }
                   },
                   {

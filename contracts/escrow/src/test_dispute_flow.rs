@@ -70,7 +70,7 @@ fn full_dispute_release_to_vendor() {
     client.mark_shipped(&seller, &escrow_id, &tracking_id);
 
     // Buyer raises a dispute.
-    let reason = Symbol::new(&env, "non_delivery");
+    let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&env, "Item never arrived");
     let evidence = BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);

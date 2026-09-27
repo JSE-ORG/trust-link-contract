@@ -139,7 +139,7 @@ fn cancel_fails_in_disputed_state() {
     fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
     ship(&fx);
 
-    let reason = Symbol::new(&fx.env, "non_delivery");
+    let reason = Symbol::new(&fx.env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&fx.env, "missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
     fx.client
@@ -160,7 +160,7 @@ fn cancel_fails_in_refunded_state() {
     fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
     ship(&fx);
 
-    let reason = Symbol::new(&fx.env, "non_delivery");
+    let reason = Symbol::new(&fx.env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&fx.env, "missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
     fx.client
@@ -237,7 +237,7 @@ fn buyer_cancel_fails_in_disputed_state() {
     fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
     ship(&fx);
 
-    let reason = Symbol::new(&fx.env, "non_delivery");
+    let reason = Symbol::new(&fx.env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&fx.env, "missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
     fx.client
@@ -255,7 +255,7 @@ fn buyer_cancel_fails_in_refunded_state() {
     fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
     ship(&fx);
 
-    let reason = Symbol::new(&fx.env, "non_delivery");
+    let reason = Symbol::new(&fx.env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&fx.env, "missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
     fx.client

@@ -188,7 +188,7 @@ fn test_raise_dispute_blocked_when_paused() {
     let result = client.try_raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "fraud"),
+        &Symbol::new(&env, "FRAUD"),
         &SorobanString::from_str(&env, "desc"),
         &hash,
     );
@@ -223,7 +223,7 @@ fn test_resolve_dispute_blocked_when_paused() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "fraud"),
+        &Symbol::new(&env, "FRAUD"),
         &SorobanString::from_str(&env, "desc"),
         &hash,
     );
@@ -384,7 +384,7 @@ fn test_unpause_resumes_operations() {
         .try_raise_dispute(
             &buyer,
             &escrow_id,
-            &Symbol::new(&env, "reason"),
+            &Symbol::new(&env, "OTHER"),
             &SorobanString::from_str(&env, "desc"),
             &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
         )

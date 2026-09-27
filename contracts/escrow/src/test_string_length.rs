@@ -78,7 +78,7 @@ fn test_description_at_limit_succeeds() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &desc,
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -102,7 +102,7 @@ fn test_description_over_limit_reverts() {
     let res = client.try_raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &desc,
         &BytesN::from_array(&env, &[0u8; 32]),
     );

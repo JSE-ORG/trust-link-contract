@@ -169,7 +169,7 @@
                   "u64": "1"
                 },
                 {
-                  "symbol": "non_shipment"
+                  "symbol": "ITEM_NOT_RECEIVED"
                 },
                 {
                   "string": "Seller never shipped the item"
@@ -460,7 +460,7 @@
                       "symbol": "reason"
                     },
                     "val": {
-                      "symbol": "non_shipment"
+                      "symbol": "ITEM_NOT_RECEIVED"
                     }
                   },
                   {

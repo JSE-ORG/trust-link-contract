@@ -162,4 +162,7 @@ pub enum ContractError {
     /// Returned when `recovery_withdraw` is called while recovery mode is not
     /// enabled via `enable_recovery_mode`.
     NotInRecoveryMode = 67,
+    /// Returned when `raise_dispute` is given a `reason` symbol outside the
+    /// predefined `DISPUTE_REASONS` set.
+    InvalidDisputeReason = 68,
 }

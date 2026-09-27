@@ -78,7 +78,7 @@ fn test_raise_dispute_not_found() {
     let res = client.try_raise_dispute(
         &buyer,
         &MISSING_ID,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );

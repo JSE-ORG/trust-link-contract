@@ -151,7 +151,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_release() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "fraud"),
+        &Symbol::new(&env, "FRAUD"),
         &SorobanString::from_str(&env, "desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -198,7 +198,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_refund() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "fraud"),
+        &Symbol::new(&env, "FRAUD"),
         &SorobanString::from_str(&env, "desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
