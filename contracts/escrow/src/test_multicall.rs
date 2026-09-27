@@ -350,14 +350,14 @@ fn test_multicall_duplicate_fund_escrow_reverts() {
 
     // Try executing the duplicate batch
     let result = client.try_multicall(&calls);
-    
+
     // The second call sees the state is Funded and returns InvalidState, reverting the batch.
     assert_eq!(result, Err(Ok(ContractError::InvalidState)));
 
     // Verify safety: Escrow remains Pending, and NO funds were deducted!
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Pending);
-    
+
     let token_client = token::StellarAssetClient::new(&env, &token);
     assert_eq!(token_client.balance(&buyer), 2_000);
 }
