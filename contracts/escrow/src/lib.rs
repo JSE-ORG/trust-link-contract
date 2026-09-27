@@ -236,7 +236,7 @@ pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 10_000;
 pub struct Escrow;
 
 /// Maximum number of appeals allowed per dispute.
-pub const MAX_APPEALS: u32 = 3;
+pub const MAX_APPEALS: u8 = 3;
 
 /// Default maximum duration (in seconds) a dispute may remain unresolved
 /// before either party can force a refund with `claim_dispute_timeout`.
