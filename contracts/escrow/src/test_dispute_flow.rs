@@ -71,7 +71,7 @@ fn full_dispute_release_to_vendor() {
 
     // Buyer raises a dispute.
     let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
-    let description = String::from_str(&env, "Item never arrived");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item never arrived");
     let evidence = BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
 
@@ -197,8 +197,8 @@ fn dispute_resolution_with_zero_resolver_fee_and_appeal() {
     client.mark_shipped(&seller, &escrow_id, &tracking);
 
     // Raise dispute (t=1_000 < dispute_deadline=172_800 ✓).
-    let reason = Symbol::new(&env, "no_delivery");
-    let description = String::from_str(&env, "Item not received");
+    let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item not received");
     let evidence = BytesN::from_array(&env, &[0u8; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
 

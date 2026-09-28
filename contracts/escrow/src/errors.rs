@@ -166,9 +166,9 @@ pub enum ContractError {
     /// predefined `DISPUTE_REASONS` set.
     InvalidDisputeReason = 68,
     /// Returned when an arbitrary u32 operation ID does not map to a valid `TimelockOperation`.
-    InvalidOperation = 68,
+    InvalidOperation = 69,
     /// Returned when setting a timelock delay outside the allowed bounds.
-    InvalidTimelockDelay = 69,
+    InvalidTimelockDelay = 70,
     /// Returned when the executed parameters do not match the queued proposal hash.
-    InvalidProposalHash = 70,
+    InvalidProposalHash = 71,
 }

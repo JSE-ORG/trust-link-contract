@@ -30,7 +30,7 @@ fn try_raise(
         buyer,
         &id,
         &Symbol::new(env, reason),
-        &SorobanString::from_str(env, "desc"),
+        &soroban_sdk::Bytes::from_slice(env, b"desc"),
         &BytesN::from_array(env, &[0u8; 32]),
     ) {
         Ok(_) => Ok(()),

@@ -82,7 +82,7 @@ fn setup_funded_escrow() -> Setup {
 fn raise_and_resolve(setup: &Setup) {
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
     let reason = Symbol::new(&setup.env, "ITEM_NOT_RECEIVED");
-    let description = String::from_str(&setup.env, "Item never arrived");
+    let description = soroban_sdk::Bytes::from_slice(&setup.env, b"Item never arrived");
     let evidence = BytesN::from_array(&setup.env, &[0xab; 32]);
     client.raise_dispute(
         &setup.buyer,

@@ -54,7 +54,7 @@ fn test_mark_shipped_not_found() {
     let res = client.try_mark_shipped(
         &seller,
         &MISSING_ID,
-        &SorobanString::from_str(&env, "TRACK"),
+        &soroban_sdk::String::from_str(&env, "TRACK"),
     );
     assert!(matches!(res, Err(Ok(ContractError::EscrowNotFound))));
 }
@@ -79,7 +79,7 @@ fn test_raise_dispute_not_found() {
         &buyer,
         &MISSING_ID,
         &Symbol::new(&env, "OTHER"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
     assert!(matches!(res, Err(Ok(ContractError::EscrowNotFound))));
