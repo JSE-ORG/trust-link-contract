@@ -47,10 +47,12 @@ impl Escrow {
         } else {
             return Err(ContractError::InvalidAddress);
         };
-        auth!(payees
-            .get(0)
-            .ok_or(ContractError::IndexOutOfBounds)?
-            .address);
+        auth!(
+            payees
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?
+                .address
+        );
 
         ensure_action_not_paused(&env, Symbol::new(&env, "create_escrow"))?;
 
@@ -147,6 +149,10 @@ impl Escrow {
             exp_time
                 .checked_add(grace_period)
                 .ok_or(ContractError::ArithmeticOverflow)?;
+        }
+
+        if grace_period > crate::MAX_GRACE_PERIOD {
+            return Err(ContractError::GracePeriodTooLong);
         }
 
         let mut payees = Vec::new(&env);
@@ -289,7 +295,6 @@ impl Escrow {
     /// Buyer funds a pending escrow. Transitions Pending → Funded.
     #[allow(clippy::too_many_lines)]
     pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
-        auth!(buyer);
         ensure_action_not_paused(&env, Symbol::new(&env, "FUND"))?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
@@ -299,6 +304,7 @@ impl Escrow {
                 ContractError::InvalidState,
             ));
         }
+        auth!(buyer);
 
         let now = env.ledger().timestamp();
 
@@ -1787,6 +1793,22 @@ impl Escrow {
     ) -> Result<Vec<u64>, ContractError> {
         auth!(seller);
         ensure_action_not_paused(&env, Symbol::new(&env, "batch_create_escrow"))?;
+
+        let mut seen_notes: Vec<String> = Vec::new(&env);
+        for input in escrows.iter() {
+            if let Some(ref notes) = input.notes {
+                if !notes.is_empty() {
+                    for i in 0..seen_notes.len() {
+                        if let Some(existing) = seen_notes.get(i) {
+                            if existing == *notes {
+                                return Err(ContractError::DuplicateNotes);
+                            }
+                        }
+                    }
+                    seen_notes.push_back(notes.clone());
+                }
+            }
+        }
 
         let mut escrow_ids = Vec::new(&env);
         for input in escrows {

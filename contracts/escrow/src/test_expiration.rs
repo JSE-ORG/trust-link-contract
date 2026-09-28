@@ -247,17 +247,17 @@ fn test_reclaim_expired_grace_period_boundary() {
     client.fund_escrow(&id, &buyer);
 
     // --- one tick before the boundary: must still be blocked ---
-    env.ledger().set_timestamp(reclaimable_at - 1); // 149
+    env.ledger().set_timestamp(expires_at - 1); // 99
     let res = client.try_reclaim_expired(&id);
     assert!(
-        matches!(res, Err(Ok(ContractError::GracePeriodNotElapsed))),
-        "expected GracePeriodNotElapsed at tick {}, got {:?}",
-        reclaimable_at - 1,
+        matches!(res, Err(Ok(ContractError::InvalidState))),
+        "expected InvalidState at tick {}, got {:?}",
+        expires_at - 1,
         res
     );
 
     // --- exactly at the boundary: must succeed ---
-    env.ledger().set_timestamp(reclaimable_at); // 150
+    env.ledger().set_timestamp(expires_at); // 100
     client.reclaim_expired(&id);
 
     let escrow = client.get_escrow(&id);

@@ -196,7 +196,7 @@ fn test_mutual_cancel_rejected_when_disputed() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "non_delivery"),
+        &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
         &SorobanString::from_str(&env, "Item never arrived"),
         &BytesN::from_array(&env, &[0xab; 32]),
     );

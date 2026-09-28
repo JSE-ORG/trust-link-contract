@@ -72,6 +72,16 @@ export const enum ErrorCode {
   NotAuthorizedSeller = 62,
   EscrowAlreadyCompleted = 63,
   EscrowAlreadyRefunded = 64,
+  AppealFeeExceedsMax = 65,
+  AppealFeeBelowMinimum = 66,
+  NotInRecoveryMode = 67,
+  InvalidDisputeReason = 68,
+  InvalidOperation = 69,
+  InvalidTimelockDelay = 70,
+  InvalidProposalHash = 71,
+  DuplicateNotes = 72,
+  GracePeriodTooLong = 73,
+  TimestampInvariantViolated = 74,
 }
 
 /** Human-readable message for every contract error code. */
@@ -188,6 +198,26 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "The escrow has already been completed.",
   [ErrorCode.EscrowAlreadyRefunded]:
     "The escrow has already been refunded.",
+  [ErrorCode.AppealFeeExceedsMax]:
+    "The appeal fee exceeds its configured hard cap.",
+  [ErrorCode.AppealFeeBelowMinimum]:
+    "The appeal fee is below its configured minimum.",
+  [ErrorCode.NotInRecoveryMode]:
+    "Recovery mode is not enabled.",
+  [ErrorCode.InvalidDisputeReason]:
+    "The dispute reason is not in the predefined allowed list.",
+  [ErrorCode.InvalidOperation]:
+    "The timelock operation ID is invalid.",
+  [ErrorCode.InvalidTimelockDelay]:
+    "The timelock delay is outside allowed bounds.",
+  [ErrorCode.InvalidProposalHash]:
+    "The executed parameters do not match the queued proposal hash.",
+  [ErrorCode.DuplicateNotes]:
+    "A batch_create_escrow call contains duplicate notes values.",
+  [ErrorCode.GracePeriodTooLong]:
+    "The grace period exceeds the maximum allowed grace period.",
+  [ErrorCode.TimestampInvariantViolated]:
+    "Resolution timestamp cannot be earlier than dispute timestamp.",
 };
 
 /**

@@ -565,6 +565,33 @@ pub enum TimelockOperation {
     SetTimelockDelay = 19,
 }
 
+impl TimelockOperation {
+    pub fn from_u32(val: u32) -> Option<Self> {
+        match val {
+            1 => Some(Self::SetAdmin),
+            2 => Some(Self::Upgrade),
+            3 => Some(Self::SetProtocolFee),
+            4 => Some(Self::SetArbitrationFee),
+            5 => Some(Self::SetPlatformFee),
+            6 => Some(Self::SetTreasury),
+            7 => Some(Self::SetFeeCollector),
+            8 => Some(Self::SetTtlExtension),
+            9 => Some(Self::SetAmountLimits),
+            10 => Some(Self::AddApprovedResolver),
+            11 => Some(Self::RemoveApprovedResolver),
+            12 => Some(Self::SetResolverStrict),
+            13 => Some(Self::SetTokenAllowlistEnabled),
+            14 => Some(Self::AddAllowedToken),
+            15 => Some(Self::RemoveAllowedToken),
+            16 => Some(Self::PauseContract),
+            17 => Some(Self::UnpauseContract),
+            18 => Some(Self::SetAppealFee),
+            19 => Some(Self::SetTimelockDelay),
+            _ => None,
+        }
+    }
+}
+
 /// A queued admin change awaiting the 24-hour timelock delay before it can be
 /// executed. `params` is a contract-serialised `Vec<Val>` mirroring the
 /// operation's function arguments (excluding `env` and `caller/admin`),

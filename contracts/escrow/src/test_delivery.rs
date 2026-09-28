@@ -935,7 +935,7 @@ fn test_propose_record_delivery_then_raise_dispute_blocks_execute() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "dispute"),
+        &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
         &SorobanString::from_str(&env, "buyer raises dispute after delivery proposed"),
         &hash,
     );

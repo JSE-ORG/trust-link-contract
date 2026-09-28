@@ -523,7 +523,7 @@ fn execute_set_ttl_extension_below_minimum_is_rejected() {
             .set_timestamp(now + ADMIN_TIMELOCK_DELAY_SECONDS + 1);
 
         assert_eq!(
-            client.try_execute_set_ttl_extension(&admin),
+            client.try_execute_set_ttl_extension(&admin, &below),
             Err(Ok(ContractError::InvalidTtlExtension)),
             "execute_set_ttl_extension({}) must be rejected",
             below,
@@ -542,7 +542,7 @@ fn execute_set_ttl_extension_at_minimum_succeeds() {
     let now = env.ledger().timestamp();
     env.ledger()
         .set_timestamp(now + ADMIN_TIMELOCK_DELAY_SECONDS + 1);
-    client.execute_set_ttl_extension(&admin);
+    client.execute_set_ttl_extension(&admin, &MIN_TTL_EXTENSION);
 
     assert_eq!(
         effective_ttl_extension(&env, &contract_id).1,
@@ -581,7 +581,7 @@ fn queued_ttl_extension_applies_after_timelock() {
     env.ledger()
         .set_timestamp(now + ADMIN_TIMELOCK_DELAY_SECONDS + 1);
 
-    client.execute_set_ttl_extension(&admin);
+    client.execute_set_ttl_extension(&admin, &42_000_u32);
 
     assert_eq!(effective_ttl_extension(&env, &contract_id).1, 42_000);
 }
@@ -597,7 +597,7 @@ fn execute_ttl_extension_before_timelock_elapses_is_rejected() {
     client.queue_set_ttl_extension(&admin, &42_000_u32);
 
     assert_eq!(
-        client.try_execute_set_ttl_extension(&admin),
+        client.try_execute_set_ttl_extension(&admin, &42_000_u32),
         Err(Ok(ContractError::InvalidState)),
     );
     assert_eq!(
@@ -614,7 +614,7 @@ fn execute_ttl_extension_without_a_queued_proposal_is_rejected() {
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
     assert_eq!(
-        client.try_execute_set_ttl_extension(&admin),
+        client.try_execute_set_ttl_extension(&admin, &42_000_u32),
         Err(Ok(ContractError::InvalidState)),
     );
 }
@@ -636,7 +636,7 @@ fn timelocked_smaller_ttl_value_flows_into_extend_ttl() {
     let now = env.ledger().timestamp();
     env.ledger()
         .set_timestamp(now + ADMIN_TIMELOCK_DELAY_SECONDS + 1);
-    client.execute_set_ttl_extension(&admin);
+    client.execute_set_ttl_extension(&admin, &new_ttl);
 
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);

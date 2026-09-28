@@ -449,7 +449,7 @@ fn approve_refund_rejects_secondary_payee() {
 
     assert_eq!(
         ctx.client.try_approve_refund(&affiliate, &id),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedSeller))
     );
 
     // The primary payee can still approve, and the buyer is made whole.
@@ -1119,7 +1119,7 @@ fn execute_set_arbitration_fee_requires_auth() {
     env.mock_auths(&[]);
     assert!(ctx
         .client
-        .try_execute_set_arbitration_fee(&ctx.admin)
+        .try_execute_set_arbitration_fee(&ctx.admin, &10_u32)
         .is_err());
 }
 

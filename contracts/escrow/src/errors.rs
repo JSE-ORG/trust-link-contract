@@ -166,9 +166,15 @@ pub enum ContractError {
     /// predefined `DISPUTE_REASONS` set.
     InvalidDisputeReason = 68,
     /// Returned when an arbitrary u32 operation ID does not map to a valid `TimelockOperation`.
-    InvalidOperation = 68,
+    InvalidOperation = 69,
     /// Returned when setting a timelock delay outside the allowed bounds.
-    InvalidTimelockDelay = 69,
+    InvalidTimelockDelay = 70,
     /// Returned when the executed parameters do not match the queued proposal hash.
-    InvalidProposalHash = 70,
+    InvalidProposalHash = 71,
+    /// Returned when a `batch_create_escrow` call contains duplicate notes values.
+    DuplicateNotes = 72,
+    /// Returned when `create_escrow_with_expiration` is called with a `grace_period` that exceeds `MAX_GRACE_PERIOD`.
+    GracePeriodTooLong = 73,
+    /// Returned when `resolved_at` is earlier than `disputed_at`, violating the timestamp ordering invariant.
+    TimestampInvariantViolated = 74,
 }

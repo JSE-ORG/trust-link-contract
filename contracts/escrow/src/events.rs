@@ -1516,4 +1516,3 @@ pub fn emit_timelock_delay_updated(env: &Env, old_delay: u64, new_delay: u64, ca
         },
     );
 }
-

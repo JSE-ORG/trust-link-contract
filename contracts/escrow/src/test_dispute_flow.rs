@@ -197,7 +197,7 @@ fn dispute_resolution_with_zero_resolver_fee_and_appeal() {
     client.mark_shipped(&seller, &escrow_id, &tracking);
 
     // Raise dispute (t=1_000 < dispute_deadline=172_800 ✓).
-    let reason = Symbol::new(&env, "no_delivery");
+    let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&env, "Item not received");
     let evidence = BytesN::from_array(&env, &[0u8; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
