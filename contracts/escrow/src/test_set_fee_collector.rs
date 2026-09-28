@@ -45,7 +45,10 @@ fn set_fee_collector_stores_pending_address() {
             env.storage().instance().get(&DataKey::FeeCollector)
         })
         .expect("active fee collector set");
-    assert_eq!(active, old_collector, "active collector must be unchanged before accept");
+    assert_eq!(
+        active, old_collector,
+        "active collector must be unchanged before accept"
+    );
 
     // The pending address must be set.
     let pending: Address = env
@@ -78,7 +81,10 @@ fn accept_fee_collector_finalizes_change() {
     let pending: Option<Address> = env.as_contract(&client.address, || {
         env.storage().instance().get(&DataKey::PendingFeeCollector)
     });
-    assert!(pending.is_none(), "pending fee collector must be cleared after accept");
+    assert!(
+        pending.is_none(),
+        "pending fee collector must be cleared after accept"
+    );
 }
 
 #[test]

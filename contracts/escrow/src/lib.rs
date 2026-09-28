@@ -31,21 +31,20 @@ pub use crate::events::{
     emit_escrow_created, emit_escrow_expired, emit_escrow_funded, emit_escrow_shipped,
     emit_fee_collector_accepted, emit_fee_collector_pending, emit_fee_collector_updated,
     emit_fee_updated, emit_max_appeals_updated, emit_max_basket_size_updated,
-    emit_pending_expiry_cleared,
-    emit_platform_fee_updated, emit_protocol_fee_updated, emit_refund_approved,
-    emit_refund_requested, emit_resolver_approved, emit_resolver_removed, emit_resolver_rotated,
-    emit_resolver_strict_updated, emit_resolver_vote_recorded, emit_storage_migrated,
-    emit_timelock_cancelled, emit_timelock_executed, emit_timelock_queued,
+    emit_pending_expiry_cleared, emit_platform_fee_updated, emit_protocol_fee_updated,
+    emit_refund_approved, emit_refund_requested, emit_resolver_approved, emit_resolver_removed,
+    emit_resolver_rotated, emit_resolver_strict_updated, emit_resolver_vote_recorded,
+    emit_storage_migrated, emit_timelock_cancelled, emit_timelock_executed, emit_timelock_queued,
     emit_token_allowlist_updated, emit_treasury_updated, emit_ttl_extension_updated,
     ActionPausedEvent, ActionUnpausedEvent, AdminRotated, AmountLimitsUpdated,
     ArbitrationFeeUpdated, AutoReleased, ContractInitialized, ContractPausedEvent,
     ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled, DeliveryProposed,
     DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowAutoCanceled, EscrowCanceled,
     EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped,
-    FeeCollectorAccepted, FeeCollectorPending, FeeUpdated, MaxAppealsUpdated,
-    MaxBasketSizeUpdated, PendingExpiryClear, ProtocolFeeUpdated,
-    ResolverApproved, ResolverRemoved, ResolverRotated, ResolverStrictUpdated,
-    ResolverVoteRecorded, TimelockCancelled, TimelockExecuted, TimelockQueued, TtlExtensionUpdated,
+    FeeCollectorAccepted, FeeCollectorPending, FeeUpdated, MaxAppealsUpdated, MaxBasketSizeUpdated,
+    PendingExpiryClear, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated,
+    ResolverStrictUpdated, ResolverVoteRecorded, TimelockCancelled, TimelockExecuted,
+    TimelockQueued, TtlExtensionUpdated,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, Escrow as EscrowData,
@@ -144,6 +143,11 @@ pub const MIN_ESCROW_AMOUNT: i128 = 1;
 const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
 pub const MIN_TTL_EXTENSION: u32 = 1_000;
+/// Maximum allowed TTL extension in ledgers.
+///
+/// Keeping this bounded prevents admin misconfiguration from setting an
+/// excessive duration that inflates rent fees across many persistent entries.
+pub const MAX_TTL_EXTENSION: u32 = 2_592_000; // ~30 days at 10s/ledger
 const DEFAULT_TTL_EXTENSION: u32 = 120_960;
 /// Divisor used when computing the threshold for TTL extension.
 /// TTL is extended to `ext / TTL_THRESHOLD_DIVISOR` on the low end,

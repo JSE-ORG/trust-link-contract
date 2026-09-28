@@ -418,7 +418,6 @@ fn test_unpause_resumes_operations() {
     assert_eq!(second_id, 3);
 }
 
-
 #[test]
 fn test_granular_pause_functionality() {
     let env = Env::default();
