@@ -403,8 +403,8 @@ pub enum ResolutionType {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FeeConfig {
-    pub protocol_fee_bps: u32,
-    pub arbitration_fee_bps: u32,
+    pub protocol_fee_bps: u16,
+    pub arbitration_fee_bps: u16,
 }
 
 /// Admin-tunable global configuration, stored under [`DataKey::GlobalConfig`].
@@ -421,10 +421,10 @@ pub struct GlobalConfig {
     pub fee_collector: Option<Address>,
     /// Receives platform fees. `None` until the admin sets one.
     pub treasury: Option<Address>,
-    pub protocol_fee_bps: u32,
-    pub arbitration_fee_bps: u32,
-    pub platform_fee_bps: u32,
-    pub appeal_fee_bps: u32,
+    pub protocol_fee_bps: u16,
+    pub arbitration_fee_bps: u16,
+    pub platform_fee_bps: u16,
+    pub appeal_fee_bps: u16,
     pub min_amount: i128,
     pub max_amount: i128,
     /// Maximum seconds a dispute may stay unresolved before a forced refund.
@@ -440,8 +440,8 @@ pub struct GlobalConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicContractConfig {
-    pub fee_bps: u32,
-    pub arbitration_fee_bps: u32,
+    pub fee_bps: u16,
+    pub arbitration_fee_bps: u16,
     pub paused: bool,
     pub escrow_count: u64,
 }
@@ -451,8 +451,8 @@ pub struct PublicContractConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractConfig {
     pub admin: Address,
-    pub fee_bps: u32,
-    pub arbitration_fee_bps: u32,
+    pub fee_bps: u16,
+    pub arbitration_fee_bps: u16,
     pub fee_collector: Address,
     pub escrow_count: u64,
 }
@@ -465,8 +465,8 @@ pub struct Escrow {
     pub resolvers: ResolverSet,
     pub token: Address,
     pub amount: i128,
-    pub fee_bps: u32,
-    pub resolver_fee_bps: u32,
+    pub fee_bps: u16,
+    pub resolver_fee_bps: u16,
     pub shipping_window: u64,
     pub funded_at: u64,
     pub dispute_deadline: u64,
@@ -486,11 +486,11 @@ pub struct EscrowInput {
     pub resolver: Address,
     pub token: Address,
     pub amount: i128,
-    pub fee_bps: u32,
+    pub fee_bps: u16,
     /// Per-escrow resolver fee in basis points (issue #911). Validated with
     /// the same cap as `create_escrow`'s `resolver_fee_bps`; `0` means the
     /// resolver serves uncompensated.
-    pub resolver_fee_bps: u32,
+    pub resolver_fee_bps: u16,
     pub shipping_window: u64,
     pub notes: Option<String>,
 }
