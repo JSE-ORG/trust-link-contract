@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
+use crate::events::emit_resolver_vote_recorded;
 use crate::internal::{
     add_or_update_vote, ensure_action_not_paused, execute_resolution_transition, get_ttl_extension,
     load_escrow, save_resolver_votes, tally_votes, terminal_state_error,
@@ -14,6 +15,7 @@ pub mod types;
 
 mod admin;
 mod disputes;
+pub use crate::disputes::DISPUTE_REASONS;
 mod instructions;
 mod internal;
 mod queries;
@@ -46,9 +48,9 @@ pub use crate::events::{
     ResolverVoteRecorded, TimelockCancelled, TimelockExecuted, TimelockQueued, TtlExtensionUpdated,
 };
 pub use crate::types::{
-    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowInput,
-    EscrowState, ExpirySchedule, FeeConfig, Payee, PublicContractConfig, ResolutionType,
-    ResolverSet, ResolverVote, TimelockOperation, TimelockProposal, TokenEntry,
+    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, Escrow as EscrowData,
+    EscrowInput, EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee, PublicContractConfig,
+    ResolutionType, ResolverSet, ResolverVote, TimelockOperation, TimelockProposal, TokenEntry,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
@@ -83,7 +85,7 @@ const MAX_PROTOCOL_FEE_BPS: u32 = 500;
 
 /// Maximum combined protocol + arbitration fee in basis points (1000 = 10%).
 ///
-/// Ensures that protocol_fee_bps + arbitration_fee_bps cannot exceed 10%,
+/// Ensures that `protocol_fee_bps` + `arbitration_fee_bps` cannot exceed 10%,
 /// preventing the malicious admin attack where combined fees drain entire escrows.
 const MAX_COMBINED_FEE_BPS: u32 = 1_000;
 
@@ -95,7 +97,7 @@ pub const CONTRACT_VERSION: u32 = 1;
 /// Bump this whenever the layout of a stored type changes, and extend
 /// [`Escrow::migrate`] with the corresponding step. Contracts deployed before
 /// versioning existed report `0`; see `docs/UPGRADES.md`.
-pub const STORAGE_VERSION: u32 = 1;
+pub const STORAGE_VERSION: u32 = 2;
 
 /// Maximum platform fee in basis points (200 = 2%).
 ///
@@ -108,11 +110,32 @@ const MAX_PLATFORM_FEE_BPS: u32 = 200;
 /// After a dispute is resolved, the losing party has this window to appeal.
 const APPEAL_WINDOW: u64 = 86_400;
 
+/// Maximum appeal fee in basis points (500 = 5%).
+///
+/// The appeal fee is charged to the appellant on `appeal_dispute` and
+/// forwarded to the fee collector, so griefing via repeated appeals always
+/// costs the attacker. Capped at 5% so a legitimate appeal stays affordable.
+const MAX_APPEAL_FEE_BPS: u32 = 500;
+
+/// Minimum non-zero appeal fee in basis points (10 = 0.1%).
+///
+/// A non-zero appeal fee below this is rejected with
+/// `AppealFeeBelowMinimum`, preventing a nominal fee that fails to deter
+/// griefing. Zero remains valid and disables the fee entirely.
+const MIN_APPEAL_FEE_BPS: u32 = 10;
+
+/// Default appeal fee in basis points (0 = disabled).
+///
+/// Preserved for backward compatibility: deployments that never call
+/// `set_appeal_fee` keep the historical free-appeal behavior until the admin
+/// opts in.
+const DEFAULT_APPEAL_FEE_BPS: u32 = 0;
+
 /// Minimum escrow amount in stroops.
 /// Keeps the contract from accepting zero or negative escrows.
 pub const MIN_ESCROW_AMOUNT: i128 = 1;
 
-/// Length of the dispute window in seconds (172_800 = 48 hours).
+/// Length of the dispute window in seconds (`172_800` = 48 hours).
 ///
 /// On `fund_escrow` the contract sets `dispute_deadline = funded_at +
 /// DISPUTE_WINDOW`. Until that deadline the buyer may `raise_dispute`, and
@@ -131,7 +154,7 @@ const TTL_THRESHOLD_DIVISOR: u32 = 2;
 const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 
 /// Longest a fallback escrow's primary resolver may hold sole authority over
-/// a dispute before the backup must be allowed to act (2_592_000 = 30 days).
+/// a dispute before the backup must be allowed to act (`2_592_000` = 30 days).
 const FALLBACK_PRIMARY_GRACE: u64 = 2_592_000;
 
 /// Furthest past the creation timestamp a `FallbackResolver::dispute_deadline`
@@ -145,10 +168,10 @@ const MAX_FALLBACK_DEADLINE_OFFSET: u64 =
 /// Maximum number of entries kept in an escrow's state history.
 /// Once reached, the oldest entry is dropped for each new one appended,
 /// bounding storage size for high-churn escrows (e.g. disputed <->
-/// pending_finalization cycles).
+/// `pending_finalization` cycles).
 const MAX_STATE_HISTORY_ENTRIES: u32 = 50;
 
-/// Basis points denominator (100% = 10_000 basis points).
+/// Basis points denominator (100% = `10_000` basis points).
 pub const BASIS_POINTS: u32 = 10_000;
 pub const DELIVERY_TIMELOCK: u64 = 86_400;
 
@@ -196,7 +219,7 @@ pub const ESCROW_INDEX_PAGE_SIZE: u32 = 20;
 pub const MIN_SHIPPING_WINDOW: u64 = 1;
 
 /// Maximum shipping window in seconds (approximately 2 years).
-/// Prevents accidental or malicious use of u64::MAX which would lock funds indefinitely.
+/// Prevents accidental or malicious use of `u64::MAX` which would lock funds indefinitely.
 pub const MAX_SHIPPING_WINDOW: u64 = 63_072_000;
 
 /// Default shipping window in seconds (3600 = 1 hour), used as a fallback by
@@ -375,6 +398,7 @@ mod test_delivery;
 mod test_dispute;
 mod test_dispute_deadline_overflow;
 mod test_dispute_flow;
+mod test_dispute_reason;
 mod test_dispute_timeout;
 mod test_dispute_window;
 mod test_edge_cases;

@@ -65,7 +65,7 @@ fn test_confirm_delivery_not_found() {
     env.mock_all_auths();
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
     let buyer = Address::generate(&env);
-    let res = client.try_confirm_delivery(&buyer, &MISSING_ID);
+    let res = client.try_confirm_delivery(&buyer, &MISSING_ID, &false);
     assert!(matches!(res, Err(Ok(ContractError::EscrowNotFound))));
 }
 
@@ -78,7 +78,7 @@ fn test_raise_dispute_not_found() {
     let res = client.try_raise_dispute(
         &buyer,
         &MISSING_ID,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &SorobanString::from_str(&env, "desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );

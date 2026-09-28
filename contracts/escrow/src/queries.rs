@@ -24,7 +24,7 @@ impl Escrow {
         // Only the message count is loaded up front; each message is then read
         // through its own `Message(escrow_id, index)` key. Cost is therefore
         // proportional to the requested page, not the whole thread.
-        let total = storage::read_message_count(&env, escrow_id) as u64;
+        let total = u64::from(storage::read_message_count(&env, escrow_id));
         let mut result = Vec::new(&env);
         if start >= total {
             return result;
@@ -32,7 +32,9 @@ impl Escrow {
         let end = (start + max_limit).min(total);
         let mut i = start;
         while i < end {
-            if let Some(message) = storage::read_message_at(&env, escrow_id, i as u32) {
+            // `total` came from a u32 count, so every index in range fits.
+            let Ok(index) = u32::try_from(i) else { break };
+            if let Some(message) = storage::read_message_at(&env, escrow_id, index) {
                 result.push_back(message);
             }
             i += 1;
@@ -117,13 +119,13 @@ impl Escrow {
 
     /// Batch view: return escrows for the supplied IDs in the same order.
     /// Missing IDs return None in the corresponding slot. Input is capped at
-    /// MAX_MESSAGES_PER_PAGE (50 IDs) to prevent resource exhaustion.
+    /// `MAX_MESSAGES_PER_PAGE` (50 IDs) to prevent resource exhaustion.
     pub fn get_escrows_by_ids(
         env: Env,
         ids: soroban_sdk::Vec<u64>,
     ) -> soroban_sdk::Vec<Option<EscrowData>> {
         let mut result: soroban_sdk::Vec<Option<EscrowData>> = soroban_sdk::Vec::new(&env);
-        let max_ids = crate::MAX_MESSAGES_PER_PAGE as u32;
+        let max_ids = u32::try_from(crate::MAX_MESSAGES_PER_PAGE).unwrap_or(u32::MAX);
         let limit = if ids.len() > max_ids {
             max_ids
         } else {
@@ -194,11 +196,7 @@ impl Escrow {
         storage::extend_instance_ttl(&env);
 
         let fee_config = read_fee_config(&env);
-        let paused: bool = env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false);
+        let paused: bool = crate::storage::read_global_config(&env).paused;
 
         let current_counter: u64 = env
             .storage()
@@ -224,10 +222,8 @@ impl Escrow {
         admin.require_auth();
 
         let fee_config = read_fee_config(&env);
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
+        let fee_collector: Address = crate::storage::read_global_config(&env)
+            .fee_collector
             .ok_or(ContractError::NotInitialized)?;
         let escrow_count: u64 = env
             .storage()

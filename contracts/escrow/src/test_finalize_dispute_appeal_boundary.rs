@@ -66,7 +66,7 @@ fn setup_pending_finalization() -> (Env, Address, Address, u64, u64) {
 
     // Raise + resolve the dispute (single resolver → threshold 1 → resolves
     // immediately and records `resolved_at`).
-    let reason = Symbol::new(&env, "non_delivery");
+    let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&env, "Item never arrived");
     let evidence = BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
@@ -177,7 +177,7 @@ fn finalize_dispute_without_treasury_returns_not_initialized() {
     client.fund_escrow(&escrow_id, &buyer);
 
     // Raise and resolve dispute
-    let reason = Symbol::new(&env, "non_delivery");
+    let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&env, "Item never arrived");
     let evidence = BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);

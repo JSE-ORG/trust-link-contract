@@ -79,7 +79,7 @@ fn create_funded_shipped_disputed(setup: &Setup) -> u64 {
         &String::from_str(&setup.env, "TRK"),
     );
 
-    let reason = Symbol::new(&setup.env, "reason");
+    let reason = Symbol::new(&setup.env, "OTHER");
     let description = String::from_str(&setup.env, "desc");
     let evidence_hash = BytesN::from_array(&setup.env, &[0xab; 32]);
     client.raise_dispute(
@@ -252,7 +252,7 @@ fn single_resolver_set_is_unaffected_by_fallback_deadline_logic() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
     client.mark_shipped(&seller, &escrow_id, &String::from_str(&env, "TRK-SINGLE"));
 
-    let reason = Symbol::new(&env, "defective");
+    let reason = Symbol::new(&env, "DEFECTIVE");
     let description = String::from_str(&env, "Item is defective");
     let evidence = BytesN::from_array(&env, &[0xef; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
@@ -327,6 +327,19 @@ fn backup_resolver_vote_allowed_after_deadline() {
 
     let escrow = client.get_escrow(&escrow_id);
     assert_eq!(escrow.state, EscrowState::PendingFinalization);
+}
+
+#[test]
+fn backup_resolver_vote_rejected_before_deadline() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    // Timeline is BEFORE the deadline (which is now + 100).
+    // The backup should NOT be allowed to vote yet.
+    let result = client.try_vote(&setup.backup, &escrow_id, &ResolutionType::Release);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
 }
 
 #[test]

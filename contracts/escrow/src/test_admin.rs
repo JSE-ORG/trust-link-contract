@@ -82,6 +82,31 @@ fn test_admin_rotated_event_emitted() {
 }
 
 #[test]
+fn test_cancel_timelock_op_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let intruder = Address::generate(&env);
+    client.queue_set_arbitration_fee(&admin, &100_u32);
+
+    let result = client.try_cancel_timelock_op(&intruder, &4_u32);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+}
+
+#[test]
+fn test_remove_allowed_token_when_token_not_in_list() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let missing = Address::generate(&env);
+
+    let result = client.try_remove_allowed_token(&admin, &missing);
+    assert_eq!(result, Err(Ok(ContractError::TokenNotAllowed)));
+}
+
+#[test]
 fn test_set_ttl_extension() {
     let env = Env::default();
     env.mock_all_auths();

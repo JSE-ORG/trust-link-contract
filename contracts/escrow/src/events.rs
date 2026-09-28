@@ -220,7 +220,7 @@ pub struct EscrowFunded {
     pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
     /// Basket token addresses and amounts (optional, for basket escrows).
-    /// Field added in schema_version 3 for issue #668.
+    /// Field added in `schema_version` 3 for issue #668.
     pub basket_tokens: Option<soroban_sdk::Vec<(Address, i128)>>,
 }
 
@@ -919,7 +919,7 @@ pub struct RefundRequestedEvent {
     pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
     /// Basket token addresses and amounts (optional, for basket escrows).
-    /// Field added in schema_version 3 for issue #669.
+    /// Field added in `schema_version` 3 for issue #669.
     pub basket_tokens: Option<soroban_sdk::Vec<(Address, i128)>>,
 }
 
@@ -1512,3 +1512,52 @@ pub fn emit_max_basket_size_updated(env: &Env, old_max: u32, new_max: u32) {
         },
     );
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryWithdraw {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub buyer: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Recovery"), symbol_short!("Withdraw"),)`, data: `RecoveryWithdraw`.
+pub fn emit_recovery_withdraw(env: &Env, escrow_id: u64, buyer: Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("Recovery"), symbol_short!("Withdraw")),
+        RecoveryWithdraw {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            buyer,
+            amount,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimelockDelayUpdated {
+    pub schema_version: u32,
+    pub old_delay: u64,
+    pub new_delay: u64,
+    pub caller: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Admin"), symbol_short!("DelayUpd"),)`, data: `TimelockDelayUpdated`.
+pub fn emit_timelock_delay_updated(env: &Env, old_delay: u64, new_delay: u64, caller: Address) {
+    env.events().publish(
+        (symbol_short!("Admin"), symbol_short!("DelayUpd")),
+        TimelockDelayUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_delay,
+            new_delay,
+            caller,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+

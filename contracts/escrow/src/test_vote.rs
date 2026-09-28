@@ -73,7 +73,7 @@ fn setup_disputed_multi(threshold: u32) -> (Env, Address, Address, [Address; 3],
     let (env, contract_id, buyer, resolvers, escrow_id) = setup_funded_multi(threshold);
     let client = EscrowClient::new(&env, &contract_id);
 
-    let reason = Symbol::new(&env, "non_delivery");
+    let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&env, "Item never arrived");
     let evidence = BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);

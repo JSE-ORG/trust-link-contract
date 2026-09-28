@@ -81,7 +81,7 @@ fn setup_funded_escrow() -> Setup {
 /// resolves immediately), leaving the escrow in `PendingFinalization`.
 fn raise_and_resolve(setup: &Setup) {
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
-    let reason = Symbol::new(&setup.env, "non_delivery");
+    let reason = Symbol::new(&setup.env, "ITEM_NOT_RECEIVED");
     let description = String::from_str(&setup.env, "Item never arrived");
     let evidence = BytesN::from_array(&setup.env, &[0xab; 32]);
     client.raise_dispute(

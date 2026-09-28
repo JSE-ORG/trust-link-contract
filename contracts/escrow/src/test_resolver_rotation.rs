@@ -352,7 +352,7 @@ fn drive_to_dispute(fx: &Fx) {
     fx.client.raise_dispute(
         &fx.buyer,
         &fx.escrow_id,
-        &Symbol::new(&fx.env, "broken"),
+        &Symbol::new(&fx.env, "DEFECTIVE"),
         &SorobanString::from_str(&fx.env, "item arrived damaged"),
         &BytesN::from_array(&fx.env, &[1u8; 32]),
     );

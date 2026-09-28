@@ -67,7 +67,7 @@ fn test_sep41_fund_and_confirm_delivery() {
 
     let escrow = client.get_escrow(&id);
     env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
 
     // 1% fee on 500 = 5 routed to the fee collector; 495 to seller
     assert_eq!(balance(&env, &token, &seller), 495);
@@ -160,7 +160,7 @@ fn test_sep41_dispute_and_refund() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "defective"),
+        &Symbol::new(&env, "DEFECTIVE"),
         &SorobanString::from_str(&env, "item was broken"),
         &BytesN::from_array(&env, &[0xde; 32]),
     );
@@ -300,7 +300,7 @@ fn test_sep41_dispute_and_release() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "defective"),
+        &Symbol::new(&env, "DEFECTIVE"),
         &SorobanString::from_str(&env, "item was defective"),
         &BytesN::from_array(&env, &[0xdf; 32]),
     );
