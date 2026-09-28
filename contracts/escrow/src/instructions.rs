@@ -47,10 +47,12 @@ impl Escrow {
         } else {
             return Err(ContractError::InvalidAddress);
         };
-        auth!(payees
-            .get(0)
-            .ok_or(ContractError::IndexOutOfBounds)?
-            .address);
+        auth!(
+            payees
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?
+                .address
+        );
 
         ensure_action_not_paused(&env, Symbol::new(&env, "create_escrow"))?;
 

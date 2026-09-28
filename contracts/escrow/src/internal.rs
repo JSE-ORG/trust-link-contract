@@ -442,10 +442,40 @@ pub(crate) fn validate_fee_collector_change(
     Ok(old_collector)
 }
 
+/// Validates a proposed new treasury and returns the current one.
+///
+/// Mirrors the fee collector invariant checks, but uses the treasury role that
+/// receives platform fees and therefore must not be changed by a typo or an
+/// accidental admin input. The active treasury is kept unchanged until the new
+/// address explicitly calls `accept_treasury`.
+pub(crate) fn validate_treasury_change(
+    env: &Env,
+    new_treasury: &Address,
+) -> Result<Address, ContractError> {
+    if *new_treasury == crate::zero_address(env) {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    let admin = require_admin(env)?;
+    if *new_treasury == admin {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    let old_treasury: Address = crate::storage::read_global_config(env)
+        .treasury
+        .ok_or(ContractError::NotInitialized)?;
+
+    if *new_treasury == old_treasury {
+        return Err(ContractError::SameAddress);
+    }
+
+    Ok(old_treasury)
+}
+
 /// Updates the arbitration fee. Validates that arbitration fee + current
 /// protocol fee doesn't exceed combined cap.
 ///
-/// Does not call `caller.require_auth()` — both callers (`set_arbitration_fee`,
+/// Doges not call `caller.require_auth()` — both callers (`set_arbitration_fee`,
 /// `execute_set_arbitration_fee`) authenticate `caller` at their own top, per
 /// the standardized require_auth-at-entry-point convention.
 pub(crate) fn update_arbitration_fee(

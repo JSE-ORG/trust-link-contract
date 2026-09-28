@@ -79,6 +79,8 @@ pub enum DataKey {
     VendorEscrowCount(Address),
     /// Pending fee collector address awaiting acceptance via `accept_fee_collector`.
     PendingFeeCollector,
+    /// Pending treasury address awaiting acceptance via `accept_treasury`.
+    PendingTreasury,
     /// Admin-configured maximum number of appeals per dispute.
     MaxAppeals,
     /// Admin-configured maximum number of tokens in a basket escrow.
