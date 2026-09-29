@@ -15,7 +15,9 @@ use crate::{
     emit_timelock_queued, ContractError, Escrow, EscrowState, TimelockOperation, TimelockProposal,
     *,
 };
-use soroban_sdk::{contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec};
+use soroban_sdk::{
+    contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
+};
 
 pub const ADMIN_TIMELOCK_DELAY_SECONDS: u64 = 24 * 60 * 60;
 pub const MIN_TIMELOCK_DELAY_SECONDS: u64 = 12 * 60 * 60; // 12 hours
@@ -38,7 +40,11 @@ fn queue_timelock_op(
     }
 
     let now = env.ledger().timestamp();
-    let delay: u64 = env.storage().instance().get(&DataKey::AdminTimelockDelay).unwrap_or(ADMIN_TIMELOCK_DELAY_SECONDS);
+    let delay: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::AdminTimelockDelay)
+        .unwrap_or(ADMIN_TIMELOCK_DELAY_SECONDS);
     let ready_at = now + delay;
 
     let params_hash = env.crypto().sha256(&params.to_xdr(env));
@@ -137,7 +143,12 @@ mod tests {
         let params = Vec::new(&env);
         // Valid queue (SetAdmin)
         let res = env.as_contract(&contract_id, || {
-            queue_timelock_op(&env, &admin, TimelockOperation::SetAdmin as u32, params.clone())
+            queue_timelock_op(
+                &env,
+                &admin,
+                TimelockOperation::SetAdmin as u32,
+                params.clone(),
+            )
         });
         assert!(res.is_ok());
 
@@ -160,13 +171,21 @@ mod tests {
 
         // Queue invalid delay (too low)
         let res_low = env.as_contract(&contract_id, || {
-            Escrow::queue_set_timelock_delay(env.clone(), admin.clone(), MIN_TIMELOCK_DELAY_SECONDS - 1)
+            Escrow::queue_set_timelock_delay(
+                env.clone(),
+                admin.clone(),
+                MIN_TIMELOCK_DELAY_SECONDS - 1,
+            )
         });
         assert_eq!(res_low, Err(ContractError::InvalidTimelockDelay));
 
         // Queue invalid delay (too high)
         let res_high = env.as_contract(&contract_id, || {
-            Escrow::queue_set_timelock_delay(env.clone(), admin.clone(), MAX_TIMELOCK_DELAY_SECONDS + 1)
+            Escrow::queue_set_timelock_delay(
+                env.clone(),
+                admin.clone(),
+                MAX_TIMELOCK_DELAY_SECONDS + 1,
+            )
         });
         assert_eq!(res_high, Err(ContractError::InvalidTimelockDelay));
 
@@ -268,9 +287,10 @@ mod tests {
 
         // Read proposal directly to ensure it has params_hash, not params
         let proposal = env.as_contract(&contract_id, || {
-            crate::storage::read_timelock_proposal(&env, TimelockOperation::SetAmountLimits as u32).unwrap()
+            crate::storage::read_timelock_proposal(&env, TimelockOperation::SetAmountLimits as u32)
+                .unwrap()
         });
-        
+
         // Assert that the proposal has the hash field.
         assert_eq!(proposal.params_hash.len(), 32);
     }
@@ -371,7 +391,7 @@ impl Escrow {
     }
 
     pub fn is_paused(env: Env) -> bool {
-        storage::read_global_config(&env).paused
+        storage::read_global_config(&env).state_flags & crate::types::GLOBAL_CONFIG_FLAG_PAUSED != 0
     }
 
     pub fn is_action_paused(env: Env, action: Symbol) -> bool {
@@ -496,14 +516,24 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(fee_bps.into_val(&env));
-        queue_timelock_op(&env, &caller, TimelockOperation::SetAppealFee as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::SetAppealFee as u32,
+            params,
+        )
     }
 
-    pub fn execute_set_appeal_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+    pub fn execute_set_appeal_fee(
+        env: Env,
+        caller: Address,
+        fee_bps: u32,
+    ) -> Result<(), ContractError> {
         caller.require_auth();
         let mut params = Vec::new(&env);
         params.push_back(fee_bps.into_val(&env));
-        let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetAppealFee, params)?;
+        let _proposal =
+            execute_timelock_op(&env, &caller, TimelockOperation::SetAppealFee, params)?;
 
         validate_appeal_fee_bps(fee_bps)?;
         let old_fee = read_appeal_fee_bps(&env);
@@ -630,7 +660,13 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        storage::update_global_config(&env, |c| c.token_allowlist_enabled = enabled);
+        storage::update_global_config(&env, |c| {
+            if enabled {
+                c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+            } else {
+                c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+            }
+        });
         emit_allowlist_toggled(&env, enabled);
         Ok(())
     }
@@ -751,7 +787,11 @@ impl Escrow {
         queue_timelock_op(&env, &caller, TimelockOperation::SetAdmin as u32, params)
     }
 
-    pub fn execute_set_admin(env: Env, caller: Address, new_admin: Address) -> Result<(), ContractError> {
+    pub fn execute_set_admin(
+        env: Env,
+        caller: Address,
+        new_admin: Address,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(new_admin.into_val(&env));
         let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetAdmin, params)?;
@@ -776,7 +816,11 @@ impl Escrow {
         queue_timelock_op(&env, &caller, TimelockOperation::Upgrade as u32, params)
     }
 
-    pub fn execute_upgrade(env: Env, caller: Address, new_wasm_hash: BytesN<32>) -> Result<(), ContractError> {
+    pub fn execute_upgrade(
+        env: Env,
+        caller: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(new_wasm_hash.into_val(&env));
         let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::Upgrade, params)?;
@@ -804,14 +848,24 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(fee_bps.into_val(&env));
-        queue_timelock_op(&env, &caller, TimelockOperation::SetArbitrationFee as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::SetArbitrationFee as u32,
+            params,
+        )
     }
 
-    pub fn execute_set_arbitration_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+    pub fn execute_set_arbitration_fee(
+        env: Env,
+        caller: Address,
+        fee_bps: u32,
+    ) -> Result<(), ContractError> {
         caller.require_auth();
         let mut params = Vec::new(&env);
         params.push_back(fee_bps.into_val(&env));
-        let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetArbitrationFee, params)?;
+        let _proposal =
+            execute_timelock_op(&env, &caller, TimelockOperation::SetArbitrationFee, params)?;
 
         let old_fee_bps = update_arbitration_fee(&env, &caller, fee_bps)?;
         emit_arbitration_fee_updated(&env, old_fee_bps, fee_bps);
@@ -826,13 +880,23 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(fee_bps.into_val(&env));
-        queue_timelock_op(&env, &caller, TimelockOperation::SetPlatformFee as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::SetPlatformFee as u32,
+            params,
+        )
     }
 
-    pub fn execute_set_platform_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+    pub fn execute_set_platform_fee(
+        env: Env,
+        caller: Address,
+        fee_bps: u32,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(fee_bps.into_val(&env));
-        let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetPlatformFee, params)?;
+        let _proposal =
+            execute_timelock_op(&env, &caller, TimelockOperation::SetPlatformFee, params)?;
 
         if fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::PlatformFeeExceedsMax);
@@ -854,7 +918,11 @@ impl Escrow {
         queue_timelock_op(&env, &caller, TimelockOperation::SetTreasury as u32, params)
     }
 
-    pub fn execute_set_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), ContractError> {
+    pub fn execute_set_treasury(
+        env: Env,
+        caller: Address,
+        treasury: Address,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(treasury.into_val(&env));
         let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTreasury, params)?;
@@ -883,13 +951,23 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(new_collector.into_val(&env));
-        queue_timelock_op(&env, &caller, TimelockOperation::SetFeeCollector as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::SetFeeCollector as u32,
+            params,
+        )
     }
 
-    pub fn execute_set_fee_collector(env: Env, caller: Address, new_collector: Address) -> Result<(), ContractError> {
+    pub fn execute_set_fee_collector(
+        env: Env,
+        caller: Address,
+        new_collector: Address,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(new_collector.into_val(&env));
-        let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetFeeCollector, params)?;
+        let _proposal =
+            execute_timelock_op(&env, &caller, TimelockOperation::SetFeeCollector, params)?;
 
         let old_collector = validate_fee_collector_change(&env, &new_collector)?;
 
@@ -908,13 +986,23 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(ledgers.into_val(&env));
-        queue_timelock_op(&env, &caller, TimelockOperation::SetTtlExtension as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::SetTtlExtension as u32,
+            params,
+        )
     }
 
-    pub fn execute_set_ttl_extension(env: Env, caller: Address, ledgers: u32) -> Result<(), ContractError> {
+    pub fn execute_set_ttl_extension(
+        env: Env,
+        caller: Address,
+        ledgers: u32,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(ledgers.into_val(&env));
-        let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTtlExtension, params)?;
+        let _proposal =
+            execute_timelock_op(&env, &caller, TimelockOperation::SetTtlExtension, params)?;
 
         if ledgers < MIN_TTL_EXTENSION {
             return Err(ContractError::InvalidTtlExtension);
@@ -936,14 +1024,25 @@ impl Escrow {
         let mut params = Vec::new(&env);
         params.push_back(min_amount.into_val(&env));
         params.push_back(max_amount.into_val(&env));
-        queue_timelock_op(&env, &caller, TimelockOperation::SetAmountLimits as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::SetAmountLimits as u32,
+            params,
+        )
     }
 
-    pub fn execute_set_amount_limits(env: Env, caller: Address, min_amount: i128, max_amount: i128) -> Result<(), ContractError> {
+    pub fn execute_set_amount_limits(
+        env: Env,
+        caller: Address,
+        min_amount: i128,
+        max_amount: i128,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(min_amount.into_val(&env));
         params.push_back(max_amount.into_val(&env));
-        let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetAmountLimits, params)?;
+        let _proposal =
+            execute_timelock_op(&env, &caller, TimelockOperation::SetAmountLimits, params)?;
 
         if min_amount <= 0 || max_amount <= min_amount {
             return Err(ContractError::InvalidAmount);
@@ -979,14 +1078,26 @@ impl Escrow {
         let mut params = Vec::new(&env);
         params.push_back(resolver.into_val(&env));
         queue_timelock_op(
-            &env, &caller, TimelockOperation::AddApprovedResolver as u32, params,
+            &env,
+            &caller,
+            TimelockOperation::AddApprovedResolver as u32,
+            params,
         )
     }
 
-    pub fn execute_add_approved_resolver(env: Env, caller: Address, resolver: Address) -> Result<(), ContractError> {
+    pub fn execute_add_approved_resolver(
+        env: Env,
+        caller: Address,
+        resolver: Address,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(resolver.into_val(&env));
-        let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::AddApprovedResolver, params)?;
+        let _proposal = execute_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::AddApprovedResolver,
+            params,
+        )?;
 
         let mut approved: soroban_sdk::Vec<Address> = env
             .storage()
@@ -1013,7 +1124,10 @@ impl Escrow {
         let mut params = Vec::new(&env);
         params.push_back(resolver.into_val(&env));
         queue_timelock_op(
-            &env, &caller, TimelockOperation::RemoveApprovedResolver as u32, params,
+            &env,
+            &caller,
+            TimelockOperation::RemoveApprovedResolver as u32,
+            params,
         )
     }
 
@@ -1024,8 +1138,12 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(resolver.into_val(&env));
-        let _proposal =
-            execute_timelock_op(&env, &caller, TimelockOperation::RemoveApprovedResolver, params)?;
+        let _proposal = execute_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::RemoveApprovedResolver,
+            params,
+        )?;
 
         let approved: soroban_sdk::Vec<Address> = env
             .storage()
@@ -1056,16 +1174,34 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(strict.into_val(&env));
-        queue_timelock_op(&env, &caller, TimelockOperation::SetResolverStrict as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::SetResolverStrict as u32,
+            params,
+        )
     }
 
-    pub fn execute_set_resolver_strict(env: Env, caller: Address, strict: bool) -> Result<(), ContractError> {
+    pub fn execute_set_resolver_strict(
+        env: Env,
+        caller: Address,
+        strict: bool,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(strict.into_val(&env));
-        let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetResolverStrict, params)?;
+        let _proposal =
+            execute_timelock_op(&env, &caller, TimelockOperation::SetResolverStrict, params)?;
 
-        let old_strict = storage::read_global_config(&env).resolver_strict;
-        storage::update_global_config(&env, |c| c.resolver_strict = strict);
+        let old_strict = storage::read_global_config(&env).state_flags
+            & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
+            != 0;
+        storage::update_global_config(&env, |c| {
+            if strict {
+                c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
+            } else {
+                c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
+            }
+        });
         emit_resolver_strict_updated(&env, old_strict, strict, caller);
         Ok(())
     }
@@ -1079,17 +1215,34 @@ impl Escrow {
         let mut params = Vec::new(&env);
         params.push_back(enabled.into_val(&env));
         queue_timelock_op(
-            &env, &caller, TimelockOperation::SetTokenAllowlistEnabled as u32, params,
+            &env,
+            &caller,
+            TimelockOperation::SetTokenAllowlistEnabled as u32,
+            params,
         )
     }
 
-    pub fn execute_set_allowlist_enabled(env: Env, caller: Address, enabled: bool) -> Result<(), ContractError> {
+    pub fn execute_set_allowlist_enabled(
+        env: Env,
+        caller: Address,
+        enabled: bool,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(enabled.into_val(&env));
-        let _proposal =
-            execute_timelock_op(&env, &caller, TimelockOperation::SetTokenAllowlistEnabled, params)?;
+        let _proposal = execute_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::SetTokenAllowlistEnabled,
+            params,
+        )?;
 
-        storage::update_global_config(&env, |c| c.token_allowlist_enabled = enabled);
+        storage::update_global_config(&env, |c| {
+            if enabled {
+                c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+            } else {
+                c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+            }
+        });
         emit_allowlist_toggled(&env, enabled);
         Ok(())
     }
@@ -1102,13 +1255,23 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(token.into_val(&env));
-        queue_timelock_op(&env, &caller, TimelockOperation::AddAllowedToken as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::AddAllowedToken as u32,
+            params,
+        )
     }
 
-    pub fn execute_add_allowed_token(env: Env, caller: Address, token: Address) -> Result<(), ContractError> {
+    pub fn execute_add_allowed_token(
+        env: Env,
+        caller: Address,
+        token: Address,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(token.into_val(&env));
-        let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::AddAllowedToken, params)?;
+        let _proposal =
+            execute_timelock_op(&env, &caller, TimelockOperation::AddAllowedToken, params)?;
 
         let mut allowlist: soroban_sdk::Vec<Address> = env
             .storage()
@@ -1134,13 +1297,23 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(token.into_val(&env));
-        queue_timelock_op(&env, &caller, TimelockOperation::RemoveAllowedToken as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::RemoveAllowedToken as u32,
+            params,
+        )
     }
 
-    pub fn execute_remove_allowed_token(env: Env, caller: Address, token: Address) -> Result<(), ContractError> {
+    pub fn execute_remove_allowed_token(
+        env: Env,
+        caller: Address,
+        token: Address,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(token.into_val(&env));
-        let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::RemoveAllowedToken, params)?;
+        let _proposal =
+            execute_timelock_op(&env, &caller, TimelockOperation::RemoveAllowedToken, params)?;
 
         let allowlist: soroban_sdk::Vec<Address> = env
             .storage()
@@ -1166,14 +1339,26 @@ impl Escrow {
     // 16. PauseContract
     pub fn queue_pause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
         let params = Vec::new(&env);
-        queue_timelock_op(&env, &caller, TimelockOperation::PauseContract as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::PauseContract as u32,
+            params,
+        )
     }
 
     pub fn execute_pause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
-        execute_timelock_op(&env, &caller, TimelockOperation::PauseContract, Vec::new(&env))?;
+        execute_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::PauseContract,
+            Vec::new(&env),
+        )?;
 
         let admin = require_admin(&env)?;
-        storage::update_global_config(&env, |c| c.paused = true);
+        storage::update_global_config(&env, |c| {
+            c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+        });
         emit_contract_paused(&env, admin);
         Ok(())
     }
@@ -1181,14 +1366,26 @@ impl Escrow {
     // 17. UnpauseContract
     pub fn queue_unpause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
         let params = Vec::new(&env);
-        queue_timelock_op(&env, &caller, TimelockOperation::UnpauseContract as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::UnpauseContract as u32,
+            params,
+        )
     }
 
     pub fn execute_unpause_contract(env: Env, caller: Address) -> Result<(), ContractError> {
-        execute_timelock_op(&env, &caller, TimelockOperation::UnpauseContract, Vec::new(&env))?;
+        execute_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::UnpauseContract,
+            Vec::new(&env),
+        )?;
 
         let admin = require_admin(&env)?;
-        storage::update_global_config(&env, |c| c.paused = false);
+        storage::update_global_config(&env, |c| {
+            c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+        });
         emit_contract_unpaused(&env, admin);
         Ok(())
     }
@@ -1293,7 +1490,9 @@ impl Escrow {
     /// documentation and Terms of Service.
     #[allow(deprecated)]
     pub fn emergency_drain(env: Env, escrow_id: u64) -> Result<(), ContractError> {
-        let paused: bool = storage::read_global_config(&env).paused;
+        let paused = storage::read_global_config(&env).state_flags
+            & crate::types::GLOBAL_CONFIG_FLAG_PAUSED
+            != 0;
         if !paused {
             return Err(ContractError::ContractNotPaused);
         }
@@ -1454,7 +1653,9 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        storage::update_global_config(&env, |c| c.paused = true);
+        storage::update_global_config(&env, |c| {
+            c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+        });
         emit_contract_paused(&env, admin);
         Ok(())
     }
@@ -1466,7 +1667,9 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        storage::update_global_config(&env, |c| c.paused = false);
+        storage::update_global_config(&env, |c| {
+            c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+        });
         emit_contract_unpaused(&env, admin);
         Ok(())
     }
@@ -1508,8 +1711,16 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        let old_strict = storage::read_global_config(&env).resolver_strict;
-        storage::update_global_config(&env, |c| c.resolver_strict = strict);
+        let old_strict = storage::read_global_config(&env).state_flags
+            & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
+            != 0;
+        storage::update_global_config(&env, |c| {
+            if strict {
+                c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
+            } else {
+                c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
+            }
+        });
         emit_resolver_strict_updated(&env, old_strict, strict, caller);
         Ok(())
     }
@@ -1587,7 +1798,9 @@ impl Escrow {
 
     #[cfg(any(test, feature = "testutils"))]
     pub fn is_resolver_strict(env: Env) -> bool {
-        storage::read_global_config(&env).resolver_strict
+        storage::read_global_config(&env).state_flags
+            & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
+            != 0
     }
 
     #[cfg(any(test, feature = "testutils"))]
@@ -1672,25 +1885,43 @@ impl Escrow {
         caller: Address,
         delay_seconds: u64,
     ) -> Result<(), ContractError> {
-        if delay_seconds < MIN_TIMELOCK_DELAY_SECONDS || delay_seconds > MAX_TIMELOCK_DELAY_SECONDS {
+        if delay_seconds < MIN_TIMELOCK_DELAY_SECONDS || delay_seconds > MAX_TIMELOCK_DELAY_SECONDS
+        {
             return Err(ContractError::InvalidTimelockDelay);
         }
         let mut params = Vec::new(&env);
         params.push_back(delay_seconds.into_val(&env));
-        queue_timelock_op(&env, &caller, TimelockOperation::SetTimelockDelay as u32, params)
+        queue_timelock_op(
+            &env,
+            &caller,
+            TimelockOperation::SetTimelockDelay as u32,
+            params,
+        )
     }
 
-    pub fn execute_set_timelock_delay(env: Env, caller: Address, delay_seconds: u64) -> Result<(), ContractError> {
+    pub fn execute_set_timelock_delay(
+        env: Env,
+        caller: Address,
+        delay_seconds: u64,
+    ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(delay_seconds.into_val(&env));
-        let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTimelockDelay, params)?;
+        let _proposal =
+            execute_timelock_op(&env, &caller, TimelockOperation::SetTimelockDelay, params)?;
 
-        if delay_seconds < MIN_TIMELOCK_DELAY_SECONDS || delay_seconds > MAX_TIMELOCK_DELAY_SECONDS {
+        if delay_seconds < MIN_TIMELOCK_DELAY_SECONDS || delay_seconds > MAX_TIMELOCK_DELAY_SECONDS
+        {
             return Err(ContractError::InvalidTimelockDelay);
         }
 
-        let old_delay = env.storage().instance().get(&DataKey::AdminTimelockDelay).unwrap_or(ADMIN_TIMELOCK_DELAY_SECONDS);
-        env.storage().instance().set(&DataKey::AdminTimelockDelay, &delay_seconds);
+        let old_delay = env
+            .storage()
+            .instance()
+            .get(&DataKey::AdminTimelockDelay)
+            .unwrap_or(ADMIN_TIMELOCK_DELAY_SECONDS);
+        env.storage()
+            .instance()
+            .set(&DataKey::AdminTimelockDelay, &delay_seconds);
         crate::events::emit_timelock_delay_updated(&env, old_delay, delay_seconds, caller);
         Ok(())
     }

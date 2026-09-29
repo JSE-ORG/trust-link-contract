@@ -413,6 +413,11 @@ pub struct FeeConfig {
     pub arbitration_fee_bps: u32,
 }
 
+pub const GLOBAL_CONFIG_FLAG_PAUSED: u32 = 1 << 0;
+pub const GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED: u32 = 1 << 1;
+pub const GLOBAL_CONFIG_FLAG_RESOLVER_STRICT: u32 = 1 << 2;
+pub const GLOBAL_CONFIG_FLAG_RECOVERY_MODE: u32 = 1 << 3;
+
 /// Admin-tunable global configuration, stored under [`DataKey::GlobalConfig`].
 ///
 /// Fields that were previously optional in storage carry their documented
@@ -420,8 +425,6 @@ pub struct FeeConfig {
 /// per-field fallbacks.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-// Independent admin toggles, not a state machine in disguise.
-#[allow(clippy::struct_excessive_bools)]
 pub struct GlobalConfig {
     /// Receives protocol and arbitration fees. `None` only before `initialize`.
     pub fee_collector: Option<Address>,
@@ -436,10 +439,9 @@ pub struct GlobalConfig {
     /// Maximum seconds a dispute may stay unresolved before a forced refund.
     pub dispute_timeout: u64,
     pub ttl_extension_ledgers: u32,
-    pub paused: bool,
-    pub token_allowlist_enabled: bool,
-    pub resolver_strict: bool,
-    pub recovery_mode: bool,
+    /// Bit-packed state flags for the boolean admin toggles that previously
+    /// lived as separate storage fields. The layout is a single `u32` mask.
+    pub state_flags: u32,
 }
 
 /// Public-safe contract configuration (no sensitive addresses).

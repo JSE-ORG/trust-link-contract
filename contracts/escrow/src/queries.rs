@@ -196,7 +196,9 @@ impl Escrow {
         storage::extend_instance_ttl(&env);
 
         let fee_config = read_fee_config(&env);
-        let paused: bool = crate::storage::read_global_config(&env).paused;
+        let paused = crate::storage::read_global_config(&env).state_flags
+            & crate::types::GLOBAL_CONFIG_FLAG_PAUSED
+            != 0;
 
         let current_counter: u64 = env
             .storage()
