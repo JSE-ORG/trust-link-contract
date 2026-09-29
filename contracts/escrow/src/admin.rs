@@ -18,6 +18,7 @@ use crate::{
 use soroban_sdk::{
     contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
+use soroban_sdk::{contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, Val, Vec};
 
 pub const ADMIN_TIMELOCK_DELAY_SECONDS: u64 = 24 * 60 * 60;
 pub const MIN_TIMELOCK_DELAY_SECONDS: u64 = 12 * 60 * 60; // 12 hours
@@ -52,7 +53,7 @@ fn queue_timelock_op(
     let proposal = TimelockProposal {
         operation,
         proposer: caller.clone(),
-        params_hash,
+        params_hash: params_hash.into(),
         queued_at: now,
         ready_at,
     };

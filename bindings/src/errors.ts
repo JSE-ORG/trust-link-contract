@@ -79,6 +79,9 @@ export const enum ErrorCode {
   InvalidOperation = 69,
   InvalidTimelockDelay = 70,
   InvalidProposalHash = 71,
+  DuplicateNotes = 72,
+  GracePeriodTooLong = 73,
+  TimestampInvariantViolated = 74,
 }
 
 /** Human-readable message for every contract error code. */
@@ -209,6 +212,12 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "The timelock delay is outside allowed bounds.",
   [ErrorCode.InvalidProposalHash]:
     "The executed parameters do not match the queued proposal hash.",
+  [ErrorCode.DuplicateNotes]:
+    "A batch_create_escrow call contains duplicate notes values.",
+  [ErrorCode.GracePeriodTooLong]:
+    "The grace period exceeds the maximum allowed grace period.",
+  [ErrorCode.TimestampInvariantViolated]:
+    "Resolution timestamp cannot be earlier than dispute timestamp.",
 };
 
 /**

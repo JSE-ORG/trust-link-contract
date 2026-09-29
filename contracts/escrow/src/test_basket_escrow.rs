@@ -893,6 +893,7 @@ fn fund_basket_escrow_with_maximum_allowed_tokens() {
     let client = EscrowClient::new(&fx.env, &fx.contract_id);
     fx.env.cost_estimate().disable_resource_limits();
     fx.env.cost_estimate().budget().reset_unlimited();
+    fx.env.cost_estimate().disable_resource_limits();
 
     // Create exactly 20 distinct tokens.
     let mut addrs = Vec::new(&fx.env);

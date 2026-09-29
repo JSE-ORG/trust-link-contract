@@ -174,6 +174,9 @@ const MAX_STATE_HISTORY_ENTRIES: u32 = 50;
 pub const BASIS_POINTS: u32 = 10_000;
 pub const DELIVERY_TIMELOCK: u64 = 86_400;
 
+/// Maximum grace period in seconds (7 days = 604,800 seconds).
+pub const MAX_GRACE_PERIOD: u64 = 604_800;
+
 /// Maximum length for user-supplied string fields.
 /// - `tracking_id`: 64 characters
 /// - `description` in `raise_dispute`: 256 characters
@@ -440,6 +443,7 @@ mod test_sep41;
 mod test_set_fee_boundary;
 mod test_set_fee_collector;
 mod test_shipping_window;
+mod test_state_flow_fixes;
 mod test_state_history;
 mod test_storage_collision;
 mod test_string_length;

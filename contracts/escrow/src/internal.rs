@@ -1191,6 +1191,10 @@ pub(crate) fn create_escrow_internal(
         return Err(ContractError::InvalidShippingWindow);
     }
 
+    if grace_period > crate::MAX_GRACE_PERIOD {
+        return Err(ContractError::GracePeriodTooLong);
+    }
+
     validate_escrow_fee_bps(fee_bps)?;
     validate_resolver_fee_bps(resolver_fee_bps)?;
     validate_payees(env, &payees)?;
@@ -1380,6 +1384,9 @@ pub(crate) fn execute_resolution_transition(
 
     // Store resolution in dispute data and transition to PendingFinalization
     let now = env.ledger().timestamp();
+    if now < dispute_data.disputed_at {
+        return Err(ContractError::TimestampInvariantViolated);
+    }
     let appeal_deadline = now
         .checked_add(APPEAL_WINDOW)
         .ok_or(ContractError::ArithmeticError)?;

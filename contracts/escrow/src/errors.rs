@@ -171,6 +171,12 @@ pub enum ContractError {
     InvalidTimelockDelay = 70,
     /// Returned when the executed parameters do not match the queued proposal hash.
     InvalidProposalHash = 71,
+    /// Returned when a `batch_create_escrow` call contains duplicate notes values.
+    DuplicateNotes = 72,
+    /// Returned when `create_escrow_with_expiration` is called with a `grace_period` that exceeds `MAX_GRACE_PERIOD`.
+    GracePeriodTooLong = 73,
+    /// Returned when `resolved_at` is earlier than `disputed_at`, violating the timestamp ordering invariant.
+    TimestampInvariantViolated = 74,
     /// Returned when `accept_fee_collector` is called but no pending fee collector is set.
     NoPendingFeeCollector = 65,
     /// Returned when `set_max_appeals` is given a value outside the supported range.
