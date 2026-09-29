@@ -171,4 +171,12 @@ pub enum ContractError {
     InvalidTimelockDelay = 70,
     /// Returned when the executed parameters do not match the queued proposal hash.
     InvalidProposalHash = 71,
+    /// Returned when `accept_fee_collector` is called but no pending fee collector is set.
+    NoPendingFeeCollector = 65,
+    /// Returned when `set_max_appeals` is given a value outside the supported range.
+    InvalidMaxAppeals = 66,
+    /// Returned when `set_max_basket_size` is given a value outside the supported range.
+    InvalidMaxBasketSize = 67,
+    /// Returned when `execute_upgrade` is called with an all-zero or otherwise trivially invalid WASM hash.
+    InvalidWasmHash = 68,
 }
