@@ -1,6 +1,5 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
-use crate::events::emit_resolver_vote_recorded;
 use crate::internal::{
     add_or_update_vote, ensure_action_not_paused, execute_resolution_transition, get_ttl_extension,
     load_escrow, save_resolver_votes, tally_votes, terminal_state_error,
@@ -285,7 +284,7 @@ const MAX_DISPUTE_TIMEOUT: u64 = 31_536_000;
 /// How long (in seconds) a split multi-resolver vote must remain deadlocked
 /// before the permissionless majority-rules fallback
 /// `resolve_deadlocked_dispute` may be used. Default: 7 days.
-const DISPUTE_DEADLOCK_WINDOW: u64 = 604_800;
+pub const DISPUTE_DEADLOCK_WINDOW: u64 = 604_800;
 
 /// Number of persistent-storage buckets each lifecycle counter is spread
 /// across. Sharding keeps concurrent `create`/`complete`/`dispute`/`refund`

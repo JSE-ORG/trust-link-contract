@@ -3,10 +3,11 @@
 
 use crate::events::emit_message_posted;
 use crate::internal::*;
-use crate::types::Message;
+use crate::types::{BoundedPayees, Message};
 use crate::*;
 use soroban_sdk::{
-    contractimpl, Address, BytesN, Env, IntoVal, String, Symbol, TryFromVal, TryIntoVal, Val, Vec,
+    contractimpl, Address, Bytes, BytesN, Env, IntoVal, String, Symbol, TryFromVal, TryIntoVal,
+    Val, Vec,
 };
 
 macro_rules! auth {
@@ -30,27 +31,25 @@ impl Escrow {
         shipping_window: u64,
         notes: Option<String>,
     ) -> Result<u64, ContractError> {
-        // `seller_or_payees` must be decoded before we know which address to
-        // authenticate; this is otherwise the first thing the function does.
-        // See internal.rs: `create_escrow_internal` no longer calls
-        // `require_auth()` itself — every entry point must do it here, at
-        // the top, not leave it to the shared helper.
         let payees = if let Ok(payees_vec) = Vec::<Payee>::try_from_val(&env, &seller_or_payees) {
-            payees_vec
+            BoundedPayees { inner: payees_vec }
         } else if let Ok(seller_address) = Address::try_from_val(&env, &seller_or_payees) {
             let mut p_vec = Vec::new(&env);
             p_vec.push_back(Payee {
                 address: seller_address,
                 bps: 10_000,
             });
-            p_vec
+            BoundedPayees { inner: p_vec }
         } else {
             return Err(ContractError::InvalidAddress);
         };
-        auth!(payees
-            .get(0)
-            .ok_or(ContractError::IndexOutOfBounds)?
-            .address);
+        auth!(
+            payees
+                .inner
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?
+                .address
+        );
 
         ensure_action_not_paused(&env, Symbol::new(&env, "create_escrow"))?;
 
@@ -64,7 +63,7 @@ impl Escrow {
             fee_bps,
             resolver_fee_bps,
             shipping_window,
-            notes,
+            notes.unwrap_or_else(|| String::from_str(&env, "")),
             None,
             0,
         )
@@ -156,7 +155,7 @@ impl Escrow {
         });
         let escrow_id = create_escrow_internal(
             &env,
-            payees,
+            BoundedPayees { inner: payees },
             buyer,
             resolver,
             token,
@@ -164,7 +163,7 @@ impl Escrow {
             fee_bps,
             0,
             shipping_window,
-            None,
+            String::from_str(&env, ""),
             expires_at,
             grace_period,
         )?;
@@ -321,9 +320,10 @@ impl Escrow {
         }
 
         // Security: buyer must differ from seller and resolver.
-        for i in 0..escrow.payees.len() {
+        for i in 0..escrow.payees.inner.len() {
             let payee = escrow
                 .payees
+                .inner
                 .get(i)
                 .ok_or(ContractError::IndexOutOfBounds)?;
             if buyer == payee.address {
@@ -368,10 +368,11 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.buyer = Some(buyer.clone());
         escrow.state = EscrowState::Funded;
-        escrow.funded_at = now;
-        escrow.dispute_deadline = now
+        let dispute_deadline = now
             .checked_add(DISPUTE_WINDOW)
             .ok_or(ContractError::ArithmeticOverflow)?;
+        // Pack: high 32 bits = funded_at, low 32 bits = dispute_deadline
+        escrow.packed_timestamps = (now << 32) | (dispute_deadline & 0xFFFF_FFFF);
 
         // Index the buyer for lookup (paged, bounded per storage entry).
         storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
@@ -466,7 +467,7 @@ impl Escrow {
             bps: 10_000,
         });
         let escrow = EscrowData {
-            payees,
+            payees: BoundedPayees { inner: payees },
             buyer,
             resolvers: resolver_set.clone(),
             token,
@@ -474,13 +475,12 @@ impl Escrow {
             fee_bps,
             resolver_fee_bps: 0,
             shipping_window,
-            funded_at: 0,
-            dispute_deadline: 0,
+            packed_timestamps: 0,
             state: EscrowState::Pending,
             shipped_at: 0,
             delivered_at: None,
             tracking_id: None,
-            notes: None,
+            notes: String::from_str(&env, ""),
             expires_at: None,
             grace_period: 0,
         };
@@ -528,7 +528,7 @@ impl Escrow {
         let escrow = load_escrow(&env, escrow_id)?;
 
         let mut is_payee = false;
-        for payee in escrow.payees.iter() {
+        for payee in escrow.payees.inner.iter() {
             if payee.address == sender {
                 is_payee = true;
                 break;
@@ -712,7 +712,7 @@ impl Escrow {
             bps: 10_000,
         });
         let escrow = EscrowData {
-            payees,
+            payees: BoundedPayees { inner: payees },
             buyer,
             resolvers: resolver_set,
             token,
@@ -720,13 +720,12 @@ impl Escrow {
             fee_bps,
             resolver_fee_bps: 0,
             shipping_window,
-            funded_at: 0,
-            dispute_deadline: 0,
+            packed_timestamps: 0,
             state: EscrowState::Pending,
             shipped_at: 0,
             delivered_at: None,
             tracking_id: None,
-            notes: None,
+            notes: String::from_str(&env, ""),
             expires_at: None,
             grace_period: 0,
         };
@@ -770,10 +769,11 @@ impl Escrow {
         let buyer = escrow.buyer.clone();
         let is_payee = {
             let mut found = false;
-            for i in 0..escrow.payees.len() {
+            for i in 0..escrow.payees.inner.len() {
                 if caller
                     == escrow
                         .payees
+                        .inner
                         .get(i)
                         .ok_or(ContractError::IndexOutOfBounds)?
                         .address
@@ -820,6 +820,7 @@ impl Escrow {
         }
         let first_payee_addr = escrow
             .payees
+            .inner
             .get(0)
             .ok_or(ContractError::IndexOutOfBounds)?
             .address
@@ -856,6 +857,7 @@ impl Escrow {
 
         let seller_addr = escrow
             .payees
+            .inner
             .get(0)
             .ok_or(ContractError::IndexOutOfBounds)?
             .address
@@ -904,14 +906,16 @@ impl Escrow {
 
         let first_payee = escrow
             .payees
+            .inner
             .get(0)
             .ok_or(ContractError::IndexOutOfBounds)?
             .clone();
         let is_authorized = {
             let mut found = false;
-            for i in 0..escrow.payees.len() {
+            for i in 0..escrow.payees.inner.len() {
                 let payee = escrow
                     .payees
+                    .inner
                     .get(i)
                     .ok_or(ContractError::IndexOutOfBounds)?;
                 if caller == payee.address {
@@ -1178,7 +1182,9 @@ impl Escrow {
         // means the window has not *started*, which cannot happen for a
         // `Shipped` escrow — it is always funded). The buyer may explicitly
         // waive the wait, forfeiting their own dispute window.
-        if !waive_shipping_window && env.ledger().timestamp() < escrow.dispute_deadline {
+        if !waive_shipping_window
+            && env.ledger().timestamp() < (escrow.packed_timestamps & 0xFFFF_FFFF)
+        {
             return Err(ContractError::DisputeWindowStillOpen);
         }
 
@@ -1215,6 +1221,7 @@ impl Escrow {
 
         let first_payee = escrow
             .payees
+            .inner
             .get(0)
             .ok_or(ContractError::IndexOutOfBounds)?
             .address
@@ -1420,7 +1427,9 @@ impl Escrow {
             bps: 10_000,
         });
         let escrow = EscrowData {
-            payees: basket_payees,
+            payees: BoundedPayees {
+                inner: basket_payees,
+            },
             buyer: buyer.clone(),
             resolvers: ResolverSet::Single(resolver.clone()),
             token: primary_token,
@@ -1428,13 +1437,12 @@ impl Escrow {
             fee_bps,
             resolver_fee_bps: 0,
             shipping_window,
-            funded_at: 0,
-            dispute_deadline: 0,
+            packed_timestamps: 0,
             state: EscrowState::Pending,
             shipped_at: 0,
             delivered_at: None,
             tracking_id: None,
-            notes: None,
+            notes: String::from_str(&env, ""),
             expires_at: None,
             grace_period: 0,
         };
@@ -1501,9 +1509,10 @@ impl Escrow {
         // Security: buyer must differ from every payee (seller) and every
         // resolver in the set. Mirrors the identical check in fund_escrow and
         // enforces INVARIANTS.md I4 (role separation) for basket escrows.
-        for i in 0..escrow.payees.len() {
+        for i in 0..escrow.payees.inner.len() {
             let payee = escrow
                 .payees
+                .inner
                 .get(i)
                 .ok_or(ContractError::IndexOutOfBounds)?;
             if buyer == payee.address {
@@ -1543,10 +1552,11 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.buyer = Some(buyer.clone());
         escrow.state = EscrowState::Funded;
-        escrow.funded_at = now;
-        escrow.dispute_deadline = now
+        let dispute_deadline_basket = now
             .checked_add(DISPUTE_WINDOW)
             .ok_or(ContractError::ArithmeticError)?;
+        // Pack: high 32 bits = funded_at, low 32 bits = dispute_deadline
+        escrow.packed_timestamps = (now << 32) | (dispute_deadline_basket & 0xFFFF_FFFF);
 
         // Index the buyer for lookup (paged, bounded per storage entry).
         storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
@@ -1598,9 +1608,10 @@ impl Escrow {
 
         let is_payee = {
             let mut found = false;
-            for i in 0..escrow.payees.len() {
+            for i in 0..escrow.payees.inner.len() {
                 let payee = escrow
                     .payees
+                    .inner
                     .get(i)
                     .ok_or(ContractError::IndexOutOfBounds)?;
                 if caller == payee.address {
@@ -1635,9 +1646,10 @@ impl Escrow {
                 return Err(ContractError::SameAddress);
             }
             // New resolver must differ from all payees
-            for i in 0..escrow.payees.len() {
+            for i in 0..escrow.payees.inner.len() {
                 let payee = escrow
                     .payees
+                    .inner
                     .get(i)
                     .ok_or(ContractError::IndexOutOfBounds)?;
                 if new_resolver == payee.address {
@@ -1735,6 +1747,7 @@ impl Escrow {
 
         let primary_payee = escrow
             .payees
+            .inner
             .get(0)
             .ok_or(ContractError::IndexOutOfBounds)?
             .address;
@@ -1797,7 +1810,7 @@ impl Escrow {
             });
             let id = create_escrow_internal(
                 &env,
-                payees,
+                BoundedPayees { inner: payees },
                 input.buyer,
                 input.resolver,
                 input.token,
@@ -1950,7 +1963,7 @@ fn dispatch_raise_dispute(env: &Env, args: &Vec<Val>) -> Result<Val, ContractErr
     let caller: Address = parse_arg(env, args, 0)?;
     let escrow_id: u64 = parse_arg(env, args, 1)?;
     let reason: Symbol = parse_arg(env, args, 2)?;
-    let description: String = parse_arg(env, args, 3)?;
+    let description: Bytes = parse_arg(env, args, 3)?;
     let evidence_hash: BytesN<32> = parse_arg(env, args, 4)?;
     Escrow::raise_dispute(
         env.clone(),

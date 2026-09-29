@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, String, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, String, Symbol, Vec};
 
 /// Single unified storage key enum for all contract storage entries.
 ///
@@ -343,7 +343,9 @@ pub struct ResolverVote {
 pub struct DisputeData {
     pub escrow_id: u64,
     pub reason: Symbol,
-    pub description: String,
+    /// Raw bytes — UTF-8 validation is deferred to off-chain consumers.
+    /// Avoids the per-load UTF-8 check that `String` incurs in the Soroban host.
+    pub description: Bytes,
     pub evidence_hash: BytesN<32>,
     pub status: DisputeStatus,
     pub disputed_at: u64,
@@ -466,7 +468,7 @@ pub struct ContractConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Escrow {
-    pub payees: Vec<Payee>,
+    pub payees: BoundedPayees,
     pub buyer: Option<Address>,
     pub resolvers: ResolverSet,
     pub token: Address,
@@ -474,15 +476,36 @@ pub struct Escrow {
     pub fee_bps: u32,
     pub resolver_fee_bps: u32,
     pub shipping_window: u64,
-    pub funded_at: u64,
-    pub dispute_deadline: u64,
+    /// Packed timestamp field: high 32 bits = `funded_at`, low 32 bits = `dispute_deadline`.
+    ///
+    /// Both timestamps fit in 32 bits until year 2106 (Unix epoch < 2^32).
+    /// Unpack helpers:
+    ///   `funded_at`        = `packed_timestamps` >> 32
+    ///   `dispute_deadline` = `packed_timestamps` & `0xFFFF_FFFF`
+    pub packed_timestamps: u64,
     pub shipped_at: u64,
     pub delivered_at: Option<u64>,
     pub tracking_id: Option<String>,
     pub state: EscrowState,
-    pub notes: Option<String>,
+    /// Free-form notes. Empty string is the "no notes" sentinel, eliminating
+    /// the XDR option-wrapper overhead of `Option<String>`.
+    pub notes: String,
     pub expires_at: Option<u64>,
     pub grace_period: u64,
+}
+
+impl Escrow {
+    pub fn funded_at(&self) -> u64 {
+        self.packed_timestamps >> 32
+    }
+
+    pub fn dispute_deadline(&self) -> u64 {
+        self.packed_timestamps & 0xFFFF_FFFF
+    }
+
+    pub fn pack_timestamps(funded_at: u64, dispute_deadline: u64) -> u64 {
+        (funded_at << 32) | (dispute_deadline & 0xFFFF_FFFF)
+    }
 }
 
 #[contracttype]
@@ -498,7 +521,8 @@ pub struct EscrowInput {
     /// resolver serves uncompensated.
     pub resolver_fee_bps: u32,
     pub shipping_window: u64,
-    pub notes: Option<String>,
+    /// Empty string is the "no notes" sentinel (see `Escrow.notes`).
+    pub notes: String,
 }
 
 #[contracttype]
@@ -525,6 +549,39 @@ pub struct ContractStats {
 pub struct Payee {
     pub address: Address,
     pub bps: u32,
+}
+
+/// Maximum number of payees per escrow. Enforced by [`BoundedPayees`] so
+/// storage cost is bounded at creation time and the length-prefix overhead of
+/// an unbounded `Vec` is eliminated.
+pub const MAX_PAYEES: u32 = 10;
+
+/// A capacity-bounded wrapper around `Vec<Payee>`.
+///
+/// Stored as a `#[contracttype]` struct so the XDR shape is a single-field
+/// struct with explicit capacity enforcement rather than a bare, unbounded Vec.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundedPayees {
+    pub inner: Vec<Payee>,
+}
+
+impl BoundedPayees {
+    pub fn new(inner: Vec<Payee>) -> Self {
+        Self { inner }
+    }
+
+    pub fn get(&self, i: u32) -> Option<Payee> {
+        self.inner.get(i)
+    }
+
+    pub fn len(&self) -> u32 {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
 }
 
 /// Lifecycle states of an escrow transaction.

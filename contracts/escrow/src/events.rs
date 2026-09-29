@@ -1,6 +1,6 @@
 #![allow(deprecated)]
 
-use soroban_sdk::{contracttype, symbol_short, Address, BytesN, Env, String, Symbol};
+use soroban_sdk::{contracttype, symbol_short, Address, Bytes, BytesN, Env, String, Symbol};
 
 use crate::ResolutionType;
 
@@ -362,7 +362,7 @@ pub struct DisputeRaised {
     pub escrow_id: u64,
     pub buyer: Address,
     pub reason: Symbol,
-    pub description: String,
+    pub description: Bytes,
     pub evidence_hash: BytesN<32>,
     pub timestamp: u64,
     pub prev_state: crate::EscrowState,
@@ -376,7 +376,7 @@ pub fn emit_dispute_raised(
     escrow_id: u64,
     buyer: Address,
     reason: Symbol,
-    description: String,
+    description: Bytes,
     evidence_hash: BytesN<32>,
     prev_state: crate::EscrowState,
     new_state: crate::EscrowState,
@@ -1560,4 +1560,3 @@ pub fn emit_timelock_delay_updated(env: &Env, old_delay: u64, new_delay: u64, ca
         },
     );
 }
-

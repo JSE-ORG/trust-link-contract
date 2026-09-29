@@ -1,5 +1,6 @@
+use crate::types::{Escrow, ResolutionType};
 use crate::{ContractError, BASIS_POINTS};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{contracttype, Address, Env, Vec};
 
 /// Computes the protocol fee for `amount` at `fee_bps` basis points.
 ///
@@ -108,4 +109,58 @@ pub(crate) fn payout(env: &Env, token_addr: &Address, recipient: &Address, amoun
         recipient,
         amount,
     );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransferInstruction {
+    pub recipient: Address,
+    pub amount: i128,
+}
+
+pub fn calculate_dispute_allocations(
+    env: &Env,
+    escrow: &Escrow,
+    resolution: &ResolutionType,
+    arbitration_fee: i128,
+    fee_collector: &Address,
+) -> Result<Vec<TransferInstruction>, ContractError> {
+    if escrow.amount < arbitration_fee {
+        return Err(ContractError::InsufficientBalance);
+    }
+
+    let remaining_amount = escrow
+        .amount
+        .checked_sub(arbitration_fee)
+        .ok_or(ContractError::AmountCalculationOverflow)?;
+
+    let (fee, net_amount) = calculate_protocol_fee(remaining_amount, escrow.fee_bps)?;
+
+    let recipient = match resolution {
+        ResolutionType::Release => escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::PayeeIndexOutOfBounds)?
+            .address
+            .clone(),
+        ResolutionType::Refund => escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?,
+    };
+
+    let mut transfers = Vec::new(env);
+    transfers.push_back(TransferInstruction {
+        recipient,
+        amount: net_amount,
+    });
+
+    if fee > 0 {
+        transfers.push_back(TransferInstruction {
+            recipient: fee_collector.clone(),
+            amount: fee,
+        });
+    }
+
+    Ok(transfers)
 }
