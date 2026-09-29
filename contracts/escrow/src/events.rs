@@ -1295,6 +1295,52 @@ pub fn emit_fee_collector_updated(env: &Env, old_collector: Address, new_collect
     );
 }
 
+// ── Treasury Pending / Accepted ─────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreasuryPending {
+    pub schema_version: u32,
+    pub old_treasury: Address,
+    pub pending_treasury: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Treasury"), symbol_short!("Pending"),)`, data: `TreasuryPending`.
+pub fn emit_treasury_pending(env: &Env, old_treasury: Address, pending_treasury: Address) {
+    env.events().publish(
+        (symbol_short!("Treasury"), symbol_short!("Pending")),
+        TreasuryPending {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_treasury,
+            pending_treasury,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreasuryAccepted {
+    pub schema_version: u32,
+    pub old_treasury: Address,
+    pub new_treasury: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Treasury"), symbol_short!("Accepted"),)`, data: `TreasuryAccepted`.
+pub fn emit_treasury_accepted(env: &Env, old_treasury: Address, new_treasury: Address) {
+    env.events().publish(
+        (symbol_short!("Treasury"), symbol_short!("Accepted")),
+        TreasuryAccepted {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_treasury,
+            new_treasury,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
 // ── Emergency Drain ───────────────────────────────────────────────────────────
 
 #[contracttype]

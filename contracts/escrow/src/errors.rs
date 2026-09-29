@@ -185,4 +185,6 @@ pub enum ContractError {
     InvalidMaxBasketSize = 67,
     /// Returned when `execute_upgrade` is called with an all-zero or otherwise trivially invalid WASM hash.
     InvalidWasmHash = 68,
+    /// Returned when `accept_treasury` is called but no pending treasury is set.
+    NoPendingTreasury = 69,
 }

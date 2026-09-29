@@ -461,6 +461,46 @@ impl Escrow {
         Ok(())
     }
 
+    /// Begins a 2-step treasury change. Validates the new address and stores it
+    /// as `PendingTreasury`. The active treasury stays unchanged until the
+    /// proposed address calls `accept_treasury`, preventing accidental loss from
+    /// typos or mistaken admin input.
+    pub fn set_treasury(env: Env, new_treasury: Address) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        admin.require_auth();
+
+        let old_treasury = validate_treasury_change(&env, &new_treasury)?;
+
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingTreasury, &new_treasury);
+        emit_treasury_pending(&env, old_treasury, new_treasury);
+        Ok(())
+    }
+
+    /// Finalizes a pending treasury change. Must be called by the address that
+    /// was registered as `PendingTreasury` via `set_treasury`.
+    pub fn accept_treasury(env: Env, caller: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingTreasury)
+            .ok_or(ContractError::NoPendingTreasury)?;
+
+        if caller != pending {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        let old_treasury = read_treasury(&env).unwrap_or_else(|_| crate::zero_address(&env));
+        write_treasury(&env, &pending);
+        env.storage().instance().remove(&DataKey::PendingTreasury);
+        emit_treasury_accepted(&env, old_treasury.clone(), pending.clone());
+        emit_treasury_updated(&env, old_treasury, pending);
+        Ok(())
+    }
+
     /// Sets the arbitration fee (in basis points) deducted from escrows
     /// during dispute resolution. Only callable by admin. Reverts with
     /// `ArbitrationFeeExceedsMax` if `fee_bps` exceeds `MAX_ARBITRATION_FEE_BPS`, or
@@ -926,13 +966,11 @@ impl Escrow {
         params.push_back(treasury.into_val(&env));
         let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTreasury, params)?;
 
-        let zero = crate::zero_address(&env);
-        if treasury == zero {
-            return Err(ContractError::InvalidAddress);
-        }
-        let old_treasury = read_treasury(&env).unwrap_or_else(|_| zero.clone());
-        write_treasury(&env, &treasury);
-        emit_treasury_updated(&env, old_treasury, treasury);
+        let old_treasury = validate_treasury_change(&env, &treasury)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingTreasury, &treasury);
+        emit_treasury_pending(&env, old_treasury, treasury);
         Ok(())
     }
 
