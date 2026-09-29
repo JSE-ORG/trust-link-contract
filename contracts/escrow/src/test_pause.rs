@@ -182,14 +182,18 @@ fn test_raise_dispute_blocked_when_paused() {
     );
     mint_tokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-PAUSE"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-PAUSE"),
+    );
     client.pause_contract(&admin);
     let hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
     let result = client.try_raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "FRAUD"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &hash,
     );
     assert!(matches!(result, Err(Ok(ContractError::ContractPaused))));
@@ -218,13 +222,17 @@ fn test_resolve_dispute_blocked_when_paused() {
     );
     mint_tokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-PAUSE2"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-PAUSE2"),
+    );
     let hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
     client.raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "FRAUD"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &hash,
     );
     client.pause_contract(&admin);
@@ -255,7 +263,11 @@ fn test_auto_release_blocked_when_paused() {
     );
     mint_tokens(&env, &token, &buyer, 100);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AR"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-AR"),
+    );
     crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
     env.ledger().set_timestamp(DISPUTE_WINDOW + 10);
     client.pause_contract(&admin);
@@ -387,7 +399,7 @@ fn test_unpause_resumes_operations() {
             &buyer,
             &escrow_id,
             &Symbol::new(&env, "OTHER"),
-            &SorobanString::from_str(&env, "desc"),
+            &soroban_sdk::Bytes::from_slice(&env, b"desc"),
             &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
         )
         .is_err());

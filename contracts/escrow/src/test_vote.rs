@@ -74,7 +74,7 @@ fn setup_disputed_multi(threshold: u32) -> (Env, Address, Address, [Address; 3],
     let client = EscrowClient::new(&env, &contract_id);
 
     let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
-    let description = String::from_str(&env, "Item never arrived");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item never arrived");
     let evidence = BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
 

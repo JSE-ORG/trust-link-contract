@@ -159,7 +159,7 @@ fn secondary_payee_cannot_approve_refund() {
     );
 
     let result = client.try_approve_refund(&secondary_payee, &escrow_id);
-    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorizedSeller)));
 
     // The rejected call had no side effects: still awaiting approval, and no
     // funds moved back to the buyer.
