@@ -347,13 +347,13 @@ fn drive_to_dispute(fx: &Fx) {
     fx.client.mark_shipped(
         &fx.seller,
         &fx.escrow_id,
-        &SorobanString::from_str(&fx.env, "TRK-ROT"),
+        &soroban_sdk::String::from_str(&fx.env, "TRK-ROT"),
     );
     fx.client.raise_dispute(
         &fx.buyer,
         &fx.escrow_id,
         &Symbol::new(&fx.env, "DEFECTIVE"),
-        &SorobanString::from_str(&fx.env, "item arrived damaged"),
+        &soroban_sdk::Bytes::from_slice(&fx.env, b"item arrived damaged"),
         &BytesN::from_array(&fx.env, &[1u8; 32]),
     );
 }

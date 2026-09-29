@@ -58,7 +58,7 @@ fn test_multi_resolver_threshold_met() {
         &buyer,
         &escrow_id,
         &symbol_short!("OTHER"),
-        &String::from_str(&env, "broken"),
+        &soroban_sdk::Bytes::from_slice(&env, b"broken"),
         &BytesN::from_array(&env, &[0; 32]),
     );
 
@@ -281,10 +281,14 @@ fn test_multi_resolver_split_vote_deadlock() {
     );
 
     client.fund_escrow(&escrow_id, &buyer);
-    client.mark_shipped(&seller, &escrow_id, &String::from_str(&env, "TRK-001"));
+    client.mark_shipped(
+        &seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&env, "TRK-001"),
+    );
 
     let reason = symbol_short!("OTHER");
-    let description = String::from_str(&env, "Item broken");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item broken");
     let evidence_hash = BytesN::from_array(&env, &[0u8; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence_hash);
 

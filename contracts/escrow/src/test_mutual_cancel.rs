@@ -132,7 +132,11 @@ fn test_mutual_cancel_allowed_after_shipping() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-001"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-001"),
+    );
     assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
 
     client.mutual_cancel(&id);
@@ -159,7 +163,11 @@ fn test_mutual_cancel_after_shipping_requires_buyer_signature() {
     let id = create_funded_escrow(
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-002"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-002"),
+    );
 
     env.mock_auths(&[MockAuth {
         address: &seller,
@@ -192,12 +200,17 @@ fn test_mutual_cancel_rejected_when_disputed() {
     let id = create_funded_escrow(
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-003"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-003"),
+    );
     client.raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
         &SorobanString::from_str(&env, "Item never arrived"),
+        &soroban_sdk::Bytes::from_slice(&env, b"Item never arrived"),
         &BytesN::from_array(&env, &[0xab; 32]),
     );
     assert_eq!(client.get_escrow(&id).state, EscrowState::Disputed);

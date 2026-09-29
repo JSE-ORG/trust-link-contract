@@ -199,15 +199,15 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.EscrowAlreadyRefunded]:
     "The escrow has already been refunded.",
   [ErrorCode.AppealFeeExceedsMax]:
-    "The appeal fee exceeds its configured hard cap.",
+    "The appeal fee exceeds its configured maximum.",
   [ErrorCode.AppealFeeBelowMinimum]:
-    "The appeal fee is below its configured minimum.",
+    "The appeal fee is below the allowed minimum.",
   [ErrorCode.NotInRecoveryMode]:
-    "Recovery mode is not enabled.",
+    "The contract is not in recovery mode.",
   [ErrorCode.InvalidDisputeReason]:
-    "The dispute reason is not in the predefined allowed list.",
+    "The dispute reason is not in the allowed set.",
   [ErrorCode.InvalidOperation]:
-    "The timelock operation ID is invalid.",
+    "The operation ID does not map to a valid timelock operation.",
   [ErrorCode.InvalidTimelockDelay]:
     "The timelock delay is outside allowed bounds.",
   [ErrorCode.InvalidProposalHash]:

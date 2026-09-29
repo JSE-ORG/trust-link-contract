@@ -41,7 +41,7 @@
 use crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS;
 use crate::test_helpers::{create_funded_escrow, setup_contract};
 use crate::{
-    ContractError, DataKey, EscrowData, EscrowState, DEFAULT_TTL_EXTENSION, MIN_TTL_EXTENSION,
+    ContractError, DataKey, EscrowData, DEFAULT_TTL_EXTENSION, MIN_TTL_EXTENSION,
     TTL_THRESHOLD_DIVISOR,
 };
 use soroban_sdk::{
@@ -113,7 +113,7 @@ fn test_dispute_stored_in_persistent_storage() {
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "OTHER"),
-        &soroban_sdk::String::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0xab; 32]),
     );
 
@@ -388,7 +388,7 @@ fn test_resolver_votes_ttl_extended() {
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &soroban_sdk::String::from_str(&env, "item broken"),
+        &soroban_sdk::Bytes::from_slice(&env, b"item broken"),
         &soroban_sdk::BytesN::from_array(&env, &[0xcd; 32]),
     );
 
@@ -687,7 +687,7 @@ fn disputed_escrow_with_message(env: &Env, client: &crate::EscrowClient) -> u64 
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(env, "DEFECTIVE"),
-        &soroban_sdk::String::from_str(env, "item broken"),
+        &soroban_sdk::Bytes::from_slice(env, b"item broken"),
         &soroban_sdk::BytesN::from_array(env, &[0xee; 32]),
     );
     client.post_message(&id, &buyer, &soroban_sdk::String::from_str(env, "hello"));
@@ -722,7 +722,7 @@ fn extend_escrow_ttl_tops_up_every_entry_without_mutation() {
                 .persistent()
                 .get(&DataKey::Escrow(id))
                 .unwrap();
-            let history: Vec<(EscrowState, u64)> = env
+            let history: Vec<u64> = env
                 .storage()
                 .persistent()
                 .get(&DataKey::EscrowStateHistory(id))

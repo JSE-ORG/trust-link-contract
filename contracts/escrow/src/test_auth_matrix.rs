@@ -89,8 +89,11 @@ fn funded(ctx: &Ctx) -> (u64, Address, Address, Address) {
 
 fn shipped(ctx: &Ctx) -> (u64, Address, Address, Address) {
     let (id, seller, buyer, resolver) = funded(ctx);
-    ctx.client
-        .mark_shipped(&seller, &id, &SorobanString::from_str(ctx.env, "TRK001"));
+    ctx.client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(ctx.env, "TRK001"),
+    );
     (id, seller, buyer, resolver)
 }
 
@@ -101,7 +104,7 @@ fn disputed(ctx: &Ctx) -> (u64, Address, Address, Address) {
         &buyer,
         &id,
         &Symbol::new(ctx.env, "ITEM_NOT_RECEIVED"),
-        &SorobanString::from_str(ctx.env, "not received"),
+        &soroban_sdk::Bytes::from_slice(ctx.env, b"not received"),
         &hash,
     );
     (id, seller, buyer, resolver)
@@ -349,7 +352,7 @@ fn mark_shipped_rejects_buyer() {
     let (id, _, buyer, _) = funded(&ctx);
     assert_eq!(
         ctx.client
-            .try_mark_shipped(&buyer, &id, &SorobanString::from_str(&env, "TRK")),
+            .try_mark_shipped(&buyer, &id, &soroban_sdk::String::from_str(&env, "TRK")),
         Err(Ok(ContractError::NotAuthorizedSeller))
     );
 }
@@ -361,7 +364,7 @@ fn mark_shipped_rejects_resolver() {
     let (id, _, _, resolver) = funded(&ctx);
     assert_eq!(
         ctx.client
-            .try_mark_shipped(&resolver, &id, &SorobanString::from_str(&env, "TRK")),
+            .try_mark_shipped(&resolver, &id, &soroban_sdk::String::from_str(&env, "TRK")),
         Err(Ok(ContractError::NotAuthorizedSeller))
     );
 }
@@ -374,7 +377,7 @@ fn mark_shipped_rejects_intruder() {
     let intruder = Address::generate(&env);
     assert_eq!(
         ctx.client
-            .try_mark_shipped(&intruder, &id, &SorobanString::from_str(&env, "TRK")),
+            .try_mark_shipped(&intruder, &id, &soroban_sdk::String::from_str(&env, "TRK")),
         Err(Ok(ContractError::NotAuthorizedSeller))
     );
 }
@@ -529,7 +532,7 @@ fn raise_dispute_rejects_seller() {
             &seller,
             &id,
             &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
-            &SorobanString::from_str(&env, "desc"),
+            &soroban_sdk::Bytes::from_slice(&env, b"desc"),
             &hash,
         ),
         Err(Ok(ContractError::NotAuthorizedBuyer))
@@ -547,7 +550,7 @@ fn raise_dispute_rejects_resolver() {
             &resolver,
             &id,
             &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
-            &SorobanString::from_str(&env, "desc"),
+            &soroban_sdk::Bytes::from_slice(&env, b"desc"),
             &hash,
         ),
         Err(Ok(ContractError::NotAuthorizedBuyer))
@@ -566,7 +569,7 @@ fn raise_dispute_rejects_intruder() {
             &intruder,
             &id,
             &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
-            &SorobanString::from_str(&env, "desc"),
+            &soroban_sdk::Bytes::from_slice(&env, b"desc"),
             &hash,
         ),
         Err(Ok(ContractError::NotAuthorizedBuyer))
@@ -745,7 +748,7 @@ fn mark_shipped_rejects_seller_in_pending_state() {
     let (id, seller, _, _) = pending(&ctx);
     assert_eq!(
         ctx.client
-            .try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRK")),
+            .try_mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "TRK")),
         Err(Ok(ContractError::InvalidState))
     );
 }
@@ -775,7 +778,7 @@ fn raise_dispute_rejects_buyer_in_pending_state() {
             &buyer,
             &id,
             &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
-            &SorobanString::from_str(&env, "desc"),
+            &soroban_sdk::Bytes::from_slice(&env, b"desc"),
             &hash,
         )
         .is_err());
@@ -841,7 +844,7 @@ fn mark_shipped_rejects_completed_escrow() {
     let (id, seller, _, _) = completed(&ctx);
     assert_eq!(
         ctx.client
-            .try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRK")),
+            .try_mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "TRK")),
         Err(Ok(ContractError::EscrowAlreadyCompleted))
     );
 }
@@ -853,7 +856,7 @@ fn mark_shipped_rejects_refunded_escrow() {
     let (id, seller, _, _) = refunded(&ctx);
     assert_eq!(
         ctx.client
-            .try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRK")),
+            .try_mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "TRK")),
         Err(Ok(ContractError::EscrowAlreadyRefunded))
     );
 }
@@ -869,7 +872,7 @@ fn raise_dispute_rejects_completed_escrow() {
             &buyer,
             &id,
             &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
-            &SorobanString::from_str(&env, "desc"),
+            &soroban_sdk::Bytes::from_slice(&env, b"desc"),
             &hash,
         ),
         Err(Ok(ContractError::EscrowAlreadyCompleted))
@@ -887,7 +890,7 @@ fn raise_dispute_rejects_refunded_escrow() {
             &buyer,
             &id,
             &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
-            &SorobanString::from_str(&env, "desc"),
+            &soroban_sdk::Bytes::from_slice(&env, b"desc"),
             &hash,
         ),
         Err(Ok(ContractError::EscrowAlreadyRefunded))

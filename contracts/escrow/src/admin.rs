@@ -10,8 +10,13 @@
 use crate::internal::*;
 use crate::storage;
 use crate::{
-    emit_timelock_cancelled, emit_timelock_executed, emit_timelock_queued, ContractError, Escrow,
-    EscrowState, TimelockOperation, TimelockProposal, *,
+    emit_fee_collector_accepted, emit_fee_collector_pending, emit_max_appeals_updated,
+    emit_max_basket_size_updated, emit_timelock_cancelled, emit_timelock_executed,
+    emit_timelock_queued, ContractError, Escrow, EscrowState, TimelockOperation, TimelockProposal,
+    *,
+};
+use soroban_sdk::{
+    contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
 use soroban_sdk::{contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, Val, Vec};
 
@@ -26,8 +31,9 @@ fn queue_timelock_op(
     operation_id: u32,
     params: Vec<Val>,
 ) -> Result<(), ContractError> {
-    let operation =
-        TimelockOperation::from_u32(operation_id).ok_or(ContractError::InvalidOperation)?;
+    let op_val: Val = operation_id.into_val(env);
+    let operation = TimelockOperation::try_from_val(env, &op_val)
+        .map_err(|_| ContractError::InvalidOperation)?;
     caller.require_auth();
     let _admin = require_admin_caller(env, caller)?;
 
@@ -43,7 +49,7 @@ fn queue_timelock_op(
         .unwrap_or(ADMIN_TIMELOCK_DELAY_SECONDS);
     let ready_at = now + delay;
 
-    let params_hash = env.crypto().sha256(&params.to_xdr(env));
+    let params_hash: BytesN<32> = env.crypto().sha256(&params.to_xdr(env)).into();
     let proposal = TimelockProposal {
         operation,
         proposer: caller.clone(),
@@ -77,8 +83,7 @@ fn execute_timelock_op(
         return Err(ContractError::NotAuthorized);
     }
 
-    let supplied_hash: soroban_sdk::BytesN<32> =
-        env.crypto().sha256(&params.clone().to_xdr(env)).into();
+    let supplied_hash: BytesN<32> = env.crypto().sha256(&params.clone().to_xdr(env)).into();
     if supplied_hash != proposal.params_hash {
         return Err(ContractError::InvalidProposalHash);
     }
@@ -97,7 +102,10 @@ fn execute_timelock_op(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, IntoVal};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger as _},
+        IntoVal,
+    };
 
     #[test]
     fn queue_timelock_op_rejects_more_than_five_params() {
@@ -243,7 +251,7 @@ mod tests {
 
         // Queue
         let res = env.as_contract(&contract_id, || {
-            Escrow::queue_set_platform_fee(env.clone(), admin.clone(), 100)
+            Escrow::queue_set_platform_fee(env.clone(), admin.clone(), 50)
         });
         assert!(res.is_ok());
 
@@ -260,7 +268,7 @@ mod tests {
 
         // Execute with CORRECT fee
         let res_exec_good = env.as_contract(&contract_id, || {
-            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 100)
+            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 50)
         });
         assert_eq!(res_exec_good, Ok(()));
     }
@@ -398,18 +406,56 @@ impl Escrow {
             .unwrap_or(false)
     }
 
-    /// Sets the fee collector address immediately (not timelocked). Only
-    /// callable by the current admin, gated at the host level via
-    /// `admin.require_auth()`. Reverts with `InvalidAddress` if
-    /// `new_collector` is the all-zero address or the current admin, or with
-    /// `SameAddress` if it already is the collector. Emits
-    /// `emit_fee_collector_updated`.
+    /// Begins a 2-step fee-collector change. Validates the new address and
+    /// stores it as `PendingFeeCollector`. The change only takes effect once
+    /// the new collector calls `accept_fee_collector`. Only callable by admin.
+    /// Reverts with `InvalidAddress` if `new_collector` is the zero address or
+    /// the current admin, or `SameAddress` if it already is the active
+    /// collector. Emits `emit_fee_collector_pending`.
     pub fn set_fee_collector(env: Env, new_collector: Address) -> Result<(), ContractError> {
         let admin = require_admin(&env)?;
         admin.require_auth();
 
         let old_collector = validate_fee_collector_change(&env, &new_collector)?;
 
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingFeeCollector, &new_collector);
+        emit_fee_collector_pending(&env, old_collector, new_collector);
+        Ok(())
+    }
+
+    /// Finalizes a pending fee-collector change. Must be called by the address
+    /// that was registered as `PendingFeeCollector` via `set_fee_collector` or
+    /// `execute_set_fee_collector`. Reverts with `NoPendingFeeCollector` if
+    /// there is no pending change, or `NotAuthorized` if the caller is not the
+    /// pending collector. Emits `emit_fee_collector_accepted`.
+    pub fn accept_fee_collector(env: Env, caller: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingFeeCollector)
+            .ok_or(ContractError::NoPendingFeeCollector)?;
+
+        if caller != pending {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        let old_collector: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeCollector)
+            .ok_or(ContractError::NotAuthorized)?;
+
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeCollector, &pending);
+        env.storage()
+            .instance()
+            .remove(&DataKey::PendingFeeCollector);
+        emit_fee_collector_accepted(&env, old_collector, pending);
         storage::update_global_config(&env, |c| c.fee_collector = Some(new_collector.clone()));
         emit_fee_collector_updated(&env, old_collector, new_collector);
         Ok(())
@@ -778,6 +824,14 @@ impl Escrow {
         params.push_back(new_wasm_hash.into_val(&env));
         let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::Upgrade, params)?;
 
+        // Reject the all-zeros hash as a trivially invalid placeholder. Full
+        // on-chain WASM-hash existence validation is not possible via the
+        // current Soroban SDK; the host will trap if the hash is not in the
+        // ledger, reverting the transaction without bricking the contract.
+        if new_wasm_hash == BytesN::from_array(&env, &[0u8; 32]) {
+            return Err(ContractError::InvalidWasmHash);
+        }
+
         let admin = require_admin(&env)?;
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
@@ -916,8 +970,10 @@ impl Escrow {
 
         let old_collector = validate_fee_collector_change(&env, &new_collector)?;
 
-        storage::update_global_config(&env, |c| c.fee_collector = Some(new_collector.clone()));
-        emit_fee_collector_updated(&env, old_collector, new_collector);
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingFeeCollector, &new_collector);
+        emit_fee_collector_pending(&env, old_collector, new_collector);
         Ok(())
     }
 
@@ -1315,6 +1371,83 @@ impl Escrow {
         Ok(())
     }
 
+    // 18. SetMaxAppeals
+    pub fn queue_set_max_appeals(
+        env: Env,
+        caller: Address,
+        max_appeals: u32,
+    ) -> Result<(), ContractError> {
+        let mut params = Vec::new(&env);
+        params.push_back(max_appeals.into_val(&env));
+        queue_timelock_op(&env, &caller, TimelockOperation::SetMaxAppeals, params)
+    }
+
+    pub fn execute_set_max_appeals(env: Env, caller: Address) -> Result<(), ContractError> {
+        let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetMaxAppeals)?;
+        let max_appeals = u32::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
+
+        if max_appeals < crate::MIN_MAX_APPEALS || max_appeals > crate::MAX_MAX_APPEALS {
+            return Err(ContractError::InvalidMaxAppeals);
+        }
+        let old_max = crate::read_max_appeals(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxAppeals, &max_appeals);
+        emit_max_appeals_updated(&env, old_max, max_appeals);
+        Ok(())
+    }
+
+    /// Returns the admin-configured maximum number of appeals per dispute.
+    pub fn get_max_appeals(env: Env) -> u32 {
+        crate::read_max_appeals(&env)
+    }
+
+    // 19. SetMaxBasketSize
+    pub fn queue_set_max_basket_size(
+        env: Env,
+        caller: Address,
+        max_basket_size: u32,
+    ) -> Result<(), ContractError> {
+        let mut params = Vec::new(&env);
+        params.push_back(max_basket_size.into_val(&env));
+        queue_timelock_op(&env, &caller, TimelockOperation::SetMaxBasketSize, params)
+    }
+
+    pub fn execute_set_max_basket_size(env: Env, caller: Address) -> Result<(), ContractError> {
+        let proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetMaxBasketSize)?;
+        let max_basket_size = u32::try_from_val(
+            &env,
+            &proposal
+                .params
+                .get(0)
+                .ok_or(ContractError::IndexOutOfBounds)?,
+        )
+        .map_err(|_| ContractError::IndexOutOfBounds)?;
+
+        if max_basket_size < crate::MIN_MAX_BASKET_SIZE || max_basket_size > crate::MAX_BASKET_SIZE
+        {
+            return Err(ContractError::InvalidMaxBasketSize);
+        }
+        let old_max = crate::read_max_basket_size(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxBasketSize, &max_basket_size);
+        emit_max_basket_size_updated(&env, old_max, max_basket_size);
+        Ok(())
+    }
+
+    /// Returns the admin-configured maximum number of tokens in a basket escrow.
+    pub fn get_max_basket_size(env: Env) -> u32 {
+        crate::read_max_basket_size(&env)
+    }
+
     /// Emergency drain: transfers all escrowed funds back to the buyer.
     ///
     /// # Authorization — Dual-Signature Requirement (Issue #709)
@@ -1650,7 +1783,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn pause_action(
         env: Env,
         caller: Address,
@@ -1668,7 +1800,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn unpause_action(
         env: Env,
         caller: Address,
@@ -1686,7 +1817,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn set_platform_fee(env: Env, caller: Address, fee: u32) -> Result<(), ContractError> {
         let admin = require_admin(&env)?;
         caller.require_auth();
@@ -1700,7 +1830,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn set_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), ContractError> {
         let admin = require_admin(&env)?;
         caller.require_auth();

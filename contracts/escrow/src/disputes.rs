@@ -3,7 +3,7 @@
 
 use crate::internal::*;
 use crate::*;
-use soroban_sdk::{contractimpl, token, Address, BytesN, Env, String, Symbol, Vec};
+use soroban_sdk::{contractimpl, token, Address, Bytes, BytesN, Env, Symbol, Vec};
 
 /// Dispute reason symbols accepted by `raise_dispute`. Clients parse the
 /// stored `DisputeData::reason` against this fixed set, so anything outside it
@@ -72,7 +72,7 @@ impl Escrow {
         caller: Address,
         escrow_id: u64,
         reason: Symbol,
-        description: String,
+        description: Bytes,
         evidence_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
         caller.require_auth();
@@ -94,7 +94,7 @@ impl Escrow {
             ));
         }
 
-        if env.ledger().timestamp() >= escrow.dispute_deadline {
+        if env.ledger().timestamp() >= (escrow.packed_timestamps & 0xFFFF_FFFF) {
             // Code 24 (DisputeWindowStillOpen) is reused for both raise_dispute (window closed, too late)
             // and confirm_delivery (window still open, too early) to maintain ABI stability.
             // See ERROR_CODES.md for both use cases.
@@ -356,7 +356,7 @@ impl Escrow {
         let dispute_data = load_dispute(&env, escrow_id)?;
         let now = env.ledger().timestamp();
 
-        if dispute_data.appeal_count >= crate::MAX_APPEALS {
+        if dispute_data.appeal_count >= crate::read_max_appeals(&env) {
             return Err(ContractError::MaxAppealsReached);
         }
 

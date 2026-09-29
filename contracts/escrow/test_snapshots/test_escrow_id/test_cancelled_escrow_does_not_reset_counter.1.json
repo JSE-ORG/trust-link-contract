@@ -330,14 +330,6 @@
                   },
                   {
                     "key": {
-                      "symbol": "dispute_deadline"
-                    },
-                    "val": {
-                      "u64": "0"
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "expires_at"
                     },
                     "val": "void"
@@ -352,14 +344,6 @@
                   },
                   {
                     "key": {
-                      "symbol": "funded_at"
-                    },
-                    "val": {
-                      "u64": "0"
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "grace_period"
                     },
                     "val": {
@@ -370,33 +354,52 @@
                     "key": {
                       "symbol": "notes"
                     },
-                    "val": "void"
+                    "val": {
+                      "string": ""
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "packed_timestamps"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
                   },
                   {
                     "key": {
                       "symbol": "payees"
                     },
                     "val": {
-                      "vec": [
+                      "map": [
                         {
-                          "map": [
-                            {
-                              "key": {
-                                "symbol": "address"
-                              },
-                              "val": {
-                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          "key": {
+                            "symbol": "inner"
+                          },
+                          "val": {
+                            "vec": [
+                              {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "address"
+                                    },
+                                    "val": {
+                                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "bps"
+                                    },
+                                    "val": {
+                                      "u32": 10000
+                                    }
+                                  }
+                                ]
                               }
-                            },
-                            {
-                              "key": {
-                                "symbol": "bps"
-                              },
-                              "val": {
-                                "u32": 10000
-                              }
-                            }
-                          ]
+                            ]
+                          }
                         }
                       ]
                     }
@@ -516,14 +519,6 @@
                   },
                   {
                     "key": {
-                      "symbol": "dispute_deadline"
-                    },
-                    "val": {
-                      "u64": "0"
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "expires_at"
                     },
                     "val": "void"
@@ -538,14 +533,6 @@
                   },
                   {
                     "key": {
-                      "symbol": "funded_at"
-                    },
-                    "val": {
-                      "u64": "0"
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "grace_period"
                     },
                     "val": {
@@ -556,33 +543,52 @@
                     "key": {
                       "symbol": "notes"
                     },
-                    "val": "void"
+                    "val": {
+                      "string": ""
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "packed_timestamps"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
                   },
                   {
                     "key": {
                       "symbol": "payees"
                     },
                     "val": {
-                      "vec": [
+                      "map": [
                         {
-                          "map": [
-                            {
-                              "key": {
-                                "symbol": "address"
-                              },
-                              "val": {
-                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          "key": {
+                            "symbol": "inner"
+                          },
+                          "val": {
+                            "vec": [
+                              {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "address"
+                                    },
+                                    "val": {
+                                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "bps"
+                                    },
+                                    "val": {
+                                      "u32": 10000
+                                    }
+                                  }
+                                ]
                               }
-                            },
-                            {
-                              "key": {
-                                "symbol": "bps"
-                              },
-                              "val": {
-                                "u32": 10000
-                              }
-                            }
-                          ]
+                            ]
+                          }
                         }
                       ]
                     }
@@ -702,14 +708,6 @@
                   },
                   {
                     "key": {
-                      "symbol": "dispute_deadline"
-                    },
-                    "val": {
-                      "u64": "0"
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "expires_at"
                     },
                     "val": "void"
@@ -724,14 +722,6 @@
                   },
                   {
                     "key": {
-                      "symbol": "funded_at"
-                    },
-                    "val": {
-                      "u64": "0"
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "grace_period"
                     },
                     "val": {
@@ -742,33 +732,52 @@
                     "key": {
                       "symbol": "notes"
                     },
-                    "val": "void"
+                    "val": {
+                      "string": ""
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "packed_timestamps"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
                   },
                   {
                     "key": {
                       "symbol": "payees"
                     },
                     "val": {
-                      "vec": [
+                      "map": [
                         {
-                          "map": [
-                            {
-                              "key": {
-                                "symbol": "address"
-                              },
-                              "val": {
-                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          "key": {
+                            "symbol": "inner"
+                          },
+                          "val": {
+                            "vec": [
+                              {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "address"
+                                    },
+                                    "val": {
+                                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "bps"
+                                    },
+                                    "val": {
+                                      "u32": 10000
+                                    }
+                                  }
+                                ]
                               }
-                            },
-                            {
-                              "key": {
-                                "symbol": "bps"
-                              },
-                              "val": {
-                                "u32": 10000
-                              }
-                            }
-                          ]
+                            ]
+                          }
                         }
                       ]
                     }
