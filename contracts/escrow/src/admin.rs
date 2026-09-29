@@ -1041,7 +1041,7 @@ impl Escrow {
         let _proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetTtlExtension, params)?;
 
-        if ledgers < MIN_TTL_EXTENSION {
+        if !(MIN_TTL_EXTENSION..=MAX_TTL_EXTENSION).contains(&ledgers) {
             return Err(ContractError::InvalidTtlExtension);
         }
 
@@ -1625,7 +1625,7 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        if extension_seconds < MIN_TTL_EXTENSION {
+        if !(MIN_TTL_EXTENSION..=MAX_TTL_EXTENSION).contains(&extension_seconds) {
             return Err(ContractError::InvalidTtlExtension);
         }
         let old_ledgers = storage::get_ttl_extension(&env);
