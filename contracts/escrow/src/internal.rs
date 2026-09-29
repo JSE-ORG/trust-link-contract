@@ -151,7 +151,9 @@ pub(crate) fn tally_votes_majority(votes: &Vec<ResolverVote>) -> ResolutionType 
 
 #[allow(dead_code)]
 pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
-    let paused: bool = crate::storage::read_global_config(env).paused;
+    let paused = crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_PAUSED
+        != 0;
     if paused {
         return Err(ContractError::ContractPaused);
     }
@@ -159,7 +161,9 @@ pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
 }
 
 pub(crate) fn ensure_action_not_paused(env: &Env, action: Symbol) -> Result<(), ContractError> {
-    let paused: bool = crate::storage::read_global_config(env).paused;
+    let paused = crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_PAUSED
+        != 0;
     if paused {
         return Err(ContractError::ContractPaused);
     }
@@ -240,7 +244,9 @@ pub(crate) fn contains(list: &soroban_sdk::Vec<Address>, target: &Address) -> bo
 /// `create_basket_escrow`). See `SECURITY.md` ("Token Allowlisting") for the
 /// full deployment checklist.
 pub(crate) fn is_token_allowlist_enabled(env: &Env) -> bool {
-    crate::storage::read_global_config(env).token_allowlist_enabled
+    crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED
+        != 0
 }
 
 /// Enforces the token allowlist when it is enabled, otherwise accepts any token.
@@ -1162,11 +1168,19 @@ pub(crate) fn validate_appeal_fee_bps(fee_bps: u32) -> Result<(), ContractError>
 /// through the standard state machine, e.g. after a sunset or an
 /// unpatchable vulnerability. Defaults to false.
 pub(crate) fn is_recovery_mode(env: &Env) -> bool {
-    crate::storage::read_global_config(env).recovery_mode
+    crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE
+        != 0
 }
 
 pub(crate) fn write_recovery_mode(env: &Env, enabled: bool) {
-    crate::storage::update_global_config(env, |c| c.recovery_mode = enabled);
+    crate::storage::update_global_config(env, |c| {
+        if enabled {
+            c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE;
+        } else {
+            c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE;
+        }
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1256,7 +1270,10 @@ pub(crate) fn create_escrow_internal(
     }
 
     // Issue #393: resolver registry — reject unknown resolvers in strict mode
-    if crate::storage::read_global_config(env).resolver_strict {
+    if crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
+        != 0
+    {
         let approved: soroban_sdk::Vec<Address> = env
             .storage()
             .instance()

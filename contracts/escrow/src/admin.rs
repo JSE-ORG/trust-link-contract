@@ -396,7 +396,7 @@ impl Escrow {
     }
 
     pub fn is_paused(env: Env) -> bool {
-        storage::read_global_config(&env).paused
+        storage::read_global_config(&env).state_flags & crate::types::GLOBAL_CONFIG_FLAG_PAUSED != 0
     }
 
     pub fn is_action_paused(env: Env, action: Symbol) -> bool {
@@ -705,7 +705,13 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        storage::update_global_config(&env, |c| c.token_allowlist_enabled = enabled);
+        storage::update_global_config(&env, |c| {
+            if enabled {
+                c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+            } else {
+                c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+            }
+        });
         emit_allowlist_toggled(&env, enabled);
         Ok(())
     }
@@ -1265,7 +1271,13 @@ impl Escrow {
             params,
         )?;
 
-        storage::update_global_config(&env, |c| c.token_allowlist_enabled = enabled);
+        storage::update_global_config(&env, |c| {
+            if enabled {
+                c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+            } else {
+                c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+            }
+        });
         emit_allowlist_toggled(&env, enabled);
         Ok(())
     }
@@ -1379,7 +1391,9 @@ impl Escrow {
         )?;
 
         let admin = require_admin(&env)?;
-        storage::update_global_config(&env, |c| c.paused = true);
+        storage::update_global_config(&env, |c| {
+            c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+        });
         emit_contract_paused(&env, admin);
         Ok(())
     }
@@ -1404,7 +1418,9 @@ impl Escrow {
         )?;
 
         let admin = require_admin(&env)?;
-        storage::update_global_config(&env, |c| c.paused = false);
+        storage::update_global_config(&env, |c| {
+            c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+        });
         emit_contract_unpaused(&env, admin);
         Ok(())
     }
@@ -1509,7 +1525,9 @@ impl Escrow {
     /// documentation and Terms of Service.
     #[allow(deprecated)]
     pub fn emergency_drain(env: Env, escrow_id: u64) -> Result<(), ContractError> {
-        let paused: bool = storage::read_global_config(&env).paused;
+        let paused = storage::read_global_config(&env).state_flags
+            & crate::types::GLOBAL_CONFIG_FLAG_PAUSED
+            != 0;
         if !paused {
             return Err(ContractError::ContractNotPaused);
         }
@@ -1670,7 +1688,9 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        storage::update_global_config(&env, |c| c.paused = true);
+        storage::update_global_config(&env, |c| {
+            c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+        });
         emit_contract_paused(&env, admin);
         Ok(())
     }
@@ -1682,7 +1702,9 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        storage::update_global_config(&env, |c| c.paused = false);
+        storage::update_global_config(&env, |c| {
+            c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+        });
         emit_contract_unpaused(&env, admin);
         Ok(())
     }
@@ -1724,8 +1746,16 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        let old_strict = storage::read_global_config(&env).resolver_strict;
-        storage::update_global_config(&env, |c| c.resolver_strict = strict);
+        let old_strict = storage::read_global_config(&env).state_flags
+            & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
+            != 0;
+        storage::update_global_config(&env, |c| {
+            if strict {
+                c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
+            } else {
+                c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
+            }
+        });
         emit_resolver_strict_updated(&env, old_strict, strict, caller);
         Ok(())
     }
@@ -1803,7 +1833,9 @@ impl Escrow {
 
     #[cfg(any(test, feature = "testutils"))]
     pub fn is_resolver_strict(env: Env) -> bool {
-        storage::read_global_config(&env).resolver_strict
+        storage::read_global_config(&env).state_flags
+            & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
+            != 0
     }
 
     #[cfg(any(test, feature = "testutils"))]

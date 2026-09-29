@@ -42,10 +42,7 @@ pub fn default_global_config() -> GlobalConfig {
         max_amount: MAX_ESCROW_AMOUNT,
         dispute_timeout: DEFAULT_DISPUTE_TIMEOUT,
         ttl_extension_ledgers: DEFAULT_TTL_EXTENSION,
-        paused: false,
-        token_allowlist_enabled: false,
-        resolver_strict: false,
-        recovery_mode: false,
+        state_flags: 0,
     }
 }
 
@@ -95,6 +92,33 @@ fn read_legacy_global_config(env: &Env) -> GlobalConfig {
     let storage = env.storage().instance();
     let defaults = default_global_config();
     let fees: Option<FeeConfig> = storage.get(&DataKey::FeeConfig);
+    let paused = storage
+        .get(&DataKey::Paused)
+        .unwrap_or(defaults.state_flags & crate::types::GLOBAL_CONFIG_FLAG_PAUSED != 0);
+    let token_allowlist_enabled = storage.get(&DataKey::TokenAllowlistEnabled).unwrap_or(
+        defaults.state_flags & crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED != 0,
+    );
+    let resolver_strict = storage
+        .get(&DataKey::ResolverStrict)
+        .unwrap_or(defaults.state_flags & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT != 0);
+    let recovery_mode = storage
+        .get(&DataKey::RecoveryMode)
+        .unwrap_or(defaults.state_flags & crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE != 0);
+
+    let mut state_flags = 0u32;
+    if paused {
+        state_flags |= crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+    }
+    if token_allowlist_enabled {
+        state_flags |= crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+    }
+    if resolver_strict {
+        state_flags |= crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
+    }
+    if recovery_mode {
+        state_flags |= crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE;
+    }
+
     GlobalConfig {
         fee_collector: storage.get(&DataKey::FeeCollector),
         treasury: storage.get(&DataKey::Treasury),
@@ -118,16 +142,7 @@ fn read_legacy_global_config(env: &Env) -> GlobalConfig {
         ttl_extension_ledgers: storage
             .get(&DataKey::TtlExtensionLedgers)
             .unwrap_or(defaults.ttl_extension_ledgers),
-        paused: storage.get(&DataKey::Paused).unwrap_or(defaults.paused),
-        token_allowlist_enabled: storage
-            .get(&DataKey::TokenAllowlistEnabled)
-            .unwrap_or(defaults.token_allowlist_enabled),
-        resolver_strict: storage
-            .get(&DataKey::ResolverStrict)
-            .unwrap_or(defaults.resolver_strict),
-        recovery_mode: storage
-            .get(&DataKey::RecoveryMode)
-            .unwrap_or(defaults.recovery_mode),
+        state_flags,
     }
 }
 

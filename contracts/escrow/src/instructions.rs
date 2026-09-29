@@ -1392,7 +1392,10 @@ impl Escrow {
 
         // Issue #829: Check resolver strict registry (same as create_escrow_internal).
         // When strict mode is enabled, only approved resolvers may be used.
-        if crate::storage::read_global_config(&env).resolver_strict {
+        if crate::storage::read_global_config(&env).state_flags
+            & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
+            != 0
+        {
             let approved: soroban_sdk::Vec<Address> = env
                 .storage()
                 .instance()
