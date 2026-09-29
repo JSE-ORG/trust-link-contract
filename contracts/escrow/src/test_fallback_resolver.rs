@@ -76,11 +76,11 @@ fn create_funded_shipped_disputed(setup: &Setup) -> u64 {
     client.mark_shipped(
         &setup.seller,
         &escrow_id,
-        &String::from_str(&setup.env, "TRK"),
+        &soroban_sdk::String::from_str(&setup.env, "TRK"),
     );
 
     let reason = Symbol::new(&setup.env, "OTHER");
-    let description = String::from_str(&setup.env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&setup.env, b"desc");
     let evidence_hash = BytesN::from_array(&setup.env, &[0xab; 32]);
     client.raise_dispute(
         &setup.buyer,
@@ -250,10 +250,14 @@ fn single_resolver_set_is_unaffected_by_fallback_deadline_logic() {
 
     client.fund_escrow(&escrow_id, &buyer);
     env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
-    client.mark_shipped(&seller, &escrow_id, &String::from_str(&env, "TRK-SINGLE"));
+    client.mark_shipped(
+        &seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&env, "TRK-SINGLE"),
+    );
 
     let reason = Symbol::new(&env, "DEFECTIVE");
-    let description = String::from_str(&env, "Item is defective");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item is defective");
     let evidence = BytesN::from_array(&env, &[0xef; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
 

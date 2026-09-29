@@ -1,6 +1,5 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
-use crate::events::emit_resolver_vote_recorded;
 use crate::internal::{
     add_or_update_vote, ensure_action_not_paused, execute_resolution_transition, get_ttl_extension,
     load_escrow, save_resolver_votes, tally_votes, terminal_state_error,
@@ -45,6 +44,16 @@ pub use crate::events::{
     PendingExpiryClear, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated,
     ResolverStrictUpdated, ResolverVoteRecorded, TimelockCancelled, TimelockExecuted,
     TimelockQueued, TtlExtensionUpdated,
+    emit_token_allowlist_updated, emit_treasury_accepted, emit_treasury_pending,
+    emit_treasury_updated, emit_ttl_extension_updated, ActionPausedEvent, ActionUnpausedEvent,
+    AdminRotated, AmountLimitsUpdated, ArbitrationFeeUpdated, AutoReleased, ContractInitialized,
+    ContractPausedEvent, ContractUnpausedEvent, ContractUpgradedEvent, DeliveryProposalCancelled,
+    DeliveryProposed, DeliveryRecorded, DisputeRaised, DisputeResolved, EscrowAutoCanceled,
+    EscrowCanceled, EscrowCompleted, EscrowCreated, EscrowExpired, EscrowFunded, EscrowShipped,
+    FeeCollectorAccepted, FeeCollectorPending, FeeUpdated, MaxAppealsUpdated, MaxBasketSizeUpdated,
+    PendingExpiryClear, ProtocolFeeUpdated, ResolverApproved, ResolverRemoved, ResolverRotated,
+    ResolverStrictUpdated, ResolverVoteRecorded, TimelockCancelled, TimelockExecuted,
+    TimelockQueued, TreasuryAccepted, TreasuryPending, TtlExtensionUpdated,
 };
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, Escrow as EscrowData,
@@ -143,6 +152,11 @@ pub const MIN_ESCROW_AMOUNT: i128 = 1;
 const DISPUTE_WINDOW: u64 = 172_800;
 const DELIVERY_RELEASE_WINDOW: u64 = 172_800;
 pub const MIN_TTL_EXTENSION: u32 = 1_000;
+/// Maximum allowed TTL extension in ledgers.
+///
+/// Keeping this bounded prevents admin misconfiguration from setting an
+/// excessive duration that inflates rent fees across many persistent entries.
+pub const MAX_TTL_EXTENSION: u32 = 2_592_000; // ~30 days at 10s/ledger
 const DEFAULT_TTL_EXTENSION: u32 = 120_960;
 /// Divisor used when computing the threshold for TTL extension.
 /// TTL is extended to `ext / TTL_THRESHOLD_DIVISOR` on the low end,
@@ -173,6 +187,9 @@ const MAX_STATE_HISTORY_ENTRIES: u32 = 50;
 /// Basis points denominator (100% = `10_000` basis points).
 pub const BASIS_POINTS: u32 = 10_000;
 pub const DELIVERY_TIMELOCK: u64 = 86_400;
+
+/// Maximum grace period in seconds (7 days = 604,800 seconds).
+pub const MAX_GRACE_PERIOD: u64 = 604_800;
 
 /// Maximum length for user-supplied string fields.
 /// - `tracking_id`: 64 characters
@@ -284,7 +301,7 @@ const MAX_DISPUTE_TIMEOUT: u64 = 31_536_000;
 /// How long (in seconds) a split multi-resolver vote must remain deadlocked
 /// before the permissionless majority-rules fallback
 /// `resolve_deadlocked_dispute` may be used. Default: 7 days.
-const DISPUTE_DEADLOCK_WINDOW: u64 = 604_800;
+pub const DISPUTE_DEADLOCK_WINDOW: u64 = 604_800;
 
 /// Number of persistent-storage buckets each lifecycle counter is spread
 /// across. Sharding keeps concurrent `create`/`complete`/`dispute`/`refund`
@@ -440,6 +457,7 @@ mod test_sep41;
 mod test_set_fee_boundary;
 mod test_set_fee_collector;
 mod test_shipping_window;
+mod test_state_flow_fixes;
 mod test_state_history;
 mod test_storage_collision;
 mod test_string_length;

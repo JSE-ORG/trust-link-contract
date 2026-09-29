@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, String, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, String, Symbol, Vec};
 
 /// Single unified storage key enum for all contract storage entries.
 ///
@@ -79,6 +79,8 @@ pub enum DataKey {
     VendorEscrowCount(Address),
     /// Pending fee collector address awaiting acceptance via `accept_fee_collector`.
     PendingFeeCollector,
+    /// Pending treasury address awaiting acceptance via `accept_treasury`.
+    PendingTreasury,
     /// Admin-configured maximum number of appeals per dispute.
     MaxAppeals,
     /// Admin-configured maximum number of tokens in a basket escrow.
@@ -343,17 +345,19 @@ pub struct ResolverVote {
 pub struct DisputeData {
     pub escrow_id: u64,
     pub reason: Symbol,
-    pub description: String,
+    /// Raw bytes — UTF-8 validation is deferred to off-chain consumers.
+    /// Avoids the per-load UTF-8 check that `String` incurs in the Soroban host.
+    pub description: Bytes,
     pub evidence_hash: BytesN<32>,
     pub status: DisputeStatus,
     pub disputed_at: u64,
     pub tracking_id: Option<String>,
     /// Resolution code: 0 = not resolved, 1 = Release, 2 = Refund
-    pub resolution: u32,
+    pub resolution: u8,
     /// Which address made the resolution (the resolver who triggered finalization)
     pub resolved_by: Option<Address>,
     /// Number of times this dispute has been appealed
-    pub appeal_count: u32,
+    pub appeal_count: u8,
     /// Timestamp when the resolution was made
     pub resolved_at: u64,
     /// Arbitration fee deducted when the resolution transition executed
@@ -468,7 +472,7 @@ pub struct ContractConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Escrow {
-    pub payees: Vec<Payee>,
+    pub payees: BoundedPayees,
     pub buyer: Option<Address>,
     pub resolvers: ResolverSet,
     pub token: Address,
@@ -476,15 +480,36 @@ pub struct Escrow {
     pub fee_bps: u32,
     pub resolver_fee_bps: u32,
     pub shipping_window: u64,
-    pub funded_at: u64,
-    pub dispute_deadline: u64,
+    /// Packed timestamp field: high 32 bits = `funded_at`, low 32 bits = `dispute_deadline`.
+    ///
+    /// Both timestamps fit in 32 bits until year 2106 (Unix epoch < 2^32).
+    /// Unpack helpers:
+    ///   `funded_at`        = `packed_timestamps` >> 32
+    ///   `dispute_deadline` = `packed_timestamps` & `0xFFFF_FFFF`
+    pub packed_timestamps: u64,
     pub shipped_at: u64,
     pub delivered_at: Option<u64>,
     pub tracking_id: Option<String>,
     pub state: EscrowState,
-    pub notes: Option<String>,
+    /// Free-form notes. Empty string is the "no notes" sentinel, eliminating
+    /// the XDR option-wrapper overhead of `Option<String>`.
+    pub notes: String,
     pub expires_at: Option<u64>,
     pub grace_period: u64,
+}
+
+impl Escrow {
+    pub fn funded_at(&self) -> u64 {
+        self.packed_timestamps >> 32
+    }
+
+    pub fn dispute_deadline(&self) -> u64 {
+        self.packed_timestamps & 0xFFFF_FFFF
+    }
+
+    pub fn pack_timestamps(funded_at: u64, dispute_deadline: u64) -> u64 {
+        (funded_at << 32) | (dispute_deadline & 0xFFFF_FFFF)
+    }
 }
 
 #[contracttype]
@@ -500,7 +525,8 @@ pub struct EscrowInput {
     /// resolver serves uncompensated.
     pub resolver_fee_bps: u32,
     pub shipping_window: u64,
-    pub notes: Option<String>,
+    /// Empty string is the "no notes" sentinel (see `Escrow.notes`).
+    pub notes: String,
 }
 
 #[contracttype]
@@ -529,6 +555,39 @@ pub struct Payee {
     pub bps: u32,
 }
 
+/// Maximum number of payees per escrow. Enforced by [`BoundedPayees`] so
+/// storage cost is bounded at creation time and the length-prefix overhead of
+/// an unbounded `Vec` is eliminated.
+pub const MAX_PAYEES: u32 = 10;
+
+/// A capacity-bounded wrapper around `Vec<Payee>`.
+///
+/// Stored as a `#[contracttype]` struct so the XDR shape is a single-field
+/// struct with explicit capacity enforcement rather than a bare, unbounded Vec.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundedPayees {
+    pub inner: Vec<Payee>,
+}
+
+impl BoundedPayees {
+    pub fn new(inner: Vec<Payee>) -> Self {
+        Self { inner }
+    }
+
+    pub fn get(&self, i: u32) -> Option<Payee> {
+        self.inner.get(i)
+    }
+
+    pub fn len(&self) -> u32 {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+}
+
 /// Lifecycle states of an escrow transaction.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -543,6 +602,42 @@ pub enum EscrowState {
     Canceled,
     PendingFinalization,
     Expired,
+}
+
+impl EscrowState {
+    /// Compact discriminant for packing state-history entries into a single
+    /// `u64` (state code in the high byte, timestamp in the low 56 bits)
+    /// instead of storing a full `(EscrowState, u64)` tuple per entry — see
+    /// `internal::pack_history_entry`.
+    pub(crate) fn to_history_code(&self) -> u8 {
+        match self {
+            EscrowState::Pending => 0,
+            EscrowState::Funded => 1,
+            EscrowState::Shipped => 2,
+            EscrowState::Completed => 3,
+            EscrowState::Disputed => 4,
+            EscrowState::RefundRequested => 5,
+            EscrowState::Refunded => 6,
+            EscrowState::Canceled => 7,
+            EscrowState::PendingFinalization => 8,
+            EscrowState::Expired => 9,
+        }
+    }
+
+    pub(crate) fn from_history_code(code: u8) -> Self {
+        match code {
+            0 => EscrowState::Pending,
+            1 => EscrowState::Funded,
+            2 => EscrowState::Shipped,
+            3 => EscrowState::Completed,
+            4 => EscrowState::Disputed,
+            5 => EscrowState::RefundRequested,
+            6 => EscrowState::Refunded,
+            7 => EscrowState::Canceled,
+            8 => EscrowState::PendingFinalization,
+            _ => EscrowState::Expired,
+        }
+    }
 }
 
 /// Identifies a specific privileged admin operation subject to the two-step
@@ -571,6 +666,33 @@ pub enum TimelockOperation {
     UnpauseContract = 17,
     SetMaxAppeals = 18,
     SetMaxBasketSize = 19,
+}
+
+impl TimelockOperation {
+    pub fn from_u32(val: u32) -> Option<Self> {
+        match val {
+            1 => Some(Self::SetAdmin),
+            2 => Some(Self::Upgrade),
+            3 => Some(Self::SetProtocolFee),
+            4 => Some(Self::SetArbitrationFee),
+            5 => Some(Self::SetPlatformFee),
+            6 => Some(Self::SetTreasury),
+            7 => Some(Self::SetFeeCollector),
+            8 => Some(Self::SetTtlExtension),
+            9 => Some(Self::SetAmountLimits),
+            10 => Some(Self::AddApprovedResolver),
+            11 => Some(Self::RemoveApprovedResolver),
+            12 => Some(Self::SetResolverStrict),
+            13 => Some(Self::SetTokenAllowlistEnabled),
+            14 => Some(Self::AddAllowedToken),
+            15 => Some(Self::RemoveAllowedToken),
+            16 => Some(Self::PauseContract),
+            17 => Some(Self::UnpauseContract),
+            18 => Some(Self::SetAppealFee),
+            19 => Some(Self::SetTimelockDelay),
+            _ => None,
+        }
+    }
 }
 
 /// A queued admin change awaiting the 24-hour timelock delay before it can be

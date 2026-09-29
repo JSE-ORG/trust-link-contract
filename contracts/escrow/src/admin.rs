@@ -18,6 +18,7 @@ use crate::{
 use soroban_sdk::{
     contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
+use soroban_sdk::{contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, Val, Vec};
 
 pub const ADMIN_TIMELOCK_DELAY_SECONDS: u64 = 24 * 60 * 60;
 pub const MIN_TIMELOCK_DELAY_SECONDS: u64 = 12 * 60 * 60; // 12 hours
@@ -30,7 +31,8 @@ fn queue_timelock_op(
     operation_id: u32,
     params: Vec<Val>,
 ) -> Result<(), ContractError> {
-    let operation = TimelockOperation::try_from_val(env, &operation_id.into_val(env))
+    let op_val: Val = operation_id.into_val(env);
+    let operation = TimelockOperation::try_from_val(env, &op_val)
         .map_err(|_| ContractError::InvalidOperation)?;
     caller.require_auth();
     let _admin = require_admin_caller(env, caller)?;
@@ -47,11 +49,11 @@ fn queue_timelock_op(
         .unwrap_or(ADMIN_TIMELOCK_DELAY_SECONDS);
     let ready_at = now + delay;
 
-    let params_hash = env.crypto().sha256(&params.to_xdr(env));
+    let params_hash: BytesN<32> = env.crypto().sha256(&params.to_xdr(env)).into();
     let proposal = TimelockProposal {
         operation,
         proposer: caller.clone(),
-        params_hash,
+        params_hash: params_hash.into(),
         queued_at: now,
         ready_at,
     };
@@ -81,7 +83,7 @@ fn execute_timelock_op(
         return Err(ContractError::NotAuthorized);
     }
 
-    let supplied_hash = env.crypto().sha256(&params.to_xdr(env));
+    let supplied_hash: BytesN<32> = env.crypto().sha256(&params.clone().to_xdr(env)).into();
     if supplied_hash != proposal.params_hash {
         return Err(ContractError::InvalidProposalHash);
     }
@@ -100,7 +102,10 @@ fn execute_timelock_op(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, IntoVal};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger as _},
+        IntoVal,
+    };
 
     #[test]
     fn queue_timelock_op_rejects_more_than_five_params() {
@@ -246,7 +251,7 @@ mod tests {
 
         // Queue
         let res = env.as_contract(&contract_id, || {
-            Escrow::queue_set_platform_fee(env.clone(), admin.clone(), 500)
+            Escrow::queue_set_platform_fee(env.clone(), admin.clone(), 50)
         });
         assert!(res.is_ok());
 
@@ -257,15 +262,15 @@ mod tests {
 
         // Try to execute with a DIFFERENT fee
         let res_exec_bad = env.as_contract(&contract_id, || {
-            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 1000)
+            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 150)
         });
         assert_eq!(res_exec_bad, Err(ContractError::InvalidProposalHash));
 
         // Execute with CORRECT fee
         let res_exec_good = env.as_contract(&contract_id, || {
-            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 500)
+            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 50)
         });
-        assert!(res_exec_good.is_ok());
+        assert_eq!(res_exec_good, Ok(()));
     }
 
     #[test]
@@ -453,6 +458,46 @@ impl Escrow {
         emit_fee_collector_accepted(&env, old_collector, pending);
         storage::update_global_config(&env, |c| c.fee_collector = Some(new_collector.clone()));
         emit_fee_collector_updated(&env, old_collector, new_collector);
+        Ok(())
+    }
+
+    /// Begins a 2-step treasury change. Validates the new address and stores it
+    /// as `PendingTreasury`. The active treasury stays unchanged until the
+    /// proposed address calls `accept_treasury`, preventing accidental loss from
+    /// typos or mistaken admin input.
+    pub fn set_treasury(env: Env, new_treasury: Address) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        admin.require_auth();
+
+        let old_treasury = validate_treasury_change(&env, &new_treasury)?;
+
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingTreasury, &new_treasury);
+        emit_treasury_pending(&env, old_treasury, new_treasury);
+        Ok(())
+    }
+
+    /// Finalizes a pending treasury change. Must be called by the address that
+    /// was registered as `PendingTreasury` via `set_treasury`.
+    pub fn accept_treasury(env: Env, caller: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingTreasury)
+            .ok_or(ContractError::NoPendingTreasury)?;
+
+        if caller != pending {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        let old_treasury = read_treasury(&env).unwrap_or_else(|_| crate::zero_address(&env));
+        write_treasury(&env, &pending);
+        env.storage().instance().remove(&DataKey::PendingTreasury);
+        emit_treasury_accepted(&env, old_treasury.clone(), pending.clone());
+        emit_treasury_updated(&env, old_treasury, pending);
         Ok(())
     }
 
@@ -927,13 +972,11 @@ impl Escrow {
         params.push_back(treasury.into_val(&env));
         let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::SetTreasury, params)?;
 
-        let zero = crate::zero_address(&env);
-        if treasury == zero {
-            return Err(ContractError::InvalidAddress);
-        }
-        let old_treasury = read_treasury(&env).unwrap_or_else(|_| zero.clone());
-        write_treasury(&env, &treasury);
-        emit_treasury_updated(&env, old_treasury, treasury);
+        let old_treasury = validate_treasury_change(&env, &treasury)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingTreasury, &treasury);
+        emit_treasury_pending(&env, old_treasury, treasury);
         Ok(())
     }
 
@@ -1004,7 +1047,7 @@ impl Escrow {
         let _proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetTtlExtension, params)?;
 
-        if ledgers < MIN_TTL_EXTENSION {
+        if !(MIN_TTL_EXTENSION..=MAX_TTL_EXTENSION).contains(&ledgers) {
             return Err(ContractError::InvalidTtlExtension);
         }
 
@@ -1192,16 +1235,8 @@ impl Escrow {
         let _proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetResolverStrict, params)?;
 
-        let old_strict = storage::read_global_config(&env).state_flags
-            & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
-            != 0;
-        storage::update_global_config(&env, |c| {
-            if strict {
-                c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
-            } else {
-                c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
-            }
-        });
+        let old_strict = storage::read_global_config(&env).resolver_strict;
+        storage::update_global_config(&env, |c| c.resolver_strict = strict);
         emit_resolver_strict_updated(&env, old_strict, strict, caller);
         Ok(())
     }
@@ -1608,7 +1643,7 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
-        if extension_seconds < MIN_TTL_EXTENSION {
+        if !(MIN_TTL_EXTENSION..=MAX_TTL_EXTENSION).contains(&extension_seconds) {
             return Err(ContractError::InvalidTtlExtension);
         }
         let old_ledgers = storage::get_ttl_extension(&env);
@@ -1818,7 +1853,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn pause_action(
         env: Env,
         caller: Address,
@@ -1836,7 +1870,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn unpause_action(
         env: Env,
         caller: Address,
@@ -1854,7 +1887,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn set_platform_fee(env: Env, caller: Address, fee: u32) -> Result<(), ContractError> {
         let admin = require_admin(&env)?;
         caller.require_auth();
@@ -1868,7 +1900,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn set_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), ContractError> {
         let admin = require_admin(&env)?;
         caller.require_auth();
@@ -1885,8 +1916,7 @@ impl Escrow {
         caller: Address,
         delay_seconds: u64,
     ) -> Result<(), ContractError> {
-        if delay_seconds < MIN_TIMELOCK_DELAY_SECONDS || delay_seconds > MAX_TIMELOCK_DELAY_SECONDS
-        {
+        if !(MIN_TIMELOCK_DELAY_SECONDS..=MAX_TIMELOCK_DELAY_SECONDS).contains(&delay_seconds) {
             return Err(ContractError::InvalidTimelockDelay);
         }
         let mut params = Vec::new(&env);
@@ -1909,8 +1939,7 @@ impl Escrow {
         let _proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetTimelockDelay, params)?;
 
-        if delay_seconds < MIN_TIMELOCK_DELAY_SECONDS || delay_seconds > MAX_TIMELOCK_DELAY_SECONDS
-        {
+        if !(MIN_TIMELOCK_DELAY_SECONDS..=MAX_TIMELOCK_DELAY_SECONDS).contains(&delay_seconds) {
             return Err(ContractError::InvalidTimelockDelay);
         }
 

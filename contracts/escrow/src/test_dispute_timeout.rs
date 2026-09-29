@@ -67,7 +67,7 @@ fn disputed_single_resolver_escrow(
         buyer,
         &id,
         &symbol_short!("OTHER"),
-        &String::from_str(env, "never arrived"),
+        &soroban_sdk::Bytes::from_slice(env, b"never arrived"),
         &BytesN::from_array(env, &[0; 32]),
     );
     id

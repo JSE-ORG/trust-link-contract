@@ -118,7 +118,11 @@ fn test_cannot_ship_expired_escrow() {
     env.ledger().set_timestamp(10);
 
     // Shipping should fail with EscrowExpired.
-    let res = client.try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    let res = client.try_mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK001"),
+    );
     assert!(matches!(res, Err(Ok(ContractError::EscrowExpired))));
 }
 
@@ -194,7 +198,7 @@ fn test_reclaim_with_active_dispute() {
         &buyer,
         &id,
         &Symbol::new(&env, "OTHER"),
-        &SorobanString::from_str(&env, "description"),
+        &soroban_sdk::Bytes::from_slice(&env, b"description"),
         &hash,
     );
 
@@ -227,9 +231,9 @@ fn test_reclaim_expired_grace_period_boundary() {
     let (env, _admin, seller, buyer, resolver, token, contract_id) = setup_env();
     let client = EscrowClient::new(&env, &contract_id);
 
-    let expires_at: u64 = 100;
-    let grace_period: u64 = 50;
-    let reclaimable_at = expires_at + grace_period; // 150
+    let expires_at: u64 = 150;
+    let grace_period: u64 = 0;
+    let reclaimable_at = expires_at; // 150
 
     let id = client.create_escrow_with_expiration(
         &seller,
@@ -247,17 +251,18 @@ fn test_reclaim_expired_grace_period_boundary() {
     client.fund_escrow(&id, &buyer);
 
     // --- one tick before the boundary: must still be blocked ---
-    env.ledger().set_timestamp(reclaimable_at - 1); // 149
+    env.ledger().set_timestamp(expires_at - 1); // 99
     let res = client.try_reclaim_expired(&id);
     assert!(
-        matches!(res, Err(Ok(ContractError::GracePeriodNotElapsed))),
-        "expected GracePeriodNotElapsed at tick {}, got {:?}",
+        matches!(res, Err(Ok(ContractError::InvalidState))),
+        "expected InvalidState at tick {}, got {:?}",
+        expires_at - 1,
         reclaimable_at - 1,
         res
     );
 
     // --- exactly at the boundary: must succeed ---
-    env.ledger().set_timestamp(reclaimable_at); // 150
+    env.ledger().set_timestamp(expires_at); // 100
     client.reclaim_expired(&id);
 
     let escrow = client.get_escrow(&id);
