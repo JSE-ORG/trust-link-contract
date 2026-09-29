@@ -349,11 +349,11 @@ pub struct DisputeData {
     pub disputed_at: u64,
     pub tracking_id: Option<String>,
     /// Resolution code: 0 = not resolved, 1 = Release, 2 = Refund
-    pub resolution: u32,
+    pub resolution: u8,
     /// Which address made the resolution (the resolver who triggered finalization)
     pub resolved_by: Option<Address>,
     /// Number of times this dispute has been appealed
-    pub appeal_count: u32,
+    pub appeal_count: u8,
     /// Timestamp when the resolution was made
     pub resolved_at: u64,
     /// Arbitration fee deducted when the resolution transition executed
@@ -541,6 +541,42 @@ pub enum EscrowState {
     Canceled,
     PendingFinalization,
     Expired,
+}
+
+impl EscrowState {
+    /// Compact discriminant for packing state-history entries into a single
+    /// `u64` (state code in the high byte, timestamp in the low 56 bits)
+    /// instead of storing a full `(EscrowState, u64)` tuple per entry — see
+    /// `internal::pack_history_entry`.
+    pub(crate) fn to_history_code(&self) -> u8 {
+        match self {
+            EscrowState::Pending => 0,
+            EscrowState::Funded => 1,
+            EscrowState::Shipped => 2,
+            EscrowState::Completed => 3,
+            EscrowState::Disputed => 4,
+            EscrowState::RefundRequested => 5,
+            EscrowState::Refunded => 6,
+            EscrowState::Canceled => 7,
+            EscrowState::PendingFinalization => 8,
+            EscrowState::Expired => 9,
+        }
+    }
+
+    pub(crate) fn from_history_code(code: u8) -> Self {
+        match code {
+            0 => EscrowState::Pending,
+            1 => EscrowState::Funded,
+            2 => EscrowState::Shipped,
+            3 => EscrowState::Completed,
+            4 => EscrowState::Disputed,
+            5 => EscrowState::RefundRequested,
+            6 => EscrowState::Refunded,
+            7 => EscrowState::Canceled,
+            8 => EscrowState::PendingFinalization,
+            _ => EscrowState::Expired,
+        }
+    }
 }
 
 /// Identifies a specific privileged admin operation subject to the two-step
