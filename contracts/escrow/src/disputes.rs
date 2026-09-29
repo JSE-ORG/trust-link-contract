@@ -3,7 +3,7 @@
 
 use crate::internal::*;
 use crate::*;
-use soroban_sdk::{contractimpl, token, Address, BytesN, Env, String, Symbol, Vec};
+use soroban_sdk::{contractimpl, token, Address, Bytes, BytesN, Env, Symbol, Vec};
 
 /// Dispute reason symbols accepted by `raise_dispute`. Clients parse the
 /// stored `DisputeData::reason` against this fixed set, so anything outside it
@@ -72,7 +72,7 @@ impl Escrow {
         caller: Address,
         escrow_id: u64,
         reason: Symbol,
-        description: String,
+        description: Bytes,
         evidence_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
         caller.require_auth();
@@ -94,7 +94,7 @@ impl Escrow {
             ));
         }
 
-        if env.ledger().timestamp() >= escrow.dispute_deadline {
+        if env.ledger().timestamp() >= (escrow.packed_timestamps & 0xFFFF_FFFF) {
             // Code 24 (DisputeWindowStillOpen) is reused for both raise_dispute (window closed, too late)
             // and confirm_delivery (window still open, too early) to maintain ABI stability.
             // See ERROR_CODES.md for both use cases.
@@ -531,5 +531,75 @@ impl Escrow {
         let resolution = tally_votes_majority(&votes);
         let actor = voter_for(&votes, &resolution).ok_or(ContractError::NoResolverVotes)?;
         execute_resolution_transition(&env, escrow_id, escrow, actor, resolution, votes, true)
+    }
+
+    /// Admin override to cancel an escrow in `PendingFinalization`.
+    ///
+    /// Provides an escape hatch when appeals have maxed out or finalization bugs occur,
+    /// preventing funds from remaining indefinitely locked in `PendingFinalization`.
+    /// Transitions state to `Refunded`, refunds buyer principal and basket tokens,
+    /// and emits `escrow_canceled`.
+    pub fn cancel_pending_finalization(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        ensure_action_not_paused(&env, Symbol::new(&env, "cancel_pending_finalization"))?;
+        require_admin_caller(&env, &caller)?;
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        if escrow.state != EscrowState::PendingFinalization {
+            return Err(ContractError::NotPendingFinalization);
+        }
+
+        let buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
+
+        let prev_state = escrow.state.clone();
+        escrow.state = EscrowState::Refunded;
+        increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
+
+        if let Ok(mut dispute) = load_dispute(&env, escrow_id) {
+            dispute.status = DisputeStatus::Resolved;
+            dispute.resolved_by = Some(caller.clone());
+            dispute.resolution = ResolutionType::Refund as u32;
+            dispute.resolved_at = env.ledger().timestamp();
+            save_dispute(&env, escrow_id, &dispute);
+        }
+
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        payout(&env, &escrow.token, &buyer, escrow.amount);
+        payout_basket_tokens(&env, escrow_id, &buyer)?;
+
+        let first_payee_addr = escrow
+            .payees
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .clone();
+
+        emit_escrow_canceled(
+            &env,
+            escrow_id,
+            first_payee_addr,
+            caller,
+            prev_state,
+            escrow.state.clone(),
+        );
+
+        Ok(())
+    }
+
+    /// Admin override alias for `cancel_pending_finalization`.
+    pub fn admin_cancel_finalization(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+    ) -> Result<(), ContractError> {
+        Self::cancel_pending_finalization(env, caller, escrow_id)
     }
 }

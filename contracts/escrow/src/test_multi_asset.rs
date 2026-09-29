@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{Escrow, EscrowClient, EscrowState, Payee};
+use crate::{types::BoundedPayees, Escrow, EscrowClient, EscrowState, Payee};
 use soroban_sdk::{testutils::Address as _, token, Address, Env, IntoVal, Vec};
 
 fn setup(env: &Env) -> (EscrowClient<'static>, Address, Address, Address, Address) {
@@ -86,7 +86,15 @@ fn distribute_to_payees_rounds_dust_to_primary_payee_for_equal_shares() {
     }
 
     env.as_contract(&contract_id, || {
-        crate::internal::distribute_to_payees(&env, &token, &payees, amount).unwrap();
+        crate::internal::distribute_to_payees(
+            &env,
+            &token,
+            &BoundedPayees {
+                inner: payees.clone(),
+            },
+            amount,
+        )
+        .unwrap();
     });
 
     let token_client = token::Client::new(&env, &token);

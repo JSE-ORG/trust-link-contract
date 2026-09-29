@@ -59,7 +59,11 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
 
     mint(&env, &token, &buyer, amount);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-ARB-1"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-ARB-1"),
+    );
 
     // Advance time to allow dispute
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
@@ -68,7 +72,7 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
         &buyer,
         &id,
         &Symbol::new(&env, "OTHER"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -128,14 +132,18 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
 
     mint(&env, &token, &buyer, amount);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-ARB-2"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-ARB-2"),
+    );
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
     client.raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "OTHER"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -193,7 +201,7 @@ fn test_arbitration_fee_charged_once_across_appeal() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-ARB-APPEAL"),
+        &soroban_sdk::String::from_str(&env, "TRACK-ARB-APPEAL"),
     );
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
@@ -201,7 +209,7 @@ fn test_arbitration_fee_charged_once_across_appeal() {
         &buyer,
         &id,
         &Symbol::new(&env, "OTHER"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -266,7 +274,7 @@ fn test_zero_fee_dispute_not_charged_on_appeal_after_fee_increase() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-ZERO-FEE"),
+        &soroban_sdk::String::from_str(&env, "TRACK-ZERO-FEE"),
     );
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
@@ -274,7 +282,7 @@ fn test_zero_fee_dispute_not_charged_on_appeal_after_fee_increase() {
         &buyer,
         &id,
         &Symbol::new(&env, "OTHER"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
     assert!(!client.get_dispute(&id).unwrap().fees_charged);
@@ -363,14 +371,18 @@ fn test_resolution_transition_min_amount_max_fees_does_not_underflow() {
 
     mint(&env, &token, &buyer, amount);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-MIN"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-MIN"),
+    );
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
     client.raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "OTHER"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -434,14 +446,14 @@ fn test_execute_resolution_transition_rejects_fees_exceeding_amount() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-FEE-CAP"),
+        &soroban_sdk::String::from_str(&env, "TRACK-FEE-CAP"),
     );
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
     client.raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "OTHER"),
-        &SorobanString::from_str(&env, "desc"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 

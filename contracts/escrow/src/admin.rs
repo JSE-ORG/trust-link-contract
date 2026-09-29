@@ -18,6 +18,7 @@ use crate::{
 use soroban_sdk::{
     contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
+use soroban_sdk::{contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, Val, Vec};
 
 pub const ADMIN_TIMELOCK_DELAY_SECONDS: u64 = 24 * 60 * 60;
 pub const MIN_TIMELOCK_DELAY_SECONDS: u64 = 12 * 60 * 60; // 12 hours
@@ -30,7 +31,8 @@ fn queue_timelock_op(
     operation_id: u32,
     params: Vec<Val>,
 ) -> Result<(), ContractError> {
-    let operation = TimelockOperation::try_from_val(env, &operation_id.into_val(env))
+    let op_val: Val = operation_id.into_val(env);
+    let operation = TimelockOperation::try_from_val(env, &op_val)
         .map_err(|_| ContractError::InvalidOperation)?;
     caller.require_auth();
     let _admin = require_admin_caller(env, caller)?;
@@ -47,11 +49,11 @@ fn queue_timelock_op(
         .unwrap_or(ADMIN_TIMELOCK_DELAY_SECONDS);
     let ready_at = now + delay;
 
-    let params_hash = env.crypto().sha256(&params.to_xdr(env));
+    let params_hash: BytesN<32> = env.crypto().sha256(&params.to_xdr(env)).into();
     let proposal = TimelockProposal {
         operation,
         proposer: caller.clone(),
-        params_hash,
+        params_hash: params_hash.into(),
         queued_at: now,
         ready_at,
     };
@@ -81,7 +83,7 @@ fn execute_timelock_op(
         return Err(ContractError::NotAuthorized);
     }
 
-    let supplied_hash = env.crypto().sha256(&params.to_xdr(env));
+    let supplied_hash: BytesN<32> = env.crypto().sha256(&params.clone().to_xdr(env)).into();
     if supplied_hash != proposal.params_hash {
         return Err(ContractError::InvalidProposalHash);
     }
@@ -100,7 +102,10 @@ fn execute_timelock_op(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, IntoVal};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger as _},
+        IntoVal,
+    };
 
     #[test]
     fn queue_timelock_op_rejects_more_than_five_params() {
@@ -246,7 +251,7 @@ mod tests {
 
         // Queue
         let res = env.as_contract(&contract_id, || {
-            Escrow::queue_set_platform_fee(env.clone(), admin.clone(), 500)
+            Escrow::queue_set_platform_fee(env.clone(), admin.clone(), 50)
         });
         assert!(res.is_ok());
 
@@ -257,15 +262,15 @@ mod tests {
 
         // Try to execute with a DIFFERENT fee
         let res_exec_bad = env.as_contract(&contract_id, || {
-            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 1000)
+            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 150)
         });
         assert_eq!(res_exec_bad, Err(ContractError::InvalidProposalHash));
 
         // Execute with CORRECT fee
         let res_exec_good = env.as_contract(&contract_id, || {
-            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 500)
+            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 50)
         });
-        assert!(res_exec_good.is_ok());
+        assert_eq!(res_exec_good, Ok(()));
     }
 
     #[test]
@@ -1816,7 +1821,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn pause_action(
         env: Env,
         caller: Address,
@@ -1834,7 +1838,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn unpause_action(
         env: Env,
         caller: Address,
@@ -1852,7 +1855,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn set_platform_fee(env: Env, caller: Address, fee: u32) -> Result<(), ContractError> {
         let admin = require_admin(&env)?;
         caller.require_auth();
@@ -1866,7 +1868,6 @@ impl Escrow {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testutils"))]
     pub fn set_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), ContractError> {
         let admin = require_admin(&env)?;
         caller.require_auth();
@@ -1883,8 +1884,7 @@ impl Escrow {
         caller: Address,
         delay_seconds: u64,
     ) -> Result<(), ContractError> {
-        if delay_seconds < MIN_TIMELOCK_DELAY_SECONDS || delay_seconds > MAX_TIMELOCK_DELAY_SECONDS
-        {
+        if !(MIN_TIMELOCK_DELAY_SECONDS..=MAX_TIMELOCK_DELAY_SECONDS).contains(&delay_seconds) {
             return Err(ContractError::InvalidTimelockDelay);
         }
         let mut params = Vec::new(&env);
@@ -1907,8 +1907,7 @@ impl Escrow {
         let _proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetTimelockDelay, params)?;
 
-        if delay_seconds < MIN_TIMELOCK_DELAY_SECONDS || delay_seconds > MAX_TIMELOCK_DELAY_SECONDS
-        {
+        if !(MIN_TIMELOCK_DELAY_SECONDS..=MAX_TIMELOCK_DELAY_SECONDS).contains(&delay_seconds) {
             return Err(ContractError::InvalidTimelockDelay);
         }
 

@@ -153,6 +153,30 @@ pub enum ContractError {
     /// Returned when an action is attempted on an escrow that has already
     /// reached the terminal `Refunded` state.
     EscrowAlreadyRefunded = 64,
+    /// Returned when `set_appeal_fee` (or its timelocked execute step) is given
+    /// a fee above `MAX_APPEAL_FEE_BPS`.
+    AppealFeeExceedsMax = 65,
+    /// Returned when `set_appeal_fee` (or its timelocked execute step) is given
+    /// a non-zero fee below `MIN_APPEAL_FEE_BPS`. Zero disables the appeal fee.
+    AppealFeeBelowMinimum = 66,
+    /// Returned when `recovery_withdraw` is called while recovery mode is not
+    /// enabled via `enable_recovery_mode`.
+    NotInRecoveryMode = 67,
+    /// Returned when `raise_dispute` is given a `reason` symbol outside the
+    /// predefined `DISPUTE_REASONS` set.
+    InvalidDisputeReason = 68,
+    /// Returned when an arbitrary u32 operation ID does not map to a valid `TimelockOperation`.
+    InvalidOperation = 69,
+    /// Returned when setting a timelock delay outside the allowed bounds.
+    InvalidTimelockDelay = 70,
+    /// Returned when the executed parameters do not match the queued proposal hash.
+    InvalidProposalHash = 71,
+    /// Returned when a `batch_create_escrow` call contains duplicate notes values.
+    DuplicateNotes = 72,
+    /// Returned when `create_escrow_with_expiration` is called with a `grace_period` that exceeds `MAX_GRACE_PERIOD`.
+    GracePeriodTooLong = 73,
+    /// Returned when `resolved_at` is earlier than `disputed_at`, violating the timestamp ordering invariant.
+    TimestampInvariantViolated = 74,
     /// Returned when `accept_fee_collector` is called but no pending fee collector is set.
     NoPendingFeeCollector = 65,
     /// Returned when `set_max_appeals` is given a value outside the supported range.

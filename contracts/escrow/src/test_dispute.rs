@@ -66,11 +66,15 @@ fn test_get_dispute_returns_accurate_data_after_raise() {
     client.fund_escrow(&id, &buyer);
 
     let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
-    let description = String::from_str(&env, "Item never arrived");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item never arrived");
     let evidence_hash = BytesN::from_array(&env, &[0xab; 32]);
     let timestamp = env.ledger().timestamp();
 
-    client.mark_shipped(&seller, &id, &String::from_str(&env, "TRACK-001"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-001"),
+    );
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
 
     let result = client.get_dispute(&id);
@@ -129,12 +133,16 @@ fn test_dispute_allowed_after_shipping() {
 
     // Use fixed deterministic timestamp
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &String::from_str(&env, "TRACK-BOUNDARY"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-BOUNDARY"),
+    );
 
     env.ledger().set_timestamp(1_700_172_798);
 
     let reason = soroban_sdk::Symbol::new(&env, "OTHER");
-    let description = soroban_sdk::String::from_str(&env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
 
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
@@ -176,11 +184,15 @@ fn test_dispute_allowed_on_late_shipped_escrow() {
 
     // Use fixed deterministic timestamp
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &String::from_str(&env, "TRACK-LATE"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-LATE"),
+    );
     env.ledger().set_timestamp(1_700_172_799);
 
     let reason = soroban_sdk::Symbol::new(&env, "OTHER");
-    let description = soroban_sdk::String::from_str(&env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
     let result = client.get_dispute(&id);
@@ -221,13 +233,13 @@ fn test_dispute_requires_shipped_state() {
     client.fund_escrow(&id, &buyer);
 
     let escrow = client.get_escrow(&id);
-    let funded_at = escrow.funded_at; // Should be 1_700_000_000
+    let funded_at = escrow.funded_at(); // Should be 1_700_000_000
 
     // T + 172800 seconds (48:00:00) - EXACTLY 48 HOURS
     env.ledger().set_timestamp(funded_at + 172_800);
 
     let reason = soroban_sdk::Symbol::new(&env, "OTHER");
-    let description = soroban_sdk::String::from_str(&env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
 
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
@@ -275,13 +287,13 @@ fn test_dispute_rejected_after_48h_deadline() {
     client.fund_escrow(&id, &buyer);
 
     let escrow = client.get_escrow(&id);
-    let funded_at = escrow.funded_at; // Should be 1_700_000_000
+    let funded_at = escrow.funded_at(); // Should be 1_700_000_000
 
     // T + 172801 seconds - AFTER DEADLINE
     env.ledger().set_timestamp(funded_at + 172_801);
 
     let reason = soroban_sdk::Symbol::new(&env, "OTHER");
-    let description = soroban_sdk::String::from_str(&env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
 
     let result = client.try_raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
@@ -334,7 +346,7 @@ fn test_dispute_from_funded_state() {
 
     // Buyer should be able to raise dispute from Funded state
     let reason = soroban_sdk::Symbol::new(&env, "ITEM_NOT_RECEIVED");
-    let description = soroban_sdk::String::from_str(&env, "Seller never shipped the item");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Seller never shipped the item");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xcd; 32]);
 
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
@@ -371,7 +383,7 @@ fn test_dispute_from_pending_state() {
     );
 
     let reason = soroban_sdk::Symbol::new(&env, "OTHER");
-    let description = soroban_sdk::String::from_str(&env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
 
     // Attempt dispute from Pending
@@ -401,7 +413,7 @@ fn test_dispute_from_canceled_state() {
     client.cancel_escrow(&seller, &id);
 
     let reason = soroban_sdk::Symbol::new(&env, "OTHER");
-    let description = soroban_sdk::String::from_str(&env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
 
     // Attempt dispute from Canceled
@@ -438,7 +450,7 @@ fn test_dispute_from_completed_state() {
     client.confirm_delivery(&buyer, &id, &false);
 
     let reason = soroban_sdk::Symbol::new(&env, "OTHER");
-    let description = soroban_sdk::String::from_str(&env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
 
     // Attempt dispute from Completed — dedicated code (was InvalidState).
@@ -474,7 +486,7 @@ fn test_dispute_from_refunded_state() {
 
     // To refund, dispute then resolve with refund.
     let reason = soroban_sdk::Symbol::new(&env, "OTHER");
-    let description = soroban_sdk::String::from_str(&env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
 
@@ -510,7 +522,7 @@ fn test_appeal_up_to_limit_happy_path() {
 
     // Raise dispute
     let reason = soroban_sdk::Symbol::new(&env, "OTHER");
-    let description = soroban_sdk::String::from_str(&env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
 
@@ -558,7 +570,7 @@ fn test_appeal_exceeding_limit_fails() {
 
     // Raise dispute
     let reason = soroban_sdk::Symbol::new(&env, "OTHER");
-    let description = soroban_sdk::String::from_str(&env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
 
@@ -607,7 +619,7 @@ fn test_appeal_non_participant_fails() {
 
     // Raise dispute
     let reason = soroban_sdk::Symbol::new(&env, "OTHER");
-    let description = soroban_sdk::String::from_str(&env, "desc");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"desc");
     let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0xab; 32]);
     client.raise_dispute(&buyer, &id, &reason, &description, &evidence_hash);
 

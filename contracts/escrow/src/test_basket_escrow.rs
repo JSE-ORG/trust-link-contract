@@ -12,6 +12,8 @@
 //! Plus multi-token edge cases: more than one token type, uneven per-token
 //! amounts, and a zero-amount token that funding and payout both skip.
 
+extern crate std;
+
 use crate::{ContractError, Escrow, EscrowClient, EscrowState, Payee, MAX_BASKET_SIZE};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
@@ -283,7 +285,7 @@ fn payout_pays_each_basket_token_to_seller() {
     let escrow = client.get_escrow(&escrow_id);
     fx.env
         .ledger()
-        .set_timestamp(escrow.dispute_deadline + SHIPPING_WINDOW + 1);
+        .set_timestamp(escrow.dispute_deadline() + SHIPPING_WINDOW + 1);
     client.auto_release(&escrow_id);
 
     // With protocol fee at its default 0, the seller receives every token in
@@ -889,20 +891,20 @@ fn fund_basket_escrow_with_maximum_allowed_tokens() {
     // Ensures fund_basket_escrow can handle the maximum basket size without gas exhaustion.
     let fx = setup();
     let client = EscrowClient::new(&fx.env, &fx.contract_id);
-
-    // A 20-token basket means 20 separate inbound token transfers plus the
-    // storage writes; the default test budget is too small for that. Raise it
-    // so the boundary case can actually execute.
+    fx.env.cost_estimate().disable_resource_limits();
     fx.env.cost_estimate().budget().reset_unlimited();
+    fx.env.cost_estimate().disable_resource_limits();
 
     // Create exactly 20 distinct tokens.
     let mut addrs = Vec::new(&fx.env);
     let mut amounts = Vec::new(&fx.env);
+    let mut token_list = std::vec::Vec::new();
 
     for _ in 0..MAX_BASKET_SIZE {
         let token = make_token(&fx.env);
         addrs.push_back(token.address.clone());
         amounts.push_back(1_000_i128);
+        token_list.push(token);
     }
 
     // Create the basket escrow with all 20 tokens.
@@ -921,20 +923,17 @@ fn fund_basket_escrow_with_maximum_allowed_tokens() {
     assert_eq!(stored_tokens.len(), MAX_BASKET_SIZE);
 
     // Mint exactly 1_000 of each token to the buyer and fund.
-    for i in 0..addrs.len() {
-        let addr = addrs.get(i).unwrap();
-        token::StellarAssetClient::new(&fx.env, &addr).mint(&fx.buyer, &1_000_i128);
+    for token in &token_list {
+        token.admin.mint(&fx.buyer, &1_000_i128);
     }
 
     // Fund the basket escrow with all 20 tokens.
     client.fund_basket_escrow(&escrow_id, &fx.buyer);
 
     // Verify all tokens transferred to the contract and buyer has none left.
-    for i in 0..addrs.len() {
-        let addr = addrs.get(i).unwrap();
-        let token_client = token::TokenClient::new(&fx.env, &addr);
-        assert_eq!(token_client.balance(&fx.buyer), 0);
-        assert_eq!(token_client.balance(&fx.contract_id), 1_000_i128);
+    for token in &token_list {
+        assert_eq!(token.token.balance(&fx.buyer), 0);
+        assert_eq!(token.token.balance(&fx.contract_id), 1_000_i128);
     }
 
     // Verify escrow state is Funded.

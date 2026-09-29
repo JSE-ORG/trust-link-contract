@@ -2,6 +2,7 @@
 //! and queries modules: storage read/write, validation, fee math, and
 //! resolver-vote tallying. Not part of the contract's public interface.
 
+use crate::types::BoundedPayees;
 use crate::*;
 use soroban_sdk::{token, Address, Env, String, Symbol, Vec};
 
@@ -148,6 +149,7 @@ pub(crate) fn tally_votes_majority(votes: &Vec<ResolverVote>) -> ResolutionType 
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
     let paused: bool = crate::storage::read_global_config(env).paused;
     if paused {
@@ -352,14 +354,21 @@ pub(crate) fn validate_resolver_fee_bps(fee_bps: u32) -> Result<(), ContractErro
     Ok(())
 }
 
-pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), ContractError> {
-    if payees.is_empty() {
+pub(crate) fn validate_payees(env: &Env, payees: &BoundedPayees) -> Result<(), ContractError> {
+    if payees.inner.is_empty() {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    if payees.inner.len() > crate::types::MAX_PAYEES {
         return Err(ContractError::InvalidAddress);
     }
 
     let mut total_bps: u32 = 0;
-    for i in 0..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::PayeeIndexOutOfBounds)?;
+    for i in 0..payees.inner.len() {
+        let payee = payees
+            .inner
+            .get(i)
+            .ok_or(ContractError::PayeeIndexOutOfBounds)?;
         let bps = payee.bps;
 
         // Check for overflow
@@ -552,16 +561,44 @@ pub(crate) fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractErro
     Ok(escrow)
 }
 
+/// Number of low bits of a packed history entry given to the timestamp; the
+/// remaining high bits hold the `EscrowState` discriminant. 56 bits of Unix
+/// seconds vastly outlives any escrow, so this loses no practical range
+/// while letting each history entry be stored as a single `u64` instead of
+/// a `(EscrowState, u64)` tuple.
+const HISTORY_TIMESTAMP_BITS: u32 = 56;
+const HISTORY_TIMESTAMP_MASK: u64 = (1u64 << HISTORY_TIMESTAMP_BITS) - 1;
+
+fn pack_history_entry(state: &EscrowState, timestamp: u64) -> u64 {
+    ((state.to_history_code() as u64) << HISTORY_TIMESTAMP_BITS) | (timestamp & HISTORY_TIMESTAMP_MASK)
+}
+
+fn unpack_history_entry(packed: u64) -> (EscrowState, u64) {
+    let code = (packed >> HISTORY_TIMESTAMP_BITS) as u8;
+    (
+        EscrowState::from_history_code(code),
+        packed & HISTORY_TIMESTAMP_MASK,
+    )
+}
+
+fn decode_history(env: &Env, packed: &Vec<u64>) -> Vec<(EscrowState, u64)> {
+    let mut result = Vec::new(env);
+    for entry in packed.iter() {
+        result.push_back(unpack_history_entry(entry));
+    }
+    result
+}
+
 pub(crate) fn append_state_history(env: &Env, id: u64, state: &EscrowState) {
     let key = DataKey::EscrowStateHistory(id);
     let ext = get_ttl_extension(env);
-    let mut history: Vec<(EscrowState, u64)> = env
+    let mut history: Vec<u64> = env
         .storage()
         .persistent()
         .get(&key)
         .unwrap_or_else(|| Vec::new(env));
 
-    history.push_back((state.clone(), env.ledger().timestamp()));
+    history.push_back(pack_history_entry(state, env.ledger().timestamp()));
     while history.len() > MAX_STATE_HISTORY_ENTRIES {
         history.pop_front();
     }
@@ -572,26 +609,28 @@ pub(crate) fn append_state_history(env: &Env, id: u64, state: &EscrowState) {
 pub(crate) fn load_state_history(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
     let key = DataKey::EscrowStateHistory(id);
     let ext = get_ttl_extension(env);
-    let history = env
+    let packed: Vec<u64> = env
         .storage()
         .persistent()
         .get(&key)
         .unwrap_or_else(|| Vec::new(env));
 
-    if !history.is_empty() {
+    if !packed.is_empty() {
         env.storage().persistent().extend_ttl(&key, ext / 2, ext);
     }
-    history
+    decode_history(env, &packed)
 }
 
 /// Load state history without extending TTL - used by query functions that
 /// should not have side effects on storage rent.
 pub(crate) fn load_state_history_no_ttl(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
     let key = DataKey::EscrowStateHistory(id);
-    env.storage()
+    let packed: Vec<u64> = env
+        .storage()
         .persistent()
         .get(&key)
-        .unwrap_or_else(|| Vec::new(env))
+        .unwrap_or_else(|| Vec::new(env));
+    decode_history(env, &packed)
 }
 
 pub(crate) fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
@@ -740,7 +779,7 @@ pub(crate) fn transfer_helper(
 pub(crate) fn distribute_to_payees(
     env: &Env,
     token_addr: &Address,
-    payees: &Vec<Payee>,
+    payees: &BoundedPayees,
     amount: i128,
 ) -> Result<(), ContractError> {
     if amount < 0 {
@@ -789,8 +828,11 @@ pub(crate) fn distribute_to_payees(
     let mut remaining = amount;
 
     // Pay payees 1..N their floored share (p_i above), tracking what's left.
-    for i in 1..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::PayeeIndexOutOfBounds)?;
+    for i in 1..payees.inner.len() {
+        let payee = payees
+            .inner
+            .get(i)
+            .ok_or(ContractError::PayeeIndexOutOfBounds)?;
         // Multiply first, then divide: floor(A * b_i / 10_000).
         let payee_amount = amount
             .checked_mul(i128::from(payee.bps))
@@ -810,7 +852,10 @@ pub(crate) fn distribute_to_payees(
     // p_0 = A - sum(p_i, i>=1): the primary payee's exact share plus all the
     // truncation dust (< N-1 stroops). This line is what makes the payout sum
     // to exactly `amount`.
-    let first_payee = payees.get(0).ok_or(ContractError::PayeeIndexOutOfBounds)?;
+    let first_payee = payees
+        .inner
+        .get(0)
+        .ok_or(ContractError::PayeeIndexOutOfBounds)?;
     payout(env, token_addr, &first_payee.address, remaining);
 
     Ok(())
@@ -896,13 +941,14 @@ pub(crate) fn ensure_auto_release_eligible(
     } else if escrow.state == EscrowState::Shipped {
         return Err(ContractError::DeliveryNotRecorded);
     } else {
-        if now < escrow.dispute_deadline {
+        if now < (escrow.packed_timestamps & 0xFFFF_FFFF) {
             return Err(ContractError::DeliveryBeforeDisputeWindow);
         }
+        let funded_at = escrow.packed_timestamps >> 32;
         let shipped_or_funded_at = if escrow.shipped_at > 0 {
             escrow.shipped_at
         } else {
-            escrow.funded_at
+            funded_at
         };
         let window_elapsed_at = shipped_or_funded_at
             .checked_add(escrow.shipping_window)
@@ -943,6 +989,7 @@ pub(crate) fn settle_escrow_to_payees(
 
     let first_payee_addr = escrow
         .payees
+        .inner
         .get(0)
         .ok_or(ContractError::PayeeIndexOutOfBounds)?
         .address
@@ -1125,7 +1172,7 @@ pub(crate) fn write_recovery_mode(env: &Env, enabled: bool) {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn create_escrow_internal(
     env: &Env,
-    payees: Vec<Payee>,
+    payees: BoundedPayees,
     buyer: Option<Address>,
     resolver: Address,
     token: Address,
@@ -1133,7 +1180,7 @@ pub(crate) fn create_escrow_internal(
     fee_bps: u32,
     resolver_fee_bps: u32,
     shipping_window: u64,
-    notes: Option<String>,
+    notes: String,
     expires_at: Option<u64>,
     grace_period: u64,
 ) -> Result<u64, ContractError> {
@@ -1142,7 +1189,7 @@ pub(crate) fn create_escrow_internal(
     // the seller/first payee at its own top, per the standardized
     // require_auth-at-entry-point convention. Do not call this helper from a
     // new entry point without adding that check there first.
-    if payees.is_empty() {
+    if payees.inner.is_empty() {
         return Err(ContractError::InvalidAddress);
     }
     // Authentication is the entry point's responsibility: `create_escrow`,
@@ -1174,20 +1221,25 @@ pub(crate) fn create_escrow_internal(
         return Err(ContractError::InvalidShippingWindow);
     }
 
+    if grace_period > crate::MAX_GRACE_PERIOD {
+        return Err(ContractError::GracePeriodTooLong);
+    }
+
     validate_escrow_fee_bps(fee_bps)?;
     validate_resolver_fee_bps(resolver_fee_bps)?;
     validate_payees(env, &payees)?;
 
-    // Validate notes length if present
-    if let Some(ref n) = notes {
-        if n.len() > MAX_NOTES_LEN {
-            return Err(ContractError::InputTooLong);
-        }
+    // Validate notes length
+    if notes.len() > MAX_NOTES_LEN {
+        return Err(ContractError::InputTooLong);
     }
 
     // Security: resolver must be distinct from all payees and buyer
-    for i in 0..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::PayeeIndexOutOfBounds)?;
+    for i in 0..payees.inner.len() {
+        let payee = payees
+            .inner
+            .get(i)
+            .ok_or(ContractError::PayeeIndexOutOfBounds)?;
         if resolver == payee.address {
             return Err(ContractError::ConflictingRoles);
         }
@@ -1236,8 +1288,7 @@ pub(crate) fn create_escrow_internal(
         fee_bps,
         resolver_fee_bps,
         shipping_window,
-        funded_at: 0,
-        dispute_deadline: 0,
+        packed_timestamps: 0,
         state: EscrowState::Pending,
         shipped_at: 0,
         delivered_at: None,
@@ -1250,6 +1301,7 @@ pub(crate) fn create_escrow_internal(
     save_escrow(env, escrow_id, &escrow, None);
 
     let first_payee_addr = payees
+        .inner
         .get(0)
         .ok_or(ContractError::PayeeIndexOutOfBounds)?
         .address
@@ -1362,6 +1414,9 @@ pub(crate) fn execute_resolution_transition(
 
     // Store resolution in dispute data and transition to PendingFinalization
     let now = env.ledger().timestamp();
+    if now < dispute_data.disputed_at {
+        return Err(ContractError::TimestampInvariantViolated);
+    }
     let appeal_deadline = now
         .checked_add(APPEAL_WINDOW)
         .ok_or(ContractError::ArithmeticError)?;
