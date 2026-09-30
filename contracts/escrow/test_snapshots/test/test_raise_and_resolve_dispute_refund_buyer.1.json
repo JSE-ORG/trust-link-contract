@@ -1354,6 +1354,31 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "TotalCreated"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "1"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TotalDisputed"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "1"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TotalRefunded"
                             "symbol": "TotalArbitrationFees"
                           },
                           {
@@ -1362,6 +1387,7 @@
                         ]
                       },
                       "val": {
+                        "u64": "1"
                         "i128": "0"
                       }
                     }
