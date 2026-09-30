@@ -60,6 +60,13 @@ fn test_tracking_id_over_limit_reverts() {
 
 // ── description ──────────────────────────────────────────────────────────────
 
+fn make_bytes(env: &Env, len: u32) -> soroban_sdk::Bytes {
+    assert!(len <= 512);
+    let buf = [b'a'; 512];
+    let slice = &buf[..(len as usize)];
+    soroban_sdk::Bytes::from_slice(env, slice)
+}
+
 #[test]
 fn test_description_at_limit_succeeds() {
     let env = Env::default();
@@ -73,12 +80,12 @@ fn test_description_at_limit_succeeds() {
         &env, &client, &seller, &buyer, &resolver, &token, 100, 0, 3600,
     );
     // Exactly MAX_DESCRIPTION_LEN characters — must succeed
-    let desc = make_string(&env, MAX_DESCRIPTION_LEN);
+    let desc = make_bytes(&env, MAX_DESCRIPTION_LEN);
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DESC"));
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &desc,
         &BytesN::from_array(&env, &[0u8; 32]),
     );
@@ -98,11 +105,11 @@ fn test_description_over_limit_reverts() {
     );
     client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DESC"));
     // One character over the limit — must revert
-    let desc = make_string(&env, MAX_DESCRIPTION_LEN + 1);
+    let desc = make_bytes(&env, MAX_DESCRIPTION_LEN + 1);
     let res = client.try_raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
+        &Symbol::new(&env, "OTHER"),
         &desc,
         &BytesN::from_array(&env, &[0u8; 32]),
     );

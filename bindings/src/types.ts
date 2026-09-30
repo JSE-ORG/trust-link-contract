@@ -194,6 +194,7 @@ export interface EscrowInput {
   token: AddressLike;
   amount: bigint;
   fee_bps: number;
+  resolver_fee_bps: number;
   shipping_window: bigint;
   notes: string | null;
 }

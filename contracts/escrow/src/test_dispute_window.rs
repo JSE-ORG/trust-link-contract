@@ -58,7 +58,11 @@ fn setup_funded_and_shipped() -> Fx {
     );
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
     client.fund_escrow(&escrow_id, &buyer);
-    client.mark_shipped(&seller, &escrow_id, &String::from_str(&env, "TRK-001"));
+    client.mark_shipped(
+        &seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&env, "TRK-001"),
+    );
 
     crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, escrow_id);
     let delivered_at = env.ledger().timestamp();
@@ -81,8 +85,8 @@ fn dispute_can_be_opened_while_shipped() {
     // Stay within the dispute window (dispute_deadline = 1_700_000_000 + 172_800)
     fx.env.ledger().set_timestamp(fx.delivered_at + 10);
 
-    let reason = Symbol::new(&fx.env, "non_delivery");
-    let description = String::from_str(&fx.env, "missing");
+    let reason = Symbol::new(&fx.env, "ITEM_NOT_RECEIVED");
+    let description = soroban_sdk::Bytes::from_slice(&fx.env, b"missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
 
     fx.client
@@ -117,8 +121,8 @@ fn auto_release_rejects_when_dispute_exists() {
     let fx = setup_funded_and_shipped();
     // Stay within the dispute window (dispute_deadline = 1_700_000_000 + 172_800)
     fx.env.ledger().set_timestamp(fx.delivered_at + 10);
-    let reason = Symbol::new(&fx.env, "non_delivery");
-    let description = String::from_str(&fx.env, "missing");
+    let reason = Symbol::new(&fx.env, "ITEM_NOT_RECEIVED");
+    let description = soroban_sdk::Bytes::from_slice(&fx.env, b"missing");
     let evidence = BytesN::from_array(&fx.env, &[0xab; 32]);
 
     fx.client

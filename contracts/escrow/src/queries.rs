@@ -21,13 +21,10 @@ impl Escrow {
         } else {
             limit
         };
-        let key = DataKey::Messages(escrow_id);
-        let msgs: Vec<Message> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(&env));
-        let total = msgs.len() as u64;
+        // Only the message count is loaded up front; each message is then read
+        // through its own `Message(escrow_id, index)` key. Cost is therefore
+        // proportional to the requested page, not the whole thread.
+        let total = u64::from(storage::read_message_count(&env, escrow_id));
         let mut result = Vec::new(&env);
         if start >= total {
             return result;
@@ -35,8 +32,10 @@ impl Escrow {
         let end = (start + max_limit).min(total);
         let mut i = start;
         while i < end {
-            if let Some(m) = msgs.get(i as u32) {
-                result.push_back(m.clone());
+            // `total` came from a u32 count, so every index in range fits.
+            let Ok(index) = u32::try_from(i) else { break };
+            if let Some(message) = storage::read_message_at(&env, escrow_id, index) {
+                result.push_back(message);
             }
             i += 1;
         }
@@ -80,12 +79,10 @@ impl Escrow {
     /// up to 1000 most recent escrows (capped to avoid budget exhaustion).
     /// The fallback scan avoids extending TTL for non-matching escrows.
     pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
-        if let Some(ids) = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
-        {
-            return ids;
+        // Preferred path: the paged buyer index, populated on funding.
+        let indexed = storage::read_buyer_escrow_index(&env, &buyer);
+        if !indexed.is_empty() {
+            return indexed;
         }
         let mut result = Vec::new(&env);
         let counter: u64 = env
@@ -122,13 +119,13 @@ impl Escrow {
 
     /// Batch view: return escrows for the supplied IDs in the same order.
     /// Missing IDs return None in the corresponding slot. Input is capped at
-    /// MAX_MESSAGES_PER_PAGE (50 IDs) to prevent resource exhaustion.
+    /// `MAX_MESSAGES_PER_PAGE` (50 IDs) to prevent resource exhaustion.
     pub fn get_escrows_by_ids(
         env: Env,
         ids: soroban_sdk::Vec<u64>,
     ) -> soroban_sdk::Vec<Option<EscrowData>> {
         let mut result: soroban_sdk::Vec<Option<EscrowData>> = soroban_sdk::Vec::new(&env);
-        let max_ids = crate::MAX_MESSAGES_PER_PAGE as u32;
+        let max_ids = u32::try_from(crate::MAX_MESSAGES_PER_PAGE).unwrap_or(u32::MAX);
         let limit = if ids.len() > max_ids {
             max_ids
         } else {
@@ -164,28 +161,29 @@ impl Escrow {
     }
 
     /// Returns on-chain counters for escrow lifecycle events.
+    ///
+    /// The counters are stored sharded across persistent-storage buckets (see
+    /// `increment_sharded_counter`) to avoid a single contended instance key;
+    /// this view re-aggregates them, including any value written by a
+    /// pre-sharding deployment.
     pub fn get_stats(env: Env) -> ContractStats {
         ContractStats {
-            total_created: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalCreated)
-                .unwrap_or(0),
-            total_completed: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalCompleted)
-                .unwrap_or(0),
-            total_disputed: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalDisputed)
-                .unwrap_or(0),
-            total_refunded: env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalRefunded)
-                .unwrap_or(0),
+            total_created: read_counter_total(&env, COUNTER_KIND_CREATED, &DataKey::TotalCreated),
+            total_completed: read_counter_total(
+                &env,
+                COUNTER_KIND_COMPLETED,
+                &DataKey::TotalCompleted,
+            ),
+            total_disputed: read_counter_total(
+                &env,
+                COUNTER_KIND_DISPUTED,
+                &DataKey::TotalDisputed,
+            ),
+            total_refunded: read_counter_total(
+                &env,
+                COUNTER_KIND_REFUNDED,
+                &DataKey::TotalRefunded,
+            ),
         }
     }
 
@@ -198,11 +196,9 @@ impl Escrow {
         storage::extend_instance_ttl(&env);
 
         let fee_config = read_fee_config(&env);
-        let paused: bool = env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false);
+        let paused = crate::storage::read_global_config(&env).state_flags
+            & crate::types::GLOBAL_CONFIG_FLAG_PAUSED
+            != 0;
 
         let current_counter: u64 = env
             .storage()
@@ -228,10 +224,8 @@ impl Escrow {
         admin.require_auth();
 
         let fee_config = read_fee_config(&env);
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
+        let fee_collector: Address = crate::storage::read_global_config(&env)
+            .fee_collector
             .ok_or(ContractError::NotInitialized)?;
         let escrow_count: u64 = env
             .storage()

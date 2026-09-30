@@ -55,6 +55,33 @@ export const enum ErrorCode {
   TooManyMessages = 45,
   InvalidTtlExtension = 46,
   InvalidResolverThreshold = 47,
+  InvalidFallbackDeadline = 48,
+  DisputeTimeoutNotElapsed = 49,
+  DisputeNotDeadlocked = 50,
+  InvalidDisputeTimeout = 51,
+  NoResolverVotes = 52,
+  EscrowCounterOverflow = 53,
+  FeeCalculationOverflow = 54,
+  AmountCalculationOverflow = 55,
+  PayeeIndexOutOfBounds = 56,
+  BasketIndexOutOfBounds = 57,
+  ProtocolFeeExceedsMax = 58,
+  ArbitrationFeeExceedsMax = 59,
+  MulticallBatchTooLarge = 60,
+  NotAuthorizedBuyer = 61,
+  NotAuthorizedSeller = 62,
+  EscrowAlreadyCompleted = 63,
+  EscrowAlreadyRefunded = 64,
+  AppealFeeExceedsMax = 65,
+  AppealFeeBelowMinimum = 66,
+  NotInRecoveryMode = 67,
+  InvalidDisputeReason = 68,
+  InvalidOperation = 69,
+  InvalidTimelockDelay = 70,
+  InvalidProposalHash = 71,
+  DuplicateNotes = 72,
+  GracePeriodTooLong = 73,
+  TimestampInvariantViolated = 74,
 }
 
 /** Human-readable message for every contract error code. */
@@ -137,6 +164,60 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "The requested TTL extension is below the minimum allowed limit.",
   [ErrorCode.InvalidResolverThreshold]:
     "Multi-resolver threshold is invalid.",
+  [ErrorCode.InvalidFallbackDeadline]:
+    "The fallback resolver's dispute deadline is too far in the future.",
+  [ErrorCode.DisputeTimeoutNotElapsed]:
+    "The dispute has not yet remained unresolved for the maximum dispute duration.",
+  [ErrorCode.DisputeNotDeadlocked]:
+    "The dispute is not yet deadlocked or its resolver threshold was already met.",
+  [ErrorCode.InvalidDisputeTimeout]:
+    "The dispute timeout is outside the supported range.",
+  [ErrorCode.NoResolverVotes]:
+    "No resolver has voted on this dispute yet.",
+  [ErrorCode.EscrowCounterOverflow]:
+    "The escrow ID counter overflowed its maximum value.",
+  [ErrorCode.FeeCalculationOverflow]:
+    "Arithmetic overflow while calculating a basis-point fee.",
+  [ErrorCode.AmountCalculationOverflow]:
+    "Arithmetic overflow while calculating a net payout amount.",
+  [ErrorCode.PayeeIndexOutOfBounds]:
+    "A payee list index was out of bounds.",
+  [ErrorCode.BasketIndexOutOfBounds]:
+    "A basket token list index was out of bounds.",
+  [ErrorCode.ProtocolFeeExceedsMax]:
+    "The protocol fee exceeds its configured hard cap.",
+  [ErrorCode.ArbitrationFeeExceedsMax]:
+    "The arbitration fee exceeds its configured hard cap.",
+  [ErrorCode.MulticallBatchTooLarge]:
+    "The multicall batch exceeds the maximum allowed size.",
+  [ErrorCode.NotAuthorizedBuyer]:
+    "Caller is not the escrow's buyer for this buyer-only operation.",
+  [ErrorCode.NotAuthorizedSeller]:
+    "Caller is not the escrow's seller for this seller-only operation.",
+  [ErrorCode.EscrowAlreadyCompleted]:
+    "The escrow has already been completed.",
+  [ErrorCode.EscrowAlreadyRefunded]:
+    "The escrow has already been refunded.",
+  [ErrorCode.AppealFeeExceedsMax]:
+    "The appeal fee exceeds its configured maximum.",
+  [ErrorCode.AppealFeeBelowMinimum]:
+    "The appeal fee is below the allowed minimum.",
+  [ErrorCode.NotInRecoveryMode]:
+    "The contract is not in recovery mode.",
+  [ErrorCode.InvalidDisputeReason]:
+    "The dispute reason is not in the allowed set.",
+  [ErrorCode.InvalidOperation]:
+    "The operation ID does not map to a valid timelock operation.",
+  [ErrorCode.InvalidTimelockDelay]:
+    "The timelock delay is outside allowed bounds.",
+  [ErrorCode.InvalidProposalHash]:
+    "The executed parameters do not match the queued proposal hash.",
+  [ErrorCode.DuplicateNotes]:
+    "A batch_create_escrow call contains duplicate notes values.",
+  [ErrorCode.GracePeriodTooLong]:
+    "The grace period exceeds the maximum allowed grace period.",
+  [ErrorCode.TimestampInvariantViolated]:
+    "Resolution timestamp cannot be earlier than dispute timestamp.",
 };
 
 /**

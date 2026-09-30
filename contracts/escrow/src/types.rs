@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, String, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, String, Symbol, Vec};
 
 /// Single unified storage key enum for all contract storage entries.
 ///
@@ -49,6 +49,61 @@ pub enum DataKey {
     BasketTokens(u64),
     DeliveryProposal(u64),
     TimelockOp(u32),
+    /// Admin-configured maximum duration (seconds) a dispute may remain
+    /// unresolved before either party can force a refund via
+    /// `claim_dispute_timeout`. Absent means `DEFAULT_DISPUTE_TIMEOUT`.
+    DisputeTimeout,
+    /// Sharded lifecycle counter, keyed by `(kind, bucket)`. Replaces the four
+    /// singleton `Total*` keys, which serialized every create / complete /
+    /// dispute / refund transition on a single instance-storage entry. See
+    /// `internal::increment_sharded_counter`.
+    ShardedCounter(u32, u32),
+
+    // Paged storage keys. These shard collections that used to live in a single
+    // unbounded `Vec` entry, so each storage read/write touches a bounded slot
+    // instead of paying for (and eventually exceeding) the whole collection.
+    // Appended at the end so existing variant discriminants are unchanged.
+    /// A single message: `Message(escrow_id, index)`. Replaces the monolithic
+    /// `Messages(escrow_id)` vector for targeted, O(page) reads.
+    Message(u64, u32),
+    /// Number of messages stored for an escrow. Drives the paged `Message`
+    /// reads without loading the collection.
+    MessageCount(u64),
+    /// A bounded page of a buyer's escrow-id index: `(buyer, page_index)`.
+    BuyerEscrow(Address, u32),
+    /// Total number of escrow ids indexed for a buyer.
+    BuyerEscrowCount(Address),
+    /// A bounded page of a vendor's escrow-id index: `(vendor, page_index)`.
+    VendorEscrow(Address, u32),
+    /// Total number of escrow ids indexed for a vendor.
+    VendorEscrowCount(Address),
+    /// Pending fee collector address awaiting acceptance via `accept_fee_collector`.
+    PendingFeeCollector,
+    /// Pending treasury address awaiting acceptance via `accept_treasury`.
+    PendingTreasury,
+    /// Admin-configured maximum number of appeals per dispute.
+    MaxAppeals,
+    /// Admin-configured maximum number of tokens in a basket escrow.
+    MaxBasketSize,
+    // Appended after paging keys so all pre-existing discriminants are unchanged.
+    /// Appeal fee in basis points charged to the appellant on `appeal_dispute`
+    /// (issue #913). Absent means `DEFAULT_APPEAL_FEE_BPS` (0 = disabled).
+    AppealFeeBps,
+    /// Graceful-shutdown flag (issue #914). When true, `recovery_withdraw`
+    /// lets buyers reclaim custodied funds without going through the standard
+    /// state machine. Absent means false.
+    RecoveryMode,
+    /// Configurable 24-hour timelock delay for privileged admin operations.
+    AdminTimelockDelay,
+    /// Every admin-tunable fee, limit and toggle, packed into one
+    /// [`GlobalConfig`] entry so hot paths pay for a single instance-storage
+    /// read instead of one per setting. Supersedes the individual
+    /// `FeeCollector`, `Treasury`, `FeeConfig`, `PlatformFeeBps`,
+    /// `AppealFeeBps`, `MinAmount`, `MaxAmount`, `DisputeTimeout`,
+    /// `TtlExtensionLedgers`, `Paused`, `TokenAllowlistEnabled`,
+    /// `ResolverStrict` and `RecoveryMode` keys, which are kept only so
+    /// pre-v2 deployments can still be read and migrated.
+    GlobalConfig,
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -81,6 +136,31 @@ pub enum DisputeStatus {
     Resolved,
 }
 
+/// An M-of-N resolver committee that votes on dispute resolutions
+/// (`create_escrow_multi`).
+///
+/// # Deadlock risk (Issue #707 / related: #667)
+///
+/// **Known issue**: voting can permanently deadlock when split votes prevent
+/// either side from reaching `threshold`. Example: `threshold=3` with 3
+/// resolvers, getting 1 `Release` + 1 `Refund` + 1 abstention — neither side
+/// reaches 3. Worse, if `threshold == N` (unanimous) and every resolver has
+/// voted but votes are split (e.g. 2 `Release` + 1 `Refund` with
+/// `threshold=3`), no additional votes are possible and funds remain frozen
+/// in `Disputed` indefinitely.
+///
+/// **Escape hatches**: the deadlock above is bounded by two implemented
+/// fallbacks:
+///
+/// 1. [`crate::Escrow::resolve_deadlocked_dispute`] — once a dispute has been
+///    split (threshold not met) for `DISPUTE_DEADLOCK_WINDOW`, anyone may
+///    trigger the simple-majority fallback (`tally_votes_majority`).
+/// 2. [`crate::Escrow::claim_dispute_timeout`] — if the dispute stays
+///    unresolved for the admin-configured `DisputeTimeout`, either party can
+///    force a `Refund`.
+///
+/// Operators should still configure `threshold` carefully (e.g. avoid
+/// `threshold == N` for `N > 1`) so that a majority is reachable in practice.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultiResolver {
@@ -106,6 +186,25 @@ pub struct MultiResolver {
 /// The primary is never time-gated — the deadline only *adds* the backup as
 /// an authorized resolver, it never removes the primary.
 ///
+/// # How `dispute_deadline` affects authorization
+///
+/// - **Checked at call time, not dispute time.** The comparison runs every
+///   time `resolve_dispute` / `vote` is invoked, against the ledger timestamp
+///   of *that* call. When the dispute was raised is irrelevant: if the
+///   deadline has already passed when a dispute is raised, the backup may
+///   resolve it immediately.
+/// - **Absolute, not relative.** The deadline is fixed at creation and is not
+///   extended by funding, shipping, raising a dispute, or an appeal. After the
+///   deadline both resolvers stay authorized for the rest of the escrow's
+///   life, including re-resolution after `appeal_dispute`.
+/// - **Single-signer threshold.** [`ResolverSet::threshold`] is `1` for a
+///   fallback set, so whichever authorized resolver acts first moves the
+///   escrow to `PendingFinalization`. There is no co-signing between primary
+///   and backup; once past the deadline they effectively race.
+/// - **Identity checks ignore the deadline.** Creation-time conflict checks
+///   (resolver ≠ seller/buyer) use [`ResolverSet::contains`], which treats
+///   both addresses as members regardless of time.
+///
 /// # Example
 ///
 /// ```ignore
@@ -121,24 +220,30 @@ pub struct MultiResolver {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FallbackResolver {
     /// Resolver expected to handle disputes. Always authorized to resolve,
-    /// regardless of the current ledger time.
+    /// regardless of the current ledger time — before *and* after
+    /// `dispute_deadline`.
     pub primary: Address,
     /// Stand-in resolver. Only authorized once the ledger timestamp has
-    /// reached `dispute_deadline`.
+    /// reached `dispute_deadline`; any earlier `resolve_dispute` / `vote`
+    /// call from this address fails with `NotAuthorized`. Must differ from
+    /// the seller and buyer (checked at creation).
     pub backup: Address,
     /// Absolute ledger timestamp (Unix seconds) at which `backup` becomes an
     /// authorized resolver. The comparison is `now >= dispute_deadline`, so
     /// the backup is authorized *exactly* at this instant.
     ///
-    /// This is **not** the same value as `EscrowData::dispute_deadline`,
+    /// This is **not** the same value as `Escrow::dispute_deadline`,
     /// which the contract computes at funding time (`funded_at +
     /// DISPUTE_WINDOW`) to bound the *buyer's* window to raise a dispute.
     /// This field is chosen by the caller of `create_escrow_with_fallback`
     /// and only controls *which resolver* may act.
     ///
-    /// Not range-checked on creation: a value in the past (including `0`)
-    /// simply means the backup is co-authorized with the primary from the
-    /// start.
+    /// Must be no later than `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past
+    /// the creation timestamp, or creation fails with
+    /// `InvalidFallbackDeadline`; otherwise an unresponsive primary could
+    /// lock disputed funds indefinitely. A value in the past (including `0`)
+    /// is allowed and simply means the backup is co-authorized with the
+    /// primary from the start.
     pub dispute_deadline: u64,
 }
 
@@ -154,7 +259,9 @@ pub struct FallbackResolver {
 pub enum ResolverSet {
     /// Single resolver (backward compatible mode)
     Single(Address),
-    /// Multiple resolvers with M-of-N voting threshold
+    /// Multiple resolvers with M-of-N voting threshold. Split votes can
+    /// permanently deadlock a dispute — see [`MultiResolver`] for the
+    /// scenario and the implemented escape hatches.
     Multi(MultiResolver),
     /// Primary resolver with a backup that becomes authorized once the
     /// fallback's `dispute_deadline` (an absolute ledger timestamp) is
@@ -191,9 +298,8 @@ impl ResolverSet {
     /// of the primary or backup is currently authorized decides alone).
     pub fn threshold(&self) -> u32 {
         match self {
-            ResolverSet::Single(_) => 1,
+            ResolverSet::Single(_) | ResolverSet::Fallback(_) => 1,
             ResolverSet::Multi(m) => m.threshold,
-            ResolverSet::Fallback(_) => 1,
         }
     }
 
@@ -239,23 +345,30 @@ pub struct ResolverVote {
 pub struct DisputeData {
     pub escrow_id: u64,
     pub reason: Symbol,
-    pub description: String,
+    /// Raw bytes — UTF-8 validation is deferred to off-chain consumers.
+    /// Avoids the per-load UTF-8 check that `String` incurs in the Soroban host.
+    pub description: Bytes,
     pub evidence_hash: BytesN<32>,
     pub status: DisputeStatus,
     pub disputed_at: u64,
     pub tracking_id: Option<String>,
     /// Resolution code: 0 = not resolved, 1 = Release, 2 = Refund
-    pub resolution: u32,
+    pub resolution: u8,
     /// Which address made the resolution (the resolver who triggered finalization)
     pub resolved_by: Option<Address>,
     /// Number of times this dispute has been appealed
-    pub appeal_count: u32,
+    pub appeal_count: u8,
     /// Timestamp when the resolution was made
     pub resolved_at: u64,
     /// Arbitration fee deducted when the resolution transition executed
     pub arbitration_fee: i128,
     /// Resolver fee paid out when the resolution transition executed
     pub resolver_fee: i128,
+    /// Whether the arbitration and resolver fees have been charged for this
+    /// dispute. Set on the first resolution transition and never cleared, so
+    /// appeal rounds cannot charge again — even when the recorded fees were
+    /// zero and the global fee config has since been raised.
+    pub fees_charged: bool,
 }
 
 impl DisputeData {
@@ -277,19 +390,11 @@ impl DisputeData {
     /// Clears the recorded resolution so a fresh round of voting can begin
     /// after an appeal.
     ///
-    /// `arbitration_fee` and `resolver_fee` are intentionally left in place:
-    /// they record the amounts already deducted from the escrow for this
-    /// dispute. The resolution transition reads them to charge those fees
-    /// **once per dispute** rather than again for every appeal round (see
-    /// `execute_resolution_transition`).
-    /// Clears the recorded resolution so a fresh round of voting can begin
-    /// after an appeal.
-    ///
-    /// `arbitration_fee` and `resolver_fee` are intentionally left in place:
-    /// they record the amounts already deducted from the escrow for this
-    /// dispute. The resolution transition reads them to charge those fees
-    /// **once per dispute** rather than again for every appeal round (see
-    /// `execute_resolution_transition`).
+    /// `fees_charged`, `arbitration_fee` and `resolver_fee` are intentionally
+    /// left in place: they record that (and how much) was already deducted
+    /// from the escrow for this dispute. The resolution transition reads them
+    /// to charge those fees **once per dispute** rather than again for every
+    /// appeal round (see `execute_resolution_transition`).
     pub fn clear_resolution(&mut self) {
         self.resolution = 0;
         self.resolved_by = None;
@@ -312,11 +417,42 @@ pub struct FeeConfig {
     pub arbitration_fee_bps: u32,
 }
 
+pub const GLOBAL_CONFIG_FLAG_PAUSED: u32 = 1 << 0;
+pub const GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED: u32 = 1 << 1;
+pub const GLOBAL_CONFIG_FLAG_RESOLVER_STRICT: u32 = 1 << 2;
+pub const GLOBAL_CONFIG_FLAG_RECOVERY_MODE: u32 = 1 << 3;
+
+/// Admin-tunable global configuration, stored under [`DataKey::GlobalConfig`].
+///
+/// Fields that were previously optional in storage carry their documented
+/// defaults (see `storage::default_global_config`), so readers never need
+/// per-field fallbacks.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GlobalConfig {
+    /// Receives protocol and arbitration fees. `None` only before `initialize`.
+    pub fee_collector: Option<Address>,
+    /// Receives platform fees. `None` until the admin sets one.
+    pub treasury: Option<Address>,
+    pub protocol_fee_bps: u32,
+    pub arbitration_fee_bps: u32,
+    pub platform_fee_bps: u32,
+    pub appeal_fee_bps: u32,
+    pub min_amount: i128,
+    pub max_amount: i128,
+    /// Maximum seconds a dispute may stay unresolved before a forced refund.
+    pub dispute_timeout: u64,
+    pub ttl_extension_ledgers: u32,
+    /// Bit-packed state flags for the boolean admin toggles that previously
+    /// lived as separate storage fields. The layout is a single `u32` mask.
+    pub state_flags: u32,
+}
+
 /// Public-safe contract configuration (no sensitive addresses).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicContractConfig {
-    pub fee_bps: u32,
+    pub fee_bps: u16,
     pub arbitration_fee_bps: u32,
     pub paused: bool,
     pub escrow_count: u64,
@@ -327,7 +463,7 @@ pub struct PublicContractConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractConfig {
     pub admin: Address,
-    pub fee_bps: u32,
+    pub fee_bps: u16,
     pub arbitration_fee_bps: u32,
     pub fee_collector: Address,
     pub escrow_count: u64,
@@ -335,24 +471,45 @@ pub struct ContractConfig {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EscrowData {
-    pub payees: Vec<Payee>,
+pub struct Escrow {
+    pub payees: BoundedPayees,
     pub buyer: Option<Address>,
     pub resolvers: ResolverSet,
     pub token: Address,
     pub amount: i128,
-    pub fee_bps: u32,
+    pub fee_bps: u16,
     pub resolver_fee_bps: u32,
     pub shipping_window: u64,
-    pub funded_at: u64,
-    pub dispute_deadline: u64,
+    /// Packed timestamp field: high 32 bits = `funded_at`, low 32 bits = `dispute_deadline`.
+    ///
+    /// Both timestamps fit in 32 bits until year 2106 (Unix epoch < 2^32).
+    /// Unpack helpers:
+    ///   `funded_at`        = `packed_timestamps` >> 32
+    ///   `dispute_deadline` = `packed_timestamps` & `0xFFFF_FFFF`
+    pub packed_timestamps: u64,
     pub shipped_at: u64,
     pub delivered_at: Option<u64>,
     pub tracking_id: Option<String>,
     pub state: EscrowState,
-    pub notes: Option<String>,
+    /// Free-form notes. Empty string is the "no notes" sentinel, eliminating
+    /// the XDR option-wrapper overhead of `Option<String>`.
+    pub notes: String,
     pub expires_at: Option<u64>,
     pub grace_period: u64,
+}
+
+impl Escrow {
+    pub fn funded_at(&self) -> u64 {
+        self.packed_timestamps >> 32
+    }
+
+    pub fn dispute_deadline(&self) -> u64 {
+        self.packed_timestamps & 0xFFFF_FFFF
+    }
+
+    pub fn pack_timestamps(funded_at: u64, dispute_deadline: u64) -> u64 {
+        (funded_at << 32) | (dispute_deadline & 0xFFFF_FFFF)
+    }
 }
 
 #[contracttype]
@@ -362,9 +519,14 @@ pub struct EscrowInput {
     pub resolver: Address,
     pub token: Address,
     pub amount: i128,
-    pub fee_bps: u32,
+    pub fee_bps: u16,
+    /// Per-escrow resolver fee in basis points (issue #911). Validated with
+    /// the same cap as `create_escrow`'s `resolver_fee_bps`; `0` means the
+    /// resolver serves uncompensated.
+    pub resolver_fee_bps: u32,
     pub shipping_window: u64,
-    pub notes: Option<String>,
+    /// Empty string is the "no notes" sentinel (see `Escrow.notes`).
+    pub notes: String,
 }
 
 #[contracttype]
@@ -393,6 +555,39 @@ pub struct Payee {
     pub bps: u32,
 }
 
+/// Maximum number of payees per escrow. Enforced by [`BoundedPayees`] so
+/// storage cost is bounded at creation time and the length-prefix overhead of
+/// an unbounded `Vec` is eliminated.
+pub const MAX_PAYEES: u32 = 10;
+
+/// A capacity-bounded wrapper around `Vec<Payee>`.
+///
+/// Stored as a `#[contracttype]` struct so the XDR shape is a single-field
+/// struct with explicit capacity enforcement rather than a bare, unbounded Vec.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundedPayees {
+    pub inner: Vec<Payee>,
+}
+
+impl BoundedPayees {
+    pub fn new(inner: Vec<Payee>) -> Self {
+        Self { inner }
+    }
+
+    pub fn get(&self, i: u32) -> Option<Payee> {
+        self.inner.get(i)
+    }
+
+    pub fn len(&self) -> u32 {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+}
+
 /// Lifecycle states of an escrow transaction.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -407,6 +602,42 @@ pub enum EscrowState {
     Canceled,
     PendingFinalization,
     Expired,
+}
+
+impl EscrowState {
+    /// Compact discriminant for packing state-history entries into a single
+    /// `u64` (state code in the high byte, timestamp in the low 56 bits)
+    /// instead of storing a full `(EscrowState, u64)` tuple per entry — see
+    /// `internal::pack_history_entry`.
+    pub(crate) fn to_history_code(&self) -> u8 {
+        match self {
+            EscrowState::Pending => 0,
+            EscrowState::Funded => 1,
+            EscrowState::Shipped => 2,
+            EscrowState::Completed => 3,
+            EscrowState::Disputed => 4,
+            EscrowState::RefundRequested => 5,
+            EscrowState::Refunded => 6,
+            EscrowState::Canceled => 7,
+            EscrowState::PendingFinalization => 8,
+            EscrowState::Expired => 9,
+        }
+    }
+
+    pub(crate) fn from_history_code(code: u8) -> Self {
+        match code {
+            0 => EscrowState::Pending,
+            1 => EscrowState::Funded,
+            2 => EscrowState::Shipped,
+            3 => EscrowState::Completed,
+            4 => EscrowState::Disputed,
+            5 => EscrowState::RefundRequested,
+            6 => EscrowState::Refunded,
+            7 => EscrowState::Canceled,
+            8 => EscrowState::PendingFinalization,
+            _ => EscrowState::Expired,
+        }
+    }
 }
 
 /// Identifies a specific privileged admin operation subject to the two-step
@@ -433,6 +664,35 @@ pub enum TimelockOperation {
     RemoveAllowedToken = 15,
     PauseContract = 16,
     UnpauseContract = 17,
+    SetMaxAppeals = 18,
+    SetMaxBasketSize = 19,
+}
+
+impl TimelockOperation {
+    pub fn from_u32(val: u32) -> Option<Self> {
+        match val {
+            1 => Some(Self::SetAdmin),
+            2 => Some(Self::Upgrade),
+            3 => Some(Self::SetProtocolFee),
+            4 => Some(Self::SetArbitrationFee),
+            5 => Some(Self::SetPlatformFee),
+            6 => Some(Self::SetTreasury),
+            7 => Some(Self::SetFeeCollector),
+            8 => Some(Self::SetTtlExtension),
+            9 => Some(Self::SetAmountLimits),
+            10 => Some(Self::AddApprovedResolver),
+            11 => Some(Self::RemoveApprovedResolver),
+            12 => Some(Self::SetResolverStrict),
+            13 => Some(Self::SetTokenAllowlistEnabled),
+            14 => Some(Self::AddAllowedToken),
+            15 => Some(Self::RemoveAllowedToken),
+            16 => Some(Self::PauseContract),
+            17 => Some(Self::UnpauseContract),
+            18 => Some(Self::SetAppealFee),
+            19 => Some(Self::SetTimelockDelay),
+            _ => None,
+        }
+    }
 }
 
 /// A queued admin change awaiting the 24-hour timelock delay before it can be
@@ -444,7 +704,7 @@ pub enum TimelockOperation {
 pub struct TimelockProposal {
     pub operation: TimelockOperation,
     pub proposer: Address,
-    pub params: Vec<soroban_sdk::Val>,
+    pub params_hash: BytesN<32>,
     pub queued_at: u64,
     pub ready_at: u64,
 }

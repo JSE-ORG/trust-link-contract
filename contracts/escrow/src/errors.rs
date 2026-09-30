@@ -60,7 +60,7 @@ pub enum ContractError {
     DisputeWindowStillOpen = 24,
     /// Returned when a resolver is not in the approved registry and strict mode is enabled.
     UnauthorizedResolver = 25,
-    /// Returned when emergency_drain is called but the contract is not paused.
+    /// Returned when `emergency_drain` is called but the contract is not paused.
     ContractNotPaused = 26,
     /// Returned when a token is not in the allowlist and the allowlist is enabled.
     TokenNotAllowed = 27,
@@ -68,13 +68,13 @@ pub enum ContractError {
     EscrowExpired = 28,
     /// Returned when an escrow amount is below the configured minimum.
     AmountBelowMinimum = 29,
-    /// Returned when an action requires the escrow to be in PendingFinalization state.
+    /// Returned when an action requires the escrow to be in `PendingFinalization` state.
     NotPendingFinalization = 30,
     /// Returned when finalization is attempted while the appeal window is still active.
     AppealWindowActive = 31,
     /// Returned when the platform fee exceeds its allowed maximum.
     PlatformFeeExceedsMax = 32,
-    /// Returned when shipping_window is zero or exceeds the maximum allowed value.
+    /// Returned when `shipping_window` is zero or exceeds the maximum allowed value.
     InvalidShippingWindow = 33,
     /// Returned when `record_delivery` is called on an escrow that already has delivery recorded.
     DeliveryAlreadyRecorded = 34,
@@ -98,7 +98,7 @@ pub enum ContractError {
     BasketTokenMismatch = 42,
     /// Returned when a `multicall` call argument is missing or fails to decode into the expected type.
     InvalidMulticallArg = 43,
-    /// Returned when a `Payee` list's basis points do not sum to exactly `BASIS_POINTS` (10_000).
+    /// Returned when a `Payee` list's basis points do not sum to exactly `BASIS_POINTS` (`10_000`).
     PayeeBpsMismatch = 44,
     /// Returned when the maximum number of messages for an escrow has been reached.
     TooManyMessages = 45,
@@ -106,4 +106,85 @@ pub enum ContractError {
     InvalidTtlExtension = 46,
     /// Returned when multi-resolver threshold is invalid (zero, exceeds resolver count, or resolver list is empty).
     InvalidResolverThreshold = 47,
+    /// Returned when a fallback resolver's `dispute_deadline` is later than
+    /// `MAX_FALLBACK_DEADLINE_OFFSET` past the current ledger timestamp.
+    InvalidFallbackDeadline = 48,
+    /// Returned when `claim_dispute_timeout` is called before the dispute has
+    /// remained unresolved for the configured maximum dispute duration.
+    DisputeTimeoutNotElapsed = 49,
+    /// Returned when `resolve_deadlocked_dispute` is called before the
+    /// multi-resolver deadlock window has elapsed, or when the votes do not
+    /// actually represent a deadlock (threshold met or no votes cast).
+    DisputeNotDeadlocked = 50,
+    /// Returned when `set_dispute_timeout` is given a value outside the
+    /// supported `MIN_DISPUTE_TIMEOUT..=MAX_DISPUTE_TIMEOUT` range.
+    InvalidDisputeTimeout = 51,
+    /// Returned when `resolve_deadlocked_dispute` is attempted while no
+    /// resolver has cast a vote; the resolver-inaction case is handled by
+    /// `claim_dispute_timeout` instead.
+    NoResolverVotes = 52,
+    /// Returned when a `multicall` batch exceeds `MAX_MULTICALL_BATCH_SIZE`.
+    MulticallBatchTooLarge = 60,
+    /// Returned when the escrow ID counter overflows its maximum `u64` value.
+    EscrowCounterOverflow = 53,
+    /// Returned when checked arithmetic overflows specifically during fee calculation (e.g. basis-point math on fees).
+    FeeCalculationOverflow = 54,
+    /// Returned when checked arithmetic overflows specifically during principal amount calculation (e.g. net payout math).
+    AmountCalculationOverflow = 55,
+    /// Returned when a payee list index is out of bounds, indicating a payee storage or argument invariant was violated.
+    PayeeIndexOutOfBounds = 56,
+    /// Returned when a basket token list index is out of bounds, indicating a basket-token storage or argument invariant was violated.
+    BasketIndexOutOfBounds = 57,
+    /// Returned when the global protocol fee exceeds its configured hard cap.
+    ProtocolFeeExceedsMax = 58,
+    /// Returned when the arbitration fee exceeds its configured hard cap.
+    ArbitrationFeeExceedsMax = 59,
+    /// Returned when a buyer-only operation is attempted by a caller that is
+    /// not the escrow's buyer. Kept distinct from the generic
+    /// [`ContractError::NotAuthorized`] so clients can tell a wrong-role call
+    /// apart from a wrong-escrow/unknown-caller call.
+    NotAuthorizedBuyer = 61,
+    /// Returned when a seller-only operation (e.g. `mark_shipped`) is attempted
+    /// by a caller that is not the escrow's primary payee.
+    NotAuthorizedSeller = 62,
+    /// Returned when an action is attempted on an escrow that has already
+    /// reached the terminal `Completed` state.
+    EscrowAlreadyCompleted = 63,
+    /// Returned when an action is attempted on an escrow that has already
+    /// reached the terminal `Refunded` state.
+    EscrowAlreadyRefunded = 64,
+    /// Returned when `set_appeal_fee` (or its timelocked execute step) is given
+    /// a fee above `MAX_APPEAL_FEE_BPS`.
+    AppealFeeExceedsMax = 65,
+    /// Returned when `set_appeal_fee` (or its timelocked execute step) is given
+    /// a non-zero fee below `MIN_APPEAL_FEE_BPS`. Zero disables the appeal fee.
+    AppealFeeBelowMinimum = 66,
+    /// Returned when `recovery_withdraw` is called while recovery mode is not
+    /// enabled via `enable_recovery_mode`.
+    NotInRecoveryMode = 67,
+    /// Returned when `raise_dispute` is given a `reason` symbol outside the
+    /// predefined `DISPUTE_REASONS` set.
+    InvalidDisputeReason = 68,
+    /// Returned when an arbitrary u32 operation ID does not map to a valid `TimelockOperation`.
+    InvalidOperation = 69,
+    /// Returned when setting a timelock delay outside the allowed bounds.
+    InvalidTimelockDelay = 70,
+    /// Returned when the executed parameters do not match the queued proposal hash.
+    InvalidProposalHash = 71,
+    /// Returned when a `batch_create_escrow` call contains duplicate notes values.
+    DuplicateNotes = 72,
+    /// Returned when `create_escrow_with_expiration` is called with a `grace_period` that exceeds `MAX_GRACE_PERIOD`.
+    GracePeriodTooLong = 73,
+    /// Returned when `resolved_at` is earlier than `disputed_at`, violating the timestamp ordering invariant.
+    TimestampInvariantViolated = 74,
+    /// Returned when `accept_fee_collector` is called but no pending fee collector is set.
+    NoPendingFeeCollector = 65,
+    /// Returned when `set_max_appeals` is given a value outside the supported range.
+    InvalidMaxAppeals = 66,
+    /// Returned when `set_max_basket_size` is given a value outside the supported range.
+    InvalidMaxBasketSize = 67,
+    /// Returned when `execute_upgrade` is called with an all-zero or otherwise trivially invalid WASM hash.
+    InvalidWasmHash = 68,
+    /// Returned when `accept_treasury` is called but no pending treasury is set.
+    NoPendingTreasury = 69,
 }

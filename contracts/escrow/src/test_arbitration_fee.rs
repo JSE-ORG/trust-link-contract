@@ -59,7 +59,11 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
 
     mint(&env, &token, &buyer, amount);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-ARB-1"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-ARB-1"),
+    );
 
     // Advance time to allow dispute
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
@@ -67,8 +71,8 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "desc"),
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -80,18 +84,17 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id);
 
-    // Calculation:
+    // Calculation (all fees charged on the original funded principal, 1000):
     // 1. amount = 1000
     // 2. arbitration_fee = 50 (5% of 1000)
-    // 3. remaining = 1000 - 50 = 950
-    // 4. protocol_fee (2% of 950) = 950 * 200 / 10000 = 19
-    // 5. final_net = 950 - 19 = 931
+    // 3. protocol_fee = 20 (2% of 1000, *not* of the 950 remainder)
+    // 4. seller payout = 1000 - 50 - 20 = 930
 
-    assert_eq!(balance(&env, &token, &seller), 931);
+    assert_eq!(balance(&env, &token, &seller), 930);
 
-    // arbitration fee (50) and protocol fee (19) go to fee_collector
+    // arbitration fee (50) and protocol fee (20) go to fee_collector
     assert_eq!(balance(&env, &token, &contract_id), 0);
-    assert_eq!(balance(&env, &token, &fee_collector), 69);
+    assert_eq!(balance(&env, &token, &fee_collector), 70);
 
     // Dedicated tracking variable should be updated
     assert_eq!(client.get_total_arbitration_fees(&token), 50);
@@ -129,14 +132,18 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
 
     mint(&env, &token, &buyer, amount);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-ARB-2"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-ARB-2"),
+    );
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "desc"),
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -144,16 +151,15 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id);
 
-    // Calculation:
+    // Calculation (all fees charged on the original funded principal, 1000):
     // 1. amount = 1000
     // 2. arbitration_fee = 50 (5% of 1000)
-    // 3. remaining = 1000 - 50 = 950
-    // 4. protocol_fee (3% of 950) = 950 * 300 / 10000 = 28 (floor)
-    // 5. final_net = 950 - 28 = 922
+    // 3. protocol_fee = 30 (3% of 1000, *not* of the 950 remainder)
+    // 4. buyer refund = 1000 - 50 - 30 = 920
 
-    assert_eq!(balance(&env, &token, &buyer), 922);
+    assert_eq!(balance(&env, &token, &buyer), 920);
     assert_eq!(balance(&env, &token, &contract_id), 0);
-    assert_eq!(balance(&env, &token, &fee_collector), 78);
+    assert_eq!(balance(&env, &token, &fee_collector), 80);
     assert_eq!(client.get_total_arbitration_fees(&token), 50);
 }
 
@@ -195,15 +201,15 @@ fn test_arbitration_fee_charged_once_across_appeal() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-ARB-APPEAL"),
+        &soroban_sdk::String::from_str(&env, "TRACK-ARB-APPEAL"),
     );
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "desc"),
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -231,6 +237,82 @@ fn test_arbitration_fee_charged_once_across_appeal() {
     assert_eq!(balance(&env, &token, &fee_collector), 50);
     assert_eq!(balance(&env, &token, &contract_id), 0);
     assert_eq!(client.get_total_arbitration_fees(&token), 50);
+}
+
+/// A dispute first resolved while every fee is configured to 0 has still had
+/// its fees "charged" (as zero). Raising the global arbitration fee before an
+/// appeal must not let the appeal round charge the new, higher fee.
+#[test]
+fn test_zero_fee_dispute_not_charged_on_appeal_after_fee_increase() {
+    let env = Env::default();
+    let (admin, seller, buyer, resolver, fee_collector, token) = setup(&env);
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let amount = 1000_i128;
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let id = client.create_escrow_8(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &0_u32,
+        &3600_u64,
+    );
+
+    mint(&env, &token, &buyer, amount);
+    client.fund_escrow(&id, &buyer);
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-ZERO-FEE"),
+    );
+
+    env.ledger().set_timestamp(env.ledger().timestamp() + 10);
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
+        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+    );
+    assert!(!client.get_dispute(&id).unwrap().fees_charged);
+
+    // First resolution with zero fees still marks the dispute as charged.
+    client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
+    let dispute = client.get_dispute(&id).unwrap();
+    assert!(dispute.fees_charged);
+    assert_eq!(dispute.arbitration_fee, 0);
+    assert_eq!(dispute.resolver_fee, 0);
+
+    // Admin raises the arbitration fee to 5% before the appeal round.
+    client.set_arbitration_fee(&admin, &500_u32);
+
+    client.appeal_dispute(&buyer, &id);
+    client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
+
+    // The appeal round did not pick up the new fee.
+    let dispute = client.get_dispute(&id).unwrap();
+    assert!(dispute.fees_charged);
+    assert_eq!(dispute.arbitration_fee, 0);
+    assert_eq!(client.get_total_arbitration_fees(&token), 0);
+    assert_eq!(balance(&env, &token, &fee_collector), 0);
+
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &id);
+
+    assert_eq!(balance(&env, &token, &seller), amount);
+    assert_eq!(balance(&env, &token, &fee_collector), 0);
+    assert_eq!(balance(&env, &token, &contract_id), 0);
 }
 
 #[test]
@@ -289,14 +371,18 @@ fn test_resolution_transition_min_amount_max_fees_does_not_underflow() {
 
     mint(&env, &token, &buyer, amount);
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-MIN"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-MIN"),
+    );
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "desc"),
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -360,14 +446,14 @@ fn test_execute_resolution_transition_rejects_fees_exceeding_amount() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-FEE-CAP"),
+        &soroban_sdk::String::from_str(&env, "TRACK-FEE-CAP"),
     );
     env.ledger().set_timestamp(env.ledger().timestamp() + 10);
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "desc"),
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -389,6 +475,7 @@ fn test_execute_resolution_transition_rejects_fees_exceeding_amount() {
             resolver.clone(),
             ResolutionType::Release,
             votes,
+            true,
         );
 
         let escrow_after = crate::internal::load_escrow(&env, id).unwrap();
@@ -403,6 +490,7 @@ fn test_execute_resolution_transition_rejects_fees_exceeding_amount() {
     assert_eq!(escrow_after.state, crate::EscrowState::Disputed);
     assert_eq!(dispute_after.arbitration_fee, 0);
     assert_eq!(dispute_after.resolver_fee, 0);
+    assert!(!dispute_after.fees_charged);
 
     assert_eq!(balance(&env, &token, &contract_id), amount);
     assert_eq!(balance(&env, &token, &resolver), 0);

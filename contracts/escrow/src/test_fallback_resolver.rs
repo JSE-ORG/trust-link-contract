@@ -76,11 +76,11 @@ fn create_funded_shipped_disputed(setup: &Setup) -> u64 {
     client.mark_shipped(
         &setup.seller,
         &escrow_id,
-        &String::from_str(&setup.env, "TRK"),
+        &soroban_sdk::String::from_str(&setup.env, "TRK"),
     );
 
-    let reason = Symbol::new(&setup.env, "reason");
-    let description = String::from_str(&setup.env, "desc");
+    let reason = Symbol::new(&setup.env, "OTHER");
+    let description = soroban_sdk::Bytes::from_slice(&setup.env, b"desc");
     let evidence_hash = BytesN::from_array(&setup.env, &[0xab; 32]);
     client.raise_dispute(
         &setup.buyer,
@@ -250,10 +250,14 @@ fn single_resolver_set_is_unaffected_by_fallback_deadline_logic() {
 
     client.fund_escrow(&escrow_id, &buyer);
     env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
-    client.mark_shipped(&seller, &escrow_id, &String::from_str(&env, "TRK-SINGLE"));
+    client.mark_shipped(
+        &seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&env, "TRK-SINGLE"),
+    );
 
-    let reason = Symbol::new(&env, "defective");
-    let description = String::from_str(&env, "Item is defective");
+    let reason = Symbol::new(&env, "DEFECTIVE");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item is defective");
     let evidence = BytesN::from_array(&env, &[0xef; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
 
@@ -327,6 +331,19 @@ fn backup_resolver_vote_allowed_after_deadline() {
 
     let escrow = client.get_escrow(&escrow_id);
     assert_eq!(escrow.state, EscrowState::PendingFinalization);
+}
+
+#[test]
+fn backup_resolver_vote_rejected_before_deadline() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    // Timeline is BEFORE the deadline (which is now + 100).
+    // The backup should NOT be allowed to vote yet.
+    let result = client.try_vote(&setup.backup, &escrow_id, &ResolutionType::Release);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
 }
 
 #[test]
@@ -460,6 +477,44 @@ fn test_fallback_creation_amount_and_fee_boundaries() {
         ),
         Err(Ok(ContractError::FeeExceedsMax))
     );
+}
+
+#[test]
+fn test_fallback_creation_dispute_deadline_bounds() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let now = 1_000_000_u64;
+    setup.env.ledger().set_timestamp(now);
+    let max_deadline = now + crate::MAX_FALLBACK_DEADLINE_OFFSET;
+
+    let create = |deadline: u64| {
+        client.try_create_escrow_with_fallback(
+            &setup.seller,
+            &Some(setup.buyer.clone()),
+            &setup.primary,
+            &setup.backup,
+            &deadline,
+            &setup.token,
+            &1000_i128,
+            &0_u32,
+            &3600_u64,
+        )
+    };
+
+    // A deadline the backup could never reach is rejected.
+    assert_eq!(
+        create(u64::MAX),
+        Err(Ok(ContractError::InvalidFallbackDeadline))
+    );
+    assert_eq!(
+        create(max_deadline + 1),
+        Err(Ok(ContractError::InvalidFallbackDeadline))
+    );
+
+    // The bound itself, and a past deadline (backup co-authorized from the
+    // start), are both accepted.
+    assert!(create(max_deadline).is_ok());
+    assert!(create(0).is_ok());
 }
 
 #[test]

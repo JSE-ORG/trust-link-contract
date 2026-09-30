@@ -44,6 +44,8 @@ pub enum Attack {
     ReenterFund,
     /// Re-enter `cancel_escrow(actor, escrow_id)` during the transfer.
     ReenterCancel,
+    /// Re-enter `mutual_cancel(escrow_id)` during the transfer.
+    ReenterMutualCancel,
 }
 
 /// Re-entrancy target: which escrow to call back into, as whom, for which id.
@@ -132,7 +134,7 @@ impl MaliciousToken {
                 // Re-entering the still-executing escrow is forbidden by the
                 // host: this call traps, reverting the whole transfer.
                 let r = Self::reentry(&env);
-                EscrowClient::new(&env, &r.escrow).confirm_delivery(&r.actor, &r.escrow_id);
+                EscrowClient::new(&env, &r.escrow).confirm_delivery(&r.actor, &r.escrow_id, &false);
             }
             Attack::ReenterFund => {
                 let r = Self::reentry(&env);
@@ -141,6 +143,10 @@ impl MaliciousToken {
             Attack::ReenterCancel => {
                 let r = Self::reentry(&env);
                 EscrowClient::new(&env, &r.escrow).cancel_escrow(&r.actor, &r.escrow_id);
+            }
+            Attack::ReenterMutualCancel => {
+                let r = Self::reentry(&env);
+                EscrowClient::new(&env, &r.escrow).mutual_cancel(&r.escrow_id);
             }
         }
 

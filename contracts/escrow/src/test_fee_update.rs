@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use crate::internal::validate_combined_fees;
 use crate::{test_helpers::setup_contract, ContractError, DataKey, FeeConfig, ProtocolFeeUpdated};
 use soroban_sdk::{
     testutils::{Address as _, Events as _},
@@ -18,7 +19,7 @@ fn test_set_fee_zero_bps() {
 
     // Verify stored in FeeConfig
     let stored = env.as_contract(&client.address, || {
-        env.storage().instance().get(&DataKey::FeeConfig)
+        Some(crate::storage::read_fee_config(&env))
     });
     assert_eq!(
         stored,
@@ -40,7 +41,7 @@ fn test_set_fee_100_bps() {
     assert!(result.is_ok(), "set_protocol_fee(100) should succeed");
 
     let stored = env.as_contract(&client.address, || {
-        env.storage().instance().get(&DataKey::FeeConfig)
+        Some(crate::storage::read_fee_config(&env))
     });
     assert_eq!(
         stored,
@@ -62,7 +63,7 @@ fn test_set_fee_max_500_bps() {
     assert!(result.is_ok(), "set_protocol_fee(500) should succeed");
 
     let stored = env.as_contract(&client.address, || {
-        env.storage().instance().get(&DataKey::FeeConfig)
+        Some(crate::storage::read_fee_config(&env))
     });
     assert_eq!(
         stored,
@@ -81,7 +82,10 @@ fn test_set_fee_rejects_501_bps() {
     let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
     let result = client.try_set_protocol_fee(&admin, &501_u32);
-    assert!(matches!(result, Err(Ok(ContractError::FeeExceedsMax))));
+    assert!(matches!(
+        result,
+        Err(Ok(ContractError::ProtocolFeeExceedsMax))
+    ));
 }
 
 /// Test: set_protocol_fee requires admin authentication
@@ -112,7 +116,7 @@ fn test_set_fee_rejects_non_admin_caller() {
     assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
 
     let stored = env.as_contract(&client.address, || {
-        env.storage().instance().get(&DataKey::FeeConfig)
+        Some(crate::storage::read_fee_config(&env))
     });
     assert_eq!(
         stored,
@@ -120,6 +124,18 @@ fn test_set_fee_rejects_non_admin_caller() {
             protocol_fee_bps: 0,
             arbitration_fee_bps: 0
         })
+    );
+}
+
+#[test]
+fn test_set_arbitration_fee_rejects_combined_fee_over_cap() {
+    assert_eq!(
+        validate_combined_fees(900, 101),
+        Err(ContractError::FeeExceedsMax)
+    );
+    assert_eq!(
+        validate_combined_fees(500, 501),
+        Err(ContractError::FeeExceedsMax)
     );
 }
 
@@ -173,7 +189,7 @@ fn test_set_fee_emits_event() {
 
     // Verify final value
     let stored = env.as_contract(&client.address, || {
-        env.storage().instance().get(&DataKey::FeeConfig)
+        Some(crate::storage::read_fee_config(&env))
     });
     assert_eq!(
         stored,

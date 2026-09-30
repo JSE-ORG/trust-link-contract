@@ -12,6 +12,8 @@
 //! Plus multi-token edge cases: more than one token type, uneven per-token
 //! amounts, and a zero-amount token that funding and payout both skip.
 
+extern crate std;
+
 use crate::{ContractError, Escrow, EscrowClient, EscrowState, Payee, MAX_BASKET_SIZE};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
@@ -283,7 +285,7 @@ fn payout_pays_each_basket_token_to_seller() {
     let escrow = client.get_escrow(&escrow_id);
     fx.env
         .ledger()
-        .set_timestamp(escrow.dispute_deadline + SHIPPING_WINDOW + 1);
+        .set_timestamp(escrow.dispute_deadline() + SHIPPING_WINDOW + 1);
     client.auto_release(&escrow_id);
 
     // With protocol fee at its default 0, the seller receives every token in
@@ -339,7 +341,7 @@ fn fund_basket_escrow_rejects_a_buyer_other_than_the_expected_buyer() {
     primary.admin.mint(&stranger, &100);
     assert_eq!(
         client.try_fund_basket_escrow(&escrow_id, &stranger),
-        Err(Ok(ContractError::NotAuthorized))
+        Err(Ok(ContractError::NotAuthorizedBuyer))
     );
     assert_eq!(primary.token.balance(&stranger), 100);
     assert_eq!(primary.token.balance(&fx.contract_id), 0);
@@ -881,4 +883,61 @@ fn create_basket_escrow_rejects_duplicate_primary_token() {
         &SHIPPING_WINDOW,
     );
     assert_eq!(result, Err(Ok(ContractError::BasketTokenMismatch)));
+}
+
+#[test]
+fn fund_basket_escrow_with_maximum_allowed_tokens() {
+    // Test the boundary condition of MAX_BASKET_SIZE (20).
+    // Ensures fund_basket_escrow can handle the maximum basket size without gas exhaustion.
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    fx.env.cost_estimate().disable_resource_limits();
+    fx.env.cost_estimate().budget().reset_unlimited();
+    fx.env.cost_estimate().disable_resource_limits();
+
+    // Create exactly 20 distinct tokens.
+    let mut addrs = Vec::new(&fx.env);
+    let mut amounts = Vec::new(&fx.env);
+    let mut token_list = std::vec::Vec::new();
+
+    for _ in 0..MAX_BASKET_SIZE {
+        let token = make_token(&fx.env);
+        addrs.push_back(token.address.clone());
+        amounts.push_back(1_000_i128);
+        token_list.push(token);
+    }
+
+    // Create the basket escrow with all 20 tokens.
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &addrs,
+        &amounts,
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    // Verify all 20 tokens are stored.
+    let stored_tokens = client.get_basket_tokens(&escrow_id).unwrap();
+    assert_eq!(stored_tokens.len(), MAX_BASKET_SIZE);
+
+    // Mint exactly 1_000 of each token to the buyer and fund.
+    for token in &token_list {
+        token.admin.mint(&fx.buyer, &1_000_i128);
+    }
+
+    // Fund the basket escrow with all 20 tokens.
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    // Verify all tokens transferred to the contract and buyer has none left.
+    for token in &token_list {
+        assert_eq!(token.token.balance(&fx.buyer), 0);
+        assert_eq!(token.token.balance(&fx.contract_id), 1_000_i128);
+    }
+
+    // Verify escrow state is Funded.
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::Funded);
+    assert_eq!(escrow.buyer, Some(fx.buyer.clone()));
 }

@@ -171,7 +171,7 @@ fn test_auto_release_with_delivered_at_and_boundary() {
     fix.client.mark_shipped(
         &fix.seller,
         &escrow_id,
-        &SorobanString::from_str(&fix.env, "TRACK123"),
+        &soroban_sdk::String::from_str(&fix.env, "TRACK123"),
     );
 
     // Propose delivery and record delivery after 24h timelock
@@ -218,7 +218,7 @@ fn test_auto_release_shipped_without_delivery_rejected() {
     fix.client.mark_shipped(
         &fix.seller,
         &escrow_id,
-        &SorobanString::from_str(&fix.env, "TRK"),
+        &soroban_sdk::String::from_str(&fix.env, "TRK"),
     );
 
     fix.env
@@ -440,8 +440,8 @@ fn test_auto_release_invalid_states_rejected() {
     fix.client.fund_escrow(&escrow_id, &fix.buyer);
 
     // 2. Disputed state:
-    let reason = Symbol::new(&fix.env, "issue");
-    let desc = SorobanString::from_str(&fix.env, "broken");
+    let reason = Symbol::new(&fix.env, "OTHER");
+    let desc = soroban_sdk::Bytes::from_slice(&fix.env, b"broken");
     let evidence = BytesN::from_array(&fix.env, &[1u8; 32]);
     fix.client
         .raise_dispute(&fix.buyer, &escrow_id, &reason, &desc, &evidence);

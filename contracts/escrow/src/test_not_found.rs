@@ -54,7 +54,7 @@ fn test_mark_shipped_not_found() {
     let res = client.try_mark_shipped(
         &seller,
         &MISSING_ID,
-        &SorobanString::from_str(&env, "TRACK"),
+        &soroban_sdk::String::from_str(&env, "TRACK"),
     );
     assert!(matches!(res, Err(Ok(ContractError::EscrowNotFound))));
 }
@@ -65,7 +65,7 @@ fn test_confirm_delivery_not_found() {
     env.mock_all_auths();
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
     let buyer = Address::generate(&env);
-    let res = client.try_confirm_delivery(&buyer, &MISSING_ID);
+    let res = client.try_confirm_delivery(&buyer, &MISSING_ID, &false);
     assert!(matches!(res, Err(Ok(ContractError::EscrowNotFound))));
 }
 
@@ -78,8 +78,8 @@ fn test_raise_dispute_not_found() {
     let res = client.try_raise_dispute(
         &buyer,
         &MISSING_ID,
-        &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "desc"),
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
     assert!(matches!(res, Err(Ok(ContractError::EscrowNotFound))));

@@ -58,10 +58,19 @@
    - Verify initialization via get_fee_config query
    - NEVER call initialize twice
 
-4. **Token Whitelisting** (recommended)
+4. **Token Allowlisting — REQUIRED before mainnet** ⚠️
+   - The on-chain allowlist (`DataKey::TokenAllowlistEnabled`) defaults to
+     **disabled**, so *any* SEP-41 token can be used until you enable it. Every
+     payout is an external call into the token contract, so a hostile token can
+     re-enter the escrow while settlement is in flight. Do not expose real value
+     to a contract that has not been locked down.
+   - Immediately after `initialize()`, call `set_token_allowlist_enabled(true)`
+     (or queue/execute the timelocked `SetTokenAllowlistEnabled` operation)
+   - Register each audited token with `add_allowed_token` and verify via
+     `get_allowed_tokens`; creation with any other token then fails with
+     `TokenNotAllowed`
    - Audit all tokens before use
-   - Maintain allowlist of supported tokens
-   - Reject malicious tokens with false transfer callbacks
+   - Reject malicious tokens with false transfer callbacks / reentrancy hooks
    - Document token audit results
 
 ### Post-Deployment
