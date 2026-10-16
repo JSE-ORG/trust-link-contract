@@ -10,6 +10,7 @@ the create-escrow flow end to end and links out to it for everything else.
 - [Installation](#installation)
 - [Creating a transport](#creating-a-transport)
 - [Creating an escrow](#creating-an-escrow)
+- [Reading basket tokens](#reading-basket-tokens)
 - [Funding and progressing an escrow](#funding-and-progressing-an-escrow)
 - [Listening for events](#listening-for-events)
 - [Error handling](#error-handling)
@@ -101,6 +102,34 @@ For a resolver committee or a primary/backup resolver instead of a single
 resolver, use `create_escrow_multi` or `create_escrow_with_fallback` — see the
 `EscrowClient` method table in
 [bindings/README.md](../bindings/README.md#api-reference).
+
+## Reading basket tokens
+
+`get_basket_tokens(escrow_id)` returns `Option<Vec<TokenEntry>>`. The two outcomes
+carry distinct meanings and must not be collapsed into one "empty" case:
+
+| Return value | Meaning | What a caller/indexer should do |
+|---|---|---|
+| `None` | The escrow id does not exist (`EscrowNotFound` internally) | Treat as unknown id; do not create a basket row |
+| `Some([])` (empty `Vec`) | The escrow exists and is a **single-token** escrow (created with `create_escrow*`) | Not a basket — record `token_count = 0`, or skip the basket table |
+| `Some([TokenEntry, …])` | The escrow exists and is a **basket** escrow (`create_basket_escrow`), with `len()` entries | Record `token_count = len()` |
+
+```ts
+const tokens = await client.get_basket_tokens(escrowId);
+if (tokens === null) {
+  // Escrow does not exist — nothing to index.
+} else if (tokens.length === 0) {
+  // Existing, single-token escrow: not a basket.
+} else {
+  // Basket: `tokens` holds every { token, amount } pair, primary first.
+}
+```
+
+`Some([])` is not an error and does not mean "missing": the escrow exists and
+its primary token/amount live on the `EscrowData` record, not in the basket
+list. Consumers that persist a `token_count` (e.g. the indexer's
+`basket_escrows` table) must only write a row for the `Some([…])` case, using
+`len()` as `token_count`.
 
 ## Funding and progressing an escrow
 

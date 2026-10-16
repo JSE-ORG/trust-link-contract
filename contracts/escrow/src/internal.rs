@@ -261,12 +261,18 @@ pub(crate) fn is_token_allowed(env: &Env, token: &Address) -> Result<(), Contrac
     if !is_token_allowlist_enabled(env) {
         return Ok(());
     }
-    let allowlist: soroban_sdk::Map<Address, bool> = env
+    // The allowlist is persisted as a `Vec<Address>` by `add_allowed_token` /
+    // `remove_allowed_token` and the timelocked variants. Reading it as a
+    // `Map<Address, bool>` (the historical mistake) traps with a
+    // `ConversionError` the moment the key is present, so the allowlist could
+    // never actually be enforced. Read the same shape the writers use and reuse
+    // the linear `contains` helper (Issue #1052).
+    let allowlist: soroban_sdk::Vec<Address> = env
         .storage()
         .instance()
         .get(&DataKey::TokenAllowlist)
-        .unwrap_or(soroban_sdk::Map::new(env));
-    if allowlist.contains_key(token.clone()) {
+        .unwrap_or(soroban_sdk::Vec::new(env));
+    if contains(&allowlist, token) {
         return Ok(());
     }
     Err(ContractError::TokenNotAllowed)
@@ -389,7 +395,7 @@ pub(crate) fn validate_payees(env: &Env, payees: &BoundedPayees) -> Result<(), C
         }
     }
 
-    if total_bps != 10_000 {
+    if total_bps != BASIS_POINTS {
         return Err(ContractError::PayeeBpsMismatch);
     }
 
@@ -840,11 +846,11 @@ pub(crate) fn distribute_to_payees(
             .inner
             .get(i)
             .ok_or(ContractError::PayeeIndexOutOfBounds)?;
-        // Multiply first, then divide: floor(A * b_i / 10_000).
+        // Multiply first, then divide: floor(A * b_i / BASIS_POINTS).
         let payee_amount = amount
             .checked_mul(i128::from(payee.bps))
             .ok_or(ContractError::ArithmeticError)?
-            .checked_div(10_000)
+            .checked_div(i128::from(BASIS_POINTS))
             .ok_or(ContractError::ArithmeticError)?;
 
         crate::helpers::payout::payout(env, token_addr, &payee.address, payee_amount);
@@ -866,6 +872,19 @@ pub(crate) fn distribute_to_payees(
     payout(env, token_addr, &first_payee.address, remaining);
 
     Ok(())
+}
+
+/// Returns `true` when a stored basket entry must be moved value-for-value:
+/// it is not the escrow's primary token and it carries a positive amount.
+///
+/// `fund_escrow` (buyer → contract) and `payout_basket_tokens` (contract →
+/// recipient) are the two legs of a basket escrow and MUST apply the same
+/// skip rule. If they disagreed, a duplicated primary entry could be funded
+/// twice and paid out twice. Sharing this one predicate makes the two loops
+/// structurally identical instead of relying on two hand-copied comparisons
+/// (Issue #1053).
+pub(crate) fn is_transferable_basket_entry(entry: &TokenEntry, primary_token: &Address) -> bool {
+    &entry.token != primary_token && entry.amount > 0
 }
 
 /// Transfer all non-primary basket tokens to a recipient after the primary
@@ -892,8 +911,10 @@ pub(crate) fn payout_basket_tokens(
         let entry = basket_tokens
             .get(i)
             .ok_or(ContractError::BasketIndexOutOfBounds)?;
-        // Skip the primary token — it is always paid out by the calling function.
-        if &entry.token == primary_token {
+        // Skip the primary token — it is always paid out by the calling
+        // function. Shared with `fund_escrow` so both legs skip the same
+        // entries (Issue #1053).
+        if !is_transferable_basket_entry(&entry, primary_token) {
             continue;
         }
         crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);

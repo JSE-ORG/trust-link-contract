@@ -453,6 +453,7 @@ mod test_state_flow_fixes;
 mod test_state_history;
 mod test_storage_collision;
 mod test_string_length;
+mod test_token_allowlist;
 mod test_ttl;
 mod test_unauthorized;
 mod test_upgrade_migration;

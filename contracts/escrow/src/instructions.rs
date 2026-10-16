@@ -358,13 +358,16 @@ impl Escrow {
             escrow.amount,
         );
 
-        // Transfer additional basket tokens if this is a basket escrow
+        // Transfer additional basket tokens if this is a basket escrow.
+        // `is_transferable_basket_entry` is the same predicate
+        // `payout_basket_tokens` uses to skip the primary token, so the funding
+        // and payout legs can never drift apart (Issue #1053).
         let basket_tokens = load_basket_tokens(&env, escrow_id);
         for i in 0..basket_tokens.len() {
             let entry = basket_tokens
                 .get(i)
                 .ok_or(ContractError::IndexOutOfBounds)?;
-            if entry.token != escrow.token && entry.amount > 0 {
+            if is_transferable_basket_entry(&entry, &escrow.token) {
                 transfer_helper(
                     &env,
                     &entry.token,

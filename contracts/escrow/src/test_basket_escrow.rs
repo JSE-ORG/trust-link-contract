@@ -223,6 +223,24 @@ fn get_basket_tokens_distinguishes_missing_vs_single_token() {
     let result = client.get_basket_tokens(&single_token_id);
     assert!(result.is_some());
     assert_eq!(result.unwrap().len(), 0); // Empty Vec for single-token escrow
+
+    // A basket escrow returns Some(Vec) carrying every stored entry, so an
+    // indexer can distinguish "not a basket" (Some(empty), the single-token
+    // case above) from "basket with N tokens" (Some(len == N)).
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let basket_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    let basket = client.get_basket_tokens(&basket_id);
+    assert!(basket.is_some());
+    assert_eq!(basket.unwrap().len(), 2);
 }
 
 #[test]
@@ -940,4 +958,87 @@ fn fund_basket_escrow_with_maximum_allowed_tokens() {
     let escrow = client.get_escrow(&escrow_id);
     assert_eq!(escrow.state, EscrowState::Funded);
     assert_eq!(escrow.buyer, Some(fx.buyer.clone()));
+}
+
+/// Issue #1053: `fund_escrow` and `payout_basket_tokens` must skip the primary
+/// token by *value* on both legs, so a reordered basket can never fund or pay
+/// the primary twice. Both loops now share `is_transferable_basket_entry`.
+#[test]
+fn fund_and_payout_skip_primary_token_by_value_in_agreement() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let secondary = make_token(&fx.env);
+
+    let primary_amount = 1_000_i128;
+    let secondary_amount = 400_i128;
+
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address, &secondary.address]),
+        &vec_i128(&fx.env, &[primary_amount, secondary_amount]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+
+    // Simulate a persisted basket whose order no longer puts the primary at
+    // index 0: value-based skipping (not position) must still hold.
+    fx.env.as_contract(&fx.contract_id, || {
+        let mut reordered = Vec::new(&fx.env);
+        reordered.push_back(crate::TokenEntry {
+            token: secondary.address.clone(),
+            amount: secondary_amount,
+        });
+        reordered.push_back(crate::TokenEntry {
+            token: primary.address.clone(),
+            amount: primary_amount,
+        });
+        fx.env
+            .storage()
+            .persistent()
+            .set(&crate::DataKey::BasketTokens(escrow_id), &reordered);
+    });
+
+    // The shared predicate agrees for both legs.
+    let primary_entry = crate::TokenEntry {
+        token: primary.address.clone(),
+        amount: primary_amount,
+    };
+    let secondary_entry = crate::TokenEntry {
+        token: secondary.address.clone(),
+        amount: secondary_amount,
+    };
+    assert!(!crate::internal::is_transferable_basket_entry(
+        &primary_entry,
+        &primary.address
+    ));
+    assert!(crate::internal::is_transferable_basket_entry(
+        &secondary_entry,
+        &primary.address
+    ));
+
+    // Fund: primary funded once (via the dedicated transfer), secondary once.
+    primary.admin.mint(&fx.buyer, &primary_amount);
+    secondary.admin.mint(&fx.buyer, &secondary_amount);
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    assert_eq!(primary.token.balance(&fx.buyer), 0);
+    assert_eq!(secondary.token.balance(&fx.buyer), 0);
+    assert_eq!(primary.token.balance(&fx.contract_id), primary_amount);
+    assert_eq!(secondary.token.balance(&fx.contract_id), secondary_amount);
+
+    // Payout: the primary is paid by the caller's transfer, the loop pays only
+    // the secondary — neither token is paid twice.
+    let escrow = client.get_escrow(&escrow_id);
+    fx.env
+        .ledger()
+        .set_timestamp(escrow.dispute_deadline() + SHIPPING_WINDOW + 1);
+    client.auto_release(&escrow_id);
+
+    assert_eq!(primary.token.balance(&fx.seller), primary_amount);
+    assert_eq!(secondary.token.balance(&fx.seller), secondary_amount);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+    assert_eq!(secondary.token.balance(&fx.contract_id), 0);
 }
