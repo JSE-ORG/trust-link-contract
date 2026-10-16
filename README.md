@@ -660,6 +660,8 @@ The arbitration fee is handled as a separate deduction in `resolve_dispute`.
 
 When a payout is split across multiple payees, the contract calculates floor-rounded amounts for secondary payees and assigns the remaining net amount to the first payee. This preserves total payout conservation while making the rounding policy deterministic. The maximum bias is bounded by `N - 1` stroops for `N` payees because each secondary payee can contribute at most one truncated stroop of dust.
 
+**Dust-to-first-payee policy.** Payees `1..N` (every payee except `payees[0]`) receive `floor(net * bps / 10000)`; `payees[0]` receives `net` minus the sum of those floored amounts. Dust is therefore always credited to the first payee, never to the others, so for multi-payee splits the first payee is systematically favoured by strictly less than `N - 1` stroops (at most `N - 1`) per payout. For a single payee there is no dust. Order the payees list accordingly if this bias matters to you. No stroop is lost or created: the payouts always sum exactly to `net`.
+
 ---
 
 ## 6. Fee model

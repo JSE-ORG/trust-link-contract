@@ -163,3 +163,58 @@ fn random_amounts_and_fee_bps_hold_invariants() {
         assert_invariants(amount, fee_bps);
     }
 }
+
+// ---------------------------------------------------------------------------
+// proptest coverage (issue #1061)
+// ---------------------------------------------------------------------------
+
+mod prop {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(2_000))]
+
+        /// fee + net == amount, fee == floor(amount * bps / 10000), 0 <= fee <= amount.
+        #[test]
+        fn fee_plus_net_equals_amount(
+            amount in 0..=MAX_ESCROW_AMOUNT,
+            fee_bps in 0..=BASIS_POINTS,
+        ) {
+            assert_invariants(amount, fee_bps);
+        }
+
+        /// Floor bound: the exact (non-truncated) fee exceeds the floored fee
+        /// by strictly less than one stroop, i.e.
+        /// `fee * 10000 <= amount * bps < (fee + 1) * 10000`.
+        /// Computed via the split representation so it cannot overflow.
+        #[test]
+        fn floor_remainder_is_below_one_stroop(
+            amount in 0..=MAX_ESCROW_AMOUNT,
+            fee_bps in 0..=BASIS_POINTS,
+        ) {
+            let fee = calculate_fee(amount, fee_bps).unwrap();
+            let q = amount / (BASIS_POINTS as i128);
+            let r = amount % (BASIS_POINTS as i128);
+            // amount * bps = (q*10000 + r) * bps  =>  remainder of the exact
+            // fee beyond `fee` is (r * bps) % 10000, which must be < 10000.
+            prop_assert_eq!(fee, q * (fee_bps as i128) + r * (fee_bps as i128) / (BASIS_POINTS as i128));
+            prop_assert!((r * (fee_bps as i128)) % (BASIS_POINTS as i128) < BASIS_POINTS as i128);
+        }
+
+        /// No overflow near i128::MAX: any non-negative amount with an
+        /// in-domain fee_bps succeeds and keeps fee <= amount.
+        #[test]
+        fn no_overflow_near_i128_max(
+            offset in 0..=1_000_000_i128,
+            fee_bps in 0..=BASIS_POINTS,
+        ) {
+            let amount = i128::MAX - offset;
+            let fee = calculate_fee(amount, fee_bps).expect("must not overflow at MAX");
+            prop_assert!(fee >= 0 && fee <= amount);
+            let (fee2, net) = calculate_protocol_fee(amount, fee_bps).expect("must not overflow at MAX");
+            prop_assert_eq!(fee, fee2);
+            prop_assert_eq!(fee + net, amount);
+        }
+    }
+}
