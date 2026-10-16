@@ -676,7 +676,7 @@ impl Escrow {
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         crate::internal::clear_delivery_proposal(&env, escrow_id);
-        increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
+        record_escrow_refunded(&env, escrow_id)?;
 
         // ── INTERACTIONS (external token transfers) ──
         let amount = escrow.amount;
@@ -1580,15 +1580,16 @@ impl Escrow {
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         crate::internal::clear_delivery_proposal(&env, escrow_id);
 
-        // Issue #814: When emergency_drain is called on a disputed escrow, escrow.amount
-        // has already been reduced by arbitration_fee in execute_resolution_transition.
-        // The arbitration_fee is tracked separately in DataKey::TotalArbitrationFees(token).
-        // We increment TotalRefunded for the drained amount (which is post-fee), but this
-        // means stats will show TotalRefunded + TotalArbitrationFees split across two
-        // counters rather than summing to the original amount. Consider whether stats queries
-        // should aggregate these counters or if the accounting should be restructured.
-        // For now, TotalRefunded reflects only the amount refunded to buyer, not fees collected.
-        increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
+        // Issue #814 / #1057: when emergency_drain runs on a disputed escrow,
+        // escrow.amount has already been reduced by the arbitration fee in
+        // execute_resolution_transition, and that fee is tracked separately in
+        // DataKey::TotalArbitrationFees(token). The drained principal is
+        // therefore refunded to the buyer and counted through the single
+        // `record_escrow_refunded` helper exactly once per drain — the sharded
+        // TotalRefunded counter is a *count* of refunded escrows, not a sum of
+        // amounts, so it must not be incremented again for the fee portion.
+        // Fee volume lives in TotalArbitrationFees.
+        record_escrow_refunded(&env, escrow_id)?;
 
         // ── INTERACTIONS (external token transfers) ──
         payout(&env, &escrow.token, &buyer, escrow.amount);

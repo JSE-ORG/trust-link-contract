@@ -322,7 +322,9 @@ pub(crate) fn next_escrow_id(env: &Env) -> Result<u64, ContractError> {
         .set(&DataKey::EscrowCounter, &next_id);
 
     let ext = get_ttl_extension(env);
-    env.storage().instance().extend_ttl(ext / 2, ext);
+    env.storage()
+        .instance()
+        .extend_ttl(ext / TTL_THRESHOLD_DIVISOR, ext);
 
     Ok(escrow_id)
 }

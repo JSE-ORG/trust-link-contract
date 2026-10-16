@@ -299,10 +299,10 @@ impl Escrow {
 
         match resolution {
             ResolutionType::Release => {
-                increment_sharded_counter(&env, COUNTER_KIND_COMPLETED, escrow_id)?;
+                record_escrow_completed(&env, escrow_id)?;
             }
             ResolutionType::Refund => {
-                increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
+                record_escrow_refunded(&env, escrow_id)?;
             }
         }
 
@@ -571,7 +571,7 @@ impl Escrow {
 
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
-        increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
+        record_escrow_refunded(&env, escrow_id)?;
 
         if let Ok(mut dispute) = load_dispute(&env, escrow_id) {
             dispute.status = DisputeStatus::Resolved;

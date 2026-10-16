@@ -180,7 +180,9 @@ impl Escrow {
             let key = DataKey::PendingExpiry(escrow_id);
             let ext = get_ttl_extension(&env);
             env.storage().persistent().set(&key, &schedule);
-            env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
         }
 
         Ok(escrow_id)
@@ -807,7 +809,7 @@ impl Escrow {
             false
         } else if escrow.state == EscrowState::Funded && buyer.as_ref() == Some(&caller) {
             escrow.state = EscrowState::Refunded;
-            increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
+            record_escrow_refunded(&env, escrow_id)?;
             true
         } else {
             return Err(terminal_state_error(
@@ -1269,7 +1271,7 @@ impl Escrow {
         // A delivery proposal can only exist while the escrow is Shipped, so
         // completing it here must drop the orphaned entry.
         clear_delivery_proposal(&env, escrow_id);
-        increment_counter(&env, &DataKey::TotalCompleted)?;
+        record_escrow_completed(&env, escrow_id)?;
 
         transfer_with_protocol_fee(
             &env,
@@ -1432,8 +1434,8 @@ impl Escrow {
 
         let escrow_id = crate::next_escrow_id(&env)?;
 
-        let primary_amount = amounts.get(0).ok_or(ContractError::InvalidAmount)?;
-        let primary_token = tokens.get(0).ok_or(ContractError::InvalidAmount)?;
+        let primary_amount = amounts.get(0).ok_or(ContractError::BasketTokenMismatch)?;
+        let primary_token = tokens.get(0).ok_or(ContractError::BasketTokenMismatch)?;
 
         let mut basket_payees = Vec::new(&env);
         basket_payees.push_back(Payee {
@@ -1826,7 +1828,7 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-        increment_sharded_counter(&env, COUNTER_KIND_REFUNDED, escrow_id)?;
+        record_escrow_refunded(&env, escrow_id)?;
 
         // ── INTERACTIONS (external token transfers) ──
         payout(&env, &escrow.token, &buyer, escrow.amount);

@@ -39,9 +39,11 @@ pub(crate) fn save_resolver_votes(env: &Env, escrow_id: u64, votes: &Vec<Resolve
         .set(&DataKey::ResolverVotes(escrow_id), votes);
     // Extend TTL for votes
     let ext = get_ttl_extension(env);
-    env.storage()
-        .persistent()
-        .extend_ttl(&DataKey::ResolverVotes(escrow_id), ext / 2, ext);
+    env.storage().persistent().extend_ttl(
+        &DataKey::ResolverVotes(escrow_id),
+        ext / TTL_THRESHOLD_DIVISOR,
+        ext,
+    );
 }
 
 /// Add or update a vote from a resolver
@@ -548,7 +550,9 @@ pub(crate) fn save_escrow(
     };
 
     env.storage().persistent().set(&key, escrow);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
 
     if state_changed {
         append_state_history(env, id, &escrow.state);
@@ -563,7 +567,9 @@ pub(crate) fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractErro
         .get(&key)
         .ok_or(ContractError::EscrowNotFound)?;
     let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
     Ok(escrow)
 }
 
@@ -610,7 +616,9 @@ pub(crate) fn append_state_history(env: &Env, id: u64, state: &EscrowState) {
         history.pop_front();
     }
     env.storage().persistent().set(&key, &history);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
 pub(crate) fn load_state_history(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
@@ -623,7 +631,9 @@ pub(crate) fn load_state_history(env: &Env, id: u64) -> Vec<(EscrowState, u64)> 
         .unwrap_or_else(|| Vec::new(env));
 
     if !packed.is_empty() {
-        env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
     }
     decode_history(env, &packed)
 }
@@ -644,7 +654,9 @@ pub(crate) fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
     let key = DataKey::Dispute(id);
     let ext = get_ttl_extension(env);
     env.storage().persistent().set(&key, dispute);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
 pub(crate) fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
@@ -655,7 +667,9 @@ pub(crate) fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractEr
         .get(&key)
         .ok_or(ContractError::DisputeNotFound)?;
     let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
     Ok(dispute)
 }
 
@@ -663,7 +677,9 @@ pub(crate) fn save_basket_tokens(env: &Env, escrow_id: u64, tokens: &soroban_sdk
     let key = DataKey::BasketTokens(escrow_id);
     let ext = get_ttl_extension(env);
     env.storage().persistent().set(&key, tokens);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
 pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<TokenEntry> {
@@ -671,7 +687,9 @@ pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<
     match env.storage().persistent().get(&key) {
         Some(tokens) => {
             let ext = get_ttl_extension(env);
-            env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
             tokens
         }
         None => soroban_sdk::Vec::new(env),
@@ -1005,11 +1023,10 @@ pub(crate) fn settle_escrow_to_payees(
     let prev_state = escrow.state.clone();
     escrow.state = EscrowState::Completed;
     save_escrow(env, escrow_id, escrow, Some(&prev_state));
-    increment_sharded_counter(env, COUNTER_KIND_COMPLETED, escrow_id)?;
+    record_escrow_completed(env, escrow_id)?;
     // A delivery proposal can only exist while the escrow is Shipped, so every
     // completion transition must drop it or the entry is orphaned in storage.
     clear_delivery_proposal(env, escrow_id);
-    increment_counter(env, &DataKey::TotalCompleted)?;
 
     let (protocol_fee, net_amount) =
         crate::helpers::payout::calculate_protocol_fee(escrow.amount, fee_bps)?;
@@ -1068,20 +1085,33 @@ pub(crate) const COUNTER_KIND_COMPLETED: u32 = 1;
 pub(crate) const COUNTER_KIND_DISPUTED: u32 = 2;
 pub(crate) const COUNTER_KIND_REFUNDED: u32 = 3;
 
-/// Increments the legacy singleton lifecycle counter stored at `key`.
+/// Records a *completion* of `escrow_id`.
 ///
-/// Kept alongside the sharded counters ([`increment_sharded_counter`]) for
-/// backward compatibility: [`read_counter_total`] sums the legacy value and the
-/// shards, so pre-sharding deployments' statistics are preserved while new
-/// transitions spread their writes. Arithmetic overflow is reported as
-/// `ArithmeticError`.
-pub(crate) fn increment_counter(env: &Env, key: &DataKey) -> Result<u64, ContractError> {
-    let current: u64 = env.storage().instance().get(key).unwrap_or(0);
-    let next = current
-        .checked_add(1)
-        .ok_or(ContractError::ArithmeticError)?;
-    env.storage().instance().set(key, &next);
-    Ok(next)
+/// Every path that transitions an escrow to `Completed` — the shared
+/// [`settle_escrow_to_payees`] helper used by `confirm_delivery` and
+/// `auto_release`, `co_signed_release`, and a `finalize_dispute` Release — must
+/// go through this single helper so `TotalCompleted` advances by exactly one
+/// per completed escrow.
+///
+/// The legacy singleton key (`DataKey::TotalCompleted`) is deliberately **not**
+/// written here. [`read_counter_total`] still sums it as pre-sharding history,
+/// so writing it alongside the shard would double-count every completion (one
+/// from the legacy value, one from the shard) and make the counters disagree
+/// depending on which path completed the escrow.
+pub(crate) fn record_escrow_completed(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    increment_sharded_counter(env, COUNTER_KIND_COMPLETED, escrow_id)
+}
+
+/// Records a *refund* of `escrow_id`.
+///
+/// Single helper for the same reason as [`record_escrow_completed`]: every
+/// refund path — `cancel_escrow`, `finalize_dispute` Refund,
+/// `cancel_pending_finalization`, `recovery_withdraw`, and `emergency_drain` —
+/// advances the sharded `TotalRefunded` counter by exactly one, with no legacy
+/// dual-write. `emergency_drain` calling this exactly once per drain is what
+/// keeps `get_stats().total_refunded` consistent with the number of drains.
+pub(crate) fn record_escrow_refunded(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    increment_sharded_counter(env, COUNTER_KIND_REFUNDED, escrow_id)
 }
 
 /// Increments lifecycle counter `kind` in one of `crate::COUNTER_SHARDS`
@@ -1102,7 +1132,9 @@ pub(crate) fn increment_sharded_counter(
         .ok_or(ContractError::ArithmeticError)?;
     env.storage().persistent().set(&key, &next);
     let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
     Ok(())
 }
 
