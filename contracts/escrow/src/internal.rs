@@ -1431,6 +1431,14 @@ pub(crate) fn execute_resolution_transition(
     } else if !charge_fees {
         (0, 0)
     } else {
+        // Guard order (issue #1065):
+        // 1. Compute each fee with checked math (`calculate_fee`).
+        // 2. Reject a combined fee larger than the escrow amount *before* any
+        //    state mutation. This is the semantic guard that keeps the payout
+        //    non-negative.
+        // 3. Only then deduct both fees with `checked_sub` below. The combined
+        //    check makes those subtractions safe for any valid fee schedule,
+        //    while the checked operations remain as defence in depth.
         let arbitration_fee_bps = read_fee_config(env).arbitration_fee_bps;
         let arbitration_fee =
             crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;

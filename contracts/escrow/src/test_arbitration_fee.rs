@@ -397,6 +397,83 @@ fn test_resolution_transition_min_amount_max_fees_does_not_underflow() {
     assert_eq!(client.get_total_arbitration_fees(&token), 0);
 }
 
+/// Issue #1065: pin the `MIN_ESCROW_AMOUNT` + maximum combined fee schedule
+/// path. The arbitration and resolver rates are both at their individually
+/// validated maximums; because fees floor to zero at one stroop, both fee
+/// components stay zero, the two `checked_sub` deductions cannot underflow, and
+/// the winner receives the remaining principal in full.
+#[test]
+fn test_execute_resolution_transition_min_amount_max_combined_fees_pins_outcome() {
+    let env = Env::default();
+    let (admin, seller, buyer, resolver, fee_collector, token) = setup(&env);
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let arb_fee_bps = crate::MAX_ARBITRATION_FEE_BPS;
+    let resolver_fee_bps = crate::MAX_ESCROW_FEE_BPS;
+    client.initialize(&admin, &fee_collector, &arb_fee_bps);
+
+    let amount = crate::MIN_ESCROW_AMOUNT;
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&env);
+
+    let id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &0_u32,
+        &resolver_fee_bps,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
+
+    mint(&env, &token, &buyer, amount);
+    client.fund_escrow(&id, &buyer);
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-MIN-MAX-FEES"),
+    );
+    env.ledger().set_timestamp(env.ledger().timestamp() + 10);
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
+        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+    );
+
+    // Resolution must complete without an underflow/ArithmeticError.
+    client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
+
+    let pending = client.get_escrow(&id);
+    assert_eq!(pending.amount, amount);
+    assert_eq!(pending.state, crate::EscrowState::PendingFinalization);
+
+    let dispute = client.get_dispute(&id).unwrap();
+    assert!(dispute.fees_charged);
+    assert_eq!(dispute.arbitration_fee, 0);
+    assert_eq!(dispute.resolver_fee, 0);
+
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &id);
+
+    // The winner receives the full remainder: there is nothing left in the
+    // contract and no fee was charged.
+    assert_eq!(balance(&env, &token, &seller), amount);
+    assert_eq!(balance(&env, &token, &contract_id), 0);
+    assert_eq!(balance(&env, &token, &fee_collector), 0);
+    assert_eq!(client.get_total_arbitration_fees(&token), 0);
+}
+
 #[test]
 fn test_execute_resolution_transition_rejects_fees_exceeding_amount() {
     // Issue #819: execute_resolution_transition relied on checked_sub alone
