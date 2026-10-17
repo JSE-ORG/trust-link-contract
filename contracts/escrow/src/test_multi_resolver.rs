@@ -174,6 +174,39 @@ fn test_multi_resolver_validation() {
 }
 
 #[test]
+fn test_multi_resolver_duplicate_returns_duplicate_resolver() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver_a = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let mut resolvers = Vec::new(&env);
+    resolvers.push_back(resolver_a.clone());
+    resolvers.push_back(resolver_a);
+
+    let res = client.try_create_escrow_multi(
+        &seller,
+        &Some(buyer),
+        &resolvers,
+        &2,
+        &token,
+        &1000,
+        &0,
+        &3600,
+    );
+    assert_eq!(res, Err(Ok(ContractError::DuplicateResolver)));
+}
+
+#[test]
 fn test_multi_resolver_threshold_validation_errors() {
     let env = Env::default();
     env.mock_all_auths();

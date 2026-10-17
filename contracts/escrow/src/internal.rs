@@ -305,9 +305,10 @@ pub(crate) fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError>
     Ok(())
 }
 
-/// Validates resolver set to ensure no conflicts with seller/buyer, and for a
-/// `Fallback` set that the backup's `dispute_deadline` is within
-/// `MAX_FALLBACK_DEADLINE_OFFSET` of the current ledger timestamp.
+/// Validates resolver set to ensure no conflicts with seller/buyer, that no
+/// resolver is duplicated, and for a `Fallback` set that the backup's
+/// `dispute_deadline` is within `MAX_FALLBACK_DEADLINE_OFFSET` of the current
+/// ledger timestamp.
 pub(crate) fn validate_resolvers(
     resolvers: &ResolverSet,
     seller: &Address,
@@ -335,13 +336,13 @@ pub(crate) fn validate_resolvers(
         let mut seen = soroban_sdk::Vec::new(m.resolvers.env());
         for resolver in m.resolvers.iter() {
             if contains(&seen, &resolver) {
-                return Err(ContractError::ConflictingRoles);
+                return Err(ContractError::DuplicateResolver);
             }
             seen.push_back(resolver);
         }
     } else if let ResolverSet::Fallback(f) = resolvers {
         if f.primary == f.backup {
-            return Err(ContractError::ConflictingRoles);
+            return Err(ContractError::DuplicateResolver);
         }
 
         // An unbounded deadline (e.g. u64::MAX) would never admit the backup,

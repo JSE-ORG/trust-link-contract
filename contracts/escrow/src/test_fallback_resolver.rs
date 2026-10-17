@@ -421,7 +421,7 @@ fn test_fallback_creation_role_conflicts() {
         &0_u32,
         &3600_u64,
     );
-    assert_eq!(res, Err(Ok(ContractError::ConflictingRoles)));
+    assert_eq!(res, Err(Ok(ContractError::DuplicateResolver)));
 }
 
 #[test]
