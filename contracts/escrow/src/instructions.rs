@@ -1373,6 +1373,7 @@ impl Escrow {
         }
 
         validate_escrow_fee_bps(fee_bps)?;
+        validate_shipping_window(shipping_window)?;
 
         // Validate every basket amount against the configured or default limits.
         // Mirrors the three-step check in create_escrow_internal so secondary

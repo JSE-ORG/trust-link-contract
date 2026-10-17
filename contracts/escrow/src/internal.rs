@@ -305,6 +305,17 @@ pub(crate) fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError>
     Ok(())
 }
 
+/// Rejects shipping windows outside `MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW`.
+///
+/// A zero window allows an immediate dispute with no shipping time, while an
+/// unbounded value (e.g. `u64::MAX`) would lock funds indefinitely.
+pub(crate) fn validate_shipping_window(shipping_window: u64) -> Result<(), ContractError> {
+    if !(MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW).contains(&shipping_window) {
+        return Err(ContractError::InvalidShippingWindow);
+    }
+    Ok(())
+}
+
 /// Validates resolver set to ensure no conflicts with seller/buyer, and for a
 /// `Fallback` set that the backup's `dispute_deadline` is within
 /// `MAX_FALLBACK_DEADLINE_OFFSET` of the current ledger timestamp.
@@ -1286,9 +1297,7 @@ pub(crate) fn create_escrow_internal(
         return Err(ContractError::AmountBelowMinimum);
     }
 
-    if !(MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW).contains(&shipping_window) {
-        return Err(ContractError::InvalidShippingWindow);
-    }
+    validate_shipping_window(shipping_window)?;
 
     if grace_period > crate::MAX_GRACE_PERIOD {
         return Err(ContractError::GracePeriodTooLong);

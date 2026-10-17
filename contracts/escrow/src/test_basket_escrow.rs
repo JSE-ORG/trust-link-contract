@@ -14,7 +14,9 @@
 
 extern crate std;
 
-use crate::{ContractError, Escrow, EscrowClient, EscrowState, Payee, MAX_BASKET_SIZE};
+use crate::{
+    ContractError, Escrow, EscrowClient, EscrowState, Payee, MAX_BASKET_SIZE, MAX_SHIPPING_WINDOW,
+};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     token, Address, Env, IntoVal, Vec,
@@ -1041,4 +1043,50 @@ fn fund_and_payout_skip_primary_token_by_value_in_agreement() {
     assert_eq!(secondary.token.balance(&fx.seller), secondary_amount);
     assert_eq!(primary.token.balance(&fx.contract_id), 0);
     assert_eq!(secondary.token.balance(&fx.contract_id), 0);
+}
+
+#[test]
+fn create_basket_escrow_validates_shipping_window() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let token = make_token(&fx.env);
+
+    // 0 is below MIN_SHIPPING_WINDOW.
+    let zero = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&token.address]),
+        &vec_i128(&fx.env, &[1_000]),
+        &0_u32,
+        &0_u64,
+    );
+    assert_eq!(zero, Err(Ok(ContractError::InvalidShippingWindow)));
+
+    // MAX_SHIPPING_WINDOW + 1 exceeds the documented two-year cap.
+    let above_max = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&token.address]),
+        &vec_i128(&fx.env, &[1_000]),
+        &0_u32,
+        &(MAX_SHIPPING_WINDOW + 1),
+    );
+    assert_eq!(above_max, Err(Ok(ContractError::InvalidShippingWindow)));
+
+    // A valid window is accepted and persisted verbatim.
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&token.address]),
+        &vec_i128(&fx.env, &[1_000]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+    );
+    assert_eq!(
+        client.get_escrow(&escrow_id).shipping_window,
+        SHIPPING_WINDOW
+    );
 }
