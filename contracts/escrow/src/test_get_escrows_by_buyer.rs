@@ -219,3 +219,42 @@ fn test_get_escrows_by_buyer_fallback_scan_many_escrows() {
         assert_eq!(escrows.get(i).unwrap(), expected_ids.get(i).unwrap());
     }
 }
+
+/// Issue #1070: with more than 10 escrows, the paged index and the fallback
+/// scan (taken when the index is empty) return the same ascending IDs.
+#[test]
+fn test_index_and_fallback_scan_agree_for_many_escrows() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let other = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let mut expected = Vec::new(&env);
+    for i in 0..12_u32 {
+        let id = create_funded_escrow(
+            &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+        );
+        expected.push_back(id);
+        if i % 3 == 0 {
+            create_funded_escrow(
+                &env, &client, &seller, &other, &resolver, &token, 1000, 100, 3600,
+            );
+        }
+    }
+
+    let via_index = client.get_escrows_by_buyer(&buyer);
+    assert_eq!(via_index, expected);
+
+    // Empty the buyer's index so the fallback scan is used.
+    env.as_contract(&client.address, || {
+        crate::storage::write_buyer_escrow_index(&env, &buyer, &Vec::new(&env));
+    });
+    let via_fallback = client.get_escrows_by_buyer(&buyer);
+    assert_eq!(via_fallback, via_index);
+}

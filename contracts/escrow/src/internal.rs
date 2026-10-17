@@ -456,7 +456,7 @@ pub(crate) fn validate_fee_collector_change(
 
     let old_collector: Address = crate::storage::read_global_config(env)
         .fee_collector
-        .ok_or(ContractError::NotAuthorized)?;
+        .ok_or(ContractError::NotInitialized)?;
 
     if *new_collector == old_collector {
         return Err(ContractError::SameAddress);

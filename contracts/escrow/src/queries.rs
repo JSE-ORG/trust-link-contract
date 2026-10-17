@@ -8,13 +8,17 @@ use soroban_sdk::{contractimpl, Address, Env, Vec};
 #[contractimpl]
 impl Escrow {
     /// Retrieves messages for a given escrow with pagination.
-    pub fn get_messages(env: Env, escrow_id: u64, start: u64, limit: u64) -> Vec<Message> {
-        // Issue #827: Validate escrow exists first. If escrow does not exist,
-        // return empty Vec (same as valid escrow with no messages). Callers can
-        // distinguish by checking escrow existence separately via get_escrow.
-        if load_escrow(&env, escrow_id).is_err() {
-            return Vec::new(&env);
-        }
+    ///
+    /// Returns [`ContractError::EscrowNotFound`] when `escrow_id` does not
+    /// exist, so a missing escrow is distinguishable from a valid escrow that
+    /// simply has no messages (which returns an empty `Vec`).
+    pub fn get_messages(
+        env: Env,
+        escrow_id: u64,
+        start: u64,
+        limit: u64,
+    ) -> Result<Vec<Message>, ContractError> {
+        load_escrow(&env, escrow_id)?;
 
         let max_limit = if limit > crate::MAX_MESSAGES_PER_PAGE {
             crate::MAX_MESSAGES_PER_PAGE
@@ -27,7 +31,7 @@ impl Escrow {
         let total = u64::from(storage::read_message_count(&env, escrow_id));
         let mut result = Vec::new(&env);
         if start >= total {
-            return result;
+            return Ok(result);
         }
         let end = (start + max_limit).min(total);
         let mut i = start;
@@ -39,7 +43,7 @@ impl Escrow {
             }
             i += 1;
         }
-        result
+        Ok(result)
     }
 
     /// Returns the full list of tokens and amounts for a basket escrow.
@@ -75,9 +79,21 @@ impl Escrow {
     }
 
     /// Retrieves all escrow IDs associated with a specific buyer.
-    /// Uses the buyer index if available; otherwise falls back to scanning
-    /// up to 1000 most recent escrows (capped to avoid budget exhaustion).
-    /// The fallback scan avoids extending TTL for non-matching escrows.
+    ///
+    /// Uses the paged `BuyerEscrowIndex` if it has entries; IDs are returned in
+    /// ascending order. Otherwise falls back to scanning at most the 1000 most
+    /// recent escrow IDs (`counter - 1` down to `counter - 1000`) to avoid
+    /// budget exhaustion. The fallback therefore **silently omits** a buyer's
+    /// escrows older than that window on contracts with more than 1000
+    /// escrows, and still returns ascending order. The scan avoids extending
+    /// TTL for non-matching escrows.
+    ///
+    /// Migration recipe: the index is populated on `fund_escrow`, so escrows
+    /// funded before the index existed are only reachable via the fallback.
+    /// To backfill, an upgrade/migration step should, for each buyer, collect
+    /// their escrow IDs (e.g. from off-chain event history) in ascending order
+    /// and call `storage::write_buyer_escrow_index(env, &buyer, &ids)`. Once
+    /// every buyer is backfilled the fallback is never taken for them.
     pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
         // Preferred path: the paged buyer index, populated on funding.
         let indexed = storage::read_buyer_escrow_index(&env, &buyer);

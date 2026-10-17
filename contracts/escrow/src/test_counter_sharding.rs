@@ -228,3 +228,24 @@ fn dispute_release_records_stats_and_arbitration_fee() {
     );
     assert_eq!(stats.total_refunded, 0, "no refund on a Release resolution");
 }
+
+/// Issue #1068: incrementing a shard already at `u64::MAX` fails with
+/// `ArithmeticError` and leaves the stored value untouched.
+#[test]
+fn sharded_counter_overflow_returns_arithmetic_error() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let key = DataKey::ShardedCounter(crate::internal::COUNTER_KIND_CREATED, 0);
+
+    env.as_contract(&contract_id, || {
+        env.storage().persistent().set(&key, &u64::MAX);
+        let res = crate::internal::increment_sharded_counter(
+            &env,
+            crate::internal::COUNTER_KIND_CREATED,
+            0,
+        );
+        assert_eq!(res, Err(ContractError::ArithmeticError));
+        let stored: u64 = env.storage().persistent().get(&key).unwrap();
+        assert_eq!(stored, u64::MAX);
+    });
+}

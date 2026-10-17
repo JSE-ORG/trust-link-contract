@@ -42,6 +42,9 @@ Persistent and instance entries are kept alive by bumping their TTL.
   to `ext`.
 - **Persistent entries** (`Escrow`, `Dispute`, `VendorEscrowIndex`,
   `BuyerEscrowIndex`) are bumped on **every read and write** of that entry.
+- **Sharded lifecycle counters** (`ShardedCounter`) are bumped on every
+  increment by the same `ext / TTL_THRESHOLD_DIVISOR` → `ext` rule; see
+  [Lifecycle counter TTL and overflow](#lifecycle-counter-ttl-and-overflow).
 - **Instance storage** is bumped once per `create_escrow` call (alongside the
   escrow-counter increment), which keeps all instance singletons alive together.
 
@@ -71,6 +74,19 @@ throughout the contract.
 
 All instance entries share the contract instance TTL (bumped during
 `create_escrow`). Counters default to `0` when unset.
+
+#### Lifecycle counter TTL and overflow
+
+Lifecycle counters (created/completed/disputed/refunded) are incremented by
+`increment_sharded_counter` into one of `COUNTER_SHARDS` (16) **persistent**
+`ShardedCounter(kind, bucket)` entries, chosen by `escrow_id % 16`. Each
+increment uses `checked_add(1)`, writes the value, then extends that entry's
+TTL with `extend_ttl(ext / TTL_THRESHOLD_DIVISOR, ext)`, where `ext` is the
+configured TTL extension (`TtlExtensionLedgers`, default `120_960` ledgers).
+If a shard is already `u64::MAX` the increment returns
+`ContractError::ArithmeticError` (12) and the stored value is left unchanged.
+Reads (`get_stats`) sum the shards plus any legacy singleton value without
+extending TTL.
 
 ### Persistent storage (per-record)
 

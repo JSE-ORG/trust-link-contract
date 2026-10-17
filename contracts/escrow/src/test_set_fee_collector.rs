@@ -133,3 +133,20 @@ fn set_fee_collector_rejects_the_admin_address() {
         .expect("fee collector still set");
     assert_eq!(stored, fee_collector);
 }
+
+/// Issue #1067: a missing fee-collector config is `NotInitialized` (35), the
+/// same as the treasury path, not `NotAuthorized` (5).
+#[test]
+fn set_fee_collector_rejects_when_collector_unset() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    env.as_contract(&client.address, || {
+        crate::storage::update_global_config(&env, |c| c.fee_collector = None);
+    });
+
+    let new_collector = Address::generate(&env);
+    let res = client.try_set_fee_collector(&new_collector);
+    assert_eq!(res, Err(Ok(ContractError::NotInitialized)));
+}

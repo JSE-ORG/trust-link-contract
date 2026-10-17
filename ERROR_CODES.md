@@ -10,7 +10,7 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **2** | `InsufficientBalance` | The contract vault does not hold enough tokens to complete the transfer or fee withdrawal. | Verify the contract holds sufficient tokens for the requested payout. |
 | **3** | `EscrowNotFound` | The requested Escrow ID does not exist in persistent storage. | Re-verify the Escrow ID; it may have been mistyped or never created. |
 | **4** | `InvalidState` | The escrow is in a lifecycle state that does not permit the requested action. A `Completed` or `Refunded` escrow returns `EscrowAlreadyCompleted` (63) / `EscrowAlreadyRefunded` (64) instead where the check specifically distinguishes those two terminal states. | Consult the state machine diagram to ensure the action is valid for the current state. |
-| **5** | `NotAuthorized` | The caller's address does not have the required permissions for this function. | Ensure you are calling from the correct account (Seller, Buyer, Resolver, or Admin). |
+| **5** | `NotAuthorized` | The caller's address does not have the required permissions for this function. | Ensure you are calling from the correct account (Seller, Buyer, Resolver, or Admin). Not returned for missing configuration (unset treasury / fee collector): that is `NotInitialized` (35). |
 | **6** | `AlreadyInitialized` | The contract has already been initialized with an admin and fee collector. | No action required; initialization can only be performed once per contract deployment. |
 | **7** | `FeeExceedsMax` | A fee basis-point value exceeds the configured protocol hard cap. | Supply a fee value within the permitted limits (e.g., <= 3% for escrow fees). |
 | **8** | `EscrowHasNoBuyer` | The operation requires an assigned buyer, but the escrow is still in `Pending` state. | The buyer must call `fund_escrow` before this operation can proceed. |
@@ -40,7 +40,7 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **32** | `PlatformFeeExceedsMax` | The platform fee exceeds its allowed maximum. | Configure a platform fee within the allowed limits. |
 | **33** | `InvalidShippingWindow` | `shipping_window` is zero or exceeds the maximum allowed value. | Provide a valid shipping window duration within the allowed range. |
 | **34** | `DeliveryAlreadyRecorded` | `record_delivery` was called on an escrow that already has delivery recorded. | No action required; delivery has already been recorded for this escrow. |
-| **35** | `NotInitialized` | A read accessor was called before the contract has been initialized. | Initialize the contract first by calling `initialize`. |
+| **35** | `NotInitialized` | A read accessor was called before the contract has been initialized, or a required config value (e.g. treasury or fee collector) is unset. Distinct from `NotAuthorized` (5), which means the caller lacks permission. | Initialize the contract first by calling `initialize`. |
 | **36** | `IndexOutOfBounds` | An internal collection index is out of bounds, indicating a storage or argument invariant violation. | This is an internal error; contact the contract maintainer. |
 | **37** | `InvalidExpiration` | A supplied expiration timestamp is not strictly in the future. | Provide an expiration timestamp that is in the future. |
 | **38** | `DeliveryNotProposed` | `record_delivery` was called before a delivery proposal was initiated. | Admin must first call `propose_record_delivery` and wait for the timelock. |
