@@ -1227,6 +1227,132 @@ fn test_event_integrity_escrow_completed_via_confirm_delivery() {
     ));
 }
 
+/// Issue #1064: `EscrowCompleted.amount` is the pre-fee gross amount, so the
+/// event must not be interpreted as the recipient's net payout.
+#[test]
+fn test_escrow_completed_event_amount_is_gross_of_protocol_fee() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    client.initialize(&admin, &fee_collector, &0_u32);
+    mint_tokens(&env, &token, &buyer, 1_000);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let escrow_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1_000_i128,
+        &300_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
+    client.fund_escrow(&escrow_id, &buyer);
+    client.mark_shipped(
+        &seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&env, "TRK-EVT-GROSS"),
+    );
+
+    let escrow = client.get_escrow(&escrow_id);
+    env.ledger().set_timestamp(escrow.dispute_deadline() + 1);
+    client.confirm_delivery(&buyer, &escrow_id, &false);
+
+    let (fee, net) = crate::helpers::payout::calculate_protocol_fee(1_000, 300).unwrap();
+    assert_eq!((fee, net), (30, 970));
+
+    assert!(has_event::<EscrowCompleted, _>(
+        &env,
+        &cid,
+        "Escrow",
+        |ev| {
+            // `amount` remains the gross principal; `fee_bps` lets consumers
+            // derive the same net that was actually transferred.
+            ev.escrow_id == escrow_id as u64
+                && ev.amount == 1_000
+                && ev.fee_bps == 300
+                && crate::helpers::payout::calculate_protocol_fee(ev.amount, ev.fee_bps).unwrap()
+                    == (fee, net)
+        }
+    ));
+
+    assert_eq!(get_balance(&env, &token, &seller), net);
+    assert_eq!(get_balance(&env, &token, &fee_collector), fee);
+}
+
+/// Issue #1064: `DisputeResolved.amount` is gross of the platform and protocol
+/// fees settled at finalization, and gross of the arbitration/resolver fees
+/// already paid at resolution time.
+#[test]
+fn test_dispute_resolved_event_amount_is_gross_of_final_fees() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    // 5% arbitration fee so the resolved event carries a non-zero component.
+    client.initialize(&admin, &fee_collector, &500_u32);
+    mint_tokens(&env, &token, &buyer, 1_000);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let escrow_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1_000_i128,
+        &200_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
+    client.fund_escrow(&escrow_id, &buyer);
+    client.mark_shipped(
+        &seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&env, "TRK-EVT-DISPUTE-GROSS"),
+    );
+    client.raise_dispute(
+        &buyer,
+        &escrow_id,
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
+        &BytesN::from_array(&env, &[0u8; 32]),
+    );
+    client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Release);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&resolver, &escrow_id);
+
+    assert!(has_event::<DisputeResolved, _>(
+        &env,
+        &cid,
+        "Dispute",
+        |ev| {
+            ev.escrow_id == escrow_id as u64
+                // 1_000 - 50 arbitration fee = 950, before platform/protocol fees.
+                && ev.amount == 950
+                && ev.arbitration_fee == 50
+                && ev.resolver_fee == 0
+                && ev.platform_fee == 0
+        }
+    ));
+
+    // Recipient receives 950 - 20 protocol fee; the collector receives the
+    // 50 arbitration fee plus the 20 protocol fee.
+    assert_eq!(get_balance(&env, &token, &seller), 930);
+    assert_eq!(get_balance(&env, &token, &fee_collector), 70);
+}
+
 #[test]
 fn test_event_integrity_dispute_raised() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();

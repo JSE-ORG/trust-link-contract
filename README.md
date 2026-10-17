@@ -597,6 +597,13 @@ Each meaningful lifecycle step emits an event (examples):
 - `DisputeResolved`
 - `AutoReleased`
 
+Payout event amounts are **pre-fee gross values**, not the net amounts transferred:
+
+- `EscrowCompleted.amount` is the gross escrowed amount before the protocol fee. Derive the net payout as `amount - floor(amount * fee_bps / 10_000)`.
+- `DisputeResolved.amount` is the escrow balance after arbitration/resolver fees and before the platform/protocol fees. The recipient payout is `amount - platform_fee - protocol_fee`, where the protocol fee is `floor((amount + arbitration_fee + resolver_fee) * fee_bps / 10_000)`.
+
+The indexer exposes `deriveNetAmount` and `deriveDisputeNetAmount` in `indexer/src/types.ts` for these derivations.
+
 The tests include numerous snapshot JSON files under `contracts/escrow/test_snapshots/?` that strongly suggests events are checked for stability and correctness.
 
 For backend oracle/indexer designs, the recommended workflow is:

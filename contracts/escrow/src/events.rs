@@ -319,7 +319,11 @@ pub struct EscrowCompleted {
     pub schema_version: u32,
     pub escrow_id: u64,
     pub recipient: Address,
+    /// Gross escrowed amount **before** the protocol fee. This is not the
+    /// amount transferred to `recipient`: the net payout is
+    /// `amount - floor(amount * fee_bps / 10_000)`.
     pub amount: i128,
+    /// Protocol fee rate, in basis points, that was applied to `amount`.
     pub fee_bps: u32,
     pub timestamp: u64,
     pub prev_state: crate::EscrowState,
@@ -409,6 +413,12 @@ pub struct DisputeResolved {
     pub resolver: Address,
     pub resolution: ResolutionType,
     pub recipient: Address,
+    /// Gross amount still held for the escrow after the arbitration and
+    /// resolver fees were paid, but **before** the platform and protocol fees.
+    /// This is not the amount transferred to `recipient`. The net payout is
+    /// `amount - platform_fee - protocol_fee`, where `protocol_fee` is
+    /// `floor((amount + arbitration_fee + resolver_fee) * fee_bps / 10_000)`
+    /// and `fee_bps` is the escrow's snapshotted protocol fee rate.
     pub amount: i128,
     pub arbitration_fee: i128,
     pub resolver_fee: i128,

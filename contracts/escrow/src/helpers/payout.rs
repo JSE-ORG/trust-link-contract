@@ -164,3 +164,51 @@ pub fn calculate_dispute_allocations(
 
     Ok(transfers)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env};
+
+    /// Minimal SEP-41-shaped token that fails if a zero-value transfer is
+    /// attempted, so the test below can prove `payout` short-circuits.
+    #[contract]
+    pub struct ZeroRejectingToken;
+
+    #[contractimpl]
+    impl ZeroRejectingToken {
+        pub fn transfer(_env: Env, _from: Address, _to: Address, amount: i128) {
+            assert!(amount > 0, "zero-value transfer attempted");
+        }
+    }
+
+    /// Issue #1064: a zero fee (or an all-fee/zero-net amount) must not issue a
+    /// zero-value token transfer.
+    #[test]
+    fn transfer_with_protocol_fee_skips_zero_value_transfers() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(crate::Escrow, ());
+        let token = env.register(ZeroRejectingToken, ());
+        let recipient = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+
+        // amount = 1 at 300 bps => fee = 0, net = 1. The zero fee transfer is
+        // skipped; only the positive net transfer reaches the token.
+        let (fee, net) = env
+            .as_contract(&contract_id, || {
+                transfer_with_protocol_fee(&env, &token, &recipient, &fee_collector, 1, 300)
+            })
+            .unwrap();
+        assert_eq!((fee, net), (0, 1));
+
+        // amount = 0 => fee = 0 and net = 0. No token transfer is attempted,
+        // so the zero-rejecting token is never called.
+        let (fee, net) = env
+            .as_contract(&contract_id, || {
+                transfer_with_protocol_fee(&env, &token, &recipient, &fee_collector, 0, 300)
+            })
+            .unwrap();
+        assert_eq!((fee, net), (0, 0));
+    }
+}
