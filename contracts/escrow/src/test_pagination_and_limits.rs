@@ -281,6 +281,7 @@ fn basket_above_the_lowered_limit_is_rejected() {
             &amounts,
             &0_u32,
             &3_600_u64,
+            &None::<String>,
         ),
         Err(Ok(ContractError::BasketTokenMismatch)),
     );

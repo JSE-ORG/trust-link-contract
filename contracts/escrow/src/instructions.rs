@@ -1349,8 +1349,9 @@ impl Escrow {
     /// token must pass the allowlist check (if enabled). Every amount is
     /// validated: must be > 0 and within `[MinAmount, MaxAmount]`. The primary
     /// `Escrow` record tracks `tokens[0]`/`amounts[0]`; the full basket
-    /// is stored separately and readable via `get_basket_tokens`. Must be
-    /// funded with `fund_basket_escrow`. Emits `basket_escrow_created`.
+    /// is stored separately and readable via `get_basket_tokens`. `notes` is
+    /// capped at `MAX_NOTES_LEN`, same as `create_escrow`. Must be funded with
+    /// `fund_basket_escrow`. Emits `basket_escrow_created`.
     pub fn create_basket_escrow(
         env: Env,
         seller: Address,
@@ -1360,6 +1361,7 @@ impl Escrow {
         amounts: soroban_sdk::Vec<i128>,
         fee_bps: u32,
         shipping_window: u64,
+        notes: Option<String>,
     ) -> Result<u64, ContractError> {
         auth!(seller);
         ensure_action_not_paused(&env, Symbol::new(&env, "create_basket_escrow"))?;
@@ -1373,6 +1375,11 @@ impl Escrow {
         }
 
         validate_escrow_fee_bps(fee_bps)?;
+
+        let notes = notes.unwrap_or_else(|| String::from_str(&env, ""));
+        if notes.len() > MAX_NOTES_LEN {
+            return Err(ContractError::InputTooLong);
+        }
 
         // Validate every basket amount against the configured or default limits.
         // Mirrors the three-step check in create_escrow_internal so secondary
@@ -1461,7 +1468,7 @@ impl Escrow {
             shipped_at: 0,
             delivered_at: None,
             tracking_id: None,
-            notes: String::from_str(&env, ""),
+            notes,
             expires_at: None,
             grace_period: 0,
         };
