@@ -80,6 +80,7 @@ const escrowId = await client.create_escrow(
   250,               // fee_bps — protocol fee, in basis points
   50,                // resolver_fee_bps
   86_400n,           // shipping_window, in seconds
+  null,              // notes — free-form note, ≤ 500 chars; null stores an empty note
 );
 
 // Split payout across two sellers
@@ -95,8 +96,18 @@ const splitEscrowId = await client.create_escrow(
   250,
   50,
   86_400n,
+  "split payout — order 8821",
 );
 ```
+
+`notes` is the ninth argument and is required by the contract; pass `null` (or
+omit it — the client defaults to `null`) when you have nothing to record. The
+stored note is capped at 500 characters; a longer value is rejected with
+`InputTooLong`.
+
+The escrow's `buyer` is optional in the same way: `null` leaves the escrow open
+so that anyone may fund it, while passing an address restricts funding to that
+address — `fund_escrow` from anyone else fails with `NotAuthorizedBuyer`.
 
 For a resolver committee or a primary/backup resolver instead of a single
 resolver, use `create_escrow_multi` or `create_escrow_with_fallback` — see the

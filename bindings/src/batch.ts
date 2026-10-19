@@ -82,9 +82,13 @@ export class EscrowBatch {
     return this.push("withdraw_fees", [caller, token, to, amount]);
   }
 
-  /** Batch `create_escrow(payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow)`. */
+  /**
+   * Batch `create_escrow(payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow, notes)`.
+   *
+   * `payees` accepts either a single seller address or a `Payee[]` split.
+   */
   create_escrow(
-    payees: Payee[],
+    payees: AddressLike | Payee[],
     buyer: AddressLike | null,
     resolver: AddressLike,
     token: AddressLike,
@@ -92,8 +96,9 @@ export class EscrowBatch {
     feeBps: number,
     resolverFeeBps: number,
     shippingWindow: bigint,
+    notes: string | null = null,
   ): this {
-    return this.push("create_escrow", [payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow]);
+    return this.push("create_escrow", [payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow, notes]);
   }
 
   /** Batch `fund_escrow(escrowId, buyer)`. */

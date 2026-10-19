@@ -231,9 +231,10 @@ export class EscrowClient {
    * The escrow starts in `Pending` and holds no funds until
    * {@link fund_escrow}. Payee basis points must sum to exactly 10_000.
    *
-   * @param payees - One or more recipients of the released amount, each with a
-   *   `bps` share summing to 10_000. Pass `[{ address: seller, bps: 10_000 }]`
-   *   for the common single-seller case.
+   * @param payees - Either a single seller address, or one or more recipients
+   *   of the released amount, each with a `bps` share summing to 10_000. Pass
+   *   `seller` for the common single-seller case, or
+   *   `[{ address: seller, bps: 10_000 }]` to be explicit.
    * @param buyer - The address allowed to fund/dispute, or `null` to let any
    *   address fund it (an "open" escrow).
    * @param resolver - Address authorized to resolve a dispute on this escrow.
@@ -244,6 +245,8 @@ export class EscrowClient {
    *   dispute is resolved.
    * @param shippingWindow - Seconds the seller has to ship before the buyer /
    *   `auto_release` can act; must be in `[1, 63_072_000]`.
+   * @param notes - Free-form note stored with the escrow (≤ 500 characters).
+   *   `null`/omitted stores an empty note.
    * @throws `PayeeBpsMismatch`, `InvalidShippingWindow`, `FeeExceedsMax`,
    *   `InvalidAmount`, `ConflictingRoles`, `TokenNotAllowed`.
    *
@@ -253,11 +256,12 @@ export class EscrowClient {
    *   [{ address: seller, bps: 10_000 }],
    *   buyer, resolver, usdc,
    *   1_000_000n, 100, 50, 172_800n, // 1 USDC, 1% fee, 0.5% resolver fee, 48h
+   *   null,                          // notes — optional
    * );
    * ```
    */
   create_escrow(
-    payees: readonly Payee[],
+    payees: AddressLike | readonly Payee[],
     buyer: AddressLike | null,
     resolver: AddressLike,
     token: AddressLike,
@@ -265,6 +269,7 @@ export class EscrowClient {
     feeBps: number,
     resolverFeeBps: number,
     shippingWindow: bigint,
+    notes: string | null = null,
   ): Call<bigint> {
     return this.transport.invoke("create_escrow", [
       payees,
@@ -275,6 +280,7 @@ export class EscrowClient {
       feeBps,
       resolverFeeBps,
       shippingWindow,
+      notes,
     ]);
   }
 

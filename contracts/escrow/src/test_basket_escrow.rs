@@ -1088,6 +1088,7 @@ fn create_basket_escrow_validates_shipping_window() {
         &vec_i128(&fx.env, &[1_000]),
         &0_u32,
         &0_u64,
+        &None::<soroban_sdk::String>,
     );
     assert_eq!(zero, Err(Ok(ContractError::InvalidShippingWindow)));
 
@@ -1100,6 +1101,7 @@ fn create_basket_escrow_validates_shipping_window() {
         &vec_i128(&fx.env, &[1_000]),
         &0_u32,
         &(MAX_SHIPPING_WINDOW + 1),
+        &None::<soroban_sdk::String>,
     );
     assert_eq!(above_max, Err(Ok(ContractError::InvalidShippingWindow)));
 
@@ -1112,6 +1114,7 @@ fn create_basket_escrow_validates_shipping_window() {
         &vec_i128(&fx.env, &[1_000]),
         &0_u32,
         &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
     );
     assert_eq!(
         client.get_escrow(&escrow_id).shipping_window,
