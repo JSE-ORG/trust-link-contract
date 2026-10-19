@@ -346,13 +346,13 @@ pub(crate) fn validate_resolvers(
         let mut seen = soroban_sdk::Vec::new(m.resolvers.env());
         for resolver in m.resolvers.iter() {
             if contains(&seen, &resolver) {
-                return Err(ContractError::ConflictingRoles);
+                return Err(ContractError::DuplicateResolver);
             }
             seen.push_back(resolver);
         }
     } else if let ResolverSet::Fallback(f) = resolvers {
         if f.primary == f.backup {
-            return Err(ContractError::ConflictingRoles);
+            return Err(ContractError::DuplicateResolver);
         }
 
         // An unbounded deadline (e.g. u64::MAX) would never admit the backup,

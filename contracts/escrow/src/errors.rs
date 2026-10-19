@@ -187,4 +187,10 @@ pub enum ContractError {
     InvalidWasmHash = 78,
     /// Returned when `accept_treasury` is called but no pending treasury is set.
     NoPendingTreasury = 79,
+    /// Returned when the same address appears more than once in a resolver
+    /// configuration: a duplicate entry in a multi-resolver set, or a fallback
+    /// set whose `primary` equals its `backup`. Distinct from
+    /// [`ContractError::ConflictingRoles`] so telemetry can tell a duplicate
+    /// resolver apart from a resolver colliding with the seller or buyer.
+    DuplicateResolver = 80,
 }

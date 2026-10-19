@@ -87,6 +87,7 @@ export const enum ErrorCode {
   InvalidMaxBasketSize = 77,
   InvalidWasmHash = 78,
   NoPendingTreasury = 79,
+  DuplicateResolver = 80,
 }
 
 /** Human-readable message for every contract error code. */
@@ -233,6 +234,8 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "The WASM hash is all-zero or otherwise invalid for upgrade.",
   [ErrorCode.NoPendingTreasury]:
     "No pending treasury is set for accept_treasury.",
+  [ErrorCode.DuplicateResolver]:
+    "The same address appears more than once in the resolver configuration.",
 };
 
 /**
