@@ -13,7 +13,8 @@ build-debug: ## Build all contracts in debug mode
 build-wasm: ## Build contract wasm for deployment
 	cargo build --target wasm32v1-none --release
 
-test: ## Run all tests (lib target, cross-platform)
+# check-error-codes is a prerequisite so CI (which runs `make test`) gates error-code drift too.
+test: check-error-codes ## Run all tests (lib target, cross-platform) and the error-code drift check
 	cargo test --lib
 
 test-verbose: ## Run all tests with output
