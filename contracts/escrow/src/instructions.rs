@@ -314,23 +314,7 @@ impl Escrow {
         now.checked_add(DISPUTE_WINDOW)
             .ok_or(ContractError::ArithmeticOverflow)?;
 
-        if let Some(schedule) = env
-            .storage()
-            .persistent()
-            .get::<DataKey, crate::ExpirySchedule>(&DataKey::PendingExpiry(escrow_id))
-        {
-            if now >= schedule.expires_at {
-                return Err(ContractError::EscrowExpired);
-            }
-        }
-
-        let created_at = crate::internal::escrow_created_at(&env, escrow_id);
-        let blanket_deadline = created_at
-            .checked_add(crate::PENDING_EXPIRY_WINDOW)
-            .ok_or(ContractError::ArithmeticOverflow)?;
-        if now > blanket_deadline {
-            return Err(ContractError::EscrowExpired);
-        }
+        crate::internal::ensure_funding_not_expired(&env, escrow_id)?;
 
         // Security: buyer must differ from seller and resolver.
         for i in 0..escrow.payees.inner.len() {
@@ -1553,27 +1537,8 @@ impl Escrow {
             ));
         }
 
-        // Expiry checks, mirroring fund_escrow: an explicit PendingExpiry
-        // schedule and the blanket 7-day PENDING_EXPIRY_WINDOW after creation.
-        // A basket escrow cannot be funded once it has expired, just like a
-        // normal escrow.
+        crate::internal::ensure_funding_not_expired(&env, escrow_id)?;
         let now = env.ledger().timestamp();
-        if let Some(schedule) = env
-            .storage()
-            .persistent()
-            .get::<DataKey, crate::ExpirySchedule>(&DataKey::PendingExpiry(escrow_id))
-        {
-            if now >= schedule.expires_at {
-                return Err(ContractError::EscrowExpired);
-            }
-        }
-        let created_at = crate::internal::escrow_created_at(&env, escrow_id);
-        let blanket_deadline = created_at
-            .checked_add(crate::PENDING_EXPIRY_WINDOW)
-            .ok_or(ContractError::ArithmeticOverflow)?;
-        if now > blanket_deadline {
-            return Err(ContractError::EscrowExpired);
-        }
 
         // Security: buyer must differ from every payee (seller) and every
         // resolver in the set. Mirrors the identical check in fund_escrow and

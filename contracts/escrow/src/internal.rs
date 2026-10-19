@@ -1110,6 +1110,23 @@ pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), Contra
     Ok(())
 }
 
+/// Check that a pending escrow has not expired before funding.
+/// Covers custom expiration (`escrow.expires_at`), explicit `PendingExpiry` schedule
+/// (via [`ensure_not_expired`]), and the blanket `PENDING_EXPIRY_WINDOW` after creation.
+pub(crate) fn ensure_funding_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    ensure_not_expired(env, escrow_id)?;
+
+    let now = env.ledger().timestamp();
+    let created_at = escrow_created_at(env, escrow_id);
+    let blanket_deadline = created_at
+        .checked_add(crate::PENDING_EXPIRY_WINDOW)
+        .ok_or(ContractError::ArithmeticOverflow)?;
+    if now > blanket_deadline {
+        return Err(ContractError::EscrowExpired);
+    }
+    Ok(())
+}
+
 /// Counter kind discriminants used by [`increment_sharded_counter`] and
 /// [`read_sharded_counter_total`]. Keep stable: they are persisted in storage.
 pub(crate) const COUNTER_KIND_CREATED: u32 = 0;

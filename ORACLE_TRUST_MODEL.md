@@ -6,7 +6,7 @@ TrustLink is a non-custodial P2P escrow on Stellar/Soroban. Most state transitio
 are governed entirely by on-chain signatures from the involved parties (seller, buyer).
 Two flows, however, require a trusted off-chain actor:
 
-1. **Dispute resolution** — a designated `resolver` address adjudicates whether funds
+1. **Dispute resolution** — a designated resolver (Single address, Multi M-of-N committee, or Fallback pair) adjudicates whether funds
    go to the seller or back to the buyer.
 2. **Auto-release triggering** — any caller (including a backend service) may invoke
    `auto_release` once the shipping window has elapsed.
@@ -27,6 +27,7 @@ each escrow at creation time.
 The resolver configuration is selected when an escrow is created:
 
 - **Single** stores one resolver address. That resolver authorizes the outcome directly.
+  Can be rotated if needed via `rotate_resolver`.
 - **Multi** stores an M-of-N committee. Each committee member may call `vote` with
   `Release` or `Refund`; once either outcome reaches the configured threshold, the escrow
   enters pending finalization and the recorded resolution can be finalized.
@@ -40,7 +41,7 @@ is the way to move an escrow out of `Disputed` state. Multi uses the same addres
 authorization for each vote, followed by threshold-based resolution.
 
 ```
-Disputed ──[resolver signs resolve_dispute]──> Completed | Refunded
+Disputed ──[resolver signs resolve_dispute / committee votes]──> Completed | Refunded
 ```
 
 ---
@@ -49,10 +50,10 @@ Disputed ──[resolver signs resolve_dispute]──> Completed | Refunded
 
 | Assumption | Where it appears | Risk if violated |
 |---|---|---|
-| Resolver will not collude with one party | `resolve_dispute` requires resolver auth | Funds stolen or wrongly withheld |
+| Resolver will not collude with one party | `resolve_dispute` / `vote` requires resolver auth | Funds stolen or wrongly withheld |
 | Resolver key is not compromised | Resolver signs every dispute settlement | Attacker can drain any disputed escrow |
-| Resolver is liveness-available | Disputes can only be resolved by the resolver | Funds locked indefinitely if resolver goes offline |
-| Multi committee reaches a threshold | Votes are honest and sufficiently available | Split or incomplete votes can deadlock an escrow indefinitely |
+| Resolver is liveness-available | Disputes resolved by configured resolver set (or time-delayed backup / timeout) | If all resolvers go offline and no fallback is configured, funds could be delayed until `claim_dispute_timeout` |
+| Multi committee reaches a threshold | Votes are honest and sufficiently available; see [`tally_votes` comments in `contracts/escrow/src/internal.rs`](contracts/escrow/src/internal.rs) | Split or incomplete votes can deadlock an escrow indefinitely; see [`tally_votes` deadlock rationale and escape hatches](contracts/escrow/src/internal.rs) |
 | Fallback deadline is configured correctly | The backup is available when the deadline passes | A bad deadline can delay recovery or authorize the backup too early |
 | Auto-release caller has no privileged access | `auto_release` is permissionless | None — caller cannot redirect funds |
 
@@ -62,9 +63,18 @@ Multi-resolver voting is an M-of-N quorum, not a majority rule. A split vote can
 neither `Release` nor `Refund` at the threshold. In particular, unanimous configurations
 can freeze an escrow permanently after all resolvers have voted different ways, because no
 additional vote can change the tally. The implementation documents this known limitation
-and the unimplemented escape hatches in the `tally_votes` comments in
-`contracts/escrow/src/internal.rs`. Operators should avoid unanimous thresholds unless
-they have an operational process for resolving a deadlock in a future upgrade.
+and the implemented escape hatches in the `tally_votes` comments in
+[`contracts/escrow/src/internal.rs`](contracts/escrow/src/internal.rs) and
+[`contracts/escrow/src/types.rs`](contracts/escrow/src/types.rs):
+
+1. **`resolve_deadlocked_dispute`** — once a dispute has been split (threshold not met)
+   for `DISPUTE_DEADLOCK_WINDOW`, anyone may trigger simple-majority fallback
+   (`tally_votes_majority`).
+2. **`claim_dispute_timeout`** — if the dispute stays unresolved past the admin-configured
+   `DisputeTimeout`, either party can claim a forced `Refund`.
+
+Operators should avoid unanimous thresholds unless they have an operational process for
+resolving a deadlock.
 
 ---
 
@@ -72,9 +82,10 @@ they have an operational process for resolving a deadlock in a future upgrade.
 
 - The resolver must use an Ed25519 keypair (Stellar native) or a custom Soroban account
   contract implementing `__check_auth` (for multisig or hardware-key setups).
-- `resolve_dispute` calls `escrow.resolver.require_auth()`, which enforces that the
-  transaction is signed by the resolver's keypair and that no other address can
-  substitute for it — auth is anchored to the specific address stored at escrow creation.
+- In Single mode, `resolve_dispute` calls `escrow.resolver.require_auth()`. In Multi mode,
+  each committee member authorizes their `vote`. In Fallback mode, the primary authorizes
+  before `dispute_deadline`, and either primary or backup may authorize once the deadline
+  is reached. Auth is anchored to the specific address(es) configured for the escrow.
 - Evidence is committed as a 32-byte hash (SHA-256 of the off-chain evidence package,
   e.g. an IPFS CID). The contract does not verify the evidence content — the resolver is
   trusted to interpret it correctly.
@@ -85,31 +96,39 @@ they have an operational process for resolving a deadlock in a future upgrade.
 
 ### 1. Resolver Key Compromise
 If an attacker obtains the resolver's private key they can:
-- Call `resolve_dispute` on any escrow in `Disputed` state.
+- Call `resolve_dispute` (or cast decisive votes) on any escrow in `Disputed` state.
 - Choose any outcome (release to seller or refund buyer), effectively stealing funds.
 
 **Mitigation**: Use a hardware security module (HSM) or multisig account contract as the
 resolver. Soroban's `require_auth` accepts any address including custom account
-contracts, so a 2-of-3 multisig resolver is fully supported.
+contracts, so a 2-of-3 multisig resolver is fully supported. Multi-resolver committees
+also distribute trust across multiple independent keys.
 
 ### 2. Resolver Censorship / Liveness Failure
-A resolver that stops responding (key lost, service down, legal injunction) will leave
-all disputed escrows permanently locked — neither party can retrieve funds.
+A resolver that stops responding (key lost, service down, legal injunction) could leave
+disputed escrows unresolved without recovery mechanisms.
 
 **Mitigation**:
-- Introduce a dispute-timeout after which the buyer can reclaim funds unilaterally
-  (future improvement — not yet in contract).
+- **Dispute Timeout**: `claim_dispute_timeout` allows either buyer or seller to force a
+  `Refund` once the configured dispute timeout window has elapsed without resolution.
+- **Fallback Resolver**: Escrows created via `create_escrow_with_fallback` configure a backup
+  resolver that becomes authorized after `dispute_deadline`.
+- **Resolver Rotation**: For Single-resolver escrows, seller or admin can call
+  `rotate_resolver` to replace an unresponsive resolver.
+- **Deadlock Resolution**: For Multi-resolver escrows, `resolve_deadlocked_dispute` provides
+  a simple-majority fallback after `DISPUTE_DEADLOCK_WINDOW`.
 - Operate resolver infrastructure with high availability and monitoring.
-- Store the resolver private key in a geographically distributed secret-management
-  system with recovery procedures.
+- Store resolver private keys in geographically distributed secret-management systems.
 
-### 3. Single Point of Trust
-Each escrow hard-codes its resolver at creation (`create_escrow(resolver: Address)`).
-There is no way to update the resolver after creation. A compromised resolver affects
-every escrow that named it.
+### 3. Resolver Architecture Selection
+Rather than relying on a single address with no recourse, contracts should choose the
+appropriate resolver model at creation:
+- **Single**: Simple, low-gas disputes; can be updated via `rotate_resolver`.
+- **Fallback**: Built-in redundancy via primary/backup time-delayed handover.
+- **Multi**: M-of-N committee eliminating single points of trust.
 
-**Mitigation**: Use a multisig contract as resolver so that compromise of one key is
-insufficient to forge a signature.
+**Mitigation**: Use multisig account contracts or multi/fallback configurations so that
+compromise or downtime of a single key cannot freeze or steal funds.
 
 ### 4. Evidence Integrity
 The 32-byte `evidence_hash` is committed on-chain but its content is off-chain. The
@@ -131,20 +150,22 @@ evidence package before signing, and refuse to sign if they cannot verify the so
    with key material that never leaves the secure boundary.
 4. Maintain a documented runbook for key recovery that has been tested at least annually.
 
-### Multisig Rotation
-Because `create_escrow` accepts any Soroban address as resolver, a multisig account
-contract can be passed directly. When the underlying signers change:
-- Deploy a new multisig account contract with the updated signer set.
-- Going forward, reference the new multisig address in new escrows.
-- Existing escrows retain the old resolver — coordinate resolution of in-flight disputes
-  before rotating away from the old multisig.
+### Multisig and Resolver Rotation
+Because contract entry points accept any Soroban address as resolver, multisig account
+contracts can be passed directly.
+- For Single-resolver escrows, `rotate_resolver` can be called by seller or admin to update
+  the resolver address on active escrows.
+- For new escrows, deploy the updated multisig account contract and reference it at creation.
+- For Multi and Fallback escrows, committee thresholds and backup time-gates provide
+  in-protocol redundancy.
 
 ---
 
 ## Fee Collector Key Rotation
 
-Unlike the resolver (which is per-escrow and immutable), the protocol-wide fee collector
-can be rotated by calling `update_fee_collector(new_collector)`. This requires
+Unlike per-escrow resolver configurations (which are configured per-escrow and can be
+rotated via `rotate_resolver` or handled via Multi/Fallback modes), the protocol-wide
+fee collector can be rotated by calling `update_fee_collector(new_collector)`. This requires
 authorization from the **current** fee collector, enabling a safe handoff:
 
 ```text
@@ -177,6 +198,7 @@ timely release and to prevent spamming the network with premature calls.
 
 | Component | Trust level | Rotation path |
 |---|---|---|
-| `resolver` | High — single point of dispute finality | Deploy new multisig; update in future escrows |
+| `resolver` | High — dispute finality (Single, Multi M-of-N committee, or Fallback primary/backup) | Single: `rotate_resolver`; Multi/Fallback: committee threshold / backup handover; or deploy new multisig |
 | `fee_collector` | Medium — controls protocol revenue | `update_fee_collector` (current collector must sign) |
 | Auto-release caller | None — permissionless, outcome is deterministic | N/A |
+
