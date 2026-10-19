@@ -22,6 +22,7 @@ bindings/dist/
 issues.txt
 upload_issues.sh
 WAVE_ISSUES.md
+temp_auto_push.bat
 recreate_issues.sh
 
 # Test generated snapshots
@@ -47,3 +48,5 @@ contracts/escrow/error.txt
 contracts/escrow/compile_err.txt
 contracts/escrow/cargo_test_err*.txt
 .env
+.gitignore
+branch_structure.json
