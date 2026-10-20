@@ -53,6 +53,7 @@ fuzz_target!(|data: &[u8]| {
         &VALID_FEE_BPS,
         &VALID_SHIPPING_WINDOW,
         &None::<soroban_sdk::String>,
+        &None::<u64>,
     ) else {
         return;
     };
