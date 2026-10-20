@@ -142,6 +142,16 @@ list. Consumers that persist a `token_count` (e.g. the indexer's
 `basket_escrows` table) must only write a row for the `Some([…])` case, using
 `len()` as `token_count`.
 
+### Basket size limits
+
+Basket escrows have a configurable maximum number of tokens:
+
+- **Default cap**: 20 tokens (if the admin has not configured a custom value)
+- **Admin configuration**: `queue_set_max_basket_size` / `execute_set_max_basket_size` (timelock)
+- **Error trigger**: `create_basket_escrow` returns `BasketTokenMismatch` if `tokens.len()` exceeds the configured limit
+
+The default cap of 20 is a safety bound to keep iteration costs within Soroban's transaction limits, since each basket entry issues a separate cross-contract token transfer during funding and payout.
+
 ## Funding and progressing an escrow
 
 ```ts

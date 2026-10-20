@@ -122,6 +122,16 @@ pub enum EscrowState {
 }
 ```
 
+### Basket escrow limits
+
+Basket escrows (created via `create_basket_escrow`) have a configurable maximum number of tokens:
+
+- **Default cap**: 20 tokens (fallback if admin has not configured a custom value)
+- **Admin configuration**: `queue_set_max_basket_size` / `execute_set_max_basket_size` (timelock protected)
+- **Error trigger**: `create_basket_escrow` returns `BasketTokenMismatch` if `tokens.len()` exceeds the configured limit
+
+The default of 20 is a safety bound to keep iteration costs within Soroban's transaction limits, since each basket entry issues a separate cross-contract token transfer during funding and payout.
+
 ---
 
 ## Getting Started
