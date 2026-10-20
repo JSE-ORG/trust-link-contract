@@ -775,6 +775,18 @@ to 10,000 bps) to split the payout across multiple payees.
   - `notes` is stored as the empty string when `None` is passed,
   - dispute deadline and funding fields set to zero defaults.
 
+#### `create_basket_escrow(seller, buyer, resolver, tokens, amounts, fee_bps, shipping_window, notes)`
+
+Creates an escrow that pays out multiple tokens to one seller. `tokens` and
+`amounts` must be non-empty vectors of equal length. The default maximum basket
+size is 20 tokens (`MAX_BASKET_SIZE`). The admin can change the configured
+maximum through the timelocked `queue_set_max_basket_size` and
+`execute_set_max_basket_size` methods; `get_max_basket_size` reports the
+effective limit. Exceeding that configured limit returns `BasketTokenMismatch`
+(42), as do empty or mismatched `tokens`/`amounts` vectors. Basket notes follow
+the same 500-character limit as single-escrow notes; `None` and empty notes are
+valid.
+
 #### `create_escrow_with_fallback(seller, buyer, primary_resolver, backup_resolver, dispute_deadline, token, amount, fee_bps, shipping_window)`
 
 - **Auth:** `seller.require_auth()`.

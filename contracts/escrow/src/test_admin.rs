@@ -130,6 +130,27 @@ fn test_set_platform_fee_cap_matches_production_limit() {
 }
 
 #[test]
+fn test_execute_set_platform_fee_cap_matches_production_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let delay = crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS;
+
+    client.queue_set_platform_fee(&admin, &200_u32);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + delay + 1);
+    client.execute_set_platform_fee(&admin, &200_u32);
+
+    client.queue_set_platform_fee(&admin, &201_u32);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + delay + 1);
+    assert_eq!(
+        client.try_execute_set_platform_fee(&admin, &201_u32),
+        Err(Ok(ContractError::PlatformFeeExceedsMax))
+    );
+}
+
+#[test]
 fn test_upgrade() {
     let env = Env::default();
     env.mock_all_auths();
