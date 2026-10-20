@@ -70,7 +70,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete state machine with guard
 
 | Function | Auth | Description |
 |---|---|---|
-| `create_escrow(seller, resolver, token, amount, shipping_window)` | seller | Creates escrow, assigns sequential `u32` ID. Buyer unknown until funding. |
+| `create_escrow(seller_or_payees, buyer, resolver, token, amount, fee_bps, resolver_fee_bps, shipping_window, notes)` | seller/payees | Creates escrow with optional buyer and notes. |
 | `fund_escrow(escrow_id, buyer)` | buyer | Transfers `amount` tokens from buyer to contract, sets `funded_at`. |
 | `mark_shipped(escrow_id)` | seller | Sets state to `Shipped`, starts delivery clock at `shipped_at`. |
 | `confirm_delivery(escrow_id)` | buyer | Transfers tokens from contract to seller, state ? `Completed`. |
@@ -753,7 +753,7 @@ A second call panics in current implementation.
 
 ### 8.2 Escrow management
 
-#### `create_escrow(seller, resolver, token, amount, fee_bps, shipping_window)`
+#### `create_escrow(seller_or_payees, buyer, resolver, token, amount, fee_bps, resolver_fee_bps, shipping_window, notes)`
 
 - **Auth:** `seller.require_auth()`.
 - **Guards:** amount > 0, fee_bps <= 300, not paused.

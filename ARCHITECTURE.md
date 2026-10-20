@@ -162,6 +162,9 @@ TrustLink charges fees along two independent axes:
 
 ## Multi-Resolver Dispute Resolution (M-of-N Voting)
 
+See [docs/resolvers.md](docs/resolvers.md) for single, M-of-N, and fallback
+schemes, including deadline gating and deadlock risks.
+
 An escrow's dispute resolver is not always a single address. `EscrowData.resolvers` holds a `ResolverSet`, which is one of three variants:
 
 | Variant | Created via | Resolver count | Vote threshold |

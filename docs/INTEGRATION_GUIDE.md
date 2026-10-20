@@ -80,6 +80,7 @@ const escrowId = await client.create_escrow(
   250,               // fee_bps — protocol fee, in basis points
   50,                // resolver_fee_bps
   86_400n,           // shipping_window, in seconds
+  null,              // notes (or an empty string)
 );
 
 // Split payout across two sellers
@@ -95,6 +96,7 @@ const splitEscrowId = await client.create_escrow(
   250,
   50,
   86_400n,
+  null,              // notes
 );
 ```
 

@@ -1,5 +1,8 @@
 # Multi-Resolver & Fallback Dispute Resolution Schemes
 
+For concise resolver guidance and operational deadlock risks, see
+[docs/resolvers.md](docs/resolvers.md).
+
 ## Overview
 
 The TrustLink Escrow Contract supports three flexible dispute resolution architectures:
