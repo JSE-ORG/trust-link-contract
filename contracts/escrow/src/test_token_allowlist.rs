@@ -102,6 +102,7 @@ fn allowlist_gates_create_basket_escrow() {
             &0_u32,
             &3_600_u64,
             &None::<String>,
+            &None::<u64>,
         )
         .is_ok());
 
@@ -121,6 +122,7 @@ fn allowlist_gates_create_basket_escrow() {
             &0_u32,
             &3_600_u64,
             &None::<String>,
+            &None::<u64>,
         ),
         Err(Ok(ContractError::TokenNotAllowed))
     );

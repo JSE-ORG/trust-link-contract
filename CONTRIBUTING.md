@@ -400,7 +400,7 @@ When you open a PR, the description must include:
 - [ ] **Tests** — What test cases did you add or modify?
 - [ ] **Breaking changes** — Does this change the contract ABI? (requires extra review)
 - [ ] **Issue reference** — `Closes #123` or `Relates to #123`
-- [ ] **Fee constants & audit scope** — When changing fee constants in `contracts/escrow/src/lib.rs` (`MAX_ESCROW_FEE_BPS`, `MAX_ARBITRATION_FEE_BPS`, `MAX_COMBINED_FEE_BPS`, `MAX_PLATFORM_FEE_BPS`), update the canonical audit scope in [`AUDIT_SCOPE.md`](AUDIT_SCOPE.md) and [`ERROR_CODES.md`](ERROR_CODES.md). Do not introduce duplicate audit scope files (e.g. under `audit/`).
+- [ ] **Fee constants & audit scope** — When changing fee constants in `contracts/escrow/src/lib.rs` (`MAX_ESCROW_FEE_BPS`, `MAX_ARBITRATION_FEE_BPS`, `MAX_COMBINED_FEE_BPS`, `MAX_PLATFORM_FEE_BPS`), update the canonical values and source line links in [`AUDIT_SCOPE.md`](AUDIT_SCOPE.md) together with [`ERROR_CODES.md`](ERROR_CODES.md). Do not introduce duplicate audit scope files (e.g. under `audit/`).
 
 ### PR Template
 

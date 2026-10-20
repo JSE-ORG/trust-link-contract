@@ -408,7 +408,7 @@ export class EscrowClient {
    * const escrowId = await client.create_basket_escrow(
    *   seller, buyer, resolver,
    *   [usdcAddress, xlmAddress], [1_000_000n, 500_000n],
-   *   feeBps, shippingWindow,
+   *   feeBps, shippingWindow, null, expiresAt,
    * );
    * ```
    */
@@ -420,6 +420,8 @@ export class EscrowClient {
     amounts: readonly bigint[],
     feeBps: number,
     shippingWindow: bigint,
+    notes: string | null = null,
+    expiresAt: bigint | null = null,
   ): Call<bigint> {
     return this.transport.invoke("create_basket_escrow", [
       seller,
@@ -429,6 +431,8 @@ export class EscrowClient {
       amounts,
       feeBps,
       shippingWindow,
+      notes,
+      expiresAt,
     ]);
   }
 

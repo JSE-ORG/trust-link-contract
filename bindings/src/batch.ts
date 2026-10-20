@@ -172,7 +172,7 @@ export class EscrowBatch {
     return this.push("rotate_resolver", [caller, escrowId, newResolver]);
   }
 
-  /** Batch `create_basket_escrow(seller, buyer, resolver, tokens, amounts, feeBps, shippingWindow)`. */
+  /** Batch `create_basket_escrow(seller, buyer, resolver, tokens, amounts, feeBps, shippingWindow, notes, expiresAt)`. */
   create_basket_escrow(
     seller: AddressLike,
     buyer: AddressLike | null,
@@ -181,6 +181,8 @@ export class EscrowBatch {
     amounts: readonly bigint[],
     feeBps: number,
     shippingWindow: bigint,
+    notes: string | null = null,
+    expiresAt: bigint | null = null,
   ): this {
     return this.push("create_basket_escrow", [
       seller,
@@ -190,6 +192,8 @@ export class EscrowBatch {
       amounts,
       feeBps,
       shippingWindow,
+      notes,
+      expiresAt,
     ]);
   }
 

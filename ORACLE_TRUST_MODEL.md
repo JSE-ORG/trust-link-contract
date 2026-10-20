@@ -53,7 +53,7 @@ Disputed ──[resolver signs resolve_dispute / committee votes]──> Complet
 | Resolver will not collude with one party | `resolve_dispute` / `vote` requires resolver auth | Funds stolen or wrongly withheld |
 | Resolver key is not compromised | Resolver signs every dispute settlement | Attacker can drain any disputed escrow |
 | Resolver is liveness-available | Disputes resolved by configured resolver set (or time-delayed backup / timeout) | If all resolvers go offline and no fallback is configured, funds could be delayed until `claim_dispute_timeout` |
-| Multi committee reaches a threshold | Votes are honest and sufficiently available; see [`tally_votes` comments in `contracts/escrow/src/internal.rs`](contracts/escrow/src/internal.rs) | Split or incomplete votes can deadlock an escrow indefinitely; see [`tally_votes` deadlock rationale and escape hatches](contracts/escrow/src/internal.rs) |
+| Multi committee reaches a threshold | Votes are honest and sufficiently available; see the [`tally_votes` threshold rationale](contracts/escrow/src/internal.rs#L87-L126) | Split or incomplete votes can stall normal resolution until a documented escape hatch is used; see the [`tally_votes` deadlock rationale](contracts/escrow/src/internal.rs#L87-L126) |
 | Fallback deadline is configured correctly | The backup is available when the deadline passes | A bad deadline can delay recovery or authorize the backup too early |
 | Auto-release caller has no privileged access | `auto_release` is permissionless | None — caller cannot redirect funds |
 
@@ -61,10 +61,10 @@ Disputed ──[resolver signs resolve_dispute / committee votes]──> Complet
 
 Multi-resolver voting is an M-of-N quorum, not a majority rule. A split vote can leave
 neither `Release` nor `Refund` at the threshold. In particular, unanimous configurations
-can freeze an escrow permanently after all resolvers have voted different ways, because no
-additional vote can change the tally. The implementation documents this known limitation
-and the implemented escape hatches in the `tally_votes` comments in
-[`contracts/escrow/src/internal.rs`](contracts/escrow/src/internal.rs) and
+can stall normal threshold resolution after all resolvers have voted different ways, because
+no additional vote can change the tally. The implementation documents this limitation
+and the implemented escape hatches in the [`tally_votes` comments in
+`contracts/escrow/src/internal.rs`](contracts/escrow/src/internal.rs#L87-L126) and
 [`contracts/escrow/src/types.rs`](contracts/escrow/src/types.rs):
 
 1. **`resolve_deadlocked_dispute`** — once a dispute has been split (threshold not met)

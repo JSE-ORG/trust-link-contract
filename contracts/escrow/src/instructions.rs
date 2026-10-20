@@ -173,16 +173,7 @@ impl Escrow {
         )?;
 
         if let Some(exp_data) = expires_at {
-            let schedule = crate::ExpirySchedule {
-                expires_at: exp_data,
-                grace_period,
-            };
-            let key = DataKey::PendingExpiry(escrow_id);
-            let ext = get_ttl_extension(&env);
-            env.storage().persistent().set(&key, &schedule);
-            env.storage()
-                .persistent()
-                .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
+            save_pending_expiry(&env, escrow_id, exp_data, grace_period);
         }
 
         Ok(escrow_id)
@@ -270,9 +261,7 @@ impl Escrow {
         }
 
         let created_at = escrow_created_at(&env, escrow_id);
-        let deadline = created_at
-            .checked_add(PENDING_EXPIRY_WINDOW)
-            .ok_or(ContractError::ArithmeticOverflow)?;
+        let deadline = pending_expiry_deadline(created_at)?;
         if env.ledger().timestamp() <= deadline {
             return Err(ContractError::ShippingWindowNotElapsed);
         }
@@ -1334,8 +1323,11 @@ impl Escrow {
     /// validated: must be > 0 and within `[MinAmount, MaxAmount]`. The primary
     /// `Escrow` record tracks `tokens[0]`/`amounts[0]`; the full basket
     /// is stored separately and readable via `get_basket_tokens`. `notes` is
-    /// capped at `MAX_NOTES_LEN`, same as `create_escrow`. Must be funded with
-    /// `fund_basket_escrow`. Emits `basket_escrow_created`.
+    /// capped at `MAX_NOTES_LEN`, same as `create_escrow`. When `expires_at` is
+    /// present, the expiration is stored on the escrow and as a
+    /// `PendingExpiry` schedule. Must be funded with `fund_basket_escrow`.
+    /// Emits `basket_escrow_created`.
+    #[allow(clippy::too_many_lines)]
     pub fn create_basket_escrow(
         env: Env,
         seller: Address,
@@ -1346,6 +1338,7 @@ impl Escrow {
         fee_bps: u32,
         shipping_window: u64,
         notes: Option<String>,
+        expires_at: Option<u64>,
     ) -> Result<u64, ContractError> {
         auth!(seller);
         ensure_action_not_paused(&env, Symbol::new(&env, "create_basket_escrow"))?;
@@ -1364,6 +1357,12 @@ impl Escrow {
         let notes = notes.unwrap_or_else(|| String::from_str(&env, ""));
         if notes.len() > MAX_NOTES_LEN {
             return Err(ContractError::InputTooLong);
+        }
+
+        if let Some(expiry) = expires_at {
+            if expiry <= env.ledger().timestamp() {
+                return Err(ContractError::InvalidExpiration);
+            }
         }
 
         // Validate every basket amount against the configured or default limits.
@@ -1454,11 +1453,15 @@ impl Escrow {
             delivered_at: None,
             tracking_id: None,
             notes,
-            expires_at: None,
+            expires_at,
             grace_period: 0,
         };
 
         save_escrow(&env, escrow_id, &escrow, None);
+
+        if let Some(expiry) = expires_at {
+            save_pending_expiry(&env, escrow_id, expiry, 0);
+        }
 
         // Persist all basket tokens/amounts alongside the primary Escrow
         let mut basket_entries: Vec<TokenEntry> = Vec::new(&env);

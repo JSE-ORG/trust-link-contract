@@ -1110,6 +1110,31 @@ pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), Contra
     Ok(())
 }
 
+/// Return the canonical deadline for an unfunded escrow's blanket expiry.
+///
+/// Keeping this arithmetic in one helper ensures funding and permissionless
+/// auto-cancellation use the same overflow behavior and window definition.
+pub(crate) fn pending_expiry_deadline(created_at: u64) -> Result<u64, ContractError> {
+    created_at
+        .checked_add(crate::PENDING_EXPIRY_WINDOW)
+        .ok_or(ContractError::ArithmeticOverflow)
+}
+
+/// Persist an explicit pending-expiry schedule and keep it alive for the
+/// configured contract TTL. Creation paths call this after saving the escrow.
+pub(crate) fn save_pending_expiry(env: &Env, escrow_id: u64, expires_at: u64, grace_period: u64) {
+    let schedule = crate::ExpirySchedule {
+        expires_at,
+        grace_period,
+    };
+    let key = DataKey::PendingExpiry(escrow_id);
+    let ext = get_ttl_extension(env);
+    env.storage().persistent().set(&key, &schedule);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
+}
+
 /// Check that a pending escrow has not expired before funding.
 /// Covers custom expiration (`escrow.expires_at`), explicit `PendingExpiry` schedule
 /// (via [`ensure_not_expired`]), and the blanket `PENDING_EXPIRY_WINDOW` after creation.
@@ -1118,9 +1143,7 @@ pub(crate) fn ensure_funding_not_expired(env: &Env, escrow_id: u64) -> Result<()
 
     let now = env.ledger().timestamp();
     let created_at = escrow_created_at(env, escrow_id);
-    let blanket_deadline = created_at
-        .checked_add(crate::PENDING_EXPIRY_WINDOW)
-        .ok_or(ContractError::ArithmeticOverflow)?;
+    let blanket_deadline = pending_expiry_deadline(created_at)?;
     if now > blanket_deadline {
         return Err(ContractError::EscrowExpired);
     }

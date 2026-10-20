@@ -227,6 +227,7 @@ fn gas_profile_create_basket_escrow() {
         &100_u32,
         &3600_u64,
         &None::<SorobanString>,
+        &None::<u64>,
     );
     let sample = diff(&env, &before);
     print_gas("create_basket_escrow(3 tokens)", &sample);

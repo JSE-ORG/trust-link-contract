@@ -254,6 +254,7 @@ fn basket_escrow_strict_mode_rejects_unapproved_resolver() {
         &0_u32,
         &3600_u64,
         &None::<soroban_sdk::String>,
+        &None::<u64>,
     );
     assert_eq!(result, Err(Ok(ContractError::UnauthorizedResolver)));
 }
@@ -293,6 +294,7 @@ fn basket_escrow_strict_mode_accepts_approved_resolver() {
         &0_u32,
         &3600_u64,
         &None::<soroban_sdk::String>,
+        &None::<u64>,
     );
     assert!(escrow_id > 0);
 }

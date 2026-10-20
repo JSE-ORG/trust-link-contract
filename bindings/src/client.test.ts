@@ -326,7 +326,17 @@ describe("create_basket_escrow", () => {
     const amounts = [AMOUNT, 500_000n];
     const id = client.create_basket_escrow(SELLER, BUYER, RESOLVER, tokens, amounts, FEE_BPS, SHIPPING_WINDOW);
     assert.equal(calls[0].method, "create_basket_escrow");
-    assert.deepEqual(calls[0].args, [SELLER, BUYER, RESOLVER, tokens, amounts, FEE_BPS, SHIPPING_WINDOW]);
+    assert.deepEqual(calls[0].args, [
+      SELLER,
+      BUYER,
+      RESOLVER,
+      tokens,
+      amounts,
+      FEE_BPS,
+      SHIPPING_WINDOW,
+      null,
+      null,
+    ]);
     assert.equal(id, ESCROW_ID);
   });
 });
