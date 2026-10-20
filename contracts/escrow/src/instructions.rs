@@ -1416,14 +1416,13 @@ impl Escrow {
         // Reject duplicate tokens: fund_escrow/payout_basket_tokens transfer
         // and pay out every basket entry individually, so a duplicated token
         // would be funded and paid out once per occurrence.
-        for i in 0..tokens.len() {
-            let token_i = tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
-            for j in (i + 1)..tokens.len() {
-                let token_j = tokens.get(j).ok_or(ContractError::IndexOutOfBounds)?;
-                if token_i == token_j {
-                    return Err(ContractError::BasketTokenMismatch);
-                }
+        // Single-pass O(n) check using a Map to track seen tokens.
+        let mut seen = soroban_sdk::Map::<Address, ()>::new(&env);
+        for token in tokens.iter() {
+            if seen.contains_key(&token) {
+                return Err(ContractError::BasketTokenMismatch);
             }
+            seen.set(token, ());
         }
 
         let escrow_id = crate::next_escrow_id(&env)?;

@@ -557,6 +557,11 @@ behaviour change. CI treats the committed snapshots as the source of truth:
 stale or omitted snapshots are caught when the regenerated output differs from
 what is committed.
 
+**CI snapshot drift job.** The `snapshot-drift` job in `.github/workflows/ci.yml`
+regenerates all snapshots in a clean checkout and fails if any committed snapshot
+differs from the regenerated output. This ensures stale snapshots cannot merge
+without detection.
+
 **No Git LFS required.** Snapshots are plain, human-readable JSON text files
 (a few tens of kilobytes). Commit them with normal `git add`; do **not** route
 them through Git LFS.

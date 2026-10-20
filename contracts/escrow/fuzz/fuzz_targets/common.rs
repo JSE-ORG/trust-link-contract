@@ -16,6 +16,7 @@ use soroban_sdk::{
     Symbol, Val, Vec,
 };
 use trustlink_escrow::{Escrow, EscrowClient, Payee};
+use arbitrary::{Arbitrary, Unstructured};
 
 /// Balance minted to every generated account. Large enough that funding is
 /// never the limiting factor, small enough to stay far from `i128` limits.
@@ -239,11 +240,17 @@ impl<'d> Reader<'d> {
         buf
     }
 
-    /// A uniformly distributed boolean: the low bit of a fuzzed byte. `u8` is
-    /// drawn uniformly from the input (zero-padded past the end), so `% 2 == 0`
-    /// yields an exact 50/50 split across both branches.
+    /// A uniformly distributed boolean using the arbitrary crate, which
+    /// provides standard uniform bool generation across the fuzz harness.
     pub fn bool(&mut self) -> bool {
-        self.u8() % 2 == 0
+        // Build a byte slice from the current position to use with arbitrary
+        let remaining = &self.data[self.pos..];
+        let mut unstructured = Unstructured::new(remaining);
+        // arbitrary::bool() consumes 1 byte and provides uniform distribution
+        let b = bool::arbitrary(&mut unstructured).unwrap_or(false);
+        // Advance position by 1 byte (what arbitrary consumes)
+        self.pos = self.pos.saturating_add(1);
+        b
     }
 
     /// A ledger timestamp bounded to 63 bits. Full-width `u64::MAX` timestamps

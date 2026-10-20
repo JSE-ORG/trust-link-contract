@@ -18,12 +18,14 @@ jobs:
             echo "Error: Duplicate audit scope file detected at audit/SCOPE.md. AUDIT_SCOPE.md is canonical."
             exit 1
           fi
+      - name: CI Check Parity
+        run: make check-ci-parity
       - name: Clippy
         run: make clippy
       - name: Build (lib)
         run: make build-debug
-      - name: Test (unit, lib)
-        run: make test
+      - name: Run canonical check target (fmt + clippy + test + error-codes + CI parity)
+        run: make check
       - name: "Test (all targets: unit + integration)"
         run: make test-all
       - name: Fuzz targets (type-check)
@@ -57,3 +59,23 @@ jobs:
           targets: wasm32v1-none
       - name: Build WASM
         run: make build-wasm
+
+  snapshot-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Regenerate snapshots
+        run: make test-all
+      - name: Check for snapshot drift
+        run: |
+          if [ -n "$(git status --porcelain contracts/escrow/test_snapshots/)" ]; then
+            echo "Error: Snapshot drift detected. The following snapshot files have changed:"
+            git status --porcelain contracts/escrow/test_snapshots/
+            echo ""
+            echo "To fix: Run 'make test-all' locally and commit the updated snapshots."
+            echo "See CONTRIBUTING.md section 'Snapshot Files' for details."
+            exit 1
+          fi
+        working-directory: contracts/escrow
