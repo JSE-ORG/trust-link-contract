@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::{create_funded_escrow, setup_contract};
-use crate::{ContractError, MAX_DESCRIPTION_LEN, MAX_TRACKING_ID_LEN};
+use crate::{ContractError, MAX_DESCRIPTION_LEN, MAX_NOTES_LEN, MAX_TRACKING_ID_LEN};
 use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String as SorobanString, Symbol};
 
 fn register_token(env: &Env) -> Address {
@@ -114,4 +114,64 @@ fn test_description_over_limit_reverts() {
         &BytesN::from_array(&env, &[0u8; 32]),
     );
     assert!(matches!(res, Err(Ok(ContractError::InputTooLong))));
+}
+
+#[test]
+fn test_basket_notes_length_boundaries_and_empty_values() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let mut tokens = soroban_sdk::Vec::new(&env);
+    tokens.push_back(token);
+    let mut amounts = soroban_sdk::Vec::new(&env);
+    amounts.push_back(100_i128);
+
+    let notes_at_limit = Some(make_string(&env, MAX_NOTES_LEN));
+    client.create_basket_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &3_600_u64,
+        &notes_at_limit,
+    );
+
+    let notes_over_limit = Some(make_string(&env, MAX_NOTES_LEN + 1));
+    let result = client.try_create_basket_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &3_600_u64,
+        &notes_over_limit,
+    );
+    assert!(matches!(result, Err(Ok(ContractError::InputTooLong))));
+
+    client.create_basket_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+    );
+    client.create_basket_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &3_600_u64,
+        &Some(SorobanString::from_str(&env, "")),
+    );
 }
