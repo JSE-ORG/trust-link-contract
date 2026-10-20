@@ -10,6 +10,7 @@ the create-escrow flow end to end and links out to it for everything else.
 - [Installation](#installation)
 - [Creating a transport](#creating-a-transport)
 - [Creating an escrow](#creating-an-escrow)
+- [Basket escrow limits](#basket-escrow-limits)
 - [Reading basket tokens](#reading-basket-tokens)
 - [Funding and progressing an escrow](#funding-and-progressing-an-escrow)
 - [Listening for events](#listening-for-events)
@@ -113,6 +114,18 @@ For a resolver committee or a primary/backup resolver instead of a single
 resolver, use `create_escrow_multi` or `create_escrow_with_fallback` — see the
 `EscrowClient` method table in
 [bindings/README.md](../bindings/README.md#api-reference).
+
+## Basket escrow limits
+
+`create_basket_escrow` allows up to 20 token entries by default
+(`MAX_BASKET_SIZE`). An admin can change the configured maximum through the
+timelocked `queue_set_max_basket_size` and `execute_set_max_basket_size`
+methods; use `get_max_basket_size` to read the effective limit. Creating a
+basket with more entries than that limit returns `BasketTokenMismatch` (42),
+the same error used for empty or mismatched `tokens` and `amounts` vectors.
+
+Basket `notes` are limited to 500 characters. `None` or an empty string is
+valid; longer notes return `InputTooLong` (17).
 
 ## Reading basket tokens
 
