@@ -89,7 +89,7 @@ sequenceDiagram
     participant B as Buyer
     participant R as Resolver
 
-    S->>C: create_escrow(token, amount, shipping_window)
+    S->>C: create_escrow(seller_or_payees, buyer, resolver, token, amount, fee_bps, resolver_fee_bps, shipping_window, notes)
     C-->>S: escrow_id
 
     B->>C: fund_escrow(escrow_id)

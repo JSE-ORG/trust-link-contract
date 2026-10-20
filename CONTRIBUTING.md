@@ -490,8 +490,20 @@ mod tests {
         let env = Env::default();
         // ... set up contract, vendor, buyer, token ...
 
-        // 1. Create escrow
-        let escrow_id = client.create_escrow(&vendor, &buyer, &token, &amount, &window);
+        // 1. Create escrow — the 9-argument interface:
+        //    (seller_or_payees, buyer, resolver, token, amount,
+        //     fee_bps, resolver_fee_bps, shipping_window, notes)
+        let escrow_id = client.create_escrow(
+            &vendor,      // seller_or_payees: an Address or a Vec<Payee>
+            &Some(buyer), // buyer: Option<Address> — None leaves it open to fund
+            &resolver,
+            &token,
+            &amount,
+            &50,          // fee_bps
+            &50,          // resolver_fee_bps
+            &3600,        // shipping_window, in seconds
+            &None,        // notes: Option<String>
+        );
 
         // 2. Buyer funds
         client.fund_escrow(&escrow_id);

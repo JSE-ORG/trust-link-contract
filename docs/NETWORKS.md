@@ -178,23 +178,32 @@ stellar contract invoke \
 
 ### TypeScript/JavaScript (Bindings)
 ```typescript
-import { Contract } from '@trustlink/contract-bindings';
-import { SorobanContextType, useSorobanReact } from '@soroban-react/core';
+import { createFreighterTransport, EscrowClient } from '@trustlink/contract-bindings';
 
-const contract = new Contract({
+const transport = await createFreighterTransport({
   contractId: 'CXXX...',
+  networkPassphrase: 'Test SDF Network ; September 2015',
   rpcUrl: 'https://soroban-testnet.stellar.org',
-  networkPassphrase: 'Test SDF Network ; September 2015'
 });
+
+const client = new EscrowClient(transport);
 
 // Create escrow
-const escrowId = await contract.create_escrow({
-  seller: 'G...',
-  token: 'C...',
-  amount: '1000',
-  shipping_window: '3600'
-});
+const escrowId = await client.create_escrow(
+  sellerAddress,   // Address, or a Payee[] split across several payees
+  buyerAddress,    // null leaves the escrow open for anyone to fund
+  resolverAddress,
+  tokenAddress,
+  1000n,           // amount, i128 as a bigint
+  50,              // fee_bps
+  50,              // resolver_fee_bps
+  3600n,           // shipping_window, in seconds
+  null,            // notes — optional, max 500 chars
+);
 ```
+
+See [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) for the full create-fund-settle
+flow, and [`bindings/README.md`](../bindings/README.md) for every client method.
 
 ### Python/Backend
 ```python

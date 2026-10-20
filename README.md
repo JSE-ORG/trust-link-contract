@@ -379,15 +379,19 @@ stellar contract deploy \
 ### Invoke Examples
 
 ```bash
-# Create escrow (buyer unknown yet)
+# Create escrow (buyer is optional in the contract; pass one to restrict funding)
 stellar contract invoke \
   --id $CONTRACT_ID --source seller --network testnet -- \
   create_escrow \
-  --seller $SELLER_ADDR \
+  --seller_or_payees $SELLER_ADDR \
+  --buyer $BUYER_ADDR \
   --resolver $RESOLVER_ADDR \
   --token $USDC_CONTRACT \
   --amount 50000000 \
-  --shipping_window 604800
+  --fee_bps 50 \
+  --resolver_fee_bps 50 \
+  --shipping_window 604800 \
+  --notes "optional note, max 500 chars"
 
 # Fund escrow (buyer connects wallet)
 stellar contract invoke \
@@ -410,12 +414,19 @@ stellar contract invoke \
 stellar contract invoke \
   --id $CONTRACT_ID --source seller --network testnet -- \
   create_escrow \
-  --seller $SELLER_ADDR \
+  --seller_or_payees $SELLER_ADDR \
+  --buyer $BUYER_ADDR \
   --resolver $RESOLVER_ADDR \
   --token $USDC_CONTRACT \
   --amount 50000000 \
-  --shipping_window 604800
+  --fee_bps 50 \
+  --resolver_fee_bps 50 \
+  --shipping_window 604800 \
+  --notes "optional note, max 500 chars"
 ```
+
+The full signature and the guards each argument is checked against are in
+[8.2 Escrow management](#82-escrow-management).
 
 #### Fund escrow
 ```bash

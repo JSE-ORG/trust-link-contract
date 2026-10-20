@@ -58,7 +58,7 @@
 
 ## Entry Points
 
-1. **create_escrow(seller, payees, resolver, token, amount, fee_bps, shipping_window)** → u64
+1. **create_escrow(seller_or_payees, buyer, resolver, token, amount, fee_bps, resolver_fee_bps, shipping_window, notes)** → u64
 2. **fund_escrow(escrow_id, buyer)** → Result
 3. **confirm_delivery(escrow_id)** → Result
 4. **raise_dispute(escrow_id, category, reason, evidence_hash)** → Result
