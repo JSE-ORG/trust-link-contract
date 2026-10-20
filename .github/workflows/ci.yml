@@ -24,7 +24,7 @@ jobs:
         run: make build-debug
       - name: Test (unit, lib)
         run: make test
-      - name: Test (all targets: unit + integration)
+      - name: "Test (all targets: unit + integration)"
         run: make test-all
       - name: Fuzz targets (type-check)
         run: make fuzz-check
