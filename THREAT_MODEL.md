@@ -95,7 +95,7 @@ TrustLink is a three-party escrow contract with seller, buyer, and resolver role
 - Code 13 (`DeliveryBeforeDisputeWindow`) — `auto_release` called before `dispute_deadline` passes
 - Code 24 (`DisputeWindowStillOpen`) — `confirm_delivery` called before `dispute_deadline`, or `raise_dispute` called after `dispute_deadline`
 
-**Residual Risk**: Low. Separate windows; shipping window is hardcoded.
+**Residual Risk**: Low. Separate windows; shipping window is an explicit caller-supplied parameter validated against `MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW` (1s to ~2 years) at escrow creation (`contracts/escrow/src/lib.rs:230-234`, `contracts/escrow/src/internal.rs:312-317`, `contracts/escrow/src/internal.rs:1317`, `contracts/escrow/src/instructions.rs:1362`), preventing 0-length or unbounded windows.
 
 ---
 

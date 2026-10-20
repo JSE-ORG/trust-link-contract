@@ -217,3 +217,229 @@ fn auto_cancel_pending_on_funded_escrow_returns_invalid_state() {
         "auto_cancel_pending on a non-Pending escrow must return InvalidState",
     );
 }
+
+#[test]
+fn test_ensure_funding_not_expired_helper_exercised_via_both_fund_paths() {
+    // Issue #1170: Verify that ensure_funding_not_expired canonical helper
+    // governs both fund_escrow and fund_basket_escrow across:
+    // 1. Blanket PENDING_EXPIRY_WINDOW expiry
+    // 2. Explicit PendingExpiry schedule expiry
+    // 3. Custom escrow.expires_at expiry
+    // 4. Successful funding before expiry
+    use crate::{DataKey, EscrowData, ExpirySchedule};
+
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    let (client, seller, buyer, resolver, _fee_collector, token_addr) = setup(&env);
+    token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &100_000_i128);
+
+    // ── 1. Blanket PENDING_EXPIRY_WINDOW expiry ─────────────────────────────
+    let payees = single_payee(&env, &seller);
+    let payees_val = payees.into_val(&env);
+    let std_escrow_1 = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token_addr,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    let mut basket_tokens = Vec::new(&env);
+    basket_tokens.push_back(token_addr.clone());
+    let mut basket_amounts = Vec::new(&env);
+    basket_amounts.push_back(1_000_i128);
+    let basket_escrow_1 = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &basket_tokens,
+        &basket_amounts,
+        &0_u32,
+        &3600_u64,
+        &None,
+    );
+
+    // Advance past blanket 7-day window
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1_000_000 + PENDING_EXPIRY_WINDOW + 1;
+    });
+
+    assert_eq!(
+        client.try_fund_escrow(&std_escrow_1, &buyer),
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_escrow must be rejected after blanket expiry"
+    );
+    assert_eq!(
+        client.try_fund_basket_escrow(&basket_escrow_1, &buyer),
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_basket_escrow must be rejected after blanket expiry"
+    );
+
+    // ── 2. Explicit PendingExpiry schedule expiry ───────────────────────────
+    env.ledger().with_mut(|li| {
+        li.timestamp = 2_000_000;
+    });
+    let std_escrow_2 = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token_addr,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    let basket_escrow_2 = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &basket_tokens,
+        &basket_amounts,
+        &0_u32,
+        &3600_u64,
+        &None,
+    );
+
+    let schedule = ExpirySchedule {
+        expires_at: 2_000_500,
+        grace_period: 0,
+    };
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingExpiry(std_escrow_2), &schedule);
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingExpiry(basket_escrow_2), &schedule);
+    });
+
+    // Advance past the schedule's expires_at (but within blanket window)
+    env.ledger().with_mut(|li| {
+        li.timestamp = 2_000_501;
+    });
+
+    assert_eq!(
+        client.try_fund_escrow(&std_escrow_2, &buyer),
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_escrow must be rejected after PendingExpiry schedule elapses"
+    );
+    assert_eq!(
+        client.try_fund_basket_escrow(&basket_escrow_2, &buyer),
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_basket_escrow must be rejected after PendingExpiry schedule elapses"
+    );
+
+    // ── 3. Custom escrow.expires_at expiry ──────────────────────────────────
+    env.ledger().with_mut(|li| {
+        li.timestamp = 3_000_000;
+    });
+    let std_escrow_3 = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token_addr,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    let basket_escrow_3 = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &basket_tokens,
+        &basket_amounts,
+        &0_u32,
+        &3600_u64,
+        &None,
+    );
+
+    // Populate custom expires_at directly in escrow data
+    env.as_contract(&client.address, || {
+        let mut data_std: EscrowData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(std_escrow_3))
+            .unwrap();
+        data_std.expires_at = Some(3_000_300);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(std_escrow_3), &data_std);
+
+        let mut data_basket: EscrowData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(basket_escrow_3))
+            .unwrap();
+        data_basket.expires_at = Some(3_000_300);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(basket_escrow_3), &data_basket);
+    });
+
+    // Advance to custom expires_at
+    env.ledger().with_mut(|li| {
+        li.timestamp = 3_000_300;
+    });
+
+    assert_eq!(
+        client.try_fund_escrow(&std_escrow_3, &buyer),
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_escrow must be rejected at/after custom expires_at"
+    );
+    assert_eq!(
+        client.try_fund_basket_escrow(&basket_escrow_3, &buyer),
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_basket_escrow must be rejected at/after custom expires_at"
+    );
+
+    // ── 4. Both paths succeed before expiry ──────────────────────────────────
+    env.ledger().with_mut(|li| {
+        li.timestamp = 4_000_000;
+    });
+    let std_escrow_4 = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token_addr,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    let basket_escrow_4 = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &basket_tokens,
+        &basket_amounts,
+        &0_u32,
+        &3600_u64,
+        &None,
+    );
+
+    let schedule_4 = ExpirySchedule {
+        expires_at: 4_001_000,
+        grace_period: 0,
+    };
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingExpiry(std_escrow_4), &schedule_4);
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingExpiry(basket_escrow_4), &schedule_4);
+    });
+
+    // Fund before expiry
+    env.ledger().with_mut(|li| {
+        li.timestamp = 4_000_100;
+    });
+
+    client.fund_escrow(&std_escrow_4, &buyer);
+    client.fund_basket_escrow(&basket_escrow_4, &buyer);
+
+    assert_eq!(client.get_escrow(&std_escrow_4).state, EscrowState::Funded);
+    assert_eq!(
+        client.get_escrow(&basket_escrow_4).state,
+        EscrowState::Funded
+    );
+}

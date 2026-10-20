@@ -136,8 +136,11 @@ hooks-install: ## Install pre-commit git hooks
 hooks-uninstall: ## Uninstall git hooks
 	@git config --unset core.hooksPath
 	@echo "Git hooks uninstalled. Using default .git/hooks/ directory."
+# End-to-End integration tests across a running Stellar network (devnet or testnet).
+# Excluded from CI due to external network and container dependencies; see CONTRIBUTING.md and .github/workflows/ci.yml.
+# Prerequisites: stellar CLI, jq, and a running network (`make testnet` or testnet).
 .PHONY: e2e
-e2e:
+e2e: ## Run end-to-end integration scripts against localnet or testnet
 	./e2e/01_setup_and_deploy.sh
 	./e2e/02_happy_path.sh
 	./e2e/03_dispute_path.sh

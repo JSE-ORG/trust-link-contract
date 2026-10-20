@@ -1113,6 +1113,7 @@ pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), Contra
 /// Check that a pending escrow has not expired before funding.
 /// Covers custom expiration (`escrow.expires_at`), explicit `PendingExpiry` schedule
 /// (via [`ensure_not_expired`]), and the blanket `PENDING_EXPIRY_WINDOW` after creation.
+/// Shared by `fund_escrow` and `fund_basket_escrow` (Issues #1096, #1169, #1170).
 pub(crate) fn ensure_funding_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
     ensure_not_expired(env, escrow_id)?;
 

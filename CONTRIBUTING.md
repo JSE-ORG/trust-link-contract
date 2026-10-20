@@ -354,6 +354,7 @@ make check
 
 - **Linting:** `make clippy` — the pre-commit hook runs it, CI runs it, and it is the only clippy scope that gates this repository (`cargo clippy --lib -- -D warnings -W clippy::pedantic` with the documented Soroban allow-list in the Makefile). If you see any other clippy invocation in a script or doc, it is not a gate.
 - **Tests:** `make test` for the fast unit-only loop; `make test-all` runs every test target (unit + integration) and is what CI enforces before merge. The integration tests in `contracts/escrow/tests/` declare `required-features = ["testutils"]` in `contracts/escrow/Cargo.toml`, so bare `cargo test --tests` **skips** them with a note instead of failing — pass the feature (or use `make test-all`) to run them.
+- **End-to-End Tests (`make e2e`):** The repository provides shell-based end-to-end scripts in `e2e/` (`01_setup_and_deploy.sh` through `04_cancel_path.sh`). These scripts execute against a live Stellar network (requiring the `stellar` CLI, `jq`, and either `make testnet` or public testnet). `make e2e` is **excluded from CI** because public testnet / Friendbot introduces rate limits and network flakiness, while local devnet containers introduce heavy CI spin-up latency. Instead, full multi-step protocol flows are deterministically covered in CI by `make test-all` (`contracts/escrow/tests/*`). Contributors can run `make e2e` locally against devnet or testnet.
 
 These checks — `fmt`, `clippy`, `test`, `test-all`, `fuzz-check`, `xtask-test`, `indexer-test`, and `build-wasm` — are exactly what the CI pipeline runs, so running them locally before pushing means no CI surprises. The lib-target build/test commands work on any platform (Windows, Linux, macOS).
 
@@ -470,6 +471,7 @@ Tests use the `soroban_sdk::testutils` environment. There are two places tests l
 
 - **Unit / focused tests** — files named `test_*.rs` in `contracts/escrow/src/`, each registered with `mod test_*;` in `lib.rs`. Most tests live here, grouped by feature (fees, disputes, auth, TTL, …). Run with `make test` (or `cargo test --lib`).
 - **Integration tests** — files in `contracts/escrow/tests/` (`happy_path.rs`, `edge_cases.rs`, `auth_audit.rs`, `cancel_events.rs`, `missing_features_integration.rs`) that exercise full end-to-end flows. Run with `make test-all` (or `cargo test --tests --features trustlink-escrow/testutils`).
+- **End-to-end (e2e) tests** — scripts in `e2e/` (`01_setup_and_deploy.sh` through `04_cancel_path.sh`) that interact with a live network (`local` or `testnet`) using `stellar` CLI and `jq`. Run with `make e2e` after spinning up devnet with `make testnet`. Excluded from CI to eliminate flaky external network dependencies.
 
 > **Why the feature flag?** The integration tests call admin entry points that the
 > contract compiles only under `#[cfg(any(test, feature = "testutils"))]`. Each

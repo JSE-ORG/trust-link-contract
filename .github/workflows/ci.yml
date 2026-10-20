@@ -1,6 +1,16 @@
 name: CI
 on: [push, pull_request]
 
+# Note on E2E integration test exclusion (Issue #1168):
+# The `make e2e` target (e2e/01_setup_and_deploy.sh - e2e/04_cancel_path.sh) is intentionally
+# excluded from this CI workflow. The e2e scripts run live transactions against an active Stellar
+# network (defaulting to STELLAR_NETWORK=testnet or a local Docker Quickstart container) and require
+# external dependencies (stellar CLI, jq, Friendbot funding). Running e2e against the public testnet
+# in CI is excluded to prevent flaky failures from public network rate limits, latency, or resets.
+# Running against local dockerized quickstart is excluded to keep CI runs fast and lightweight.
+# Deterministic end-to-end contract protocol verification is instead enforced in CI via `make test-all`
+# (contracts/escrow/tests/*), which exercises multi-step integration flows in-memory without external network dependencies.
+
 jobs:
   check:
     runs-on: ubuntu-latest
