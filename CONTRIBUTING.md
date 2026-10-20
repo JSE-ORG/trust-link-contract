@@ -282,6 +282,25 @@ if escrow.state != EscrowState::Funded {
 }
 ```
 
+### Panic-Free Contract Code Policy
+
+**All non-test contract code must be panic-free.** Panics are unrecoverable, produce no meaningful error codes, and abort the contract execution. This breaks the escrow state machine and leaves users' funds in an undefined state.
+
+**Forbidden in production code:**
+- `panic!()`
+- `unwrap()` on `Option<T>` or `Result<T, E>`
+- `expect()` on `Option<T>` or `Result<T, E>`
+
+**What to do instead:**
+- For mandatory values (non-negotiable preconditions): use explicit validation and return `Err(ContractError::...)` before any unsafe operation.
+- For fallible operations: handle the `Result` explicitly with `match` or propagate the error up with `?`.
+- For `Option<T>` with a reasonable default: use `.unwrap_or()` or `.unwrap_or_else()`.
+
+**Enforcement:**
+The canonical `make clippy` gate includes `clippy::panic`, `clippy::unwrap_in_result`, and `clippy::expect_used` lints at warning level, surfaced as hard errors by the `-D warnings` flag. CI enforces this on every commit — any use of these patterns in non-test code will fail the build.
+
+Test code (files in `contracts/escrow/tests/` and `src/test_*.rs` modules under `#[cfg(test)]`) may use `unwrap()` and `panic!()` for clarity.
+
 ---
 
 ## Building & Testing
