@@ -269,11 +269,24 @@ Admin can pause the contract and update fee parameters. Admin compromises primar
 
 The escrow lifecycle is a finite state machine. The escrow states are defined in `contracts/escrow/src/types.rs`:
 
+- `Pending` — the escrow exists but holds no funds yet; the seller may cancel it, and it becomes `Expired` if `reclaim_expired` runs after the expiry window.
+- `Funded` — the buyer deposited `amount`; the dispute window is open and the seller may `mark_shipped`.
+- `Shipped` — the seller recorded a tracking id; the delivery window is running toward auto-release.
+- `Completed` — funds were released to the payees (buyer confirmed delivery, `auto_release` fired, or a dispute was finalized for the seller).
+- `Disputed` — the buyer opened a dispute; funds are frozen pending a resolver decision.
+- `RefundRequested` — the buyer asked for a refund; the seller must approve it, which moves the escrow to `Refunded`.
+- `Refunded` — the amount was returned to the buyer.
+- `Canceled` — the escrow was canceled before funding; no money ever moved.
+- `PendingFinalization` — a resolution is recorded and the appeal window is running; `finalize_dispute` settles it.
+- `Expired` — a `Pending` escrow was reclaimed past its expiry without ever being funded.
+
+The transition graph for these ten states is shown in the [state machine diagram](#state-machine) above.
+
+### Build & Test
+
 - Rust 1.75+
 - [Stellar CLI](https://developers.stellar.org/docs/tools/stellar-cli) 21+
 - wasm32v1-none target (`rustup target add wasm32v1-none`)
-
-### Build & Test
 
 ```bash
 # Build for Soroban
@@ -316,13 +329,6 @@ with longer runs on a nightly schedule. See
 make fuzz-build                   # compile all targets
 FUZZ_TIME=60 make fuzz            # run each target for 60s
 ```
-- `Pending`
-- `Funded`
-- `Shipped`
-- `Completed`
-- `Disputed`
-- `Refunded`
-- `Canceled`
 
 ### State transitions in practice
 
@@ -755,13 +761,18 @@ A second call panics in current implementation.
 
 #### `create_escrow(seller_or_payees, buyer, resolver, token, amount, fee_bps, resolver_fee_bps, shipping_window, notes)`
 
-- **Auth:** `seller.require_auth()`.
-- **Guards:** amount > 0, fee_bps <= 300, not paused.
+The production entry point. The first argument is polymorphic: it accepts either
+a single seller `Address` or a `Vec<Payee>` (`{ address, bps }` shares summing
+to 10,000 bps) to split the payout across multiple payees.
+
+- **Auth:** the first payee's `require_auth()` — the seller in the single-address form.
+- **Guards:** not paused; `amount` within the admin-configured `[min_amount, max_amount]` bounds; `fee_bps` and `resolver_fee_bps` each <= 300; `shipping_window` in `[1, 63_072_000]` seconds; `notes` <= 500 characters; resolver distinct from every payee and from the buyer (`ConflictingRoles` otherwise); resolver present in the approved registry when strict mode is enabled (`UnauthorizedResolver` otherwise); `token` on the allowlist when the allowlist is enabled (`TokenNotAllowed` otherwise); at most 10 payees whose `bps` sum to exactly 10,000 (`PayeeBpsMismatch` otherwise).
 - **Effects:**
   - creates new escrow record with unique id from `EscrowCounter`,
   - resolver set configured as `ResolverSet::Single(resolver)`,
   - state = `Pending`,
-  - buyer is unset (`None`),
+  - `buyer` is stored as given: `None` leaves the escrow open for anyone to fund, while `Some(buyer)` restricts funding to that address (`fund_escrow` rejects any other caller with `NotAuthorizedBuyer`),
+  - `notes` is stored as the empty string when `None` is passed,
   - dispute deadline and funding fields set to zero defaults.
 
 #### `create_escrow_with_fallback(seller, buyer, primary_resolver, backup_resolver, dispute_deadline, token, amount, fee_bps, shipping_window)`
@@ -868,27 +879,23 @@ Whether clients use this function depends on the deployment; the contract also p
 
 ## 9. Error codes
 
-The contract uses Soroban typed errors defined in `contracts/escrow/src/types.rs`:
+The contract uses Soroban typed errors, defined as the `ContractError` enum in
+`contracts/escrow/src/errors.rs`. The numeric values are stable ABI — they are
+part of the deployed contract interface and must never be renumbered.
 
-- `InvalidAmount = 1`
-- `InsufficientBalance = 2`
-- `EscrowNotFound = 3`
-- `InvalidState = 4`
-- `NotAuthorized = 5`
-- `AlreadyInitialized = 6`
-- `FeeExceedsMax = 7`
-- `EscrowHasNoBuyer = 8`
-- `ShippingWindowNotElapsed = 9`
-- `InvalidEvidenceHash = 10`
-- `DisputeNotFound = 11`
-- `ArithmeticError = 12`
-- `DisputeWindowClosed = 13`
-- `ContractPaused = 14`
-- `ArithmeticOverflow = 15`
-- `InvalidStateTransition = 16`
-- `InputTooLong = 17`
+**The canonical reference is [`ERROR_CODES.md`](ERROR_CODES.md).** That file
+lists every error code with its numeric value, the exact condition that
+triggers it, and the remediation for it. It is the single source of truth for
+error handling — read it rather than relying on a partial list here.
 
-Client applications should handle these errors by showing user-friendly messages or by retrying/correcting inputs depending on the code.
+The TypeScript bindings mirror the same enum in
+[`bindings/src/errors.ts`](bindings/src/errors.ts); `scripts/check-error-codes.mjs`
+enforces that the two stay in sync in CI, and
+[`bindings/src/errors.ts`](bindings/src/errors.ts) additionally maps codes to
+typed exceptions for client applications.
+
+Client applications should handle these errors by showing user-friendly messages
+or by retrying/correcting inputs depending on the code.
 
 ---
 

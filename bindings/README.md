@@ -121,7 +121,7 @@ on `EscrowClient` (hover in your editor).
 
 | Method | Description |
 |---|---|
-| `create_escrow(payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow)` | Creates a single-token escrow, returns its `bigint` id |
+| `create_escrow(payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow, notes?)` | Creates a single-token escrow, returns its `bigint` id. `payees` is a single seller address or a `Payee[]` split; `notes` is optional (defaults to `null`) |
 | `create_basket_escrow(seller, buyer, resolver, tokens, amounts, feeBps, shippingWindow)` | Creates a multi-token escrow |
 | `batch_create_escrow(seller, escrows)` | Creates many escrows for one seller in one tx |
 | `fund_escrow(escrowId, buyer)` | Buyer deposits the amount, opens the dispute window |
