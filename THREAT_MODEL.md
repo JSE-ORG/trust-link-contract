@@ -282,6 +282,54 @@ proof.
 
 ---
 
+### THREAT 14: Unauthorized Timelock Execution
+
+**Scenario**: Non-proposer admin executes a timelock operation queued by a different admin.
+
+**Attack Vector**:
+- Admin A calls `queue_set_arbitration_fee(500)`, queuing a proposal
+- Admin A is rotated out; Admin B takes over
+- Admin B calls `execute_set_arbitration_fee()` after 24-hour delay
+- Unintended fee change executed without original proposer's involvement
+
+**Mitigation**:
+- ✅ `execute_timelock_op` requires `caller == proposal.proposer` (see `admin.rs:65-90`)
+- ✅ Only the original proposer can execute their own queued operation
+- ✅ New admin cannot execute old admin's proposals
+- ✅ New admin must queue their own proposal and wait the full timelock delay
+- ✅ If admin role is rotated, pending proposals are orphaned; only original admin can execute
+
+**Permission Model**:
+- `queue_<operation>`: Callable by current admin; creates a proposal with proposer = caller
+- `execute_<operation>`: Callable by original proposer only after delay; reverts if caller ≠ proposer
+- `cancel_timelock_op`: Callable by current admin; bypasses proposer check to allow cancellation of orphaned proposals
+
+**Residual Risk**: Very Low. Proposer check enforced at execute time.
+
+---
+
+### THREAT 15: Unauthorized Timelock Cancellation
+
+**Scenario**: Non-admin user cancels a pending timelock proposal.
+
+**Attack Vector**:
+- Admin queues `queue_set_admin(new_admin)`
+- Attacker calls `cancel_timelock_op(SetAdmin)` before delay expires
+- Proposal cancelled; new admin never takes effect
+
+**Mitigation**:
+- ✅ `cancel_timelock_op` checks `caller == admin` via `require_admin(&env)` (see `admin.rs:802-815`)
+- ✅ Only current admin can cancel pending proposals
+- ✅ Non-admin callers rejected with `NotAuthorized` error
+- ✅ Allows legitimate admin to cancel accidental or superseded proposals
+
+**Permission Model**:
+- `cancel_timelock_op`: Callable by current admin only; requires `caller.require_auth()`
+
+**Residual Risk**: Very Low. Admin check enforced at entry.
+
+---
+
 ## Threat Matrix
 
 | Threat | Impact | Likelihood | Mitigation | Risk |
@@ -299,6 +347,8 @@ proof.
 | Fee > amount | Medium | Very Low | Fee caps | Very Low |
 | Multiple disputes | High | Very Low | State machine | Very Low |
 | Early confirmation | Medium | Low | By design | Low |
+| Unauthorized timelock execution | High | Very Low | Proposer check | Very Low |
+| Unauthorized timelock cancellation | High | Very Low | Admin check | Very Low |
 
 ## Assumptions & Trust Model
 

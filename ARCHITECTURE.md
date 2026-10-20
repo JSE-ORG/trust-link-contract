@@ -346,6 +346,60 @@ Indexers expecting complete history for high-churn escrows should either:
 
 ---
 
+## Timelock Permission Model
+
+All admin-level mutations (fee changes, upgrades, resolver registry changes, pause/unpause, TTL extension, token allowlist) are guarded by a **24-hour timelock delay**. This enforces a two-step workflow:
+
+1. **Queue**: Admin calls `queue_<operation>(params)` to propose the change.
+   - A proposal record is created with:
+     - `proposer`: the address that queued the operation (the calling admin)
+     - `ready_at`: current timestamp + 24-hour delay
+     - `params_hash`: SHA-256 digest of the params vector
+   - Emits `emit_timelock_queued` event
+
+2. **Execute**: After 24 hours, any address can call `execute_<operation>(params)` to finalize.
+   - Only the **original proposer** (the address that queued) can execute
+   - Validates the params hash matches the queued proposal
+   - Returns error `NotAuthorized` if `caller != proposal.proposer`
+   - Deletes the proposal record and applies the operation
+   - Emits `emit_timelock_executed` event
+
+3. **Cancel**: The **current admin** can cancel any pending proposal via `cancel_timelock_op(operation)`.
+   - Requires admin auth; non-admin callers rejected with `NotAuthorized`
+   - Allows admins to cancel accidental or superseded proposals
+   - Emits `emit_timelock_cancelled` event
+
+### Permission Summary
+
+| Operation | Queue | Execute | Cancel |
+|---|---|---|---|
+| `queue_*` (any mutation) | Current admin | Original proposer (after 24h) | Current admin |
+| `cancel_timelock_op` | — | Current admin | — |
+
+### Admin Rotation Scenario
+
+If the admin role is rotated before a proposal executes:
+
+- **Old admin** queued a proposal; **new admin** takes over
+- **New admin** cannot execute old admin's proposal (proposer check fails)
+- **New admin** can cancel old admin's proposal via `cancel_timelock_op`
+- **New admin** must queue their own proposal and wait the full 24-hour delay
+
+This prevents new admins from executing unreviewed proposals from prior admins.
+
+### Implementation
+
+All timelock operations are routed through `execute_timelock_op(env, caller, operation, params)` in `contracts/escrow/src/admin.rs:65–90`. Key validation:
+
+```rust
+// Verify that the caller is the original proposer (#975)
+if *caller != proposal.proposer {
+    return Err(ContractError::NotAuthorized);
+}
+```
+
+---
+
 ## Authorization Model
 
 | Operation | Who must sign |
