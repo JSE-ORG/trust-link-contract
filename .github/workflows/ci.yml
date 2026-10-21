@@ -25,3 +25,58 @@ jobs:
           targets: wasm32v1-none
       - name: Build WASM
         run: make build-wasm
+
+  bindings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build contract
+        run: cargo build --lib
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        working-directory: ./bindings
+        run: npm ci
+      - name: Typecheck bindings
+        working-directory: ./bindings
+        run: npm run typecheck
+      - name: Test bindings
+        working-directory: ./bindings
+        run: npm test
+
+  xtask:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build contract
+        run: cargo build --lib
+      - name: Test xtask
+        run: make xtask-test
+
+  indexer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build contract
+        run: cargo build --lib
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        working-directory: ./indexer
+        run: npm ci
+      - name: Typecheck indexer
+        working-directory: ./indexer
+        run: npm run typecheck
+      - name: Test indexer
+        working-directory: ./indexer
+        run: npm test

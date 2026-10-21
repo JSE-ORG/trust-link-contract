@@ -257,25 +257,7 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
-        let now = env.ledger().timestamp();
-
-        if let Some(schedule) = env
-            .storage()
-            .persistent()
-            .get::<DataKey, crate::ExpirySchedule>(&DataKey::PendingExpiry(escrow_id))
-        {
-            if now >= schedule.expires_at {
-                return Err(ContractError::EscrowExpired);
-            }
-        }
-
-        let created_at = crate::internal::escrow_created_at(&env, escrow_id);
-        let blanket_deadline = created_at
-            .checked_add(crate::PENDING_EXPIRY_WINDOW)
-            .ok_or(ContractError::ArithmeticOverflow)?;
-        if now > blanket_deadline {
-            return Err(ContractError::EscrowExpired);
-        }
+        crate::internal::ensure_funding_not_expired(&env, escrow_id)?;
 
         // Security: buyer must differ from seller and resolver.
         for i in 0..escrow.payees.len() {
@@ -1326,6 +1308,12 @@ impl Escrow {
         if escrow.state != EscrowState::Pending {
             return Err(ContractError::InvalidState);
         }
+
+        // Expiry: PendingExpiry schedule + blanket PENDING_EXPIRY_WINDOW,
+        // shared with fund_escrow via the internal::ensure_funding_not_expired
+        // helper (Issue #1156). Without this, basket escrows could be funded
+        // after the pending window expired.
+        crate::internal::ensure_funding_not_expired(&env, escrow_id)?;
 
         if let Some(ref expected_buyer) = escrow.buyer {
             if &buyer != expected_buyer {

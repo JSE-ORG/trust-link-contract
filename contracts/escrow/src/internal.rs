@@ -627,6 +627,29 @@ pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), Contra
     Ok(())
 }
 
+/// Funding-path expiry guard shared by `fund_escrow` and `fund_basket_escrow`
+/// (Issue #1156). Calls [`ensure_not_expired`] for the `PendingExpiry` schedule
+/// check, then adds the blanket `PENDING_EXPIRY_WINDOW` deadline measured from
+/// creation. The blanket backstop is kept out of [`ensure_not_expired`] because
+/// it only applies to unfunded (Pending) escrows — funded escrows must remain
+/// operable past the 7-day pending window. Centralising all three deadline
+/// checks here prevents the two fund paths from drifting apart.
+pub(crate) fn ensure_funding_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    // PendingExpiry schedule check (shared with post-funding ops).
+    ensure_not_expired(env, escrow_id)?;
+
+    // Blanket 7-day pending-window backstop, measured from creation time.
+    let now = env.ledger().timestamp();
+    let created_at = escrow_created_at(env, escrow_id);
+    let blanket_deadline = created_at
+        .checked_add(crate::PENDING_EXPIRY_WINDOW)
+        .ok_or(ContractError::ArithmeticOverflow)?;
+    if now > blanket_deadline {
+        return Err(ContractError::EscrowExpired);
+    }
+    Ok(())
+}
+
 pub(crate) fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
     let current: u64 = env.storage().instance().get(key).unwrap_or(0);
     let next = current
