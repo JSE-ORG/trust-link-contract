@@ -27,13 +27,11 @@
 //! so `cargo xtask test -- --nocapture` works as expected.
 //!
 //! Layout:
-//!   * [`tasks`]       — the subcommand table, help text and the CI gate
-//!   * [`process`]     — spawning cargo/stellar/npm/bash and capturing output
-//!   * [`gas`]         — local gas profiling and report rendering
-//!   * [`gas_network`] — gas profiling against a live Stellar network
+//!   * [`tasks`]   — the subcommand table, help text and the CI gate
+//!   * [`process`] — spawning cargo/stellar/npm/bash and capturing output
+//!   * [`gas`]     — local gas profiling, network profiling and report rendering
 
 mod gas;
-mod gas_network;
 mod process;
 mod tasks;
 

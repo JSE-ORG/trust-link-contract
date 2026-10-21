@@ -22,7 +22,7 @@ fn test_get_escrows_by_vendor_empty() {
     let vendor = Address::generate(&env);
 
     // Should return empty Vec (not error) for vendors with no escrows
-    let escrows = client.get_escrows_by_vendor(&vendor);
+    let escrows = client.get_escrows_by_vendor(&vendor, &0_u64, &50_u64);
     assert_eq!(escrows.len(), 0);
 }
 
@@ -91,13 +91,13 @@ fn test_get_escrows_by_vendor_multiple() {
     );
 
     // Check escrows for vendor 1
-    let escrows_1 = client.get_escrows_by_vendor(&vendor_1);
+    let escrows_1 = client.get_escrows_by_vendor(&vendor_1, &0_u64, &50_u64);
     assert_eq!(escrows_1.len(), 2);
     assert_eq!(escrows_1.get(0).unwrap(), id1);
     assert_eq!(escrows_1.get(1).unwrap(), id2);
 
     // Check escrows for vendor 2
-    let escrows_2 = client.get_escrows_by_vendor(&vendor_2);
+    let escrows_2 = client.get_escrows_by_vendor(&vendor_2, &0_u64, &50_u64);
     assert_eq!(escrows_2.len(), 1);
     assert_eq!(escrows_2.get(0).unwrap(), id3);
 }
@@ -160,15 +160,15 @@ fn test_vendor_escrow_data_integrity_and_state_transitions() {
     crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
 
     // Confirm delivery
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    env.ledger().set_timestamp(escrow.dispute_deadline() + 1);
+    client.confirm_delivery(&buyer, &id, &false);
 
     // Assert final completed state
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Completed);
 
     // Verify vendor index still contains the escrow ID
-    let escrows = client.get_escrows_by_vendor(&vendor);
+    let escrows = client.get_escrows_by_vendor(&vendor, &0_u64, &50_u64);
     assert_eq!(escrows.len(), 1);
     assert_eq!(escrows.get(0).unwrap(), id);
 }

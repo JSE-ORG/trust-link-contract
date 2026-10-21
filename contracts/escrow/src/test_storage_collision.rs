@@ -157,7 +157,7 @@ fn fund_escrow2_does_not_affect_escrow1() {
     let after = client.get_escrow(&id1);
     assert_eq!(after.state, before.state);
     assert_eq!(after.amount, before.amount);
-    assert_eq!(after.funded_at, before.funded_at);
+    assert_eq!(after.funded_at(), before.funded_at());
 }
 
 /// Marking escrow 1 as shipped must not modify escrow 2's tracking or state.
@@ -375,14 +375,14 @@ fn funded_at_of_escrow2_unchanged_after_cancelling_escrow1() {
 
     fund(&env, &client, &token, &buyer, &id2);
 
-    let funded_at_before = client.get_escrow(&id2).funded_at;
+    let funded_at_before = client.get_escrow(&id2).funded_at();
     assert!(funded_at_before > 0, "funded_at should have been set");
 
     // Cancel unrelated escrow 1.
     client.cancel_escrow(&seller, &id1);
 
     // Escrow 2's funded_at is preserved.
-    let funded_at_after = client.get_escrow(&id2).funded_at;
+    let funded_at_after = client.get_escrow(&id2).funded_at();
     assert_eq!(funded_at_after, funded_at_before);
     assert_eq!(client.get_escrow(&id2).state, EscrowState::Funded);
 }

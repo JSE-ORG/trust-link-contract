@@ -36,15 +36,17 @@ Persistent and instance entries are kept alive by bumping their TTL.
   `u32`). If unset it falls back to the constant `DEFAULT_TTL_EXTENSION =
   120_960` ledgers (≈ 7 days at ~5 s/ledger). The admin can change it via
   `set_ttl_extension`.
-- **Bump pattern** — every bump uses `extend_ttl(threshold = ext / 2, extend_to
-  = ext)`: "if fewer than `ext/2` ledgers remain, top the TTL back up to `ext`."
-- **Persistent entries** (`Escrow`, `Dispute`, `VendorEscrowIndex`) are bumped on
-  **every read and write** of that entry.
+- **Bump pattern** — every bump uses
+  `extend_ttl(threshold = ext / TTL_THRESHOLD_DIVISOR, extend_to = ext)`: if
+  fewer than `ext / TTL_THRESHOLD_DIVISOR` ledgers remain, top the TTL back up
+  to `ext`.
+- **Persistent entries** (`Escrow`, `Dispute`, `VendorEscrowIndex`,
+  `BuyerEscrowIndex`) are bumped on **every read and write** of that entry.
+- **Sharded lifecycle counters** (`ShardedCounter`) are bumped on every
+  increment by the same `ext / TTL_THRESHOLD_DIVISOR` → `ext` rule; see
+  [Lifecycle counter TTL and overflow](#lifecycle-counter-ttl-and-overflow).
 - **Instance storage** is bumped once per `create_escrow` call (alongside the
   escrow-counter increment), which keeps all instance singletons alive together.
-
-> ⚠️ **Known exception:** `DataKey::BuyerEscrowIndex` is written to persistent
-> storage **without** a TTL bump (see [Implementation notes](#implementation-notes)).
 
 ---
 
@@ -73,13 +75,26 @@ throughout the contract.
 All instance entries share the contract instance TTL (bumped during
 `create_escrow`). Counters default to `0` when unset.
 
+#### Lifecycle counter TTL and overflow
+
+Lifecycle counters (created/completed/disputed/refunded) are incremented by
+`increment_sharded_counter` into one of `COUNTER_SHARDS` (16) **persistent**
+`ShardedCounter(kind, bucket)` entries, chosen by `escrow_id % 16`. Each
+increment uses `checked_add(1)`, writes the value, then extends that entry's
+TTL with `extend_ttl(ext / TTL_THRESHOLD_DIVISOR, ext)`, where `ext` is the
+configured TTL extension (`TtlExtensionLedgers`, default `120_960` ledgers).
+If a shard is already `u64::MAX` the increment returns
+`ContractError::ArithmeticError` (12) and the stored value is left unchanged.
+Reads (`get_stats`) sum the shards plus any legacy singleton value without
+extending TTL.
+
 ### Persistent storage (per-record)
 
 | Key | Value type | TTL bumped on | Description |
 |---|---|---|---|
 | `Escrow(u64)` | `EscrowData` | read **and** write | The full escrow record, keyed by escrow ID. See [`types.rs`](../contracts/escrow/src/types.rs) for `EscrowData`. |
 | `Dispute(u64)` | `DisputeData` | read **and** write | The dispute record for an escrow, keyed by escrow ID. |
-| `BuyerEscrowIndex(Address)` | `Vec<u64>` | ⚠️ **not bumped** | List of escrow IDs a buyer has funded. Keyed by buyer address. |
+| `BuyerEscrowIndex(Address)` | `Vec<u64>` | read **and** write | List of escrow IDs a buyer has funded. Keyed by buyer address. |
 
 ### Declared but unused (legacy)
 
@@ -142,12 +157,7 @@ out of scope for this reference.
    while vendor indexes use `StorageKey::VendorEscrowIndex` (a different enum in
    `storage.rs`). Most `StorageKey` variants are unused.
 
-2. **`BuyerEscrowIndex` is written without a TTL bump.** Unlike every other
-   persistent entry, the buyer index is `set` on persistent storage without a
-   following `extend_ttl` (lib.rs `fund_escrow`). A buyer index can therefore
-   reach its archival TTL earlier than the escrow records it points to.
-
-3. **Fee bookkeeping is per token.** `TotalArbitrationFees` is keyed by the
+2. **Fee bookkeeping is per token.** `TotalArbitrationFees` is keyed by the
    token `Address`, so multi-token deployments track arbitration fee totals
    independently per asset. The protocol fee itself is not tracked in
    storage — it is forwarded to the fee collector directly at payout time.

@@ -59,15 +59,19 @@ fn test_sep41_fund_and_confirm_delivery() {
         &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK001"),
+    );
 
     assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
     assert_eq!(balance(&env, &token, &buyer), 0);
     assert_eq!(balance(&env, &token, &contract_id), 500);
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    env.ledger().set_timestamp(escrow.dispute_deadline() + 1);
+    client.confirm_delivery(&buyer, &id, &false);
 
     // 1% fee on 500 = 5 routed to the fee collector; 495 to seller
     assert_eq!(balance(&env, &token, &seller), 495);
@@ -106,7 +110,11 @@ fn test_sep41_auto_release() {
         &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-AUTO"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-AUTO"),
+    );
     env.ledger().set_timestamp(1_700_000_000);
     record_delivery_timelocked(&env, &client, &admin, id);
 
@@ -154,14 +162,14 @@ fn test_sep41_dispute_and_refund() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-DISPUTE"),
+        &soroban_sdk::String::from_str(&env, "TRACK-DISPUTE"),
     );
 
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "defective"),
-        &SorobanString::from_str(&env, "item was broken"),
+        &Symbol::new(&env, "DEFECTIVE"),
+        &soroban_sdk::Bytes::from_slice(&env, b"item was broken"),
         &BytesN::from_array(&env, &[0xde; 32]),
     );
 
@@ -293,15 +301,15 @@ fn test_sep41_dispute_and_release() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-RELEASE"),
+        &soroban_sdk::String::from_str(&env, "TRACK-RELEASE"),
     );
 
     // Buyer raises a dispute
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "defective"),
-        &SorobanString::from_str(&env, "item was defective"),
+        &Symbol::new(&env, "DEFECTIVE"),
+        &soroban_sdk::Bytes::from_slice(&env, b"item was defective"),
         &BytesN::from_array(&env, &[0xdf; 32]),
     );
 
@@ -313,15 +321,14 @@ fn test_sep41_dispute_and_release() {
         .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
     client.finalize_dispute(&admin, &id);
 
-    // Calculations:
+    // Calculations (all fees charged on the original funded principal, 1000):
     // arbitration_fee = 1000 * 50 / 10000 = 5 → fee_collector
-    // remaining = 995
-    // escrow_fee = 995 * 100 / 10000 = 9 → fee_collector
-    // net payout = 995 - 9 = 986 → seller
-    // fee_collector total = 5 + 9 = 14
-    assert_eq!(balance(&env, &token, &seller), 986);
+    // escrow_fee = 1000 * 100 / 10000 = 10 (flat 1% of the principal, not of 995)
+    // net payout = 1000 - 5 - 10 = 985 → seller
+    // fee_collector total = 5 + 10 = 15
+    assert_eq!(balance(&env, &token, &seller), 985);
     assert_eq!(balance(&env, &token, &buyer), 0);
-    assert_eq!(balance(&env, &token, &fee_collector), 14);
+    assert_eq!(balance(&env, &token, &fee_collector), 15);
     assert_eq!(balance(&env, &token, &contract_id), 0);
     assert_eq!(client.get_escrow(&id).state, EscrowState::Completed);
 

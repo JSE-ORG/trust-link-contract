@@ -12,8 +12,8 @@
 #![allow(dead_code)]
 
 use soroban_sdk::{
-    testutils::Address as _, token, Address, BytesN, Env, IntoVal, String as SorobanString, Symbol,
-    Val, Vec,
+    testutils::Address as _, token, Address, Bytes, BytesN, Env, IntoVal, String as SorobanString,
+    Symbol, Val, Vec,
 };
 use trustlink_escrow::{Escrow, EscrowClient, Payee};
 
@@ -29,9 +29,8 @@ pub const VALID_SHIPPING_WINDOW: u64 = 86_400;
 
 /// Reason symbols accepted by `raise_dispute`. `Symbol::new` panics on
 /// characters outside the Soroban symbol alphabet, so the reason is selected
-/// from this fixed set rather than built from raw fuzz bytes.
-pub const DISPUTE_REASONS: [&str; 4] =
-    ["ITEM_NOT_RECEIVED", "NOT_AS_DESCRIBED", "DAMAGED", "OTHER"];
+/// from the contract's fixed set rather than built from raw fuzz bytes.
+pub use trustlink_escrow::DISPUTE_REASONS;
 
 pub struct Harness {
     pub env: Env,
@@ -168,7 +167,7 @@ impl Harness {
     pub fn create_disputed_escrow(&self, r: &mut Reader) -> Option<u64> {
         let id = self.create_funded_escrow()?;
         let reason = self.dispute_reason(r);
-        let description = r.ascii_string(&self.env, 64);
+        let description = r.bytes(&self.env, 64);
         let evidence_hash = BytesN::from_array(&self.env, &r.bytes32());
         self.client
             .try_raise_dispute(&self.buyer, &id, &reason, &description, &evidence_hash)
@@ -240,8 +239,11 @@ impl<'d> Reader<'d> {
         buf
     }
 
+    /// A uniformly distributed boolean: the low bit of a fuzzed byte. `u8` is
+    /// drawn uniformly from the input (zero-padded past the end), so `% 2 == 0`
+    /// yields an exact 50/50 split across both branches.
     pub fn bool(&mut self) -> bool {
-        self.u8().is_multiple_of(2)
+        self.u8() % 2 == 0
     }
 
     /// A ledger timestamp bounded to 63 bits. Full-width `u64::MAX` timestamps
@@ -278,5 +280,17 @@ impl<'d> Reader<'d> {
             buf.push(char::from(b'a' + (self.u8() % 26)));
         }
         SorobanString::from_str(env, &buf)
+    }
+
+    /// Arbitrary raw bytes up to `max` long, for `Bytes` parameters such as
+    /// dispute descriptions, which skip UTF-8 validation by design. Mirrors
+    /// `ascii_string`'s length distribution (empty through over-long).
+    pub fn bytes(&mut self, env: &Env, max: usize) -> Bytes {
+        let len = (self.u8() as usize) % (max + 1);
+        let mut buf = std::vec::Vec::with_capacity(len);
+        for _ in 0..len {
+            buf.push(self.u8());
+        }
+        Bytes::from_slice(env, &buf)
     }
 }

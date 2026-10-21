@@ -65,7 +65,11 @@ fn test_mark_shipped_transitions_state() {
     );
 
     let expected_ts = env.ledger().timestamp();
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-001"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-001"),
+    );
 
     assert!(has_event::<crate::EscrowShipped, _>(
         &env,
@@ -127,7 +131,11 @@ fn test_record_delivery_sets_timestamp() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-002"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-002"),
+    );
 
     advance_time(&env, 60);
     client.propose_record_delivery(&admin, &id);
@@ -184,11 +192,15 @@ fn test_confirm_delivery_after_mark_shipped() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-003"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-003"),
+    );
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
-    client.confirm_delivery(&buyer, &id);
+    env.ledger().set_timestamp(escrow.dispute_deadline() + 1);
+    client.confirm_delivery(&buyer, &id, &false);
 
     assert!(has_event::<crate::EscrowCompleted, _>(
         &env,
@@ -204,6 +216,39 @@ fn test_confirm_delivery_after_mark_shipped() {
     assert_eq!(balance, 1000);
 
     let _ = contract_id;
+}
+
+#[test]
+fn test_delivery_proposal_does_not_expire() {
+    // Issue #964: DeliveryProposal expiration is untested.
+    // This test demonstrates that there is NO logical validity/expiry window
+    // enforced on a delivery proposal within the contract itself.
+    // A proposal can be recorded successfully even 10 years after it unlocks.
+    let env = Env::default();
+    env.mock_all_auths();
+    let token = register_token(&env);
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
+    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "TRACK"));
+
+    // Propose delivery
+    client.propose_record_delivery(&admin, &id);
+
+    // Fast-forward 10 years (past any reasonable validity window)
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + 315_360_000);
+
+    // Admin can STILL record delivery. The proposal has no expiration logic!
+    client.record_delivery(&admin, &id);
+
+    let escrow = client.get_escrow(&id);
+    assert!(escrow.delivered_at.is_some());
 }
 
 #[test]
@@ -224,28 +269,107 @@ fn test_confirm_delivery_during_dispute_window_reverts() {
     let id = create_funded_escrow(
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-WIN"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-WIN"),
+    );
 
     // Ledger time is still well before `dispute_deadline` (funded_at + 172_800).
     let escrow = client.get_escrow(&id);
-    assert!(env.ledger().timestamp() < escrow.dispute_deadline);
+    assert!(env.ledger().timestamp() < escrow.dispute_deadline());
 
     assert_eq!(
-        client.try_confirm_delivery(&buyer, &id),
+        client.try_confirm_delivery(&buyer, &id, &false),
         Err(Ok(ContractError::DisputeWindowStillOpen)),
     );
     assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
 
     // One second before the deadline still rejects; at the deadline it succeeds.
-    env.ledger().set_timestamp(escrow.dispute_deadline - 1);
+    env.ledger().set_timestamp(escrow.dispute_deadline() - 1);
     assert_eq!(
-        client.try_confirm_delivery(&buyer, &id),
+        client.try_confirm_delivery(&buyer, &id, &false),
         Err(Ok(ContractError::DisputeWindowStillOpen)),
     );
 
-    env.ledger().set_timestamp(escrow.dispute_deadline);
-    client.confirm_delivery(&buyer, &id);
+    env.ledger().set_timestamp(escrow.dispute_deadline());
+    client.confirm_delivery(&buyer, &id, &false);
     assert_eq!(client.get_escrow(&id).state, EscrowState::Completed);
+}
+
+/// #1003: the buyer may waive the dispute/shipping window and release
+/// immediately after shipping.
+#[test]
+fn test_confirm_delivery_waive_shipping_window_releases_immediately() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-WAIVE"),
+    );
+
+    let escrow = client.get_escrow(&id);
+    assert!(env.ledger().timestamp() < escrow.dispute_deadline());
+
+    // Without the waiver the window is still enforced.
+    assert_eq!(
+        client.try_confirm_delivery(&buyer, &id, &false),
+        Err(Ok(ContractError::DisputeWindowStillOpen)),
+    );
+
+    client.confirm_delivery(&buyer, &id, &true);
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Completed);
+    let tc = soroban_sdk::token::Client::new(&env, &token);
+    assert_eq!(tc.balance(&seller), 1000);
+}
+
+/// The waiver does not bypass any other guard: only the buyer may confirm,
+/// and only from `Shipped`.
+#[test]
+fn test_confirm_delivery_waive_does_not_bypass_auth_or_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
+
+    // Still Funded (not shipped): rejected even with the waiver.
+    assert!(client.try_confirm_delivery(&buyer, &id, &true).is_err());
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Funded);
+
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-WAIVE2"),
+    );
+
+    // The seller cannot waive the buyer's window on their behalf.
+    assert_eq!(
+        client.try_confirm_delivery(&seller, &id, &true),
+        Err(Ok(ContractError::NotAuthorizedBuyer)),
+    );
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
 }
 
 #[test]
@@ -264,14 +388,18 @@ fn test_confirm_delivery_by_vendor_reverts() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-004"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-004"),
+    );
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    env.ledger().set_timestamp(escrow.dispute_deadline() + 1);
 
     assert_eq!(
-        client.try_confirm_delivery(&seller, &id),
-        Err(Ok(ContractError::NotAuthorized)),
+        client.try_confirm_delivery(&seller, &id, &false),
+        Err(Ok(ContractError::NotAuthorizedBuyer)),
     );
 }
 
@@ -292,14 +420,18 @@ fn test_confirm_delivery_by_third_party_reverts() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-005"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-005"),
+    );
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    env.ledger().set_timestamp(escrow.dispute_deadline() + 1);
 
     assert_eq!(
-        client.try_confirm_delivery(&intruder, &id),
-        Err(Ok(ContractError::NotAuthorized)),
+        client.try_confirm_delivery(&intruder, &id, &false),
+        Err(Ok(ContractError::NotAuthorizedBuyer)),
     );
 }
 
@@ -322,7 +454,11 @@ fn test_record_delivery_timestamp_matches_ledger_timestamp() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK001"),
+    );
 
     advance_time(&env, 60);
     client.propose_record_delivery(&admin, &id);
@@ -360,7 +496,11 @@ fn test_record_delivery_rejects_zero_timestamp() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK001"),
+    );
 
     let _escrow_before = client.get_escrow(&id);
     env.ledger().set_timestamp(0);
@@ -389,7 +529,11 @@ fn test_record_delivery_accepts_maximum_valid_timestamp() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK001"),
+    );
 
     let max_ts: u64 = 100_000_000_000;
     env.ledger()
@@ -419,7 +563,11 @@ fn test_record_delivery_rejects_duplicate_call() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK001"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK001"),
+    );
 
     env.ledger()
         .set_timestamp(1_700_000_100 - crate::DELIVERY_TIMELOCK);
@@ -459,7 +607,7 @@ fn test_record_delivery_timelock_flow() {
     client.mark_shipped(
         &seller,
         &id,
-        &SorobanString::from_str(&env, "TRACK-TIMELOCK"),
+        &soroban_sdk::String::from_str(&env, "TRACK-TIMELOCK"),
     );
 
     // Propose delivery
@@ -503,7 +651,11 @@ fn test_cancel_delivery_proposal() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-CANCEL"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-CANCEL"),
+    );
 
     client.propose_record_delivery(&admin, &id);
     client.cancel_delivery_proposal(&admin, &id);
@@ -545,7 +697,7 @@ fn test_confirm_delivery_from_pending_state_fails() {
         &None::<SorobanString>,
     );
 
-    let res = client.try_confirm_delivery(&buyer, &id);
+    let res = client.try_confirm_delivery(&buyer, &id, &false);
     assert_eq!(res, Err(Ok(ContractError::InvalidStateTransition)));
 }
 
@@ -565,7 +717,7 @@ fn test_confirm_delivery_from_funded_state_fails() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
     );
 
-    let res = client.try_confirm_delivery(&buyer, &id);
+    let res = client.try_confirm_delivery(&buyer, &id, &false);
     assert_eq!(res, Err(Ok(ContractError::InvalidStateTransition)));
 }
 
@@ -588,12 +740,12 @@ fn test_confirm_delivery_from_disputed_state_fails() {
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "reason"),
-        &SorobanString::from_str(&env, "dispute description"),
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"dispute description"),
         &soroban_sdk::BytesN::from_array(&env, &[0; 32]),
     );
 
-    let res = client.try_confirm_delivery(&buyer, &id);
+    let res = client.try_confirm_delivery(&buyer, &id, &false);
     assert_eq!(res, Err(Ok(ContractError::InvalidStateTransition)));
 }
 
@@ -630,7 +782,7 @@ fn test_confirm_delivery_from_canceled_state_fails() {
 
     client.cancel_escrow(&seller, &id);
 
-    let res = client.try_confirm_delivery(&buyer, &id);
+    let res = client.try_confirm_delivery(&buyer, &id, &false);
     assert_eq!(res, Err(Ok(ContractError::InvalidStateTransition)));
 }
 
@@ -650,13 +802,229 @@ fn test_confirm_delivery_from_completed_state_fails() {
         &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
     );
 
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-001"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-001"),
+    );
 
     let escrow = client.get_escrow(&id);
-    env.ledger().set_timestamp(escrow.dispute_deadline + 1);
+    env.ledger().set_timestamp(escrow.dispute_deadline() + 1);
 
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
 
-    let res = client.try_confirm_delivery(&buyer, &id);
-    assert_eq!(res, Err(Ok(ContractError::InvalidStateTransition)));
+    // Confirming again on a Completed escrow now gets the dedicated code
+    // (was InvalidStateTransition).
+    let res = client.try_confirm_delivery(&buyer, &id, &false);
+    assert_eq!(res, Err(Ok(ContractError::EscrowAlreadyCompleted)));
+}
+
+// ============================================================================
+// DeliveryProposal cleanup on every exit from Shipped
+// ============================================================================
+
+fn has_delivery_proposal(env: &Env, client: &crate::EscrowClient, id: u64) -> bool {
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .has(&crate::DataKey::DeliveryProposal(id))
+    })
+}
+
+/// Creates a funded escrow, ships it, and has the admin propose delivery.
+/// Returns `(id, seller, buyer)`.
+fn shipped_with_proposal(
+    env: &Env,
+    client: &crate::EscrowClient,
+    admin: &Address,
+) -> (u64, Address, Address) {
+    let token = register_token(env);
+    let seller = Address::generate(env);
+    let buyer = Address::generate(env);
+    let resolver = Address::generate(env);
+    let id = create_funded_escrow(
+        env, client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(env, "TRACK-PROP"),
+    );
+    client.propose_record_delivery(admin, &id);
+    assert!(has_delivery_proposal(env, client, id));
+    (id, seller, buyer)
+}
+
+#[test]
+fn confirm_delivery_clears_delivery_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let (id, _seller, buyer) = shipped_with_proposal(&env, &client, &admin);
+
+    advance_time(&env, crate::DISPUTE_WINDOW);
+    client.confirm_delivery(&buyer, &id, &false);
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Completed);
+    assert!(!has_delivery_proposal(&env, &client, id));
+}
+
+#[test]
+fn raise_dispute_clears_delivery_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let (id, _seller, buyer) = shipped_with_proposal(&env, &client, &admin);
+
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &Symbol::new(&env, "DAMAGED"),
+        &soroban_sdk::Bytes::from_slice(&env, b"arrived broken"),
+        &soroban_sdk::BytesN::from_array(&env, &[0x11; 32]),
+    );
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Disputed);
+    assert!(!has_delivery_proposal(&env, &client, id));
+}
+
+#[test]
+fn co_signed_release_clears_delivery_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let (id, seller, _buyer) = shipped_with_proposal(&env, &client, &admin);
+
+    client.co_signed_release(&seller, &id);
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Completed);
+    assert!(!has_delivery_proposal(&env, &client, id));
+}
+
+#[test]
+fn emergency_drain_clears_delivery_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let (id, _seller, _buyer) = shipped_with_proposal(&env, &client, &admin);
+
+    client.pause_contract(&admin);
+    client.emergency_drain(&id);
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Refunded);
+    assert!(!has_delivery_proposal(&env, &client, id));
+}
+
+#[test]
+fn reclaim_expired_clears_delivery_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let token = register_token(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    crate::test_helpers::mint_token(&env, &token, &buyer, 1000);
+
+    let expires_at = env.ledger().timestamp() + 3600;
+    let id = client.create_escrow_with_expiration(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &0_u32,
+        &3600_u64,
+        &Some(expires_at),
+        &0_u64,
+    );
+    client.fund_escrow(&id, &buyer);
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-EXP"),
+    );
+    client.propose_record_delivery(&admin, &id);
+    assert!(has_delivery_proposal(&env, &client, id));
+
+    env.ledger().set_timestamp(expires_at);
+    client.reclaim_expired(&id);
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Expired);
+    assert!(!has_delivery_proposal(&env, &client, id));
+}
+
+#[test]
+fn test_propose_record_delivery_then_raise_dispute_blocks_execute() {
+    // Verifies the state-machine interaction between the delivery timelock and
+    // the dispute flow:
+    //
+    // 1. Admin proposes delivery while the escrow is Shipped — proposal is
+    //    stored but the escrow stays in Shipped state.
+    // 2. Buyer raises a dispute (still within the dispute window) — escrow
+    //    transitions to Disputed; the DeliveryProposal record is orphaned in
+    //    storage (raise_dispute does not clear it).
+    // 3. After the timelock would have elapsed, admin attempts record_delivery —
+    //    must fail with InvalidState because the escrow is now Disputed, not
+    //    Shipped. The timelock check is never reached.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    // fee_bps = 100, shipping_window = 3600; dispute_deadline = funded_at + 172_800
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+    );
+
+    // Step 0: seller marks the escrow as shipped.
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-DISP"),
+    );
+
+    // Step 1: admin proposes delivery (timelock unlock = now + 86_400).
+    // Escrow stays in Shipped state.
+    env.ledger().set_timestamp(1_000);
+    client.propose_record_delivery(&admin, &id);
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
+
+    // Step 2: buyer raises a dispute — must happen before dispute_deadline
+    // (funded_at + 172_800). funded_at ≈ 0, so the window is 0..172_800.
+    // Current ledger time is 1_000, well within the window.
+    env.ledger().set_timestamp(2_000);
+    let hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"buyer raises dispute after delivery proposed"),
+        &hash,
+    );
+
+    // Escrow must now be Disputed; delivery proposal is orphaned in storage.
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Disputed);
+
+    // Step 3: advance past the timelock (1_000 + 86_400 = 87_400) and attempt
+    // to execute record_delivery — must fail with InvalidState because the
+    // escrow is Disputed, not Shipped. The timelock guard is never reached.
+    env.ledger()
+        .set_timestamp(1_000 + crate::DELIVERY_TIMELOCK + 1); // 87_401
+    let res = client.try_record_delivery(&admin, &id);
+    assert_eq!(
+        res,
+        Err(Ok(ContractError::InvalidState)),
+        "record_delivery must return InvalidState when escrow is Disputed"
+    );
+
+    // Escrow remains Disputed with no funds moved.
+    let escrow = client.get_escrow(&id);
+    assert_eq!(escrow.state, EscrowState::Disputed);
+    assert_eq!(escrow.delivered_at, None);
 }

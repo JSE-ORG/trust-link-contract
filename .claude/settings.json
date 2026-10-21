@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cargo test *)"
+      "Bash(cargo test *)",
+      "Bash(git checkout *)",
+      "Bash(python3 /tmp/claude-1000/-home-dp-Documents-trust-link-contract/bfe1c582-5583-4019-83e4-98b051159754/scratchpad/pick_hunks.py contracts/escrow/src/instructions.rs 2)",
+      "Bash(git apply *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(python3 /tmp/claude-1000/-home-dp-Documents-trust-link-contract/bfe1c582-5583-4019-83e4-98b051159754/scratchpad/pick_hunks.py contracts/escrow/src/internal.rs 2 3)",
+      "Bash(git reset *)",
+      "Bash(git push *)",
+      "Bash(cargo fmt *)"
     ]
   }
 }

@@ -234,11 +234,15 @@ fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
 
         // Ship the order so the escrow reaches the Shipped state required by
         // confirm_delivery.
-        client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DUST"));
+        client.mark_shipped(
+            &seller,
+            &id,
+            &soroban_sdk::String::from_str(&env, "TRACK-DUST"),
+        );
 
         // Move past the dispute window so the buyer can confirm delivery.
         advance_time(&env, DISPUTE_WINDOW_SECS + 1);
-        client.confirm_delivery(&buyer, &id);
+        client.confirm_delivery(&buyer, &id, &false);
 
         let expected_fee = (amount * fee_bps as i128) / 10_000;
         let expected_net = amount - expected_fee;
@@ -286,10 +290,18 @@ fn test_mark_shipped_twice_reverts() {
     );
 
     // First mark_shipped: Funded → Shipped, tracking_id recorded.
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-001"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-001"),
+    );
 
     // Second call on an already-Shipped escrow must revert.
-    let result = client.try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, "FAKE-999"));
+    let result = client.try_mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "FAKE-999"),
+    );
     assert!(
         matches!(result, Err(Ok(ContractError::InvalidState))),
         "expected InvalidState, got {result:?}"
@@ -325,14 +337,18 @@ fn test_record_delivery_on_disputed_escrow_reverts() {
     );
 
     // Ship the escrow so the buyer can raise a dispute.
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRACK-DISP"));
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-DISP"),
+    );
 
     // Buyer raises dispute — escrow transitions Shipped → Disputed.
     client.raise_dispute(
         &buyer,
         &id,
-        &Symbol::new(&env, "damaged"),
-        &SorobanString::from_str(&env, "item arrived damaged"),
+        &Symbol::new(&env, "DAMAGED"),
+        &soroban_sdk::Bytes::from_slice(&env, b"item arrived damaged"),
         &BytesN::from_array(&env, &[0u8; 32]),
     );
 

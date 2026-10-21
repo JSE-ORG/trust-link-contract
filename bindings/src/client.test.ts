@@ -132,14 +132,35 @@ describe("withdraw_fees", () => {
 });
 
 describe("create_escrow", () => {
-  it("invokes 'create_escrow' and returns the escrow id", () => {
+  it("invokes 'create_escrow' with all nine contract arguments", () => {
     const { transport, calls } = makeMockTransport(ESCROW_ID);
     const client = new EscrowClient(transport);
     const payees = [{ address: SELLER, bps: 10000 }];
-    const id = client.create_escrow(payees, BUYER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, 0, SHIPPING_WINDOW);
+    const id = client.create_escrow(payees, BUYER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, 0, SHIPPING_WINDOW, "order-42");
     assert.equal(calls[0].method, "create_escrow");
-    assert.deepEqual(calls[0].args, [payees, BUYER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, 0, SHIPPING_WINDOW]);
+    assert.deepEqual(
+      calls[0].args,
+      [payees, BUYER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, 0, SHIPPING_WINDOW, "order-42"],
+    );
     assert.equal(id, ESCROW_ID);
+  });
+
+  it("defaults notes to null when omitted", () => {
+    const { transport, calls } = makeMockTransport(ESCROW_ID);
+    const client = new EscrowClient(transport);
+    const payees = [{ address: SELLER, bps: 10000 }];
+    client.create_escrow(payees, BUYER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, 0, SHIPPING_WINDOW);
+    assert.deepEqual(
+      calls[0].args,
+      [payees, BUYER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, 0, SHIPPING_WINDOW, null],
+    );
+  });
+
+  it("accepts a single seller address as the polymorphic payee form", () => {
+    const { transport, calls } = makeMockTransport(ESCROW_ID);
+    const client = new EscrowClient(transport);
+    client.create_escrow(SELLER, BUYER, RESOLVER, TOKEN, AMOUNT, FEE_BPS, 0, SHIPPING_WINDOW);
+    assert.equal(calls[0].args[0], SELLER);
   });
 });
 
@@ -305,7 +326,17 @@ describe("create_basket_escrow", () => {
     const amounts = [AMOUNT, 500_000n];
     const id = client.create_basket_escrow(SELLER, BUYER, RESOLVER, tokens, amounts, FEE_BPS, SHIPPING_WINDOW);
     assert.equal(calls[0].method, "create_basket_escrow");
-    assert.deepEqual(calls[0].args, [SELLER, BUYER, RESOLVER, tokens, amounts, FEE_BPS, SHIPPING_WINDOW]);
+    assert.deepEqual(calls[0].args, [
+      SELLER,
+      BUYER,
+      RESOLVER,
+      tokens,
+      amounts,
+      FEE_BPS,
+      SHIPPING_WINDOW,
+      null,
+      null,
+    ]);
     assert.equal(id, ESCROW_ID);
   });
 });

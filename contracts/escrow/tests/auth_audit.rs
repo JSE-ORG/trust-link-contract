@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, token, Address, Env, Vec};
+use soroban_sdk::{testutils::Address as _, token, Address, Env, IntoVal, Val, Vec};
 use trustlink_escrow::{ContractError, Escrow, EscrowClient, EscrowData, EscrowState, Payee};
 
 #[test]
@@ -31,6 +31,7 @@ fn test_unauthorized_attacker_cannot_fund_escrow() {
         address: seller.clone(),
         bps: 10_000,
     });
+    let payees: Val = payees.into_val(&env);
     let escrow_id = client.create_escrow(
         &payees,
         &None::<Address>,
@@ -40,6 +41,7 @@ fn test_unauthorized_attacker_cannot_fund_escrow() {
         &100_u32,
         &0_u32,
         &3600_u64,
+        &None::<soroban_sdk::String>,
     );
 
     // Pre-assign the legitimate buyer in contract storage.
@@ -64,10 +66,10 @@ fn test_unauthorized_attacker_cannot_fund_escrow() {
     // Attacker attempts to fund the escrow using their own address.
     let result = client.try_fund_escrow(&escrow_id, &attacker);
 
-    // It must return NotAuthorized.
+    // It must return NotAuthorizedBuyer.
     assert!(
-        matches!(result, Err(Ok(ContractError::NotAuthorized))),
-        "Expected try_fund_escrow to return Err(Ok(ContractError::NotAuthorized)) but got {:?}",
+        matches!(result, Err(Ok(ContractError::NotAuthorizedBuyer))),
+        "Expected try_fund_escrow to return Err(Ok(ContractError::NotAuthorizedBuyer)) but got {:?}",
         result
     );
 

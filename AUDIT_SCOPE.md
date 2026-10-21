@@ -1,5 +1,15 @@
 # TrustLink Contract — Audit Scope
 
+> [!IMPORTANT]
+> **Canonical Audit Scope**: This document (`AUDIT_SCOPE.md`) is the single canonical source of truth for the audit scope and fee parameter limits of the TrustLink contract. No duplicate audit scope document exists (e.g. `audit/SCOPE.md` must not be created).
+> The fee caps below link to their canonical definitions in `contracts/escrow/src/lib.rs` and to their public errors in [`ERROR_CODES.md`](ERROR_CODES.md):
+> - [`MAX_ESCROW_FEE_BPS = 300`](contracts/escrow/src/lib.rs#L66) (3%) — enforced via [`FeeExceedsMax` (7)](ERROR_CODES.md#7)
+> - [`MAX_ARBITRATION_FEE_BPS = 500`](contracts/escrow/src/lib.rs#L72) (5%) — enforced via [`FeeExceedsMax` (7)](ERROR_CODES.md#7)
+> - [`MAX_COMBINED_FEE_BPS = 1000`](contracts/escrow/src/lib.rs#L89) (10%) — enforced via [`FeeExceedsMax` (7)](ERROR_CODES.md#7)
+> - [`MAX_PLATFORM_FEE_BPS = 200`](contracts/escrow/src/lib.rs#L105) (2%) — enforced via [`PlatformFeeExceedsMax` (32)](ERROR_CODES.md#32)
+>
+> Any changes to contract fee constants in `contracts/escrow/src/lib.rs` must be updated here and in [ERROR_CODES.md](ERROR_CODES.md).
+
 ## Contract Overview
 
 **Project**: TrustLink Escrow Contract
@@ -162,18 +172,36 @@ Funded ──request_refund──> RefundRequested ──approve/deny──> Com
 
 ## Fee Model
 
+The contract enforces strict fee caps to prevent abuse. The canonical definitions are linked in the header above.
+
+### Fee Constants (Source of Truth: lib.rs)
+
+| Constant | Value | Purpose | Error Code |
+|----------|-------|---------|------------|
+| `MAX_ESCROW_FEE_BPS` | 300 (3%) | Per-escrow protocol fee cap | [FeeExceedsMax (7)](ERROR_CODES.md#7) |
+| `MAX_ARBITRATION_FEE_BPS` | 500 (5%) | Dispute resolution fee cap | [FeeExceedsMax (7)](ERROR_CODES.md#7) |
+| `MAX_COMBINED_FEE_BPS` | 1000 (10%) | Combined protocol + arbitration cap | [FeeExceedsMax (7)](ERROR_CODES.md#7) |
+| `MAX_PLATFORM_FEE_BPS` | 200 (2%) | Platform treasury fee cap | [PlatformFeeExceedsMax (32)](ERROR_CODES.md#32) |
+
+See also: [INVARIANTS.md](INVARIANTS.md) section D2 for fee invariant documentation.
+
 ### Protocol Fee (Variable)
 - Applied on fund amount after arbitration fee (if any)
 - Default: 0 BPS (0%)
-- Maximum: 1000 BPS (10%)
+- Maximum: 300 BPS (3%) — enforced by `MAX_ESCROW_FEE_BPS`
 - Collected to `fee_collector`
 
 ### Arbitration Fee (Per-Escrow)
 - Fixed at escrow creation time via `fee_bps` parameter
 - Deducted from escrow amount in dispute resolution
 - Default: 0 BPS (0%)
-- Maximum: 1000 BPS (10%)
+- Maximum: 500 BPS (5%) — enforced by `MAX_ARBITRATION_FEE_BPS`
 - Collected to `fee_collector`
+
+### Combined Fee Protection
+- The contract enforces `protocol_fee_bps + arbitration_fee_bps <= MAX_COMBINED_FEE_BPS` (1000 BPS / 10%)
+- This prevents malicious admin attacks where both fees are set to maximum, draining escrows
+- Validation occurs in `internal.rs::validate_combined_fees()`
 
 ### Fee Arithmetic
 ```

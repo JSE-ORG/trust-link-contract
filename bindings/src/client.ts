@@ -17,6 +17,10 @@ import {
 } from "./types.js";
 import { EscrowBatch } from "./batch.js";
 
+// `EscrowBatch` and `createBatch` live in `./batch.ts`; re-exported here so
+// `import { EscrowBatch, createBatch } from ".../client.js"` keeps working.
+export { EscrowBatch, createBatch } from "./batch.js";
+
 /**
  * Transport abstraction the client delegates every entry-point call to.
  *
@@ -227,9 +231,10 @@ export class EscrowClient {
    * The escrow starts in `Pending` and holds no funds until
    * {@link fund_escrow}. Payee basis points must sum to exactly 10_000.
    *
-   * @param payees - One or more recipients of the released amount, each with a
-   *   `bps` share summing to 10_000. Pass `[{ address: seller, bps: 10_000 }]`
-   *   for the common single-seller case.
+   * @param payees - Either a single seller address, or one or more recipients
+   *   of the released amount, each with a `bps` share summing to 10_000. Pass
+   *   `seller` for the common single-seller case, or
+   *   `[{ address: seller, bps: 10_000 }]` to be explicit.
    * @param buyer - The address allowed to fund/dispute, or `null` to let any
    *   address fund it (an "open" escrow).
    * @param resolver - Address authorized to resolve a dispute on this escrow.
@@ -240,6 +245,8 @@ export class EscrowClient {
    *   dispute is resolved.
    * @param shippingWindow - Seconds the seller has to ship before the buyer /
    *   `auto_release` can act; must be in `[1, 63_072_000]`.
+   * @param notes - Free-form note stored with the escrow (≤ 500 characters).
+   *   `null`/omitted stores an empty note.
    * @throws `PayeeBpsMismatch`, `InvalidShippingWindow`, `FeeExceedsMax`,
    *   `InvalidAmount`, `ConflictingRoles`, `TokenNotAllowed`.
    *
@@ -249,11 +256,12 @@ export class EscrowClient {
    *   [{ address: seller, bps: 10_000 }],
    *   buyer, resolver, usdc,
    *   1_000_000n, 100, 50, 172_800n, // 1 USDC, 1% fee, 0.5% resolver fee, 48h
+   *   null,                          // notes — optional
    * );
    * ```
    */
   create_escrow(
-    payees: readonly Payee[],
+    payees: AddressLike | readonly Payee[],
     buyer: AddressLike | null,
     resolver: AddressLike,
     token: AddressLike,
@@ -261,6 +269,7 @@ export class EscrowClient {
     feeBps: number,
     resolverFeeBps: number,
     shippingWindow: bigint,
+    notes: string | null = null,
   ): Call<bigint> {
     return this.transport.invoke("create_escrow", [
       payees,
@@ -271,6 +280,7 @@ export class EscrowClient {
       feeBps,
       resolverFeeBps,
       shippingWindow,
+      notes,
     ]);
   }
 
@@ -327,6 +337,18 @@ export class EscrowClient {
   }
 
   /**
+   * Permissionlessly extends the storage TTL of every entry belonging to the
+   * escrow (and of the contract instance) so a dormant escrow is not
+   * archived. Changes no escrow data; anyone may call it (e.g. a keeper bot)
+   * and pays the rent.
+   *
+   * @throws `EscrowNotFound`.
+   */
+  extend_escrow_ttl(escrowId: bigint): Call<void> {
+    return this.transport.invoke("extend_escrow_ttl", [escrowId]);
+  }
+
+  /**
    * Permissionlessly releases funds to the payees once delivery was recorded
    * and the delivery-release window has elapsed with no dispute. Anyone may
    * call it (e.g. a keeper bot).
@@ -366,8 +388,9 @@ export class EscrowClient {
   }
 
   /**
-   * Seller approves a pending {@link request_refund}, returning the funds to
-   * the buyer and moving the escrow to `Refunded`.
+   * Primary payee (`payees[0]`) approves a pending {@link request_refund},
+   * returning the funds to the buyer and moving the escrow to `Refunded`.
+   * Secondary payees are rejected with `NotAuthorized`.
    */
   approve_refund(caller: AddressLike, escrowId: bigint): Call<void> {
     return this.transport.invoke("approve_refund", [caller, escrowId]);
@@ -385,7 +408,7 @@ export class EscrowClient {
    * const escrowId = await client.create_basket_escrow(
    *   seller, buyer, resolver,
    *   [usdcAddress, xlmAddress], [1_000_000n, 500_000n],
-   *   feeBps, shippingWindow,
+   *   feeBps, shippingWindow, null, expiresAt,
    * );
    * ```
    */
@@ -397,6 +420,8 @@ export class EscrowClient {
     amounts: readonly bigint[],
     feeBps: number,
     shippingWindow: bigint,
+    notes: string | null = null,
+    expiresAt: bigint | null = null,
   ): Call<bigint> {
     return this.transport.invoke("create_basket_escrow", [
       seller,
@@ -406,6 +431,8 @@ export class EscrowClient {
       amounts,
       feeBps,
       shippingWindow,
+      notes,
+      expiresAt,
     ]);
   }
 
@@ -532,9 +559,12 @@ export class EscrowClient {
     return this.transport.invoke("get_escrows_by_buyer", [buyer]);
   }
 
-  /** Ids of every escrow where `vendor` (seller/payee) is a recipient. Read-only. */
-  get_escrows_by_vendor(vendor: AddressLike): Call<bigint[]> {
-    return this.transport.invoke("get_escrows_by_vendor", [vendor]);
+  /**
+   * One page of escrow ids where `vendor` (seller/payee) is a recipient, in
+   * ascending (creation) order. `limit` is capped on-chain at 50. Read-only.
+   */
+  get_escrows_by_vendor(vendor: AddressLike, start: bigint, limit: bigint): Call<bigint[]> {
+    return this.transport.invoke("get_escrows_by_vendor", [vendor, start, limit]);
   }
 
   /** Aggregate lifecycle counters ({@link ContractStats}). Read-only. */
@@ -598,211 +628,4 @@ export class EscrowClient {
   batch(): EscrowBatch {
     return new EscrowBatch(this);
   }
-}
-
-// ---------------------------------------------------------------------------
-// EscrowBatch — fluent builder that collects calls and dispatches via multicall
-// ---------------------------------------------------------------------------
-
-/**
- * A fluent builder for batching multiple escrow contract calls into a single
- * Stellar transaction via the `multicall` entry-point.
- *
- * Use {@link EscrowClient.batch} to obtain an instance.  Chain any number of
- * call methods then call {@link execute} to dispatch.
- *
- * **Why this matters**: Stellar transactions containing
- * `InvokeHostFunction` operations are limited to one operation per
- * transaction.  Rather than submitting N separate transactions, `EscrowBatch`
- * packs N logical calls into a single `multicall` invocation, so only one
- * transaction is broadcast, paying one base fee and requiring one ledger close.
- */
-export class EscrowBatch {
-  /** Accumulated call descriptors, built up by the fluent API. */
-  private readonly _calls: ContractCall[] = [];
-
-  /** @internal Use {@link EscrowClient.batch} instead. */
-  constructor(private readonly client: EscrowClient) {}
-
-  // ---- helpers --------------------------------------------------------------
-
-  private push(fn: string, args: readonly unknown[]): this {
-    this._calls.push({ function: fn, args });
-    return this;
-  }
-
-  /**
-   * Returns a snapshot of the pending calls (useful for debugging / testing).
-   */
-  pendingCalls(): readonly ContractCall[] {
-    return this._calls;
-  }
-
-  /**
-   * Dispatches all accumulated calls in a single `multicall` transaction.
-   * The returned array contains the decoded return value for each call, in
-   * the same order the calls were added.
-   */
-  execute(): Promise<unknown[]> | unknown[] {
-    return this.client.multicall([...this._calls]);
-  }
-
-  // ---- call builders -------------------------------------------------------
-
-  /** Batch `initialize(admin, feeCollector, arbitrationFeeBps)`. */
-  initialize(admin: AddressLike, feeCollector: AddressLike, arbitrationFeeBps: number): this {
-    return this.push("initialize", [admin, feeCollector, arbitrationFeeBps]);
-  }
-
-  /** Batch `pause_contract(caller)`. */
-  pause_contract(caller: AddressLike): this {
-    return this.push("pause_contract", [caller]);
-  }
-
-  /** Batch `unpause_contract(caller)`. */
-  unpause_contract(caller: AddressLike): this {
-    return this.push("unpause_contract", [caller]);
-  }
-
-  /** Batch `withdraw_fees(caller, token, to, amount)`. */
-  withdraw_fees(caller: AddressLike, token: AddressLike, to: AddressLike, amount: bigint): this {
-    return this.push("withdraw_fees", [caller, token, to, amount]);
-  }
-
-  /** Batch `create_escrow(payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow)`. */
-  create_escrow(
-    payees: Payee[],
-    buyer: AddressLike | null,
-    resolver: AddressLike,
-    token: AddressLike,
-    amount: bigint,
-    feeBps: number,
-    resolverFeeBps: number,
-    shippingWindow: bigint,
-  ): this {
-    return this.push("create_escrow", [payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow]);
-  }
-
-  /** Batch `fund_escrow(escrowId, buyer)`. */
-  fund_escrow(escrowId: bigint, buyer: AddressLike): this {
-    return this.push("fund_escrow", [escrowId, buyer]);
-  }
-
-  /** Batch `mark_shipped(caller, escrowId, trackingId)`. */
-  mark_shipped(caller: AddressLike, escrowId: bigint, trackingId: string): this {
-    return this.push("mark_shipped", [caller, escrowId, trackingId]);
-  }
-
-  /** Batch `confirm_delivery(caller, escrowId)`. */
-  confirm_delivery(caller: AddressLike, escrowId: bigint): this {
-    return this.push("confirm_delivery", [caller, escrowId]);
-  }
-
-  /** Batch `raise_dispute(caller, escrowId, reason, description, evidenceHash)`. */
-  raise_dispute(
-    caller: AddressLike,
-    escrowId: bigint,
-    reason: ContractSymbol,
-    description: string,
-    evidenceHash: Uint8Array,
-  ): this {
-    return this.push("raise_dispute", [caller, escrowId, reason, description, evidenceHash]);
-  }
-
-  /** Batch `resolve_dispute(caller, escrowId, resolution)`. */
-  resolve_dispute(caller: AddressLike, escrowId: bigint, resolution: ResolutionType): this {
-    return this.push("resolve_dispute", [caller, escrowId, resolution]);
-  }
-
-  /** Batch `auto_release(escrowId)`. */
-  auto_release(escrowId: bigint): this {
-    return this.push("auto_release", [escrowId]);
-  }
-
-  /** Batch `get_escrow(escrowId)` (read-only – safe to include in any batch). */
-  get_escrow(escrowId: bigint): this {
-    return this.push("get_escrow", [escrowId]);
-  }
-
-  /** Batch `get_dispute(escrowId)` (read-only). */
-  get_dispute(escrowId: bigint): this {
-    return this.push("get_dispute", [escrowId]);
-  }
-
-  /** Batch `get_fee_config()` (read-only). */
-  get_fee_config(): this {
-    return this.push("get_fee_config", []);
-  }
-
-  /** Batch `set_arbitration_fee(caller, feeBps)`. */
-  set_arbitration_fee(caller: AddressLike, feeBps: number): this {
-    return this.push("set_arbitration_fee", [caller, feeBps]);
-  }
-
-  /** Batch `get_arbitration_fee()` (read-only). */
-  get_arbitration_fee(): this {
-    return this.push("get_arbitration_fee", []);
-  }
-
-  /** Batch `cancel_escrow(caller, escrowId)`. */
-  cancel_escrow(caller: AddressLike, escrowId: bigint): this {
-    return this.push("cancel_escrow", [caller, escrowId]);
-  }
-
-  /** Batch `rotate_resolver(caller, escrowId, newResolver)`. */
-  rotate_resolver(caller: AddressLike, escrowId: bigint, newResolver: AddressLike): this {
-    return this.push("rotate_resolver", [caller, escrowId, newResolver]);
-  }
-
-  /** Batch `create_basket_escrow(seller, buyer, resolver, tokens, amounts, feeBps, shippingWindow)`. */
-  create_basket_escrow(
-    seller: AddressLike,
-    buyer: AddressLike | null,
-    resolver: AddressLike,
-    tokens: readonly AddressLike[],
-    amounts: readonly bigint[],
-    feeBps: number,
-    shippingWindow: bigint,
-  ): this {
-    return this.push("create_basket_escrow", [
-      seller,
-      buyer,
-      resolver,
-      tokens,
-      amounts,
-      feeBps,
-      shippingWindow,
-    ]);
-  }
-
-  /** Batch `fund_basket_escrow(escrowId, buyer)`. */
-  fund_basket_escrow(escrowId: bigint, buyer: AddressLike): this {
-    return this.push("fund_basket_escrow", [escrowId, buyer]);
-  }
-
-  /** Batch `get_basket_tokens(escrowId)` (read-only). */
-  get_basket_tokens(escrowId: bigint): this {
-    return this.push("get_basket_tokens", [escrowId]);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Factory helper
-// ---------------------------------------------------------------------------
-
-/**
- * Convenience wrapper – creates an {@link EscrowBatch} directly from a
- * transport, without first constructing an {@link EscrowClient}.
- *
- * @example
- * ```ts
- * import { createBatch } from "@trustlink/contract-bindings";
- *
- * const results = await createBatch(myTransport)
- *   .fund_escrow(escrowId, buyer)
- *   .execute();
- * ```
- */
-export function createBatch(transport: ContractTransport): EscrowBatch {
-  return new EscrowClient(transport).batch();
 }

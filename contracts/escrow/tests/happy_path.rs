@@ -2,19 +2,26 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
-    token, Address, Env, String as SorobanString, Symbol, TryFromVal, Val,
+    token, Address, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val, Vec,
 };
 use trustlink_escrow::{
     Escrow, EscrowClient, EscrowCompleted, EscrowCreated, EscrowFunded, EscrowShipped, EscrowState,
     Payee,
 };
 
-fn has_event<T, F>(env: &Env, contract_id: &Address, topic: &str, predicate: F) -> bool
+fn has_event<T, F>(
+    env: &Env,
+    contract_id: &Address,
+    class: &str,
+    action: &str,
+    predicate: F,
+) -> bool
 where
     T: TryFromVal<Env, Val>,
     F: Fn(&T) -> bool,
 {
-    let expected_topic = Symbol::new(env, topic);
+    let expected_class = Symbol::new(env, class);
+    let expected_action = Symbol::new(env, action);
     env.events()
         .all()
         .filter_by_contract(contract_id)
@@ -22,14 +29,17 @@ where
         .iter()
         .any(|event| match &event.body {
             soroban_sdk::xdr::ContractEventBody::V0(v0) => {
-                let Some(topic) = v0.topics.iter().next() else {
+                let mut topics = v0.topics.iter();
+                let (Some(first), Some(second)) = (topics.next(), topics.next()) else {
                     return false;
                 };
-
-                let Ok(topic) = Symbol::try_from_val(env, topic) else {
+                let Ok(first) = Symbol::try_from_val(env, first) else {
                     return false;
                 };
-                if topic != expected_topic {
+                let Ok(second) = Symbol::try_from_val(env, second) else {
+                    return false;
+                };
+                if first != expected_class || second != expected_action {
                     return false;
                 }
 
@@ -41,7 +51,6 @@ where
                     .map(|event| predicate(&event))
                     .unwrap_or(false)
             }
-            _ => false,
         })
 }
 
@@ -79,6 +88,7 @@ fn test_happy_path_escrow_lifecycle() {
         address: seller.clone(),
         bps: 10_000,
     });
+    let payees: Val = payees.into_val(&env);
     let escrow_id = client.create_escrow(
         &payees,
         &None::<soroban_sdk::Address>,
@@ -88,13 +98,15 @@ fn test_happy_path_escrow_lifecycle() {
         &100_u32,  // 1% escrow fee
         &0_u32,    // resolver_fee_bps
         &3600_u64, // shipping window
+        &None::<SorobanString>,
     );
 
     // Check event immediately — before any subsequent contract call clears the buffer.
     assert!(has_event::<EscrowCreated, _>(
         &env,
         &contract_id,
-        "escrow_created",
+        "Escrow",
+        "Created",
         |e| { e.escrow_id == escrow_id && e.seller == seller && e.amount == amount }
     ));
 
@@ -108,7 +120,8 @@ fn test_happy_path_escrow_lifecycle() {
     assert!(has_event::<EscrowFunded, _>(
         &env,
         &contract_id,
-        "escrow_funded",
+        "Escrow",
+        "Funded",
         |e| { e.escrow_id == escrow_id && e.buyer == buyer && e.amount == amount }
     ));
 
@@ -127,7 +140,8 @@ fn test_happy_path_escrow_lifecycle() {
     assert!(has_event::<EscrowShipped, _>(
         &env,
         &contract_id,
-        "escrow_shipped",
+        "Escrow",
+        "Shipped",
         |e| { e.escrow_id == escrow_id && e.seller == seller && e.tracking_id == tracking }
     ));
 
@@ -136,12 +150,13 @@ fn test_happy_path_escrow_lifecycle() {
 
     // 4. Confirm Delivery — must advance past dispute_deadline (funded_at + 172_800s).
     env.ledger().set_timestamp(172_801);
-    client.confirm_delivery(&buyer, &escrow_id);
+    client.confirm_delivery(&buyer, &escrow_id, &false);
 
     assert!(has_event::<EscrowCompleted, _>(
         &env,
         &contract_id,
-        "escrow_completed",
+        "Escrow",
+        "Completed",
         |e| { e.escrow_id == escrow_id && e.recipient == seller && e.amount == amount }
     ));
 

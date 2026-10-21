@@ -1,69 +1,33 @@
-# Fallback Resolver API
+# Resolver schemes
 
-The Fallback Resolver manages automated network failovers across multiple ingest endpoints within the Stellar Wave Indexer framework. It ensures continuity by racing active data queries against a strict, configurable execution deadline constraint.
+TrustLink supports a single resolver, an M-of-N vote, and a primary/backup
+fallback. Resolver configuration is selected when the escrow is created;
+ordinary delivery release remains governed by delivery and shipping windows.
 
----
+## Single resolver
 
-## Configuration Reference
+`ResolverSet::Single` is the backward-compatible 1-of-1 scheme. The resolver
+authorizes `Release` or `Refund`; the decision enters `PendingFinalization`
+until the appeal window closes.
 
-### `FallbackResolverOptions`
+## Multi resolver: M-of-N vote
 
-Configuration object passed to the `FallbackResolver` constructor instance.
+`ResolverSet::Multi` records one vote per resolver and executes when either
+outcome reaches threshold M of N. Resolvers must be unique and non-conflicting
+with the escrow parties. A vote that never reaches quorum leaves the dispute
+open.
 
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `deadline` | `number` (optional) | `5000` | Specifies the duration limit in milliseconds before an open resolution execution times out and redirects to the next configured backup node interface. |
+## Fallback deadline gating
 
----
+`ResolverSet::Fallback` has primary and backup resolvers. The primary may
+resolve immediately; the backup may resolve only when
+`ledger.timestamp() >= dispute_deadline`. This does not bypass the appeal
+window or `PendingFinalization` checks.
 
-## Methods
+## Deadlock risk
 
-### `getDeadline()`
-
-Retrieves the active timeout window duration currently set for the instance.
-
-* **Returns**: `number` — Deadline duration in milliseconds.
-
-### `resolveWithDeadline<T>(task: Promise<T>)`
-
-Races a processing operation task against the active configuration timeout boundary.
-
-* **Parameters**:
-  * `task`: `Promise<T>` — The pending asynchronous network operation or ingestion query loop.
-* **Returns**: `Promise<T>` — Resolves with the operational payload data if successful before the deadline.
-* **Throws**: `Error` — Rejects if the runtime execution timeline exceeds the configured millisecond window.
-
----
-
-## Code Examples
-
-### Default Configuration (Backward Compatibility)
-
-If no explicit options are supplied, the instance defaults gracefully to an internal 5-second boundary.
-
-```typescript
-import { FallbackResolver } from '../indexer/src/resolvers/fallback';
-
-// Initializes safely with the default 5000ms threshold
-const resolver = new FallbackResolver();
-console.log(resolver.getDeadline()); // Output: 5000
-```
-
-### Custom High-Responsiveness Failover Configuration
-
-Override default behaviors to catch slow network responses aggressively during periods of heavy ingestion load.
-
-```typescript
-import { FallbackResolver } from '../indexer/src/resolvers/fallback';
-
-// Restrict network query tasks to a strict 1.5-second processing window
-const customResolver = new FallbackResolver({ deadline: 1500 });
-
-try {
-  const result = await customResolver.resolveWithDeadline(fetchStellarLedgerTask);
-  // Process ledger payload data safely
-} catch (error) {
-  // Output: Error: Fallback resolver deadline exceeded after 1500ms
-  console.error("Failover triggered:", error.message);
-}
-```
+M-of-N schemes can deadlock when quorum is unavailable. Fallback schemes can
+deadlock when the backup is not authorized or the deadline is misconfigured.
+Use monitoring, tested signer rotation, and a live backup path. See
+[MULTI_RESOLVER_SCHEME.md](../MULTI_RESOLVER_SCHEME.md) and
+[ARCHITECTURE.md](../ARCHITECTURE.md).

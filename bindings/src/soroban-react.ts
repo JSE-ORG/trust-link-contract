@@ -15,6 +15,7 @@
  */
 
 import type { ContractTransport } from "./client.js";
+import { encodeArgs } from "./encoding.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -158,7 +159,10 @@ async function invokeSoroban<TReturn>({
   });
 
   const contract = new Contract(contractId);
-  const scArgs = (args as unknown[]).map((a) => nativeToScVal(a));
+  // `encodeArgs` promotes address-shaped strings (and the `address` field of
+  // a payee object) to `ScVal::Address`, which the contract's `Address`
+  // parameters require — `nativeToScVal` alone would encode them as strings.
+  const scArgs = encodeArgs(args, nativeToScVal);
 
   const tx = new TransactionBuilder(account, {
     fee: BASE_FEE,

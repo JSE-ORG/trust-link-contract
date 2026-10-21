@@ -10,10 +10,42 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Format Check
         run: make fmt-check
+      # Canonical lint scope — identical to the pre-commit hook (issue #1102).
+      - name: Audit Scope Drift Check
+        run: |
+          # AUDIT_SCOPE.md is canonical; guard against audit/ duplicate
+          if [ -d "audit" ] && [ -f "audit/SCOPE.md" ]; then
+            echo "Error: Duplicate audit scope file detected at audit/SCOPE.md. AUDIT_SCOPE.md is canonical."
+            exit 1
+          fi
       - name: Clippy
         run: make clippy
-      - name: Test
+      - name: Build (lib)
+        run: make build-debug
+      - name: Test (unit, lib)
         run: make test
+      - name: "Test (all targets: unit + integration)"
+        run: make test-all
+      - name: Fuzz targets (type-check)
+        run: make fuzz-check
+      - name: Xtask (fmt + clippy + test)
+        run: make xtask-test
+
+  indexer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: indexer/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: indexer
+      - name: Typecheck and test
+        run: make indexer-test
 
   build-wasm:
     runs-on: ubuntu-latest

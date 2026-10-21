@@ -340,10 +340,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "BuyerEscrowIndex"
+                    "symbol": "BuyerEscrow"
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+                  },
+                  {
+                    "u32": 0
                   }
                 ]
               },
@@ -354,6 +357,33 @@
                     "u64": "2"
                   }
                 ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 120960
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "BuyerEscrowCount"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 1
               }
             }
           },
@@ -403,11 +433,9 @@
                   },
                   {
                     "key": {
-                      "symbol": "dispute_deadline"
+                      "symbol": "expires_at"
                     },
-                    "val": {
-                      "u64": "0"
-                    }
+                    "val": "void"
                   },
                   {
                     "key": {
@@ -419,7 +447,7 @@
                   },
                   {
                     "key": {
-                      "symbol": "funded_at"
+                      "symbol": "grace_period"
                     },
                     "val": {
                       "u64": "0"
@@ -429,33 +457,52 @@
                     "key": {
                       "symbol": "notes"
                     },
-                    "val": "void"
+                    "val": {
+                      "string": ""
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "packed_timestamps"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
                   },
                   {
                     "key": {
                       "symbol": "payees"
                     },
                     "val": {
-                      "vec": [
+                      "map": [
                         {
-                          "map": [
-                            {
-                              "key": {
-                                "symbol": "address"
-                              },
-                              "val": {
-                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                          "key": {
+                            "symbol": "inner"
+                          },
+                          "val": {
+                            "vec": [
+                              {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "address"
+                                    },
+                                    "val": {
+                                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "bps"
+                                    },
+                                    "val": {
+                                      "u32": 10000
+                                    }
+                                  }
+                                ]
                               }
-                            },
-                            {
-                              "key": {
-                                "symbol": "bps"
-                              },
-                              "val": {
-                                "u32": 10000
-                              }
-                            }
-                          ]
+                            ]
+                          }
                         }
                       ]
                     }
@@ -577,11 +624,9 @@
                   },
                   {
                     "key": {
-                      "symbol": "dispute_deadline"
+                      "symbol": "expires_at"
                     },
-                    "val": {
-                      "u64": "1700172800"
-                    }
+                    "val": "void"
                   },
                   {
                     "key": {
@@ -593,43 +638,62 @@
                   },
                   {
                     "key": {
-                      "symbol": "funded_at"
+                      "symbol": "grace_period"
                     },
                     "val": {
-                      "u64": "1700000000"
+                      "u64": "0"
                     }
                   },
                   {
                     "key": {
                       "symbol": "notes"
                     },
-                    "val": "void"
+                    "val": {
+                      "string": ""
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "packed_timestamps"
+                    },
+                    "val": {
+                      "u64": "7301444404900172800"
+                    }
                   },
                   {
                     "key": {
                       "symbol": "payees"
                     },
                     "val": {
-                      "vec": [
+                      "map": [
                         {
-                          "map": [
-                            {
-                              "key": {
-                                "symbol": "address"
-                              },
-                              "val": {
-                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                          "key": {
+                            "symbol": "inner"
+                          },
+                          "val": {
+                            "vec": [
+                              {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "address"
+                                    },
+                                    "val": {
+                                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "bps"
+                                    },
+                                    "val": {
+                                      "u32": 10000
+                                    }
+                                  }
+                                ]
                               }
-                            },
-                            {
-                              "key": {
-                                "symbol": "bps"
-                              },
-                              "val": {
-                                "u32": 10000
-                              }
-                            }
-                          ]
+                            ]
+                          }
                         }
                       ]
                     }
@@ -728,18 +792,7 @@
               "val": {
                 "vec": [
                   {
-                    "vec": [
-                      {
-                        "vec": [
-                          {
-                            "symbol": "Pending"
-                          }
-                        ]
-                      },
-                      {
-                        "u64": "1700000000"
-                      }
-                    ]
+                    "u64": "1700000000"
                   }
                 ]
               }
@@ -770,32 +823,10 @@
               "val": {
                 "vec": [
                   {
-                    "vec": [
-                      {
-                        "vec": [
-                          {
-                            "symbol": "Pending"
-                          }
-                        ]
-                      },
-                      {
-                        "u64": "1700000000"
-                      }
-                    ]
+                    "u64": "1700000000"
                   },
                   {
-                    "vec": [
-                      {
-                        "vec": [
-                          {
-                            "symbol": "Funded"
-                          }
-                        ]
-                      },
-                      {
-                        "u64": "1700000000"
-                      }
-                    ]
+                    "u64": "72057595737927936"
                   }
                 ]
               }
@@ -815,10 +846,73 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "VendorEscrowIndex"
+                    "symbol": "ShardedCounter"
+                  },
+                  {
+                    "u32": 0
+                  },
+                  {
+                    "u32": 1
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u64": "1"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 120960
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "ShardedCounter"
+                  },
+                  {
+                    "u32": 0
+                  },
+                  {
+                    "u32": 2
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u64": "1"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 120960
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "VendorEscrow"
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  },
+                  {
+                    "u32": 0
                   }
                 ]
               },
@@ -832,6 +926,33 @@
                     "u64": "2"
                   }
                 ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 120960
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "VendorEscrowCount"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 2
               }
             }
           },
@@ -882,19 +1003,7 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "FeeCollector"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "FeeConfig"
+                            "symbol": "GlobalConfig"
                           }
                         ]
                       },
@@ -902,7 +1011,55 @@
                         "map": [
                           {
                             "key": {
+                              "symbol": "appeal_fee_bps"
+                            },
+                            "val": {
+                              "u32": 0
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "arbitration_fee_bps"
+                            },
+                            "val": {
+                              "u32": 0
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "dispute_timeout"
+                            },
+                            "val": {
+                              "u64": "2592000"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "fee_collector"
+                            },
+                            "val": {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "max_amount"
+                            },
+                            "val": {
+                              "i128": "17014118346046923173168730371588410"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "min_amount"
+                            },
+                            "val": {
+                              "i128": "1"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "platform_fee_bps"
                             },
                             "val": {
                               "u32": 0
@@ -915,20 +1072,30 @@
                             "val": {
                               "u32": 0
                             }
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
+                          },
                           {
-                            "symbol": "Paused"
+                            "key": {
+                              "symbol": "state_flags"
+                            },
+                            "val": {
+                              "u32": 0
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "treasury"
+                            },
+                            "val": "void"
+                          },
+                          {
+                            "key": {
+                              "symbol": "ttl_extension_ledgers"
+                            },
+                            "val": {
+                              "u32": 120960
+                            }
                           }
                         ]
-                      },
-                      "val": {
-                        "bool": false
                       }
                     },
                     {
@@ -940,19 +1107,7 @@
                         ]
                       },
                       "val": {
-                        "u32": 1
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "TotalCreated"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u64": "2"
+                        "u32": 2
                       }
                     }
                   ]

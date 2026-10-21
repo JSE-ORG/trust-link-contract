@@ -4,6 +4,7 @@ use crate::{ContractError, EscrowClient, Payee};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, IntoVal, Vec};
 
+#[allow(dead_code)]
 fn single_payee(env: &Env, address: &Address) -> Vec<Payee> {
     let mut payees = Vec::new(env);
     payees.push_back(Payee {

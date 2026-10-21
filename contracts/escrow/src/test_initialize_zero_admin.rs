@@ -67,14 +67,13 @@ fn failed_initialize_with_zero_admin_leaves_storage_uninitialized() {
         let storage = env.storage().instance();
         assert!(!storage.has(&DataKey::Admin), "Admin must not be set");
         assert!(
-            !storage.has(&DataKey::FeeCollector),
-            "FeeCollector must not be set",
+            !storage.has(&DataKey::GlobalConfig),
+            "GlobalConfig must not be set",
         );
         assert!(
             !storage.has(&DataKey::EscrowCounter),
             "EscrowCounter must not be set",
         );
-        assert!(!storage.has(&DataKey::Paused), "Paused must not be set");
     });
 }
 

@@ -125,6 +125,38 @@ fn state_history_rejects_unknown_escrow() {
 }
 
 #[test]
+fn fresh_escrow_history_is_non_empty_and_starts_with_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, seller, resolver, token, _admin) = setup(&env);
+
+    env.ledger().set_timestamp(500);
+    let payees = single_payee(&env, &seller);
+    let payees_val = payees.into_val(&env);
+    let escrow_id = client.create_escrow_8(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3_600_u64,
+    );
+
+    // Missing escrow is an error, never an empty history.
+    assert_eq!(
+        client.try_get_state_history(&(escrow_id + 1)),
+        Err(Ok(ContractError::EscrowNotFound))
+    );
+
+    // Existing escrow always has at least the initial Pending entry.
+    let history = client.get_state_history(&escrow_id);
+    assert!(!history.is_empty());
+    assert_eq!(history.len(), 1);
+    assert_eq!(history.get(0).unwrap(), (EscrowState::Pending, 500));
+}
+
+#[test]
 fn state_history_prunes_oldest_entries_beyond_cap() {
     let env = Env::default();
     env.mock_all_auths();

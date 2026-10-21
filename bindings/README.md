@@ -121,8 +121,8 @@ on `EscrowClient` (hover in your editor).
 
 | Method | Description |
 |---|---|
-| `create_escrow(payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow)` | Creates a single-token escrow, returns its `bigint` id |
-| `create_basket_escrow(seller, buyer, resolver, tokens, amounts, feeBps, shippingWindow)` | Creates a multi-token escrow |
+| `create_escrow(payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow, notes?)` | Creates a single-token escrow, returns its `bigint` id. `payees` is a single seller address or a `Payee[]` split; `notes` is optional (defaults to `null`) |
+| `create_basket_escrow(seller, buyer, resolver, tokens, amounts, feeBps, shippingWindow, notes, expiresAt)` | Creates a multi-token escrow with an optional pending expiry |
 | `batch_create_escrow(seller, escrows)` | Creates many escrows for one seller in one tx |
 | `fund_escrow(escrowId, buyer)` | Buyer deposits the amount, opens the dispute window |
 | `fund_basket_escrow(escrowId, buyer)` | Funds a basket escrow (pulls every token) |
@@ -138,7 +138,8 @@ on `EscrowClient` (hover in your editor).
 | `post_message(escrowId, sender, content)` / `get_messages(escrowId, start, limit)` | Escrow message thread |
 | `get_escrow(escrowId)` | Read the full `EscrowData` record |
 | `get_dispute(escrowId)` | Read `DisputeData` (or `null`) |
-| `get_escrows_by_buyer(buyer)` / `get_escrows_by_vendor(vendor)` | List escrow ids for an address |
+| `get_escrows_by_buyer(buyer)` | List escrow ids for a buyer |
+| `get_escrows_by_vendor(vendor, start, limit)` | One page (max 50, ascending) of escrow ids for a vendor |
 | `get_stats()` / `get_public_config()` / `get_fee_config()` | Read aggregate/config state |
 
 ### React hooks

@@ -1,6 +1,9 @@
 #!/bin/sh
 
-# Pre-commit hook: runs cargo fmt and cargo clippy checks
+# Pre-commit hook: runs exactly the checks CI runs, via the same make targets,
+# so a commit that passes here passes in CI (and vice versa). See the
+# "Building & Testing" section of CONTRIBUTING.md for the canonical commands.
+#
 # Install via: make setup
 
 set -e
@@ -10,22 +13,23 @@ echo "Running pre-commit checks..."
 # Check formatting
 echo "Checking code formatting..."
 
-if ! cargo fmt --all -- --check; then
+if ! make fmt-check; then
     echo ""
     echo "ERROR: Code is not formatted correctly."
-    echo "Run 'cargo fmt --all' to fix formatting, then re-add your files."
+    echo "Run 'make fmt' to fix formatting, then re-add your files."
     exit 1
 fi
 
 echo "Formatting check passed."
 
-# Run clippy
-echo "Running clippy lints..."
+# Run clippy (canonical scope: cargo clippy --lib + pedantic, see Makefile)
+echo "Running clippy lints (canonical scope: make clippy)..."
 
-if ! cargo clippy --all-targets --all-features -- -D warnings; then
+if ! make clippy; then
     echo ""
     echo "ERROR: Clippy found lint errors."
     echo "Fix the clippy warnings above, then re-add your files."
+    echo "CI runs the same 'make clippy' gate — see CONTRIBUTING.md."
     exit 1
 fi
 

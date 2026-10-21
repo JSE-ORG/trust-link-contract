@@ -5,7 +5,6 @@
 //! [`crate::tasks`] declarative and gives every caller identical error text.
 
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// `cargo <args...> <extra...>`
 pub fn cargo(args: &[&str], extra: &[String]) -> Command {
@@ -69,12 +68,4 @@ pub fn run_capture(mut cmd: Command) -> Result<String, String> {
         return Err(format!("{program} exited with {}", output.status));
     }
     String::from_utf8(output.stdout).map_err(|e| format!("non-utf8 stdout from {program}: {e}"))
-}
-
-/// Current unix timestamp in seconds, or 0 if the clock predates the epoch.
-pub fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }

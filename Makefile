@@ -1,4 +1,4 @@
-.PHONY: help build build-wasm test fmt clippy bench clean check check-error-codes doc audit indexer-test xtask-test \
+.PHONY: help build build-wasm test test-all fmt clippy bench clean check check-error-codes doc audit indexer-test xtask-test \
 	testnet testnet-reset testnet-stop fuzz-build fuzz fuzz-check setup hooks-uninstall
 
 help: ## Show this help
@@ -13,10 +13,13 @@ build-debug: ## Build all contracts in debug mode
 build-wasm: ## Build contract wasm for deployment
 	cargo build --target wasm32v1-none --release
 
-test: ## Run all tests (lib target, cross-platform)
+test: ## Run unit tests only (lib target, cross-platform)
 	cargo test --lib
 
-test-verbose: ## Run all tests with output
+test-all: ## Run every test target: unit tests plus contracts/escrow/tests/ integration suites
+	cargo test --tests --features trustlink-escrow/testutils
+
+test-verbose: ## Run unit tests with output
 	cargo test --lib -- --nocapture
 
 fmt: ## Format all code
@@ -25,8 +28,22 @@ fmt: ## Format all code
 fmt-check: ## Check formatting without modifying files
 	cargo fmt --all -- --check
 
-clippy: ## Run clippy lints
-	cargo clippy --lib -- -D warnings
+# Pedantic lints that conflict with Soroban conventions rather than flag bugs:
+# - needless_pass_by_value: #[contractimpl] entry points must take Env/Address by value.
+# - missing_errors_doc: every entry point returns ContractError; codes are documented in errors.rs.
+# - must_use_candidate: fires on every read-only contract query.
+# - wildcard_imports: modules intentionally share the crate prelude via `use crate::*`.
+CLIPPY_PEDANTIC_ALLOW := \
+	-A clippy::needless_pass_by_value \
+	-A clippy::missing_errors_doc \
+	-A clippy::must_use_candidate \
+	-A clippy::wildcard_imports
+
+# Canonical lint scope (issue #1102): this is the ONLY clippy command that
+# gates this repository. Both .githooks/pre-commit and .github/workflows/ci.yml
+# run it via `make clippy`, so a commit that passes locally passes in CI.
+clippy: ## Run clippy lints, including clippy::pedantic (canonical scope, used by hook and CI)
+	cargo clippy --lib -- -D warnings -W clippy::pedantic $(CLIPPY_PEDANTIC_ALLOW)
 
 check: fmt-check clippy test check-error-codes ## Run all checks (fmt + clippy + test + error-code drift)
 
@@ -50,8 +67,6 @@ clean: ## Clean build artifacts
 
 check-error-codes: ## Verify errors.rs and bindings/src/errors.ts agree
 	node scripts/check-error-codes.mjs
-
-check: fmt-check clippy test check-error-codes ## Run all checks (fmt + clippy + test + error-code drift)
 
 doc: ## Generate and open documentation
 	cargo doc --open
@@ -116,7 +131,7 @@ hooks-install: ## Install pre-commit git hooks
 	@chmod +x .githooks/pre-commit
 	@git config core.hooksPath .githooks
 	@echo "Git hooks installed successfully."
-	@echo "Pre-commit hook will run cargo fmt and cargo clippy on each commit."
+	@echo "Pre-commit hook will run 'make fmt-check' and 'make clippy' on each commit."
 
 hooks-uninstall: ## Uninstall git hooks
 	@git config --unset core.hooksPath

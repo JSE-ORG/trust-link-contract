@@ -1,28 +1,6 @@
-use crate::{ContractError, EscrowData, ResolutionType, BASIS_POINTS};
-use soroban_sdk::{contracttype, token, Address, Env, Vec};
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TransferInstruction {
-    pub recipient: Address,
-    pub amount: i128,
-}
-
-pub fn execute_payout_transfers(
-    env: &Env,
-    token_addr: &Address,
-    transfers: &Vec<TransferInstruction>,
-) -> Result<(), ContractError> {
-    let client = token::Client::new(env, token_addr);
-    let contract_addr = env.current_contract_address();
-
-    for instruction in transfers.iter() {
-        if instruction.amount > 0 {
-            client.transfer(&contract_addr, &instruction.recipient, &instruction.amount);
-        }
-    }
-    Ok(())
-}
+use crate::types::{Escrow, ResolutionType};
+use crate::{ContractError, BASIS_POINTS};
+use soroban_sdk::{contracttype, Address, Env, Vec};
 
 /// Computes the protocol fee for `amount` at `fee_bps` basis points.
 ///
@@ -39,7 +17,7 @@ pub fn execute_payout_transfers(
 ///
 /// Consequence of flooring: for amounts where `amount * fee_bps < 10_000` the
 /// fee rounds down to `0` and is effectively waived. The `MIN_ESCROW_AMOUNT`
-/// guard (1_000_000 stroops) in `create_escrow` keeps escrows large enough that
+/// guard (`1_000_000` stroops) in `create_escrow` keeps escrows large enough that
 /// a non-zero `fee_bps` always yields a meaningful, non-zero fee.
 ///
 /// Floor is chosen deliberately over ceiling/round-half-up: it guarantees the
@@ -48,39 +26,101 @@ pub fn execute_payout_transfers(
 ///
 /// The computation is split (`amount / 10_000 * fee_bps` plus the remainder
 /// term) to avoid overflowing `i128` for large amounts.
+///
+/// `fee_bps` beyond `BASIS_POINTS` (over 100%) is rejected with
+/// `FeeExceedsMax`: without this bound the split-div trick that avoids i128
+/// overflow can still yield a `fee` greater than `amount`, breaking the
+/// fee-boundedness invariant every caller relies on.
 pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, ContractError> {
     if amount < 0 {
         return Err(ContractError::InvalidAmount);
     }
+    if fee_bps > BASIS_POINTS {
+        return Err(ContractError::FeeExceedsMax);
+    }
 
     let part1 = amount
-        .checked_div(BASIS_POINTS as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?
-        .checked_mul(fee_bps as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?;
+        .checked_div(i128::from(BASIS_POINTS))
+        .ok_or(ContractError::FeeCalculationOverflow)?
+        .checked_mul(i128::from(fee_bps))
+        .ok_or(ContractError::FeeCalculationOverflow)?;
 
-    let part2 = (amount % BASIS_POINTS as i128)
-        .checked_mul(fee_bps as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?
-        .checked_div(BASIS_POINTS as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?;
+    let part2 = (amount % i128::from(BASIS_POINTS))
+        .checked_mul(i128::from(fee_bps))
+        .ok_or(ContractError::FeeCalculationOverflow)?
+        .checked_div(i128::from(BASIS_POINTS))
+        .ok_or(ContractError::FeeCalculationOverflow)?;
 
     part1
         .checked_add(part2)
-        .ok_or(ContractError::ArithmeticOverflow)
+        .ok_or(ContractError::FeeCalculationOverflow)
 }
 
 pub fn calculate_protocol_fee(amount: i128, fee_bps: u32) -> Result<(i128, i128), ContractError> {
     let fee = calculate_fee(amount, fee_bps)?;
     let net = amount
         .checked_sub(fee)
-        .ok_or(ContractError::ArithmeticOverflow)?;
+        .ok_or(ContractError::AmountCalculationOverflow)?;
     Ok((fee, net))
+}
+
+/// Transfers `amount` from the contract to `recipient` after deducting the
+/// protocol fee at `fee_bps` basis points, forwarding the fee to
+/// `fee_collector`.
+///
+/// Returns `(fee, net)` where `fee + net == amount`.
+pub(crate) fn transfer_with_protocol_fee(
+    env: &Env,
+    token_addr: &Address,
+    recipient: &Address,
+    fee_collector: &Address,
+    amount: i128,
+    fee_bps: u32,
+) -> Result<(i128, i128), ContractError> {
+    let (fee, net) = calculate_protocol_fee(amount, fee_bps)?;
+    payout(env, token_addr, recipient, net);
+    payout(env, token_addr, fee_collector, fee);
+    Ok((fee, net))
+}
+
+/// Transfers `amount` of `token_addr` from this contract to `recipient`.
+///
+/// This is the single choke point every payout path shares — protocol and
+/// arbitration fees, treasury platform fees, payee distributions, basket
+/// tokens, refunds, and emergency drains — so the "only move funds when there
+/// is actually something to move" rule lives in exactly one place. Non-positive
+/// amounts (a fee that rounded down to zero, a zero-share basket entry, an
+/// already-fully-deducted remainder) are skipped instead of issuing a
+/// zero-value `transfer`, which keeps the emitted token events clean and saves
+/// the cross-contract call.
+///
+/// A failing transfer panics, which reverts the whole invocation: there is no
+/// partial-payout path, and callers are expected to have persisted their
+/// `EscrowState` transition *before* calling this helper (see the CEI ordering
+/// in `settle_escrow_to_payees`, `reclaim_expired`, and `finalize_dispute`).
+pub(crate) fn payout(env: &Env, token_addr: &Address, recipient: &Address, amount: i128) {
+    if amount <= 0 {
+        return;
+    }
+    crate::internal::transfer_helper(
+        env,
+        token_addr,
+        &env.current_contract_address(),
+        recipient,
+        amount,
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransferInstruction {
+    pub recipient: Address,
+    pub amount: i128,
 }
 
 pub fn calculate_dispute_allocations(
     env: &Env,
-    escrow: &EscrowData,
+    escrow: &Escrow,
     resolution: &ResolutionType,
     arbitration_fee: i128,
     fee_collector: &Address,
@@ -92,7 +132,7 @@ pub fn calculate_dispute_allocations(
     let remaining_amount = escrow
         .amount
         .checked_sub(arbitration_fee)
-        .ok_or(ContractError::ArithmeticOverflow)?;
+        .ok_or(ContractError::AmountCalculationOverflow)?;
 
     let (fee, net_amount) = calculate_protocol_fee(remaining_amount, escrow.fee_bps)?;
 
@@ -100,7 +140,7 @@ pub fn calculate_dispute_allocations(
         ResolutionType::Release => escrow
             .payees
             .get(0)
-            .ok_or(ContractError::IndexOutOfBounds)?
+            .ok_or(ContractError::PayeeIndexOutOfBounds)?
             .address
             .clone(),
         ResolutionType::Refund => escrow
@@ -110,14 +150,11 @@ pub fn calculate_dispute_allocations(
     };
 
     let mut transfers = Vec::new(env);
-
-    // Transfer net amount to the winning party
     transfers.push_back(TransferInstruction {
         recipient,
         amount: net_amount,
     });
 
-    // Transfer protocol fee to fee collector (if non-zero)
     if fee > 0 {
         transfers.push_back(TransferInstruction {
             recipient: fee_collector.clone(),
@@ -126,4 +163,52 @@ pub fn calculate_dispute_allocations(
     }
 
     Ok(transfers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env};
+
+    /// Minimal SEP-41-shaped token that fails if a zero-value transfer is
+    /// attempted, so the test below can prove `payout` short-circuits.
+    #[contract]
+    pub struct ZeroRejectingToken;
+
+    #[contractimpl]
+    impl ZeroRejectingToken {
+        pub fn transfer(_env: Env, _from: Address, _to: Address, amount: i128) {
+            assert!(amount > 0, "zero-value transfer attempted");
+        }
+    }
+
+    /// Issue #1064: a zero fee (or an all-fee/zero-net amount) must not issue a
+    /// zero-value token transfer.
+    #[test]
+    fn transfer_with_protocol_fee_skips_zero_value_transfers() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(crate::Escrow, ());
+        let token = env.register(ZeroRejectingToken, ());
+        let recipient = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+
+        // amount = 1 at 300 bps => fee = 0, net = 1. The zero fee transfer is
+        // skipped; only the positive net transfer reaches the token.
+        let (fee, net) = env
+            .as_contract(&contract_id, || {
+                transfer_with_protocol_fee(&env, &token, &recipient, &fee_collector, 1, 300)
+            })
+            .unwrap();
+        assert_eq!((fee, net), (0, 1));
+
+        // amount = 0 => fee = 0 and net = 0. No token transfer is attempted,
+        // so the zero-rejecting token is never called.
+        let (fee, net) = env
+            .as_contract(&contract_id, || {
+                transfer_with_protocol_fee(&env, &token, &recipient, &fee_collector, 0, 300)
+            })
+            .unwrap();
+        assert_eq!((fee, net), (0, 0));
+    }
 }

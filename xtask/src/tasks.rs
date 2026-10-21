@@ -7,11 +7,12 @@
 use std::process::Command;
 
 use crate::gas;
-use crate::gas_network;
-use crate::process::{bash, cargo, npm, run_streaming, stellar};
+use crate::process::{bash, npm, run_streaming};
+
+// Re-exported so the gas modules can build commands via `crate::tasks::*`.
+pub use crate::process::{cargo, run_capture as run, stellar};
 
 const WASM_TARGET: &str = "wasm32v1-none";
-const WASM_PATH: &str = "target/wasm32v1-none/release/trustlink_escrow.wasm";
 
 /// Gates run, in order, by `cargo xtask ci`.
 const CI_GATES: &[&str] = &["fmt-check", "clippy", "build-wasm", "test"];
@@ -92,17 +93,27 @@ pub fn all() -> Vec<Task> {
         Task {
             name: "deploy",
             about: "Deploy the contract via the Stellar CLI (pass --network/--source after --)",
-            action: Action::Spawn(|e| stellar(&["contract", "deploy", "--wasm", WASM_PATH], e)),
+            action: Action::Spawn(|e| {
+                stellar(
+                    &[
+                        "contract",
+                        "deploy",
+                        "--wasm",
+                        "target/wasm32v1-none/release/trustlink_escrow.wasm",
+                    ],
+                    e,
+                )
+            }),
         },
         Task {
             name: "gas-profile",
             about: "Run gas-profile tests, print a console summary, and (optionally) write JSON",
-            action: Action::Custom(gas::run),
+            action: Action::Custom(gas::run_gas_profile),
         },
         Task {
             name: "gas-profile-network",
             about: "Profile gas on a live/standalone network via stellar CLI (--network/--source/--contract after --)",
-            action: Action::Custom(gas_network::run),
+            action: Action::Custom(gas::run_gas_profile_network),
         },
         Task {
             name: "ci",
@@ -142,7 +153,6 @@ pub fn print_help(tasks: &[Task]) {
     println!("Usage:");
     println!("    cargo xtask <command> [-- <args forwarded to the tool>]\n");
     println!("Commands:");
-
     let width = tasks.iter().map(|t| t.name.len()).max().unwrap_or(0);
     for task in tasks {
         println!("    {:<width$}  {}", task.name, task.about, width = width);
@@ -154,12 +164,43 @@ pub fn print_help(tasks: &[Task]) {
     println!(
         "gas-profile-network options (after --):\n    --network <net>   Stellar network (default: standalone)\n    --source <acc>    Stellar CLI account name (default: alice)\n    --contract <id>   Existing deployed contract (if omitted, deploys a new one)\n    --out <file>      Write JSON report to <file>\n"
     );
+    println!("    {:<width$}  Show this help text", "help", width = width);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn test_tasks_list_contains_expected_commands() {
+        let list = all();
+        let names: Vec<&str> = list.iter().map(|t| t.name).collect();
+        assert!(names.contains(&"build"));
+        assert!(names.contains(&"build-wasm"));
+        assert!(names.contains(&"test"));
+        assert!(names.contains(&"fmt"));
+        assert!(names.contains(&"fmt-check"));
+        assert!(names.contains(&"clippy"));
+        assert!(names.contains(&"optimize"));
+        assert!(names.contains(&"bindings"));
+        assert!(names.contains(&"deploy"));
+        assert!(names.contains(&"gas-profile"));
+        assert!(names.contains(&"gas-profile-network"));
+        assert!(names.contains(&"ci"));
+    }
+
+    #[test]
+    fn test_cargo_command_building() {
+        let cmd = cargo(&["build", "--release"], &["--extra".to_string()]);
+        assert_eq!(cmd.get_program(), "cargo");
+    }
+
+    #[test]
+    fn test_stellar_command_building() {
+        let cmd = stellar(&["contract", "deploy"], &["--network".to_string()]);
+        assert_eq!(cmd.get_program(), "stellar");
+    }
 
     #[test]
     fn task_names_are_unique() {

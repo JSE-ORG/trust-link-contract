@@ -8,7 +8,8 @@ mod tests {
 
     const DISPUTE_WINDOW: u64 = 172_800;
 
-    fn setup_contract(env: &Env) -> (EscrowClient, Address, Address) {
+    #[allow(dead_code)]
+    fn setup_contract(env: &Env) -> (EscrowClient<'_>, Address, Address) {
         let admin = Address::generate(env);
         let fee_collector = Address::generate(env);
 
@@ -88,7 +89,7 @@ mod tests {
             &escrow_id,
             &soroban_sdk::String::from_str(&env, "TRACK-FEE"),
         );
-        client.confirm_delivery(&buyer, &escrow_id);
+        client.confirm_delivery(&buyer, &escrow_id, &false);
 
         let tc = soroban_sdk::token::Client::new(&env, &token_id);
         let seller_balance = tc.balance(&seller);

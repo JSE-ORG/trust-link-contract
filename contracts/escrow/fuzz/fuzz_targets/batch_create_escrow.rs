@@ -36,15 +36,16 @@ fuzz_target!(|data: &[u8]| {
             token: h.token.clone(),
             amount: if valid { VALID_AMOUNT } else { r.i128() },
             fee_bps: if valid { VALID_FEE_BPS } else { r.u32() },
+            resolver_fee_bps: if valid { VALID_FEE_BPS } else { r.u32() },
             shipping_window: if valid {
                 VALID_SHIPPING_WINDOW
             } else {
                 r.u64()
             },
             notes: if r.bool() {
-                Some(r.ascii_string(&h.env, 64))
+                r.ascii_string(&h.env, 64)
             } else {
-                Option::<SorobanString>::None
+                SorobanString::from_str(&h.env, "")
             },
         });
     }

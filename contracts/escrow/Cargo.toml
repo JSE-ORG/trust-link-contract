@@ -13,8 +13,39 @@ doctest = false
 # downstream native consumers such as the fuzz harnesses in `fuzz/`.
 testutils = ["soroban-sdk/testutils"]
 
+# The integration tests call admin entry points that are compiled under
+# `#[cfg(any(test, feature = "testutils"))]`. Building them without the
+# feature would fail with E0425 (missing functions), so they declare it as a
+# hard requirement and are skipped unless it is enabled. Enable them with
+# `cargo test --tests --features trustlink-escrow/testutils` (or `make test-all`).
+[[test]]
+name = "auth_audit"
+path = "tests/auth_audit.rs"
+required-features = ["testutils"]
+
+[[test]]
+name = "cancel_events"
+path = "tests/cancel_events.rs"
+required-features = ["testutils"]
+
+[[test]]
+name = "edge_cases"
+path = "tests/edge_cases.rs"
+required-features = ["testutils"]
+
+[[test]]
+name = "happy_path"
+path = "tests/happy_path.rs"
+required-features = ["testutils"]
+
+[[test]]
+name = "missing_features_integration"
+path = "tests/missing_features_integration.rs"
+required-features = ["testutils"]
+
 [dependencies]
 soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+proptest = "1.11"

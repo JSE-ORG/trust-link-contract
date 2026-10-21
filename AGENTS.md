@@ -47,7 +47,7 @@ All existed prior: set_admin, set_fee, set_protocol_fee, set_arbitration_fee, se
 | `make` target | Command | Status |
 |---|---|---|
 | `make fmt-check` | `cargo fmt --all -- --check` | ✅ zero drift |
-| `make clippy` | `cargo clippy --lib -- -D warnings` | ✅ zero warnings |
+| `make clippy` | `cargo clippy --lib -- -D warnings -W clippy::pedantic` (+ Soroban allow-list) | ✅ zero warnings |
 | `make test` | `cargo test --lib` | ✅ **327/327 pass** |
 | `make check` | fmt-check + clippy + test | ✅ all pass |
 | `make build-wasm` | `cargo build --target wasm32v1-none --release` | builds `.wasm` artifact |

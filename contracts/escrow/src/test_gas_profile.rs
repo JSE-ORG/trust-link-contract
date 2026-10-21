@@ -1,9 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::{advance_time, mint_token, setup_contract};
-use crate::{
-    Escrow, EscrowClient, EscrowState, Payee, ResolutionType, ResolverSet, TokenEntry,
-};
+use crate::{Escrow, EscrowClient, EscrowState, Payee, ResolutionType, ResolverSet, TokenEntry};
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{token, Address, Env, IntoVal, String as SorobanString, Vec};
 
@@ -228,6 +226,8 @@ fn gas_profile_create_basket_escrow() {
         &amounts,
         &100_u32,
         &3600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
     );
     let sample = diff(&env, &before);
     print_gas("create_basket_escrow(3 tokens)", &sample);
@@ -287,8 +287,7 @@ fn gas_profile_mark_shipped() {
     let before = take_budget_snapshot(&env);
     client.mark_shipped(
         &seller,
-        &id,
-        &SorobanString::from_str(&env, "TRACK-ABC-123"),
+        &id, &soroban_sdk::String::from_str(&env, "TRACK-ABC-123"),
     );
     let sample = diff(&env, &before);
     print_gas("mark_shipped", &sample);
@@ -316,11 +315,11 @@ fn gas_profile_confirm_delivery() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "T-1"));
     advance_time(&env, 172_800 + 1);
 
     let before = take_budget_snapshot(&env);
-    client.confirm_delivery(&buyer, &id);
+    client.confirm_delivery(&buyer, &id, &false);
     let sample = diff(&env, &before);
     print_gas("confirm_delivery", &sample);
 }
@@ -461,7 +460,7 @@ fn gas_profile_raise_dispute() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "T-1"));
     advance_time(&env, 1);
 
     let before = take_budget_snapshot(&env);
@@ -469,7 +468,7 @@ fn gas_profile_raise_dispute() {
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "item not as described"),
+        &soroban_sdk::Bytes::from_slice(&env, b"item not as described"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
     let sample = diff(&env, &before);
@@ -498,13 +497,13 @@ fn gas_profile_resolve_dispute_release() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "T-1"));
     advance_time(&env, 1);
     client.raise_dispute(
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "x"),
+        &soroban_sdk::Bytes::from_slice(&env, b"x"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -536,13 +535,13 @@ fn gas_profile_resolve_dispute_refund() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "T-1"));
     advance_time(&env, 1);
     client.raise_dispute(
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "x"),
+        &soroban_sdk::Bytes::from_slice(&env, b"x"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -580,13 +579,13 @@ fn gas_profile_vote_multi_resolver() {
         &3600_u64,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "T-1"));
     advance_time(&env, 1);
     client.raise_dispute(
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "x"),
+        &soroban_sdk::Bytes::from_slice(&env, b"x"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
 
@@ -618,13 +617,13 @@ fn gas_profile_finalize_dispute() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "T-1"));
     advance_time(&env, 1);
     client.raise_dispute(
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "x"),
+        &soroban_sdk::Bytes::from_slice(&env, b"x"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
@@ -658,13 +657,13 @@ fn gas_profile_appeal_dispute() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "T-1"));
+    client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "T-1"));
     advance_time(&env, 1);
     client.raise_dispute(
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
-        &SorobanString::from_str(&env, "x"),
+        &soroban_sdk::Bytes::from_slice(&env, b"x"),
         &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
@@ -882,6 +881,7 @@ fn gas_profile_batch_create_escrow_10() {
             token: token.clone(),
             amount: 1_000_000,
             fee_bps: 100,
+            resolver_fee_bps: 0,
             shipping_window: 3600,
             notes: None,
         });
@@ -947,4 +947,39 @@ fn gas_profile_multicall_3() {
     let _r = client.multicall(&calls);
     let sample = diff(&env, &before);
     print_gas("multicall(fund x3)", &sample);
+}
+
+/// `ensure_action_not_paused` runs at the top of every entry point
+/// (create/fund/ship/confirm/dispute/...), so a regression there is paid by
+/// the whole contract rather than one call. It is `pub(crate)`, not part of
+/// the public client, so it is measured directly (inside `as_contract`)
+/// rather than through a `EscrowClient` call.
+#[test]
+fn gas_profile_ensure_action_not_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, _client, _admin, _fc) = setup_contract(&env);
+    let action = soroban_sdk::Symbol::new(&env, "create_escrow");
+
+    let before = take_budget_snapshot(&env);
+    env.as_contract(&contract_id, || {
+        crate::internal::ensure_action_not_paused(&env, action.clone()).unwrap();
+    });
+    let sample = diff(&env, &before);
+    print_gas("ensure_action_not_paused", &sample);
+
+    // Today's cost is one `read_global_config` instance read plus one
+    // `ActionPaused` instance read — no loops, no persistent reads. This
+    // ceiling has generous headroom over that, so it only trips if a future
+    // change adds real cost (e.g. an extra read or a scan) to a path every
+    // entry point pays for. If it ever fires on a legitimate change, update
+    // the ceiling to the new `print_gas` value plus headroom, not just raise
+    // it blindly.
+    const CPU_CEILING: u64 = 150_000;
+    assert!(
+        sample.cpu_insns < CPU_CEILING,
+        "ensure_action_not_paused cost {} cpu instructions, exceeding the {CPU_CEILING} ceiling; \
+         this check runs on every entry point so a regression here is expensive",
+        sample.cpu_insns,
+    );
 }
