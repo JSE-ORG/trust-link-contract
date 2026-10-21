@@ -297,7 +297,7 @@ if escrow.state != EscrowState::Funded {
 - For `Option<T>` with a reasonable default: use `.unwrap_or()` or `.unwrap_or_else()`.
 
 **Enforcement:**
-The canonical `make clippy` gate includes `clippy::panic`, `clippy::unwrap_in_result`, and `clippy::expect_used` lints at warning level, surfaced as hard errors by the `-D warnings` flag. CI enforces this on every commit — any use of these patterns in non-test code will fail the build.
+Non-test contract code enforces this via `#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic))]` at the crate root. CI enforces this on every commit via `make clippy` — any use of these patterns in non-test code will fail the build.
 
 Test code (files in `contracts/escrow/tests/` and `src/test_*.rs` modules under `#[cfg(test)]`) may use `unwrap()` and `panic!()` for clarity.
 
