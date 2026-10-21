@@ -1,4 +1,4 @@
-.PHONY: help build build-wasm test test-all fmt clippy bench clean check check-error-codes doc audit indexer-test xtask-test \
+.PHONY: help build build-wasm test test-all fmt clippy bench clean check check-error-codes check-ci-parity doc audit indexer-test xtask-test \
 	testnet testnet-reset testnet-stop fuzz-build fuzz fuzz-check setup hooks-uninstall
 
 help: ## Show this help
@@ -68,7 +68,10 @@ clean: ## Clean build artifacts
 check-error-codes: ## Verify errors.rs and bindings/src/errors.ts agree
 	node scripts/check-error-codes.mjs
 
-doc: ## Generate and open documentation
+check-ci-parity: ## Verify CI check job is congruent with make check target
+	bash scripts/verify-ci-check-parity.sh
+
+check: fmt-check clippy test check-error-codes ## Run all checks (fmt + clippy + test + error-code drift)
 	cargo doc --open
 
 audit: ## Run cargo audit for security vulnerabilities

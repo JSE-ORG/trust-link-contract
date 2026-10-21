@@ -234,6 +234,42 @@ fn gas_profile_create_basket_escrow() {
 }
 
 #[test]
+fn gas_profile_create_basket_escrow_max_size() {
+    // Gas benchmark for MAX_BASKET_SIZE (20 tokens) to verify O(n) duplicate
+    // check does not regress. This exercises the worst-case for duplicate detection.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, _admin, _fc) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    // Create 20 distinct tokens (MAX_BASKET_SIZE)
+    let mut tokens = Vec::new(&env);
+    let mut amounts = Vec::new(&env);
+    for i in 0..20 {
+        let token = register_token(&env);
+        tokens.push_back(token);
+        amounts.push_back(1_000_000_i128);
+    }
+
+    let before = take_budget_snapshot(&env);
+    let _id = client.create_basket_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &tokens,
+        &amounts,
+        &100_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+    );
+    let sample = diff(&env, &before);
+    print_gas("create_basket_escrow(20 tokens, max size)", &sample);
+}
+
+#[test]
 fn gas_profile_fund_escrow() {
     let env = Env::default();
     env.mock_all_auths();
