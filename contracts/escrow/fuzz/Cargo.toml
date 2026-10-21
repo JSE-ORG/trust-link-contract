@@ -9,7 +9,6 @@ cargo-fuzz = true
 
 [workspace]
 
-
 [[bin]]
 name = "create_escrow"
 path = "fuzz_targets/create_escrow.rs"
