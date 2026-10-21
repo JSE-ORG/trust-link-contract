@@ -12,6 +12,15 @@ impl Escrow {
     /// Returns [`ContractError::EscrowNotFound`] when `escrow_id` does not
     /// exist, so a missing escrow is distinguishable from a valid escrow that
     /// simply has no messages (which returns an empty `Vec`).
+    ///
+    /// `limit` is **silently clamped** to `MAX_MESSAGES_PER_PAGE` (50), not
+    /// rejected — a caller passing `limit = 1000` gets at most 50 messages
+    /// back with no error or indication that truncation occurred. Callers
+    /// must page by the *returned* `Vec`'s length, not by the `limit` they
+    /// requested: advance `start` by `result.len()` and stop once a page
+    /// comes back shorter than 50. See "Reading message pages" in
+    /// [`docs/INTEGRATION_GUIDE.md`](../../../docs/INTEGRATION_GUIDE.md) for
+    /// a worked pagination loop.
     pub fn get_messages(
         env: Env,
         escrow_id: u64,
@@ -232,9 +241,28 @@ impl Escrow {
     /// Returns publicly-readable contract configuration: protocol fee,
     /// arbitration fee, pause state, and total escrow count. Callable by anyone.
     pub fn get_public_config(env: Env) -> PublicContractConfig {
-        // Issue #828: Extend instance TTL to prevent archival during frequent
-        // read-only queries. All mutating entry points extend TTL, and this
-        // read-only query must do the same to keep singleton config alive.
+        // Issue #828 (kept intentionally — see Issue re: rent cost on this
+        // read-only view): extends instance TTL to prevent archival of the
+        // contract instance (Admin, GlobalConfig, EscrowCounter, and every
+        // other `DataKey::*` instance-storage singleton) via frequent
+        // off-chain polling of this view.
+        //
+        // This is NOT redundant with other entry points: most mutating admin
+        // setters write `GlobalConfig` through `update_global_config` /
+        // `write_global_config` (`storage.rs`) WITHOUT calling
+        // `extend_instance_ttl`. The only other call sites are `migrate`
+        // (`admin.rs`, run at most once per upgrade) and the timelock
+        // proposal read/write helpers (`storage.rs`, only hit by the rare
+        // 24h-delayed admin queue/execute flow). In practice, this read-only
+        // view is the *primary* defense keeping instance storage alive
+        // between deployments — removing it would trade a small, bounded
+        // per-call rent cost (one `extend_ttl` host call) for a real risk of
+        // instance-storage archival (which would make the whole contract
+        // unusable until restored) on any deployment not otherwise exercised
+        // by admin or timelock calls. Keep this extension; do not remove it
+        // without first wiring TTL extension into the common mutating paths
+        // (`create_escrow`, `fund_escrow`, etc.) as a replacement anti-
+        // archival mechanism.
         storage::extend_instance_ttl(&env);
 
         let fee_config = read_fee_config(&env);
