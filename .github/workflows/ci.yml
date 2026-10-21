@@ -43,6 +43,26 @@ jobs:
       - name: Xtask (fmt + clippy + test)
         run: make xtask-test
 
+  snapshot-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Regenerate snapshots
+        run: |
+          make test
+          make test-all
+      - name: Check snapshot drift
+        run: |
+          if [ -n "$(git status --porcelain contracts/escrow/test_snapshots)" ]; then
+            echo "Error: Snapshot drift detected under contracts/escrow/test_snapshots."
+            echo "Run 'make test' and 'make test-all' locally, then commit updated snapshots."
+            git status --porcelain contracts/escrow/test_snapshots
+            git diff contracts/escrow/test_snapshots
+            exit 1
+          fi
+
   indexer:
     runs-on: ubuntu-latest
     steps:
