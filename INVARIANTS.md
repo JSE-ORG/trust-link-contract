@@ -11,7 +11,7 @@ These invariants must hold at the end of every transaction.
 **Proof**:
 - Contract only receives tokens via `fund_escrow` (adds to balance)
 - Contract only sends via terminal states (removes from balance)
-- Every escrow has exactly one terminal state (Completed, Refunded, Cancelled)
+- Every escrow has exactly one terminal state (Completed, Refunded, Canceled)
 - Fees are deducted atomically with payout
 - Multi-payee rounding dust is assigned to the first payee, bounded by `N - 1` stroops for `N` payees (policy: payees `1..N` are floored, `payees[0]` receives the remainder, so the first payee is systematically favoured by at most `N - 1` stroops; total payout is still exactly conserved)
 - No tokens created or destroyed
@@ -52,13 +52,13 @@ save_escrow(escrow_id, escrow_data)
 
 **Approved Transitions**:
 ```
-Pending ? Funded | Cancelled
-Funded ? Completed | Disputed | RefundRequested | Shipped | Cancelled
+Pending ? Funded | Canceled
+Funded ? Completed | Disputed | RefundRequested | Shipped | Canceled
 Disputed ? Completed | Refunded | PendingFinalization
 RefundRequested ? Funded | Refunded
 Shipped ? Completed
 PendingFinalization ? Completed | Refunded
-Completed, Refunded, Cancelled ? (terminal, no transitions)
+Completed, Refunded, Canceled ? (terminal, no transitions)
 ```
 
 **Implementation**: All state-modifying functions guard with:
@@ -341,7 +341,7 @@ history.push_back((state, timestamp));
 ### D1: Terminal States Prevent Further Operations
 
 **From**: I3 (State Machine Validity)
-**Consequence**: Completed, Refunded, Cancelled escrows cannot be modified.
+**Consequence**: Completed, Refunded, Canceled escrows cannot be modified.
 
 ---
 

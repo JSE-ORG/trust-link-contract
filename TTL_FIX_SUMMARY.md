@@ -1,5 +1,15 @@
 # TrustLink Escrow Contract - TTL Extension Bug Fix
 
+> **Status note (Oct 21, 2026):** this document records the *original*
+> historical fix. The storage layer has since been restructured — the
+> `BuyerEscrowIndex`/`VendorEscrowIndex` writes described below as flat
+> `Vec<u64>` entries are now paged, and the `save_escrow`/`save_dispute`
+> helpers moved from `lib.rs` into `internal.rs`. The sections below are kept
+> as-is for history; see [TTL Coverage Summary](#ttl-coverage-summary) and
+> [docs/storage.md](docs/storage.md) for the current, file:line-cited
+> behavior. There is **no longer any code path where a `BuyerEscrowIndex`
+> write skips TTL extension** — see the coverage table.
+
 ## Overview
 
 Fixed a critical bug where persistent storage entries (escrow data, disputes, and indices) were not having their TTL (time-to-live) extended during state transitions. This could cause escrow data to expire and be permanently lost mid-lifecycle for escrows with long shipping windows.
@@ -102,6 +112,10 @@ storage::write_vendor_escrow_index(&env, &escrow.seller, &vendor_escrows);
 
 #### B. Added TTL Extension to BuyerEscrowIndex Write (cancel_escrow/fund_escrow, line ~612-625)
 
+*(Historical snippet — `fund_escrow` has since moved to `instructions.rs` and
+no longer has an inline `extend_ttl` call at all; see the
+[TTL Coverage Summary](#ttl-coverage-summary) for the current behavior.)*
+
 **Before:**
 
 ```rust
@@ -142,15 +156,24 @@ emit_escrow_funded(&env, escrow_id, buyer, escrow.amount);
 
 ## TTL Coverage Summary
 
-All persistent storage writes now properly extend TTL:
+**Current state (Oct 21, 2026)** — all persistent storage writes extend TTL;
+there is no inline, call-site-specific `extend_ttl` left anywhere, since every
+write goes through a helper that handles it:
 
-| Storage Key                     | Location                                                    | TTL Extension Method                        |
-| ------------------------------- | ----------------------------------------------------------- | ------------------------------------------- |
-| `DataKey::Escrow`               | `save_escrow()` in lib.rs                                   | Via `extend_ttl()` after `set()`            |
-| `DataKey::Dispute`              | `save_dispute()` in lib.rs                                  | Via `extend_ttl()` after `set()`            |
-| `StorageKey::EscrowData`        | `storage::write_escrow_data()`                              | Via `extend_ttl_for_key()` helper           |
-| `StorageKey::VendorEscrowIndex` | `storage::write_vendor_escrow_index()`                      | Via `extend_ttl_for_key()` helper           |
-| `DataKey::BuyerEscrowIndex`     | `storage::write_buyer_escrow_index()` + instructions.rs inline write | Via `extend_ttl_for_key()` + `extend_ttl()` |
+| Storage Key                                  | Location                                                                                                                                                                                                | TTL Extension Method                                                                             |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `DataKey::Escrow`                             | `internal::save_escrow` / `load_escrow` ([internal.rs:552-591](contracts/escrow/src/internal.rs#L552-L591))                                                                                            | Inline `extend_ttl()` after `set()`, and on every read                                              |
+| `DataKey::Dispute`                            | `internal::save_dispute` / `load_dispute` ([internal.rs:670-691](contracts/escrow/src/internal.rs#L670-L691))                                                                                          | Inline `extend_ttl()` after `set()`, and on every read                                              |
+| `DataKey::BuyerEscrow` / `BuyerEscrowCount`   | `storage::append_buyer_escrow_index` ([storage.rs:494-510](contracts/escrow/src/storage.rs#L494-L510)), `read_buyer_escrow_index` ([storage.rs:518-536](contracts/escrow/src/storage.rs#L518-L536)), `write_buyer_escrow_index` ([storage.rs:539-551](contracts/escrow/src/storage.rs#L539-L551)) | `extend_ttl_for_key()` helper ([storage.rs:173-179](contracts/escrow/src/storage.rs#L173-L179))     |
+| `DataKey::VendorEscrow` / `VendorEscrowCount` | `storage::append_vendor_escrow_index` ([storage.rs:342-358](contracts/escrow/src/storage.rs#L342-L358)), `read_vendor_escrow_index` / `write_vendor_escrow_index` ([storage.rs:366-457](contracts/escrow/src/storage.rs#L366-L457))       | `extend_ttl_for_key()` helper                                                                        |
+
+`fund_escrow` ([instructions.rs:367](contracts/escrow/src/instructions.rs#L367))
+and `fund_basket_escrow`
+([instructions.rs:1605](contracts/escrow/src/instructions.rs#L1605)) both call
+`append_buyer_escrow_index` and nothing else for the index write — there is
+**no separate inline `extend_ttl` call at either site**, unlike the historical
+snippet below. None is needed: the helper already extends both the page key
+and the count key on every call.
 
 ## Key Design Decisions
 

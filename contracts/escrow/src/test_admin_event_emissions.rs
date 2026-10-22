@@ -7,12 +7,14 @@
 //! making these admin actions invisible to off-chain monitoring.
 
 use crate::{
-    ActionPausedEvent, ActionUnpausedEvent, AmountLimitsUpdated, Escrow, EscrowClient,
-    ResolverApproved, ResolverRemoved, ResolverStrictUpdated, TtlExtensionUpdated,
+    ActionPausedEvent, ActionUnpausedEvent, AmountLimitsUpdated, ContractPausedEvent,
+    ContractUnpausedEvent, Escrow, EscrowClient, ResolverApproved, ResolverRemoved,
+    ResolverStrictUpdated, TimelockExecuted, TimelockOperation, TimelockQueued,
+    TtlExtensionUpdated,
 };
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events as _},
+    testutils::{Address as _, Events as _, Ledger as _},
     Address, Env, Symbol, TryFromVal, Val,
 };
 
@@ -136,6 +138,109 @@ fn unpause_action_emits_event_with_caller_and_action() {
         symbol_short!("Action"),
         symbol_short!("Unpaused"),
         |ev| ev.action == action && ev.caller == admin,
+    ));
+}
+
+/// `pause_contract`/`unpause_contract` are test-only helpers (`#[cfg(any(test,
+/// feature = "testutils"))]`) that bypass the 24h admin timelock entirely. They
+/// emit only the immediate `ContractPaused`/`ContractUnpaused` events — never
+/// `TimelockQueued`/`TimelockExecuted` — unlike the production
+/// `queue_pause_contract` -> `execute_pause_contract` flow below. A test that
+/// calls these helpers and expects timelock topics will never see them.
+#[test]
+fn pause_contract_test_helper_emits_immediate_event_not_timelock_events() {
+    let (env, client, contract_id, admin) = setup();
+
+    client.pause_contract(&admin);
+
+    assert!(event_emitted::<ContractPausedEvent, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Contract"),
+        symbol_short!("Paused"),
+        |ev| ev.admin == admin,
+    ));
+    assert!(!event_emitted::<TimelockQueued, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Timelock"),
+        symbol_short!("Queued"),
+        |_| true,
+    ));
+    assert!(!event_emitted::<TimelockExecuted, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Timelock"),
+        symbol_short!("Executed"),
+        |_| true,
+    ));
+}
+
+#[test]
+fn unpause_contract_test_helper_emits_immediate_event_not_timelock_events() {
+    let (env, client, contract_id, admin) = setup();
+    client.pause_contract(&admin);
+
+    client.unpause_contract(&admin);
+
+    assert!(event_emitted::<ContractUnpausedEvent, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Contract"),
+        symbol_short!("Unpaused"),
+        |ev| ev.admin == admin,
+    ));
+    assert!(!event_emitted::<TimelockQueued, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Timelock"),
+        symbol_short!("Queued"),
+        |_| true,
+    ));
+    assert!(!event_emitted::<TimelockExecuted, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Timelock"),
+        symbol_short!("Executed"),
+        |_| true,
+    ));
+}
+
+/// The production path, by contrast, emits `TimelockQueued` on queue and both
+/// `TimelockExecuted` and `ContractPaused` on execute.
+#[test]
+fn queue_and_execute_pause_contract_emits_timelock_events_then_contract_paused() {
+    let (env, client, contract_id, admin) = setup();
+
+    client.queue_pause_contract(&admin);
+
+    assert!(event_emitted::<TimelockQueued, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Timelock"),
+        symbol_short!("Queued"),
+        |ev| ev.operation == TimelockOperation::PauseContract as u32 && ev.proposer == admin,
+    ));
+
+    env.ledger().with_mut(|li| {
+        li.timestamp += crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS;
+    });
+
+    client.execute_pause_contract(&admin);
+
+    assert!(event_emitted::<TimelockExecuted, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Timelock"),
+        symbol_short!("Executed"),
+        |ev| ev.operation == TimelockOperation::PauseContract as u32 && ev.executor == admin,
+    ));
+    assert!(event_emitted::<ContractPausedEvent, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Contract"),
+        symbol_short!("Paused"),
+        |ev| ev.admin == admin,
     ));
 }
 

@@ -612,7 +612,7 @@ Each meaningful lifecycle step emits an event (examples):
 - `EscrowFunded`
 - `EscrowShipped`
 - `EscrowCompleted`
-- `EscrowCancelled`
+- `EscrowCanceled`
 - `DisputeRaised`
 - `DisputeResolved`
 - `AutoReleased`
@@ -812,7 +812,7 @@ to 10,000 bps) to split the payout across multiple payees.
 
 - **Auth:** seller require auth (escrow.seller).
 - **Guards:** escrow must be in `Pending`.
-- **Effects:** state = `Canceled` and emits `EscrowCancelled`.
+- **Effects:** state = `Canceled` and emits `EscrowCanceled`.
 
 ### 8.3 Delivery & dispute flows
 

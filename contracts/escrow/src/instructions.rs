@@ -1325,8 +1325,21 @@ impl Escrow {
     /// is stored separately and readable via `get_basket_tokens`. `notes` is
     /// capped at `MAX_NOTES_LEN`, same as `create_escrow`. When `expires_at` is
     /// present, the expiration is stored on the escrow and as a
-    /// `PendingExpiry` schedule. Must be funded with `fund_basket_escrow`.
+    /// `PendingExpiry` schedule, and `fund_basket_escrow` rejects funding
+    /// attempts past it with `EscrowExpired` (via the same
+    /// `internal::ensure_not_expired`/`ensure_funding_not_expired` checks
+    /// `fund_escrow` uses). Must be funded with `fund_basket_escrow`.
     /// Emits `basket_escrow_created`.
+    ///
+    /// Unlike `create_escrow_with_expiration`, there is no `grace_period`
+    /// parameter here: basket escrows always get `grace_period = 0`, i.e. no
+    /// buffer past `expires_at` before `reclaim_expired` can act. This isn't
+    /// a deliberate basket-specific restriction — `grace_period` exists to
+    /// protect a fund/ship transaction that's still landing right at the
+    /// deadline, which applies just as much to baskets — it's simply not
+    /// wired up yet. A caller that needs a grace window for a basket escrow
+    /// has no way to get one today; adding a `grace_period: u64` parameter
+    /// here, mirroring `create_escrow_with_expiration`, is the known fix.
     #[allow(clippy::too_many_lines)]
     pub fn create_basket_escrow(
         env: Env,
@@ -1454,6 +1467,9 @@ impl Escrow {
             tracking_id: None,
             notes,
             expires_at,
+            // No `grace_period` parameter on this function yet — see the
+            // doc comment above `create_basket_escrow` for why this is a
+            // known gap rather than an intentional basket-specific choice.
             grace_period: 0,
         };
 

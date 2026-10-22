@@ -39,11 +39,24 @@ CLIPPY_PEDANTIC_ALLOW := \
 	-A clippy::must_use_candidate \
 	-A clippy::wildcard_imports
 
+# Panic-free contract code policy (CONTRIBUTING.md "Panic-Free Contract Code
+# Policy"): production code must never panic. `--lib` doesn't compile
+# `#[cfg(test)]` or `#[cfg(any(test, feature = "testutils"))]` items, so these
+# restriction lints only ever see non-test code and can be enabled
+# unconditionally here. `clippy::unwrap_used` (not `unwrap_in_result`, which
+# only fires on Result-unwraps inside a Result-returning fn and misses plain
+# Option::unwrap() entirely) catches every unwrap() on both Option and
+# Result regardless of the enclosing function's return type.
+CLIPPY_PANIC_FREE := \
+	-W clippy::unwrap_used \
+	-W clippy::expect_used \
+	-W clippy::panic
+
 # Canonical lint scope (issue #1102): this is the ONLY clippy command that
 # gates this repository. Both .githooks/pre-commit and .github/workflows/ci.yml
 # run it via `make clippy`, so a commit that passes locally passes in CI.
-clippy: ## Run clippy lints, including clippy::pedantic (canonical scope, used by hook and CI)
-	cargo clippy --lib -- -D warnings -W clippy::pedantic $(CLIPPY_PEDANTIC_ALLOW)
+clippy: ## Run clippy lints, including clippy::pedantic + the panic-free restriction lints (canonical scope, used by hook and CI)
+	cargo clippy --lib -- -D warnings -W clippy::pedantic $(CLIPPY_PEDANTIC_ALLOW) $(CLIPPY_PANIC_FREE)
 
 check: fmt-check clippy test check-error-codes docs-link-check ## Run all checks (fmt + clippy + test + error-code drift + required docs links)
 

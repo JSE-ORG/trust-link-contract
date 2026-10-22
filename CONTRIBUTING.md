@@ -298,8 +298,11 @@ if escrow.state != EscrowState::Funded {
 
 **Enforcement:**
 Non-test contract code enforces this via `#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic))]` at the crate root. CI enforces this on every commit via `make clippy` — any use of these patterns in non-test code will fail the build.
+The canonical `make clippy` gate includes `clippy::unwrap_used`, `clippy::expect_used`, and `clippy::panic` lints at warning level, surfaced as hard errors by the `-D warnings` flag (see `CLIPPY_PANIC_FREE` in the `Makefile`). CI and the pre-commit hook both run `make clippy`, so any new `unwrap()`, `expect()`, or `panic!()` in non-test code fails the build before it merges.
 
-Test code (files in `contracts/escrow/tests/` and `src/test_*.rs` modules under `#[cfg(test)]`) may use `unwrap()` and `panic!()` for clarity.
+(`clippy::unwrap_used` is used rather than the narrower `clippy::unwrap_in_result` — the latter only fires on `Result::unwrap()` calls inside a function that itself returns `Result`, and silently misses `Option::unwrap()` entirely.)
+
+Because `make clippy` runs `cargo clippy --lib`, which never compiles `#[cfg(test)]` or `#[cfg(any(test, feature = "testutils"))]` items, these lints structurally cannot fire on test code — no `#[allow]` escape hatch is needed for tests. Test code (files in `contracts/escrow/tests/` and `src/test_*.rs` modules under `#[cfg(test)]`) may use `unwrap()` and `panic!()` for clarity.
 
 ---
 

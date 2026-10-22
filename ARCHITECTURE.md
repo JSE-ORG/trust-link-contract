@@ -359,8 +359,13 @@ All admin-level mutations (fee changes, upgrades, resolver registry changes, pau
      - `params_hash`: SHA-256 digest of the params vector
    - Emits `emit_timelock_queued` event
 
-2. **Execute**: After 24 hours, any address can call `execute_<operation>(params)` to finalize.
-   - Only the **original proposer** (the address that queued) can execute
+2. **Execute**: After 24 hours, **anyone can call** `execute_<operation>(params)` to finalize — this
+   step is permissionless by design (keeper execution). `execute_timelock_op` never calls
+   `caller.require_auth()`; it only checks that the `caller` *value* passed in equals the stored
+   `proposal.proposer`, which is public information (readable from storage and the
+   `TimelockQueued` event). So a keeper, bot, or cron job can submit the transaction on the
+   original proposer's behalf without needing that proposer's signature.
+   - Validates the `caller` argument matches `proposal.proposer` (value check, not an auth check)
    - Validates the params hash matches the queued proposal
    - Returns error `NotAuthorized` if `caller != proposal.proposer`
    - Deletes the proposal record and applies the operation
@@ -375,19 +380,25 @@ All admin-level mutations (fee changes, upgrades, resolver registry changes, pau
 
 | Operation | Queue | Execute | Cancel |
 |---|---|---|---|
-| `queue_*` (any mutation) | Current admin | Original proposer (after 24h) | Current admin |
-| `cancel_timelock_op` | — | Current admin | — |
+| `queue_*` (any mutation) | Current admin | **Anyone** (permissionless keeper execution, after 24h, if `caller` == stored `proposal.proposer`) | Current admin |
+| `cancel_timelock_op` | — | Current admin only (`require_auth` + admin check) | — |
 
 ### Admin Rotation Scenario
 
 If the admin role is rotated before a proposal executes:
 
 - **Old admin** queued a proposal; **new admin** takes over
-- **New admin** cannot execute old admin's proposal (proposer check fails)
+- **New admin** cannot execute old admin's proposal *as themselves* — passing their own address
+  as `caller` fails the proposer-value check
+- Execution is permissionless, though: anyone (a keeper) can still execute the old admin's
+  proposal by passing the **old admin's** address as `caller` — there is no `require_auth()` tying
+  execution to the old admin being the one who submits the transaction
 - **New admin** can cancel old admin's proposal via `cancel_timelock_op`
 - **New admin** must queue their own proposal and wait the full 24-hour delay
 
-This prevents new admins from executing unreviewed proposals from prior admins.
+This prevents a new admin from substituting their own identity into a prior admin's queued
+proposal; it does not prevent a prior admin's own proposal from being executed by a third party
+after it's ready.
 
 ### Implementation
 

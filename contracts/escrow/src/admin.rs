@@ -62,6 +62,22 @@ fn queue_timelock_op(
     Ok(())
 }
 
+/// Finalizes a queued timelock proposal once its delay has elapsed.
+///
+/// **Execution is permissionless by design**: unlike `cancel_timelock_op`
+/// (which calls `caller.require_auth()` and checks `caller == admin`), this
+/// function never calls `require_auth()` on `caller`. It only checks that the
+/// `caller` *value* supplied matches `proposal.proposer` — a plain equality
+/// check on an unauthenticated parameter, not a signature/authorization
+/// check. `proposer` and `ready_at` are both public (readable via storage and
+/// the `TimelockQueued` event), so any third party — a keeper, a cron job, a
+/// bot — can submit the `execute_<operation>` transaction on the original
+/// proposer's behalf after `ready_at`, without that proposer's involvement or
+/// signature. This is intentional: it guarantees a queued change can always
+/// be finalized even if the proposer goes offline, while still preventing a
+/// *different* admin's own unrelated proposal from being executed under this
+/// one's slot. Do not add a `require_auth()` here — that would break keeper
+/// execution, which is the point of this design.
 fn execute_timelock_op(
     env: &Env,
     caller: &Address,
@@ -76,8 +92,11 @@ fn execute_timelock_op(
         return Err(ContractError::InvalidState); // Not ready yet
     }
 
-    // Verify that the caller is the original proposer (#975)
-    // This prevents new admins from executing old admin's proposals
+    // Verify that the supplied `caller` value matches the original proposer
+    // (#975). This is a value check, not an auth check — see the doc comment
+    // above. It prevents a stale proposal from being executed under the
+    // wrong operation slot after an admin rotation; it does not require the
+    // proposer to be the one submitting the transaction.
     if *caller != proposal.proposer {
         return Err(ContractError::NotAuthorized);
     }
@@ -270,6 +289,49 @@ mod tests {
             Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 50)
         });
         assert_eq!(res_exec_good, Ok(()));
+    }
+
+    /// Pins the `MAX_PLATFORM_FEE_BPS` = 200 boundary (`PlatformFeeExceedsMax`,
+    /// error 32) on the timelocked `execute_set_platform_fee` path, mirroring
+    /// `test_set_platform_fee_cap_matches_production_limit` in
+    /// `test_admin.rs`, which pins the same boundary on the immediate
+    /// `set_platform_fee` path. `queue_set_platform_fee` does not check the
+    /// cap, so 201 queues successfully and only fails at execute time.
+    #[test]
+    fn execute_set_platform_fee_boundary_200_ok_201_exceeds_max() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let contract_id = env.register(Escrow, ());
+        let client = crate::EscrowClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0_u32);
+
+        // 200 (at the cap) succeeds end-to-end via the timelocked path.
+        let res_queue_ok = env.as_contract(&contract_id, || {
+            Escrow::queue_set_platform_fee(env.clone(), admin.clone(), 200)
+        });
+        assert!(res_queue_ok.is_ok());
+        env.ledger().with_mut(|li| {
+            li.timestamp += ADMIN_TIMELOCK_DELAY_SECONDS;
+        });
+        let res_exec_ok = env.as_contract(&contract_id, || {
+            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 200)
+        });
+        assert_eq!(res_exec_ok, Ok(()));
+
+        // 201 (one above the cap) queues fine but fails to execute.
+        let res_queue_bad = env.as_contract(&contract_id, || {
+            Escrow::queue_set_platform_fee(env.clone(), admin.clone(), 201)
+        });
+        assert!(res_queue_bad.is_ok());
+        env.ledger().with_mut(|li| {
+            li.timestamp += ADMIN_TIMELOCK_DELAY_SECONDS;
+        });
+        let res_exec_bad = env.as_contract(&contract_id, || {
+            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 201)
+        });
+        assert_eq!(res_exec_bad, Err(ContractError::PlatformFeeExceedsMax));
     }
 
     #[test]

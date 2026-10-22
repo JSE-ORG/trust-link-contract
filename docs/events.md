@@ -127,7 +127,7 @@ By placing relevant addresses in the topics, indexers can filter directly for ev
   - Payload: `AutoReleased` `{ schema_version, escrow_id, seller, amount, fee_bps, timestamp }`
 - **escrow_cancelled**: 
   - Topics: `["Escrow", "Canceled", seller]`
-  - Payload: `EscrowCancelled` `{ schema_version, escrow_id, seller, timestamp }`
+  - Payload: `EscrowCanceled` `{ schema_version, escrow_id, seller, timestamp }`
 
 ### Dispute & Resolution
 - **dispute_raised**: 
