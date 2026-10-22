@@ -258,6 +258,7 @@ fn test_ensure_funding_not_expired_helper_exercised_via_both_fund_paths() {
         &0_u32,
         &3600_u64,
         &None,
+        &None,
     );
 
     // Advance past blanket 7-day window
@@ -297,6 +298,7 @@ fn test_ensure_funding_not_expired_helper_exercised_via_both_fund_paths() {
         &basket_amounts,
         &0_u32,
         &3600_u64,
+        &None,
         &None,
     );
 
@@ -350,6 +352,7 @@ fn test_ensure_funding_not_expired_helper_exercised_via_both_fund_paths() {
         &basket_amounts,
         &0_u32,
         &3600_u64,
+        &None,
         &None,
     );
 
@@ -413,6 +416,7 @@ fn test_ensure_funding_not_expired_helper_exercised_via_both_fund_paths() {
         &basket_amounts,
         &0_u32,
         &3600_u64,
+        &None,
         &None,
     );
 
