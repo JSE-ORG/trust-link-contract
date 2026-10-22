@@ -22,7 +22,7 @@
     "generate": "stellar contract bindings typescript --wasm ../target/wasm32v1-none/release/trustlink_escrow.wasm --output-dir src --overwrite",
     "optimize": "node scripts/optimize-wasm.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/**/*.test.js\"",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/*.test.js",
     "ci": "npm run typecheck && npm run test"
   },
   "repository": {

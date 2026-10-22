@@ -44,15 +44,14 @@ function subtle(): SubtleCrypto {
   if (!webcrypto?.subtle) {
     throw new Error(
       "Web Crypto is unavailable. Node 20+, Deno, Bun and modern browsers " +
-        "provide globalThis.crypto.subtle; in older Node use " +
-        "`globalThis.crypto = require('node:crypto').webcrypto`.",
+      "provide globalThis.crypto.subtle; in older Node use " +
+      "`globalThis.crypto = require('node:crypto').webcrypto`.",
     );
   }
   return webcrypto.subtle;
 }
 
-import sha256 from "crypto-js/sha256.js";
-import encHex from "crypto-js/enc-hex.js";
+import CryptoJS from "crypto-js";
 
 /**
  * SHA-256 digest of `input`, ready to pass as `evidence_hash`.
@@ -68,7 +67,7 @@ export async function hashEvidence(input: EvidenceInput): Promise<Bytes32> {
   } catch (e) {
     // Fallback to crypto-js if Web Crypto API is unavailable
     const str = typeof input === "string" ? input : new TextDecoder().decode(input as BufferSource);
-    const hash = sha256(str).toString(encHex);
+    const hash = CryptoJS.SHA256(str).toString(CryptoJS.enc.Hex);
     return fromHex(hash);
   }
 }
@@ -95,7 +94,7 @@ export function fromHex(hex: string): Bytes32 {
   if (body.length !== EVIDENCE_HASH_LENGTH * 2) {
     throw new Error(
       `Evidence hash must be ${EVIDENCE_HASH_LENGTH} bytes ` +
-        `(${EVIDENCE_HASH_LENGTH * 2} hex characters), got ${body.length}.`,
+      `(${EVIDENCE_HASH_LENGTH * 2} hex characters), got ${body.length}.`,
     );
   }
   if (!/^[0-9a-fA-F]+$/.test(body)) {
