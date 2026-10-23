@@ -147,7 +147,7 @@ export const contractAbi = {
       ],
       output: "u64",
     },
-    {
+       {
       name: "create_basket_escrow",
       inputs: [
         "seller",
@@ -159,6 +159,7 @@ export const contractAbi = {
         "shipping_window",
         "notes",
         "expires_at",
+        "grace_period",
       ],
       output: "u64",
     },
@@ -166,6 +167,7 @@ export const contractAbi = {
 
     // -----------------------------------------------------------------------
     // Escrow lifecycle
+
     // -----------------------------------------------------------------------
     { name: "fund_escrow", inputs: ["escrow_id", "buyer"], output: "void" },
     { name: "fund_basket_escrow", inputs: ["escrow_id", "buyer"], output: "void" },

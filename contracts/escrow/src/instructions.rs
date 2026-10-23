@@ -1319,6 +1319,14 @@ impl Escrow {
     /// Creates an escrow that pays out multiple tokens ("basket") to a single
     /// seller instead of the single-token flow used by `create_escrow`.
     /// `tokens` and `amounts` must be the same non-empty length and every
+    /// token must pass the allowlist check (if enabled). The primary
+    /// `EscrowData` record tracks `tokens[0]`/`amounts[0]`; the full basket
+    /// is stored separately and readable via `get_basket_tokens`. Must be
+    /// funded with `fund_basket_escrow`. The basket is limited to
+    /// `MAX_BASKET_SIZE` entries; duplicate tokens are rejected by a bounded
+    /// pairwise scan. An optional expiry schedule prevents funding at or after
+    /// `expires_at` and permits reclaim after the grace period. Emits
+    /// `basket_escrow_created`.
     /// token must pass the allowlist check (if enabled). Every amount is
     /// validated: must be > 0 and within `[MinAmount, MaxAmount]`. The primary
     /// `Escrow` record tracks `tokens[0]`/`amounts[0]`; the full basket
@@ -1331,15 +1339,9 @@ impl Escrow {
     /// `fund_escrow` uses). Must be funded with `fund_basket_escrow`.
     /// Emits `basket_escrow_created`.
     ///
-    /// Unlike `create_escrow_with_expiration`, there is no `grace_period`
-    /// parameter here: basket escrows always get `grace_period = 0`, i.e. no
-    /// buffer past `expires_at` before `reclaim_expired` can act. This isn't
-    /// a deliberate basket-specific restriction — `grace_period` exists to
-    /// protect a fund/ship transaction that's still landing right at the
-    /// deadline, which applies just as much to baskets — it's simply not
-    /// wired up yet. A caller that needs a grace window for a basket escrow
-    /// has no way to get one today; adding a `grace_period: u64` parameter
-    /// here, mirroring `create_escrow_with_expiration`, is the known fix.
+    /// `notes` is optional and is capped at `MAX_NOTES_LEN`. `expires_at` and
+    /// `grace_period` follow the same expiration semantics as
+    /// `create_escrow_with_expiration`.
     #[allow(clippy::too_many_lines)]
     pub fn create_basket_escrow(
         env: Env,
@@ -1352,16 +1354,45 @@ impl Escrow {
         shipping_window: u64,
         notes: Option<String>,
         expires_at: Option<u64>,
+        grace_period: u64,
     ) -> Result<u64, ContractError> {
         auth!(seller);
         ensure_action_not_paused(&env, Symbol::new(&env, "create_basket_escrow"))?;
 
-        if tokens.len() != amounts.len() || tokens.is_empty() {
+        if tokens.len() != amounts.len()
+            || tokens.is_empty()
+            || tokens.len() > crate::MAX_BASKET_SIZE
+        {
             return Err(ContractError::BasketTokenMismatch);
         }
 
-        if tokens.len() > crate::read_max_basket_size(&env) {
-            return Err(ContractError::BasketTokenMismatch);
+        // The maximum length bounds this pairwise duplicate check to at most
+        // MAX_BASKET_SIZE * (MAX_BASKET_SIZE - 1) / 2 comparisons (190 at 20).
+        for i in 0..tokens.len() {
+            let token_i = tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+            for j in (i + 1)..tokens.len() {
+                let token_j = tokens.get(j).ok_or(ContractError::IndexOutOfBounds)?;
+                if token_i == token_j {
+                    return Err(ContractError::BasketTokenMismatch);
+                }
+            }
+        }
+
+        let global_config = read_global_config(&env);
+        for amount in amounts.iter() {
+            if amount < 0 {
+                return Err(ContractError::InvalidAmount);
+            }
+            if amount > global_config.max_amount {
+                return Err(ContractError::AmountExceedsMaximum);
+            }
+            if amount > 0 && amount < global_config.min_amount {
+                return Err(ContractError::AmountBelowMinimum);
+            }
+        }
+        let primary_amount = amounts.get(0).ok_or(ContractError::InvalidAmount)?;
+        if primary_amount == 0 {
+            return Err(ContractError::AmountBelowMinimum);
         }
 
         validate_escrow_fee_bps(fee_bps)?;
@@ -1426,17 +1457,13 @@ impl Escrow {
             is_token_allowed(&env, &token)?;
         }
 
-        // Reject duplicate tokens: fund_escrow/payout_basket_tokens transfer
-        // and pay out every basket entry individually, so a duplicated token
-        // would be funded and paid out once per occurrence.
-        for i in 0..tokens.len() {
-            let token_i = tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
-            for j in (i + 1)..tokens.len() {
-                let token_j = tokens.get(j).ok_or(ContractError::IndexOutOfBounds)?;
-                if token_i == token_j {
-                    return Err(ContractError::BasketTokenMismatch);
-                }
+        if let Some(expires_at) = expires_at {
+            if expires_at <= env.ledger().timestamp() {
+                return Err(ContractError::InvalidExpiration);
             }
+            expires_at
+                .checked_add(grace_period)
+                .ok_or(ContractError::ArithmeticOverflow)?;
         }
 
         let escrow_id = crate::next_escrow_id(&env)?;
@@ -1488,6 +1515,20 @@ impl Escrow {
         }
         save_basket_tokens(&env, escrow_id, &basket_entries);
 
+        if let Some(expires_at) = expires_at {
+            let schedule = crate::ExpirySchedule {
+                expires_at,
+                grace_period,
+            };
+            let key = DataKey::PendingExpiry(escrow_id);
+            let ext = get_ttl_extension(&env);
+            env.storage().persistent().set(&key, &schedule);
+            env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+        }
+
+        let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &seller);
+        vendor_escrows.push_back(escrow_id);
+        storage::write_vendor_escrow_index(&env, &seller, &vendor_escrows);
         storage::append_vendor_escrow_index(&env, &seller, escrow_id);
 
         increment_sharded_counter(&env, COUNTER_KIND_CREATED, escrow_id)?;
@@ -1557,7 +1598,6 @@ impl Escrow {
         }
 
         crate::internal::ensure_funding_not_expired(&env, escrow_id)?;
-        let now = env.ledger().timestamp();
 
         // Security: buyer must differ from every payee (seller) and every
         // resolver in the set. Mirrors the identical check in fund_escrow and
@@ -1576,6 +1616,16 @@ impl Escrow {
             return Err(ContractError::ConflictingRoles);
         }
 
+        let now = env.ledger().timestamp();
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
+
+        let created_at = crate::internal::escrow_created_at(&env, escrow_id);
+        let blanket_deadline = created_at
+            .checked_add(crate::PENDING_EXPIRY_WINDOW)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if now > blanket_deadline {
+            return Err(ContractError::EscrowExpired);
+        }
         // Expiry: PendingExpiry schedule + blanket PENDING_EXPIRY_WINDOW,
         // shared with fund_escrow via the internal::ensure_funding_not_expired
         // helper (Issue #1156). Without this, basket escrows could be funded
