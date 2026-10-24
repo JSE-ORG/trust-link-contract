@@ -89,3 +89,31 @@ fn test_get_contract_config_requires_admin() {
     config = client.get_contract_config();
     assert_eq!(config.admin, new_admin);
 }
+
+#[test]
+fn test_global_config_defaults_match_lib_constants() {
+    // Issue #1109: Ensure global config min/max defaults match lib.rs constants.
+    // The global config is the canonical source for amount validation, and its
+    // defaults must equal the constants documented in lib.rs to avoid drift.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let config = client.get_contract_config();
+    assert_eq!(
+        config.min_amount,
+        crate::MIN_ESCROW_AMOUNT,
+        "Global config min_amount default must match lib.rs MIN_ESCROW_AMOUNT constant"
+    );
+    assert_eq!(
+        config.max_amount,
+        crate::MAX_ESCROW_AMOUNT,
+        "Global config max_amount default must match lib.rs MAX_ESCROW_AMOUNT constant"
+    );
+}

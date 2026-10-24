@@ -66,3 +66,43 @@ pub fn record_delivery_timelocked(
     advance_time(env, crate::DELIVERY_TIMELOCK);
     client.record_delivery(admin, &escrow_id);
 }
+
+#[test]
+fn test_create_funded_escrow_forwards_shipping_window() {
+    // Issue #1108: Assert that create_funded_escrow forwards shipping_window correctly.
+    // The helper passes shipping_window to create_escrow_8, and we must verify
+    // the stored EscrowData.shipping_window matches the passed value (not DEFAULT_SHIPPING_WINDOW).
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let token_client = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    token_client.mock_all_auths();
+
+    // Use a non-default shipping window to verify forwarding
+    let custom_shipping_window = 7200_u64; // 2 hours, not DEFAULT_SHIPPING_WINDOW (3600)
+    let escrow_id = create_funded_escrow(
+        &env,
+        &client,
+        &seller,
+        &buyer,
+        &resolver,
+        &token,
+        1000_0000000,
+        100,
+        custom_shipping_window,
+    );
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(
+        escrow.shipping_window,
+        custom_shipping_window,
+        "create_funded_escrow must forward shipping_window to create_escrow_8"
+    );
+}
