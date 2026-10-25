@@ -123,6 +123,7 @@ on `EscrowClient` (hover in your editor).
 |---|---|
 | `create_escrow(payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow, notes?)` | Creates a single-token escrow, returns its `bigint` id. `payees` is a single seller address or a `Payee[]` split; `notes` is optional (defaults to `null`) |
 | `create_basket_escrow(seller, buyer, resolver, tokens, amounts, feeBps, shippingWindow, notes, expiresAt)` | Creates a multi-token escrow with an optional pending expiry |
+| `create_basket_escrow_with_expiration(seller, buyer, resolver, tokens, amounts, feeBps, shippingWindow, notes, expiresAt, gracePeriod)` | Creates a multi-token escrow with an optional pending expiry and funding grace period |
 | `batch_create_escrow(seller, escrows)` | Creates many escrows for one seller in one tx |
 | `fund_escrow(escrowId, buyer)` | Buyer deposits the amount, opens the dispute window |
 | `fund_basket_escrow(escrowId, buyer)` | Funds a basket escrow (pulls every token) |

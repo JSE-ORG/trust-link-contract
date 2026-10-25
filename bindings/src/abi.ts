@@ -162,6 +162,22 @@ export const contractAbi = {
       ],
       output: "u64",
     },
+    {
+      name: "create_basket_escrow_with_expiration",
+      inputs: [
+        "seller",
+        "buyer",
+        "resolver",
+        "tokens",
+        "amounts",
+        "fee_bps",
+        "shipping_window",
+        "notes",
+        "expires_at",
+        "grace_period",
+      ],
+      output: "u64",
+    },
     { name: "batch_create_escrow", inputs: ["seller", "escrows"], output: "Vec<u64>" },
 
     // -----------------------------------------------------------------------

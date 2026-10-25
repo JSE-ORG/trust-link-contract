@@ -78,6 +78,40 @@ where
         })
 }
 
+fn event_has_address_topic(
+    env: &Env,
+    contract_id: &Address,
+    t1: Symbol,
+    t2: Symbol,
+    expected_address: &Address,
+) -> bool {
+    env.events()
+        .all()
+        .filter_by_contract(contract_id)
+        .events()
+        .iter()
+        .any(|event| match &event.body {
+            soroban_sdk::xdr::ContractEventBody::V0(v0) => {
+                let mut topics = v0.topics.iter();
+                let (Some(topic1), Some(topic2), Some(topic3)) =
+                    (topics.next(), topics.next(), topics.next())
+                else {
+                    return false;
+                };
+                let Ok(sym1) = Symbol::try_from_val(env, topic1) else {
+                    return false;
+                };
+                let Ok(sym2) = Symbol::try_from_val(env, topic2) else {
+                    return false;
+                };
+                let Ok(address) = Address::try_from_val(env, topic3) else {
+                    return false;
+                };
+                sym1 == t1 && sym2 == t2 && address == *expected_address
+            }
+        })
+}
+
 #[test]
 fn set_ttl_extension_emits_event_with_caller_and_new_value() {
     let (env, client, contract_id, admin) = setup();
@@ -160,6 +194,13 @@ fn pause_contract_test_helper_emits_immediate_event_not_timelock_events() {
         symbol_short!("Paused"),
         |ev| ev.admin == admin,
     ));
+    assert!(event_has_address_topic(
+        &env,
+        &contract_id,
+        symbol_short!("Contract"),
+        symbol_short!("Paused"),
+        &admin,
+    ));
     assert!(!event_emitted::<TimelockQueued, _>(
         &env,
         &contract_id,
@@ -189,6 +230,13 @@ fn unpause_contract_test_helper_emits_immediate_event_not_timelock_events() {
         symbol_short!("Contract"),
         symbol_short!("Unpaused"),
         |ev| ev.admin == admin,
+    ));
+    assert!(event_has_address_topic(
+        &env,
+        &contract_id,
+        symbol_short!("Contract"),
+        symbol_short!("Unpaused"),
+        &admin,
     ));
     assert!(!event_emitted::<TimelockQueued, _>(
         &env,

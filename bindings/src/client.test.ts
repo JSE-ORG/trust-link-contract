@@ -341,6 +341,44 @@ describe("create_basket_escrow", () => {
   });
 });
 
+describe("create_basket_escrow_with_expiration", () => {
+  it("invokes the compatible basket creation method with expiry and grace", () => {
+    const { transport, calls } = makeMockTransport(ESCROW_ID);
+    const client = new EscrowClient(transport);
+    const tokens = [TOKEN];
+    const amounts = [AMOUNT];
+    const expiresAt = 1_800_000_000n;
+    const gracePeriod = 900n;
+
+    client.create_basket_escrow_with_expiration(
+      SELLER,
+      BUYER,
+      RESOLVER,
+      tokens,
+      amounts,
+      FEE_BPS,
+      SHIPPING_WINDOW,
+      null,
+      expiresAt,
+      gracePeriod,
+    );
+
+    assert.equal(calls[0].method, "create_basket_escrow_with_expiration");
+    assert.deepEqual(calls[0].args, [
+      SELLER,
+      BUYER,
+      RESOLVER,
+      tokens,
+      amounts,
+      FEE_BPS,
+      SHIPPING_WINDOW,
+      null,
+      expiresAt,
+      gracePeriod,
+    ]);
+  });
+});
+
 describe("fund_basket_escrow", () => {
   it("invokes 'fund_basket_escrow' with escrowId and buyer", () => {
     const { transport, calls } = makeMockTransport();
