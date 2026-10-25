@@ -1331,15 +1331,9 @@ impl Escrow {
     /// `fund_escrow` uses). Must be funded with `fund_basket_escrow`.
     /// Emits `basket_escrow_created`.
     ///
-    /// Unlike `create_escrow_with_expiration`, there is no `grace_period`
-    /// parameter here: basket escrows always get `grace_period = 0`, i.e. no
-    /// buffer past `expires_at` before `reclaim_expired` can act. This isn't
-    /// a deliberate basket-specific restriction — `grace_period` exists to
-    /// protect a fund/ship transaction that's still landing right at the
-    /// deadline, which applies just as much to baskets — it's simply not
-    /// wired up yet. A caller that needs a grace window for a basket escrow
-    /// has no way to get one today; adding a `grace_period: u64` parameter
-    /// here, mirroring `create_escrow_with_expiration`, is the known fix.
+    /// This backwards-compatible entry point defaults the expiration grace
+    /// period to zero. Use `create_basket_escrow_with_expiration` to select a
+    /// grace period without changing the existing invocation signature.
     #[allow(clippy::too_many_lines)]
     pub fn create_basket_escrow(
         env: Env,
@@ -1352,6 +1346,40 @@ impl Escrow {
         shipping_window: u64,
         notes: Option<String>,
         expires_at: Option<u64>,
+    ) -> Result<u64, ContractError> {
+        Self::create_basket_escrow_with_expiration(
+            env,
+            seller,
+            buyer,
+            resolver,
+            tokens,
+            amounts,
+            fee_bps,
+            shipping_window,
+            notes,
+            expires_at,
+            0,
+        )
+    }
+
+    /// Creates a basket escrow with optional expiry and grace period.
+    ///
+    /// The grace period is validated and saved with the escrow, matching
+    /// `create_escrow_with_expiration`. The existing `create_basket_escrow`
+    /// entry point remains available and uses a zero grace period.
+    #[allow(clippy::too_many_lines)]
+    pub fn create_basket_escrow_with_expiration(
+        env: Env,
+        seller: Address,
+        buyer: Option<Address>,
+        resolver: Address,
+        tokens: soroban_sdk::Vec<Address>,
+        amounts: soroban_sdk::Vec<i128>,
+        fee_bps: u32,
+        shipping_window: u64,
+        notes: Option<String>,
+        expires_at: Option<u64>,
+        grace_period: u64,
     ) -> Result<u64, ContractError> {
         auth!(seller);
         ensure_action_not_paused(&env, Symbol::new(&env, "create_basket_escrow"))?;
@@ -1376,6 +1404,13 @@ impl Escrow {
             if expiry <= env.ledger().timestamp() {
                 return Err(ContractError::InvalidExpiration);
             }
+            expiry
+                .checked_add(grace_period)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+        }
+
+        if grace_period > crate::MAX_GRACE_PERIOD {
+            return Err(ContractError::GracePeriodTooLong);
         }
 
         // Validate every basket amount against the configured or default limits.
@@ -1467,16 +1502,13 @@ impl Escrow {
             tracking_id: None,
             notes,
             expires_at,
-            // No `grace_period` parameter on this function yet — see the
-            // doc comment above `create_basket_escrow` for why this is a
-            // known gap rather than an intentional basket-specific choice.
-            grace_period: 0,
+            grace_period,
         };
 
         save_escrow(&env, escrow_id, &escrow, None);
 
         if let Some(expiry) = expires_at {
-            save_pending_expiry(&env, escrow_id, expiry, 0);
+            save_pending_expiry(&env, escrow_id, expiry, grace_period);
         }
 
         // Persist all basket tokens/amounts alongside the primary Escrow

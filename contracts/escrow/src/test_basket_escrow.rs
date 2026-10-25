@@ -126,6 +126,32 @@ fn create_basket_escrow_persists_all_tokens() {
 }
 
 #[test]
+fn create_basket_escrow_with_expiration_persists_grace_period() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let expires_at = fx.env.ledger().timestamp() + 3_600;
+    let grace_period = 900;
+
+    let escrow_id = client.create_basket_escrow_with_expiration(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address]),
+        &vec_i128(&fx.env, &[1_000]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &Some(expires_at),
+        &grace_period,
+    );
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.expires_at, Some(expires_at));
+    assert_eq!(escrow.grace_period, grace_period);
+}
+
+#[test]
 fn create_basket_escrow_rejects_malformed_baskets() {
     let fx = setup();
     let client = EscrowClient::new(&fx.env, &fx.contract_id);

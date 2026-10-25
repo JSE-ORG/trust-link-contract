@@ -66,3 +66,36 @@ pub fn record_delivery_timelocked(
     advance_time(env, crate::DELIVERY_TIMELOCK);
     client.record_delivery(admin, &escrow_id);
 }
+
+#[test]
+fn create_funded_escrow_preserves_shipping_window() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let token = env.register_stellar_asset_contract_v2(issuer).address();
+    let shipping_window = 86_400;
+
+    let escrow_id = create_funded_escrow(
+        &env,
+        &client,
+        &seller,
+        &buyer,
+        &resolver,
+        &token,
+        1_000,
+        0,
+        shipping_window,
+    );
+
+    assert_eq!(
+        EscrowClient::new(&env, &contract_id)
+            .get_escrow(&escrow_id)
+            .shipping_window,
+        shipping_window
+    );
+}

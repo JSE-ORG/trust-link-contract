@@ -197,6 +197,33 @@ export class EscrowBatch {
     ]);
   }
 
+  /** Batch basket creation with an optional expiry and funding grace period. */
+  create_basket_escrow_with_expiration(
+    seller: AddressLike,
+    buyer: AddressLike | null,
+    resolver: AddressLike,
+    tokens: readonly AddressLike[],
+    amounts: readonly bigint[],
+    feeBps: number,
+    shippingWindow: bigint,
+    notes: string | null,
+    expiresAt: bigint | null,
+    gracePeriod: bigint,
+  ): this {
+    return this.push("create_basket_escrow_with_expiration", [
+      seller,
+      buyer,
+      resolver,
+      tokens,
+      amounts,
+      feeBps,
+      shippingWindow,
+      notes,
+      expiresAt,
+      gracePeriod,
+    ]);
+  }
+
   /** Batch `fund_basket_escrow(escrowId, buyer)`. */
   fund_basket_escrow(escrowId: bigint, buyer: AddressLike): this {
     return this.push("fund_basket_escrow", [escrowId, buyer]);

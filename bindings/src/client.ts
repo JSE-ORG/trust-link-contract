@@ -436,6 +436,37 @@ export class EscrowClient {
     ]);
   }
 
+  /**
+   * Creates a basket escrow with an optional expiry and funding grace period.
+   * Unlike `create_basket_escrow`, this method accepts a configurable
+   * `gracePeriod` (capped on-chain at seven days).
+   */
+  create_basket_escrow_with_expiration(
+    seller: AddressLike,
+    buyer: AddressLike | null,
+    resolver: AddressLike,
+    tokens: readonly AddressLike[],
+    amounts: readonly bigint[],
+    feeBps: number,
+    shippingWindow: bigint,
+    notes: string | null,
+    expiresAt: bigint | null,
+    gracePeriod: bigint,
+  ): Call<bigint> {
+    return this.transport.invoke("create_basket_escrow_with_expiration", [
+      seller,
+      buyer,
+      resolver,
+      tokens,
+      amounts,
+      feeBps,
+      shippingWindow,
+      notes,
+      expiresAt,
+      gracePeriod,
+    ]);
+  }
+
   /** Funds a basket escrow by transferring every configured token from `buyer`. */
   fund_basket_escrow(escrowId: bigint, buyer: AddressLike): Call<void> {
     return this.transport.invoke("fund_basket_escrow", [escrowId, buyer]);
