@@ -199,6 +199,10 @@ pub(crate) fn read_fee_config(env: &Env) -> FeeConfig {
     crate::storage::read_fee_config(env)
 }
 
+pub(crate) fn read_global_config(env: &Env) -> GlobalConfig {
+    crate::storage::read_global_config(env)
+}
+
 pub(crate) fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
     crate::storage::write_fee_config(env, fee_config);
 }
@@ -1328,13 +1332,12 @@ pub(crate) fn create_escrow_internal(
         return Err(ContractError::InvalidAmount);
     }
 
-    let max_amount = crate::storage::read_global_config(env).max_amount;
-    if amount > max_amount {
+    let global_config = read_global_config(env);
+    if amount > global_config.max_amount {
         return Err(ContractError::AmountExceedsMaximum);
     }
 
-    let min_amount = crate::storage::read_global_config(env).min_amount;
-    if amount < min_amount {
+    if amount < global_config.min_amount {
         return Err(ContractError::AmountBelowMinimum);
     }
 

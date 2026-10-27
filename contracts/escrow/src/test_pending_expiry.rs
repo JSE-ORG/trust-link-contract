@@ -259,6 +259,7 @@ fn test_ensure_funding_not_expired_helper_exercised_via_both_fund_paths() {
         &3600_u64,
         &None,
         &None,
+        &0_u64,
     );
 
     // Advance past blanket 7-day window
@@ -300,6 +301,7 @@ fn test_ensure_funding_not_expired_helper_exercised_via_both_fund_paths() {
         &3600_u64,
         &None,
         &None,
+        &0_u64,
     );
 
     let schedule = ExpirySchedule {
@@ -354,6 +356,7 @@ fn test_ensure_funding_not_expired_helper_exercised_via_both_fund_paths() {
         &3600_u64,
         &None,
         &None,
+        &0_u64,
     );
 
     // Populate custom expires_at directly in escrow data
@@ -418,6 +421,7 @@ fn test_ensure_funding_not_expired_helper_exercised_via_both_fund_paths() {
         &3600_u64,
         &None,
         &None,
+        &0_u64,
     );
 
     let schedule_4 = ExpirySchedule {
