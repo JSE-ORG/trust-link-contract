@@ -1329,3 +1329,86 @@ fn create_basket_escrow_validates_shipping_window() {
         SHIPPING_WINDOW
     );
 }
+
+/// Issue #1171: Pins that a basket escrow with a past expiry rejects
+/// `fund_basket_escrow` with `EscrowExpired`, while a control basket with a
+/// future expiry funds successfully.
+#[test]
+fn test_basket_past_expiry_funding_rejection_and_control_case() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let token_a = make_token(&env);
+    let token_b = make_token(&env);
+
+    let tokens = vec_addr(&env, &[&token_a.address, &token_b.address]);
+    let amounts = vec_i128(&env, &[500, 500]);
+
+    // 1. Past-expiry case:
+    let expires_at: u64 = 1_000_500;
+    let expired_escrow_id = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &Some(expires_at),
+        &0_u64,
+    );
+
+    token_a.admin.mint(&buyer, &1_000);
+    token_b.admin.mint(&buyer, &1_000);
+
+    // Advance ledger time past the configured expiry.
+    env.ledger().with_mut(|li| {
+        li.timestamp = expires_at + 1;
+    });
+
+    let res = client.try_fund_basket_escrow(&expired_escrow_id, &buyer);
+    assert_eq!(
+        res,
+        Err(Ok(ContractError::EscrowExpired)),
+        "fund_basket_escrow on an expired basket escrow must return EscrowExpired"
+    );
+
+    // Verify no funds were transferred to contract
+    assert_eq!(token_a.token.balance(&contract_id), 0);
+    assert_eq!(token_b.token.balance(&contract_id), 0);
+    assert_eq!(client.get_escrow(&expired_escrow_id).state, EscrowState::Pending);
+
+    // 2. Control case: Future expiry funds successfully
+    let future_expires_at: u64 = env.ledger().timestamp() + 10_000;
+    let valid_escrow_id = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &Some(future_expires_at),
+        &0_u64,
+    );
+
+    let control_res = client.try_fund_basket_escrow(&valid_escrow_id, &buyer);
+    assert!(control_res.is_ok(), "control basket with future expiry must fund successfully");
+
+    assert_eq!(token_a.token.balance(&contract_id), 500);
+    assert_eq!(token_b.token.balance(&contract_id), 500);
+    assert_eq!(client.get_escrow(&valid_escrow_id).state, EscrowState::Funded);
+}
