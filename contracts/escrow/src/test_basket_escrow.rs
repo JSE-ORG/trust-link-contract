@@ -509,6 +509,31 @@ fn create_basket_escrow_rejects_zero_secondary_amount() {
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
 
+/// ERROR_CODES.md: a basket entry with `amount <= 0` is an amount error
+/// (`InvalidAmount`), and the primary entry is no exception — it previously
+/// reported `AmountBelowMinimum` instead.
+#[test]
+fn create_basket_escrow_rejects_zero_primary_amount() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let secondary = make_token(&fx.env);
+
+    let result = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address, &secondary.address]),
+        &vec_i128(&fx.env, &[0, 200]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
+}
+
 #[test]
 fn fund_basket_escrow_rejects_a_buyer_other_than_the_expected_buyer() {
     let fx = setup();
