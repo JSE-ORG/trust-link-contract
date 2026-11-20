@@ -714,6 +714,38 @@ pub fn emit_resolver_rotated(
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolverSanctioned {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub old_resolver: Address,
+    pub replacement_resolver: Address,
+    pub sanctioned_by: Address,
+    pub sanctioned_at: u64,
+}
+
+/// Topic: `(symbol_short!("Resolver"), symbol_short!("Sanction"),)`, data: `ResolverSanctioned`.
+pub fn emit_resolver_sanctioned(
+    env: &Env,
+    escrow_id: u64,
+    old_resolver: Address,
+    replacement_resolver: Address,
+    sanctioned_by: Address,
+) {
+    env.events().publish(
+        (symbol_short!("Resolver"), symbol_short!("Sanction")),
+        ResolverSanctioned {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            old_resolver,
+            replacement_resolver,
+            sanctioned_by,
+            sanctioned_at: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TokenAllowlistUpdated {
     pub schema_version: u32,
     pub added: bool,
