@@ -1329,3 +1329,35 @@ fn create_basket_escrow_validates_shipping_window() {
         SHIPPING_WINDOW
     );
 }
+
+// ── Issue #1222 – duplicate token detection across the whole basket ─────────
+
+/// The bounded pairwise duplicate scan must catch a collision between two
+/// secondary tokens anywhere in the vector, not just adjacent entries or the
+/// primary token. This 5-token basket repeats `d` at positions 3 and 4.
+#[test]
+fn create_basket_escrow_rejects_duplicate_token_in_five_token_basket() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let c = make_token(&fx.env);
+    let d = make_token(&fx.env);
+
+    let result = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(
+            &fx.env,
+            &[&a.address, &b.address, &c.address, &d.address, &d.address],
+        ),
+        &vec_i128(&fx.env, &[100, 200, 300, 400, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(result, Err(Ok(ContractError::BasketTokenMismatch)));
+}
