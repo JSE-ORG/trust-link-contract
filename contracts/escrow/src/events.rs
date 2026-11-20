@@ -714,6 +714,46 @@ pub fn emit_resolver_rotated(
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeEvidenceSubmitted {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub submitter: Address,
+    pub evidence_hash: BytesN<32>,
+    pub description: Bytes,
+    /// Number of entries in the escrow's evidence log after this submission.
+    pub entry_count: u32,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Dispute"), symbol_short!("Evidence"), submitter.clone(),)`, data: `DisputeEvidenceSubmitted`.
+pub fn emit_dispute_evidence_submitted(
+    env: &Env,
+    escrow_id: u64,
+    submitter: Address,
+    evidence_hash: BytesN<32>,
+    description: Bytes,
+    entry_count: u32,
+) {
+    env.events().publish(
+        (
+            symbol_short!("Dispute"),
+            symbol_short!("Evidence"),
+            submitter.clone(),
+        ),
+        DisputeEvidenceSubmitted {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            submitter,
+            evidence_hash,
+            description,
+            entry_count,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolverSanctioned {
     pub schema_version: u32,
     pub escrow_id: u64,

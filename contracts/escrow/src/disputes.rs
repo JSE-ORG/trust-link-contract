@@ -146,6 +146,83 @@ impl Escrow {
         Ok(())
     }
 
+    /// Appends additional evidence to a dispute's on-chain evidence log, so a
+    /// seller/payee can submit rebuttal proof (and a resolver or the buyer can
+    /// add further material) before voting occurs. `evidence_hash` is a
+    /// commitment to off-chain evidence, as in `raise_dispute`.
+    ///
+    /// `caller` must be the buyer, a payee, or an assigned resolver of the
+    /// escrow, otherwise `NotAuthorized`. The escrow must be `Disputed`
+    /// (`InvalidState` otherwise). `description` longer than
+    /// `MAX_DESCRIPTION_LEN` reverts with `InputTooLong`, and a log already
+    /// holding `MAX_EVIDENCE_ENTRIES` entries reverts with
+    /// `EvidenceLimitReached`. Emits `dispute_evidence_submitted`.
+    pub fn submit_dispute_evidence(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        evidence_hash: BytesN<32>,
+        description: Bytes,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        ensure_action_not_paused(&env, Symbol::new(&env, "submit_dispute_evidence"))?;
+        let escrow = load_escrow(&env, escrow_id)?;
+
+        let is_buyer = escrow.buyer.as_ref() == Some(&caller);
+        let mut is_payee = false;
+        for i in 0..escrow.payees.inner.len() {
+            let payee = escrow
+                .payees
+                .inner
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            if payee.address == caller {
+                is_payee = true;
+                break;
+            }
+        }
+        if !is_buyer && !is_payee && !escrow.resolvers.contains(&caller) {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        if escrow.state != EscrowState::Disputed {
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
+        }
+
+        if description.len() > MAX_DESCRIPTION_LEN {
+            return Err(ContractError::InputTooLong);
+        }
+
+        let entry = EvidenceEntry {
+            submitter: caller.clone(),
+            timestamp: env.ledger().timestamp(),
+            evidence_hash: evidence_hash.clone(),
+            description: description.clone(),
+        };
+        let entry_count =
+            crate::storage::append_evidence(&env, escrow_id, &entry, MAX_EVIDENCE_ENTRIES)?;
+
+        emit_dispute_evidence_submitted(
+            &env,
+            escrow_id,
+            caller,
+            evidence_hash,
+            description,
+            entry_count,
+        );
+        Ok(())
+    }
+
+    /// Returns the additional evidence entries submitted for `escrow_id` via
+    /// `submit_dispute_evidence`, oldest first. The buyer's initial evidence
+    /// from `raise_dispute` lives on the dispute record (`get_dispute`).
+    pub fn get_dispute_evidence(env: Env, escrow_id: u64) -> Vec<EvidenceEntry> {
+        crate::storage::read_evidence_log(&env, escrow_id)
+    }
+
     /// Casts `caller`'s vote for `resolution` on a disputed escrow. An alias
     /// for `vote` retained for backward compatibility. Reverts with
     /// `InvalidState` if the escrow is not `Disputed`, or `NotAuthorized` if

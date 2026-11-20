@@ -43,8 +43,9 @@ pub enum DataKey {
     TotalDisputed,
     TotalCompleted,
     TotalRefunded,
-    /// Reserved for future use. Currently unused; may store per-escrow
-    /// evidence audit logs if on-chain verification is added later.
+    /// Per-escrow log of additional dispute evidence (`Vec<EvidenceEntry>`),
+    /// appended to by `submit_dispute_evidence` and capped at
+    /// `MAX_EVIDENCE_ENTRIES` entries.
     EvidenceLog(u64),
     BasketTokens(u64),
     DeliveryProposal(u64),
@@ -527,6 +528,18 @@ pub struct EscrowInput {
     pub shipping_window: u64,
     /// Empty string is the "no notes" sentinel (see `Escrow.notes`).
     pub notes: String,
+}
+
+/// One piece of dispute evidence submitted via `submit_dispute_evidence` by
+/// the buyer, a payee or an assigned resolver. `evidence_hash` is a commitment
+/// to off-chain evidence (conventionally its SHA-256 digest).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceEntry {
+    pub submitter: Address,
+    pub timestamp: u64,
+    pub evidence_hash: BytesN<32>,
+    pub description: Bytes,
 }
 
 #[contracttype]

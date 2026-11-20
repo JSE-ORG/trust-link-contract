@@ -630,3 +630,171 @@ fn test_appeal_non_participant_fails() {
     let result = client.try_appeal_dispute(&intruder, &id);
     assert_eq!(result, Err(Ok(crate::ContractError::NotAuthorized)));
 }
+
+// ── submit_dispute_evidence ─────────────────────────────────────────────────
+
+struct EvidenceFx {
+    env: Env,
+    client: EscrowClient<'static>,
+    id: u64,
+    seller: Address,
+    buyer: Address,
+    resolver: Address,
+}
+
+/// Builds a funded, shipped and disputed escrow (buyer raised the dispute).
+fn disputed_fixture() -> EvidenceFx {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let amount = 1000_i128;
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &amount,
+        &100_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
+    token::StellarAssetClient::new(&env, &token).mint(&buyer, &amount);
+    client.fund_escrow(&id, &buyer);
+    client.mark_shipped(&seller, &id, &String::from_str(&env, "TRACK-EV"));
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
+        &soroban_sdk::Bytes::from_slice(&env, b"Item never arrived"),
+        &BytesN::from_array(&env, &[0xab; 32]),
+    );
+
+    EvidenceFx {
+        env,
+        client,
+        id,
+        seller,
+        buyer,
+        resolver,
+    }
+}
+
+#[test]
+fn seller_can_submit_rebuttal_evidence() {
+    let fx = disputed_fixture();
+    let hash = BytesN::from_array(&fx.env, &[0xcd; 32]);
+    let description = soroban_sdk::Bytes::from_slice(&fx.env, b"Signed delivery receipt");
+
+    fx.client
+        .submit_dispute_evidence(&fx.seller, &fx.id, &hash, &description);
+
+    let log = fx.client.get_dispute_evidence(&fx.id);
+    assert_eq!(log.len(), 1);
+    let entry = log.get(0).unwrap();
+    assert_eq!(entry.submitter, fx.seller);
+    assert_eq!(entry.evidence_hash, hash);
+    assert_eq!(entry.description, description);
+    assert_eq!(entry.timestamp, fx.env.ledger().timestamp());
+
+    // The buyer's original evidence on the dispute record is untouched.
+    let dispute = fx.client.get_dispute(&fx.id).unwrap();
+    let original_hash = BytesN::from_array(&fx.env, &[0xab; 32]);
+    assert_eq!(dispute.evidence_hash, original_hash);
+}
+
+#[test]
+fn buyer_and_resolver_can_submit_evidence() {
+    let fx = disputed_fixture();
+    let hash = BytesN::from_array(&fx.env, &[0x01; 32]);
+    let description = soroban_sdk::Bytes::from_slice(&fx.env, b"more info");
+
+    fx.client
+        .submit_dispute_evidence(&fx.buyer, &fx.id, &hash, &description);
+    fx.client
+        .submit_dispute_evidence(&fx.resolver, &fx.id, &hash, &description);
+
+    let log = fx.client.get_dispute_evidence(&fx.id);
+    assert_eq!(log.len(), 2);
+    assert_eq!(log.get(0).unwrap().submitter, fx.buyer);
+    assert_eq!(log.get(1).unwrap().submitter, fx.resolver);
+}
+
+#[test]
+fn outsider_cannot_submit_evidence() {
+    let fx = disputed_fixture();
+    let outsider = Address::generate(&fx.env);
+    let result = fx.client.try_submit_dispute_evidence(
+        &outsider,
+        &fx.id,
+        &BytesN::from_array(&fx.env, &[0x02; 32]),
+        &soroban_sdk::Bytes::from_slice(&fx.env, b"spam"),
+    );
+    assert_eq!(result, Err(Ok(crate::ContractError::NotAuthorized)));
+    assert_eq!(fx.client.get_dispute_evidence(&fx.id).len(), 0);
+}
+
+#[test]
+fn evidence_requires_disputed_state() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &100_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<String>,
+    );
+    token::StellarAssetClient::new(&env, &token).mint(&buyer, &1000_i128);
+    client.fund_escrow(&id, &buyer);
+
+    // Funded, no dispute raised yet.
+    let result = client.try_submit_dispute_evidence(
+        &seller,
+        &id,
+        &BytesN::from_array(&env, &[0x03; 32]),
+        &soroban_sdk::Bytes::from_slice(&env, b"too early"),
+    );
+    assert_eq!(result, Err(Ok(crate::ContractError::InvalidState)));
+}
+
+#[test]
+fn evidence_log_is_capped() {
+    let fx = disputed_fixture();
+    let hash = BytesN::from_array(&fx.env, &[0x04; 32]);
+    let description = soroban_sdk::Bytes::from_slice(&fx.env, b"proof");
+
+    for _ in 0..crate::MAX_EVIDENCE_ENTRIES {
+        fx.client
+            .submit_dispute_evidence(&fx.seller, &fx.id, &hash, &description);
+    }
+    let result = fx
+        .client
+        .try_submit_dispute_evidence(&fx.seller, &fx.id, &hash, &description);
+    assert_eq!(result, Err(Ok(crate::ContractError::EvidenceLimitReached)));
+    assert_eq!(
+        fx.client.get_dispute_evidence(&fx.id).len(),
+        crate::MAX_EVIDENCE_ENTRIES
+    );
+}
