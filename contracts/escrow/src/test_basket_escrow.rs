@@ -254,6 +254,46 @@ fn fund_basket_escrow_rejects_funding_at_expiry() {
     assert_eq!(primary.token.balance(&fx.contract_id), 0);
 }
 
+/// Control case for the expiry wiring above: a basket with a *future*
+/// `expires_at` must still fund normally. Without this, a regression that
+/// rejected every expiring basket would pass the rejection test.
+#[test]
+fn fund_basket_escrow_before_expiry_succeeds() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let secondary = make_token(&fx.env);
+
+    fx.env.ledger().set_timestamp(1_000_000);
+    let expires_at = 1_000_000 + SHIPPING_WINDOW;
+
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address, &secondary.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &Some(expires_at),
+        &0_u64,
+    );
+
+    primary.admin.mint(&fx.buyer, &1_000);
+    secondary.admin.mint(&fx.buyer, &500);
+
+    // One second before the deadline funding must succeed.
+    fx.env.ledger().set_timestamp(expires_at - 1);
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Funded);
+    assert_eq!(primary.token.balance(&fx.buyer), 0);
+    assert_eq!(secondary.token.balance(&fx.buyer), 0);
+    assert_eq!(primary.token.balance(&fx.contract_id), 1_000);
+    assert_eq!(secondary.token.balance(&fx.contract_id), 500);
+}
+
 #[test]
 fn create_basket_escrow_at_maximum_size_stays_within_gas_baseline() {
     const MAX_CPU_INSNS: u64 = 50_000_000;
