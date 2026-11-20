@@ -83,6 +83,45 @@ pub(crate) fn transfer_with_protocol_fee(
     Ok((fee, net))
 }
 
+/// Transfers one basket token entry to `recipient` after deducting the
+/// protocol fee (`fee_bps`) and — only when a `treasury` is configured — the
+/// platform fee (`platform_fee_bps`).
+///
+/// The recipient receives exactly `amount - protocol_fee - platform_fee`; the
+/// protocol fee is forwarded to `fee_collector` and the platform fee to
+/// `treasury`. This mirrors the fees charged on the escrow's primary token so
+/// a large secondary basket balance cannot be used to evade them (Issue
+/// #1219). Both fees are computed independently on the gross `amount` (no
+/// compounding), and `payout` skips any fee that rounds to zero.
+pub(crate) fn transfer_basket_with_fees(
+    env: &Env,
+    token_addr: &Address,
+    recipient: &Address,
+    amount: i128,
+    fee_bps: u32,
+    platform_fee_bps: u32,
+    fee_collector: &Address,
+    treasury: Option<&Address>,
+) -> Result<(), ContractError> {
+    let protocol_fee = calculate_fee(amount, fee_bps)?;
+    let platform_fee = match treasury {
+        Some(_) => calculate_fee(amount, platform_fee_bps)?,
+        None => 0,
+    };
+    let net_amount = amount
+        .checked_sub(protocol_fee)
+        .ok_or(ContractError::AmountCalculationOverflow)?
+        .checked_sub(platform_fee)
+        .ok_or(ContractError::AmountCalculationOverflow)?;
+
+    payout(env, token_addr, recipient, net_amount);
+    payout(env, token_addr, fee_collector, protocol_fee);
+    if let Some(treasury_addr) = treasury {
+        payout(env, token_addr, treasury_addr, platform_fee);
+    }
+    Ok(())
+}
+
 /// Transfers `amount` of `token_addr` from this contract to `recipient`.
 ///
 /// This is the single choke point every payout path shares — protocol and

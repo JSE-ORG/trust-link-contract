@@ -743,7 +743,7 @@ impl Escrow {
         // ── INTERACTIONS (external token transfers) ──
         let amount = escrow.amount;
         payout(&env, &escrow.token, &buyer, amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_recovery_withdraw(&env, escrow_id, buyer, amount);
         Ok(())
@@ -1655,7 +1655,7 @@ impl Escrow {
 
         // ── INTERACTIONS (external token transfers) ──
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         crate::events::emit_emergency_drain(&env, escrow_id, escrow.token.clone(), escrow.amount);
         Ok(())

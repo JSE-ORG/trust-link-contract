@@ -932,14 +932,42 @@ pub(crate) fn is_transferable_basket_entry(entry: &TokenEntry, primary_token: &A
 /// by value, so the primary token is never double-paid regardless of the order
 /// the basket was originally saved.  This makes the function safe even if the
 /// token list is ever persisted in a different order.
+///
+/// # Fees (Issue #1219)
+///
+/// `fee_bps` selects the fee treatment:
+/// - `Some(fee_bps)` — a release/settlement path. Each secondary token has the
+///   protocol fee (`fee_bps`) and, when a treasury is configured, the platform
+///   fee (global `platform_fee_bps`) deducted before the remainder is paid to
+///   `recipient`; the fees go to the fee collector and treasury respectively.
+/// - `None` — a refund path (`cancel_escrow`, `mutual_cancel`,
+///   `emergency_drain`, `reclaim_expired`, …). Every basket token is returned
+///   to the buyer in full, with no fee deduction.
 pub(crate) fn payout_basket_tokens(
     env: &Env,
     escrow_id: u64,
     recipient: &Address,
+    fee_bps: Option<u32>,
 ) -> Result<(), ContractError> {
     let escrow = load_escrow(env, escrow_id)?;
     let primary_token = &escrow.token;
     let basket_tokens = load_basket_tokens(env, escrow_id);
+
+    // Resolve the fee destinations once, only on fee-charging paths. `None`
+    // means every entry is paid gross (refund path).
+    let fee_context = if let Some(fee_bps) = fee_bps {
+        let config = crate::storage::read_global_config(env);
+        let fee_collector = config.fee_collector.ok_or(ContractError::NotInitialized)?;
+        Some((
+            fee_bps,
+            config.platform_fee_bps,
+            fee_collector,
+            config.treasury,
+        ))
+    } else {
+        None
+    };
+
     for i in 0..basket_tokens.len() {
         let entry = basket_tokens
             .get(i)
@@ -950,7 +978,23 @@ pub(crate) fn payout_basket_tokens(
         if !is_transferable_basket_entry(&entry, primary_token) {
             continue;
         }
-        crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);
+        match &fee_context {
+            Some((fee_bps, platform_fee_bps, fee_collector, treasury)) => {
+                crate::helpers::payout::transfer_basket_with_fees(
+                    env,
+                    &entry.token,
+                    recipient,
+                    entry.amount,
+                    *fee_bps,
+                    *platform_fee_bps,
+                    fee_collector,
+                    treasury.as_ref(),
+                )?;
+            }
+            None => {
+                crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);
+            }
+        }
     }
     Ok(())
 }
@@ -1028,8 +1072,9 @@ pub(crate) fn ensure_auto_release_eligible(
 ///
 /// Takes the protocol fee off the top (paid to the fee collector), splits the
 /// remainder across `escrow.payees`, forwards any non-primary basket tokens to
-/// the primary payee, then flips the escrow to `Completed` and bumps the
-/// completed-escrow counter.
+/// the primary payee (minus protocol/platform fees, see
+/// [`payout_basket_tokens`]), then flips the escrow to `Completed` and bumps
+/// the completed-escrow counter.
 ///
 /// `fee_bps` is passed in rather than read here because the callers source it
 /// differently — `auto_release` uses the current global protocol fee,
@@ -1079,7 +1124,7 @@ pub(crate) fn settle_escrow_to_payees(
         payout(env, &escrow.token, &fee_collector, protocol_fee);
     }
     distribute_to_payees(env, &escrow.token, &escrow.payees, net_amount)?;
-    payout_basket_tokens(env, escrow_id, &first_payee_addr)?;
+    payout_basket_tokens(env, escrow_id, &first_payee_addr, Some(fee_bps))?;
 
     Ok((prev_state, first_payee_addr))
 }

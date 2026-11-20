@@ -312,7 +312,7 @@ impl Escrow {
         }
         payout(&env, &escrow.token, &recipient, payout_amount);
         payout(&env, &escrow.token, &fee_collector, protocol_fee);
-        payout_basket_tokens(&env, escrow_id, &recipient)?;
+        payout_basket_tokens(&env, escrow_id, &recipient, Some(escrow.fee_bps))?;
 
         emit_dispute_resolved(
             &env,
@@ -584,7 +584,7 @@ impl Escrow {
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         let first_payee_addr = escrow
             .payees
