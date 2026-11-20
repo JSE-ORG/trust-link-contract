@@ -498,7 +498,13 @@ impl Escrow {
             .checked_add(1)
             .ok_or(ContractError::MaxAppealsReached)?;
 
-        // Clear votes so a fresh round begins
+        // Clear votes so a fresh round begins. `ResolverVotes(escrow_id)` holds
+        // the whole tally as one entry, so a single `remove` drops every voter
+        // for `Multi` and `Fallback` sets alike (and `Single`). Together with
+        // `clear_resolution()` above (resolution = 0, resolved_by = None,
+        // resolved_at = 0) no round-1 state survives. Resolver eligibility is
+        // never cached — `can_resolve_now` is recomputed on every call — so the
+        // resolver who ruled in round 1 (primary or backup) may rule again.
         env.storage()
             .persistent()
             .remove(&DataKey::ResolverVotes(escrow_id));

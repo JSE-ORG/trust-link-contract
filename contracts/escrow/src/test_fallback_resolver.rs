@@ -726,3 +726,93 @@ fn test_fallback_co_signed_release_success() {
     let tc = token::Client::new(&setup.env, &setup.token);
     assert_eq!(tc.balance(&setup.seller), amount);
 }
+
+/// Backup resolves in round 1, the dispute is appealed, and the primary
+/// re-resolves in round 2. Nothing from round 1 (votes, resolution, resolver
+/// attribution) may leak into round 2.
+#[test]
+fn test_fallback_backup_resolves_appeal_clears_votes_primary_reresolves() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    // Move past the fallback deadline so the backup is authorized.
+    let now = setup.env.ledger().timestamp();
+    setup.env.ledger().set_timestamp(now + 200);
+
+    // Round 1: backup resolves Refund.
+    client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Refund);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+    let votes = client.get_resolver_votes(&escrow_id);
+    assert_eq!(votes.len(), 1);
+    assert_eq!(votes.get(0).unwrap().resolver, setup.backup);
+    let dispute = client.get_dispute(&escrow_id).unwrap();
+    assert_eq!(dispute.resolved_by, Some(setup.backup.clone()));
+    assert_eq!(dispute.resolution, ResolutionType::Refund as u32);
+
+    // Seller appeals inside the appeal window.
+    client.appeal_dispute(&setup.seller, &escrow_id);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Disputed);
+
+    // The vote cache and the recorded resolution are fully reset.
+    assert_eq!(client.get_resolver_votes(&escrow_id).len(), 0);
+    let dispute = client.get_dispute(&escrow_id).unwrap();
+    assert_eq!(dispute.resolution, 0);
+    assert_eq!(dispute.resolved_by, None);
+    assert_eq!(dispute.resolved_at, 0);
+    assert_eq!(dispute.appeal_count, 1);
+
+    // Round 2: the primary re-resolves (opposite outcome) without being blocked.
+    client.resolve_dispute(&setup.primary, &escrow_id, &ResolutionType::Release);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+    let votes = client.get_resolver_votes(&escrow_id);
+    assert_eq!(votes.len(), 1);
+    let vote = votes.get(0).unwrap();
+    assert_eq!(vote.resolver, setup.primary);
+    assert_eq!(vote.resolution, ResolutionType::Release);
+    let dispute = client.get_dispute(&escrow_id).unwrap();
+    assert_eq!(dispute.resolved_by, Some(setup.primary.clone()));
+    assert_eq!(dispute.resolution, ResolutionType::Release as u32);
+
+    // Finalize round 2: the seller is paid, not the buyer.
+    setup
+        .env
+        .ledger()
+        .set_timestamp(setup.env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&setup.seller, &escrow_id);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Completed);
+}
+
+/// The resolver who ruled in round 1 is not blocked from ruling again in
+/// round 2: after an appeal the backup may re-resolve, and the primary remains
+/// authorized as well.
+#[test]
+fn test_fallback_round1_resolver_can_reresolve_after_appeal() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    let now = setup.env.ledger().timestamp();
+    setup.env.ledger().set_timestamp(now + 200);
+
+    client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Refund);
+    client.appeal_dispute(&setup.buyer, &escrow_id);
+    assert_eq!(client.get_resolver_votes(&escrow_id).len(), 0);
+
+    // Backup rules again in round 2.
+    client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Release);
+    let votes = client.get_resolver_votes(&escrow_id);
+    assert_eq!(votes.len(), 1);
+    assert_eq!(votes.get(0).unwrap().resolver, setup.backup);
+    assert_eq!(votes.get(0).unwrap().resolution, ResolutionType::Release);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+}
