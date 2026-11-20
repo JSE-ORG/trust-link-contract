@@ -92,7 +92,7 @@ fn split_majority_release_resolves_after_window() {
     assert_eq!(s.client.get_escrow(&s.id).state, EscrowState::Disputed);
 
     env.ledger()
-        .set_timestamp(env.ledger().timestamp() + crate::DISPUTE_DEADLOCK_WINDOW);
+        .set_timestamp(env.ledger().timestamp() + crate::DISPUTE_DEADLOCK_WINDOW + 1);
     s.client.resolve_deadlocked_dispute(&s.id);
     assert_eq!(
         s.client.get_escrow(&s.id).state,
@@ -117,7 +117,7 @@ fn tied_vote_resolves_to_refund_after_window() {
         .resolve_dispute(&s.resolver(1), &s.id, &ResolutionType::Refund);
 
     env.ledger()
-        .set_timestamp(env.ledger().timestamp() + crate::DISPUTE_DEADLOCK_WINDOW);
+        .set_timestamp(env.ledger().timestamp() + crate::DISPUTE_DEADLOCK_WINDOW + 1);
     s.client.resolve_deadlocked_dispute(&s.id);
 
     env.ledger()
@@ -154,7 +154,7 @@ fn no_votes_is_not_a_deadlock() {
     let s = setup(&env, 3, 3);
 
     env.ledger()
-        .set_timestamp(env.ledger().timestamp() + crate::DISPUTE_DEADLOCK_WINDOW);
+        .set_timestamp(env.ledger().timestamp() + crate::DISPUTE_DEADLOCK_WINDOW + 1);
     assert_eq!(
         s.client.try_resolve_deadlocked_dispute(&s.id),
         Err(Ok(ContractError::NoResolverVotes))
@@ -176,9 +176,61 @@ fn met_threshold_already_moved_to_pending_finalization() {
     );
 
     env.ledger()
-        .set_timestamp(env.ledger().timestamp() + crate::DISPUTE_DEADLOCK_WINDOW);
+        .set_timestamp(env.ledger().timestamp() + crate::DISPUTE_DEADLOCK_WINDOW + 1);
     assert_eq!(
         s.client.try_resolve_deadlocked_dispute(&s.id),
         Err(Ok(ContractError::InvalidState))
     );
+}
+
+#[test]
+fn deadlock_at_exact_window_boundary_is_rejected() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    let s = setup(&env, 3, 3);
+
+    s.client
+        .resolve_dispute(&s.resolver(0), &s.id, &ResolutionType::Release);
+    s.client
+        .resolve_dispute(&s.resolver(1), &s.id, &ResolutionType::Refund);
+
+    // The window must have *strictly* elapsed: now == disputed_at + window fails.
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + crate::DISPUTE_DEADLOCK_WINDOW);
+    assert_eq!(
+        s.client.try_resolve_deadlocked_dispute(&s.id),
+        Err(Ok(ContractError::DisputeNotDeadlocked))
+    );
+}
+
+#[test]
+fn consecutive_deadlock_resolutions_second_call_is_invalid_state() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    let s = setup(&env, 3, 3);
+
+    s.client
+        .resolve_dispute(&s.resolver(0), &s.id, &ResolutionType::Release);
+    s.client
+        .resolve_dispute(&s.resolver(1), &s.id, &ResolutionType::Release);
+
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + crate::DISPUTE_DEADLOCK_WINDOW + 1);
+    s.client.resolve_deadlocked_dispute(&s.id);
+    assert_eq!(
+        s.client.get_escrow(&s.id).state,
+        EscrowState::PendingFinalization
+    );
+    let first_dispute = s.client.get_dispute(&s.id).unwrap();
+
+    // Second consecutive call fails on the state check and changes nothing.
+    assert_eq!(
+        s.client.try_resolve_deadlocked_dispute(&s.id),
+        Err(Ok(ContractError::InvalidState))
+    );
+    assert_eq!(
+        s.client.get_escrow(&s.id).state,
+        EscrowState::PendingFinalization
+    );
+    assert_eq!(s.client.get_dispute(&s.id).unwrap(), first_dispute);
 }

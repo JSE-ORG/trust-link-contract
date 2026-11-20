@@ -507,10 +507,18 @@ impl Escrow {
     /// a perfect tie resolves to `Refund`. The resolver fee (if any) is paid
     /// to a resolver who backed the winning side.
     ///
-    /// Reverts with `InvalidState` if the escrow is not `Disputed`,
-    /// `DisputeNotDeadlocked` if the window has not elapsed or the votes
-    /// already meet the threshold, or `NoResolverVotes` when no resolver voted
-    /// (that resolver-inaction case is handled by `claim_dispute_timeout`).
+    /// Reverts with `InvalidState` if the escrow is not `Disputed` (including
+    /// when a prior call already moved it to `PendingFinalization`) or the
+    /// dispute is not `Active`, `DisputeNotDeadlocked` if the window has not
+    /// strictly elapsed or the votes already meet the threshold, or
+    /// `NoResolverVotes` when no resolver voted (that resolver-inaction case is
+    /// handled by `claim_dispute_timeout`).
+    ///
+    /// Idempotency / CEI: every guard below runs before any tallying or event
+    /// emission, and `execute_resolution_transition` persists the
+    /// `PendingFinalization` state before any token transfer or event. A
+    /// second (or re-entrant) call therefore fails immediately on the state
+    /// check and cannot transition the escrow twice.
     pub fn resolve_deadlocked_dispute(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_action_not_paused(&env, Symbol::new(&env, "resolve_deadlocked_dispute"))?;
         let escrow = load_escrow(&env, escrow_id)?;
@@ -520,11 +528,16 @@ impl Escrow {
         }
 
         let dispute_data = load_dispute(&env, escrow_id)?;
+        if dispute_data.status != DisputeStatus::Active {
+            return Err(ContractError::InvalidState);
+        }
+
         let deadline = dispute_data
             .disputed_at
             .checked_add(crate::DISPUTE_DEADLOCK_WINDOW)
             .ok_or(ContractError::ArithmeticOverflow)?;
-        if env.ledger().timestamp() < deadline {
+        // The window must have strictly elapsed: `now == deadline` is rejected.
+        if env.ledger().timestamp() <= deadline {
             return Err(ContractError::DisputeNotDeadlocked);
         }
 
