@@ -225,7 +225,7 @@ fn test_get_resolver_votes_with_fifty_votes() {
         &escrow_id,
         &Symbol::new(&env, "ITEM_NOT_RECEIVED"),
         &soroban_sdk::Bytes::from_slice(&env, b"not received"),
-        &BytesN::from_array(&env, &[0; 32]),
+        &BytesN::from_array(&env, &[1; 32]),
     );
 
     for resolver in resolvers.iter() {

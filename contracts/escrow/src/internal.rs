@@ -1450,6 +1450,27 @@ pub(crate) fn create_escrow_internal(
     Ok(escrow_id)
 }
 
+/// Resolvers whose recorded vote matches `final_resolution`, in vote order.
+/// The finalizing voter (`caller`) is always included: it is the sole winner
+/// when no recorded vote matches (and the dust recipient otherwise).
+fn winning_resolvers(
+    env: &Env,
+    votes: &Vec<ResolverVote>,
+    final_resolution: &ResolutionType,
+    caller: &Address,
+) -> Vec<Address> {
+    let mut winners: Vec<Address> = Vec::new(env);
+    for vote in votes.iter() {
+        if &vote.resolution == final_resolution && !winners.contains(&vote.resolver) {
+            winners.push_back(vote.resolver.clone());
+        }
+    }
+    if winners.is_empty() {
+        winners.push_back(caller.clone());
+    }
+    winners
+}
+
 /// Execute the resolution transition once a resolution has been determined.
 /// Transitions the escrow to `PendingFinalization`.
 ///
@@ -1559,6 +1580,10 @@ pub(crate) fn execute_resolution_transition(
     dispute_data.resolved_at = now;
     dispute_data.arbitration_fee = arbitration_fee;
     dispute_data.resolver_fee = resolver_fee;
+    if !fees_already_charged {
+        dispute_data.compensated_resolvers =
+            winning_resolvers(env, &votes, &final_resolution, &caller);
+    }
     dispute_data.fees_charged = true;
 
     updated_escrow.state = EscrowState::PendingFinalization;
@@ -1571,7 +1596,24 @@ pub(crate) fn execute_resolution_transition(
     // ── INTERACTIONS (external token transfers) ──
     if let Some(fee_collector) = fee_collector {
         crate::helpers::payout::payout(env, &updated_escrow.token, &fee_collector, arbitration_fee);
-        crate::helpers::payout::payout(env, &updated_escrow.token, &caller, resolver_fee);
+
+        // Resolver fee: split equally among every resolver whose vote matches
+        // the final resolution (issue #1203). Dust from the integer division
+        // goes to the finalizing voter (`caller`) so the shares plus dust sum
+        // to exactly `resolver_fee`.
+        if resolver_fee > 0 {
+            let winners = winning_resolvers(env, &votes, &final_resolution, &caller);
+            // `winners` is never empty (falls back to `caller`).
+            let count = i128::from(winners.len());
+            let share = resolver_fee / count;
+            let dust = resolver_fee - share * count;
+            for winner in winners.iter() {
+                crate::helpers::payout::payout(env, &updated_escrow.token, &winner, share);
+            }
+            if dust > 0 {
+                crate::helpers::payout::payout(env, &updated_escrow.token, &caller, dust);
+            }
+        }
     }
 
     emit_dispute_pending_finalization(

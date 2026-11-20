@@ -242,6 +242,12 @@ pub struct Escrow;
 /// via `queue_set_max_appeals` / `execute_set_max_appeals`.
 pub const MAX_APPEALS: u32 = 3;
 
+/// Upper bound on the appeal-fee escalation multiplier. Round `n` (1-based)
+/// charges `n * appeal_fee_bps`; `MAX_MAX_APPEALS + 1` is the largest multiplier
+/// reachable under the configurable appeal cap, and the escalated rate is
+/// additionally capped at `BASIS_POINTS` (100%).
+pub const MAX_APPEAL_FEE_MULTIPLIER: u32 = MAX_MAX_APPEALS + 1;
+
 /// Minimum value accepted by `set_max_appeals`.
 pub const MIN_MAX_APPEALS: u32 = 1;
 

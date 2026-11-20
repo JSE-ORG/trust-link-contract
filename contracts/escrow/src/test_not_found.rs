@@ -80,7 +80,7 @@ fn test_raise_dispute_not_found() {
         &MISSING_ID,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[0u8; 32]),
+        &BytesN::from_array(&env, &[1u8; 32]),
     );
     assert!(matches!(res, Err(Ok(ContractError::EscrowNotFound))));
 }

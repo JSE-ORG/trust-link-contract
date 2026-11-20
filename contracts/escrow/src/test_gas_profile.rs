@@ -468,7 +468,7 @@ fn gas_profile_raise_dispute() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"item not as described"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
     let sample = diff(&env, &before);
     print_gas("raise_dispute", &sample);
@@ -503,7 +503,7 @@ fn gas_profile_resolve_dispute_release() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     let before = take_budget_snapshot(&env);
@@ -541,7 +541,7 @@ fn gas_profile_resolve_dispute_refund() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     let before = take_budget_snapshot(&env);
@@ -585,7 +585,7 @@ fn gas_profile_vote_multi_resolver() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     let before = take_budget_snapshot(&env);
@@ -623,7 +623,7 @@ fn gas_profile_finalize_dispute() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
     advance_time(&env, 86_400 + 1);
@@ -663,7 +663,7 @@ fn gas_profile_appeal_dispute() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
 
@@ -1453,7 +1453,7 @@ fn gas_profile_raise_dispute() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"item not as described"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
     let sample = diff(&env, &before);
     print_gas("raise_dispute", &sample);
@@ -1488,7 +1488,7 @@ fn gas_profile_resolve_dispute_release() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     let before = take_budget_snapshot(&env);
@@ -1526,7 +1526,7 @@ fn gas_profile_resolve_dispute_refund() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     let before = take_budget_snapshot(&env);
@@ -1570,7 +1570,7 @@ fn gas_profile_vote_multi_resolver() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     let before = take_budget_snapshot(&env);
@@ -1608,7 +1608,7 @@ fn gas_profile_finalize_dispute() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
     advance_time(&env, 86_400 + 1);
@@ -1648,7 +1648,7 @@ fn gas_profile_appeal_dispute() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
 
