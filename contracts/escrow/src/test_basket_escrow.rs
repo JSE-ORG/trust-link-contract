@@ -1329,3 +1329,82 @@ fn create_basket_escrow_validates_shipping_window() {
         SHIPPING_WINDOW
     );
 }
+
+// ── Issue #1220 – token allowlist gating for every basket token ─────────────
+
+/// When the token allowlist is enabled, every token in the basket — not just
+/// the primary at index 0 — must be allowlisted. A single unapproved token
+/// rejects the entire basket with `TokenNotAllowed`.
+#[test]
+fn create_basket_escrow_rejects_unallowlisted_secondary_token() {
+    let fx = setup();
+    let admin = Address::generate(&fx.env);
+    let fee_collector = Address::generate(&fx.env);
+    let contract_id = fx.env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&fx.env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    // Tokens A and B are allowlisted; C is deliberately not.
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let c = make_token(&fx.env);
+    client.set_token_allowlist_enabled(&admin, &true);
+    client.add_allowed_token(&admin, &a.address);
+    client.add_allowed_token(&admin, &b.address);
+
+    // All-allowlisted basket succeeds.
+    let ok_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(client.get_basket_tokens(&ok_id).unwrap().len(), 2);
+
+    // Swapping the allowlisted secondary B for the unapproved C must reject
+    // the whole basket, even though the primary token A is allowlisted.
+    let rejected = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &c.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(rejected, Err(Ok(ContractError::TokenNotAllowed)));
+}
+
+/// With the allowlist disabled (the default), basket creation stays a no-op
+/// for token gating and accepts any token set.
+#[test]
+fn create_basket_escrow_accepts_any_token_when_allowlist_disabled() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let c = make_token(&fx.env);
+
+    // No `set_token_allowlist_enabled`/`add_allowed_token` calls.
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &c.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(client.get_basket_tokens(&escrow_id).unwrap().len(), 2);
+}
