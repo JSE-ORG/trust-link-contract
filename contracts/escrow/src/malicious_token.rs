@@ -10,11 +10,16 @@
 //! (`transfer`, plus `balance`/`mint` for assertions) and, depending on the
 //! configured [`Attack`], misbehaves while the escrow is mid-execution:
 //!
-//! * [`Attack::Fail`] — always panics, modelling a broken / hostile token.
+//! * [`Attack::Fail`] — always panics, modelling a broken / hostile token
+//!   (`FailingToken`).
+//! * [`Attack::FailForRecipient`] — panics only when paying a configured
+//!   recipient, modelling a token that blacklists one address
+//!   (`FailingToken`).
 //! * [`Attack::BurnBudget`] — runs a long metered loop, modelling an
-//!   "infinite-gas" token that tries to wedge the call.
+//!   "infinite-gas" token that tries to wedge the call (`GasBurnerToken`).
 //! * `Attack::Reenter*` — calls back into the still-executing escrow, modelling
-//!   a classic re-entrancy attack (target configured via [`set_reentry`]).
+//!   a classic re-entrancy attack (`ReentrantToken`; target configured via
+//!   [`set_reentry`]).
 //!
 //! Soroban's host forbids re-entrancy and meters every host call, so each of
 //! these aborts the *entire* invocation atomically. The accompanying tests in
@@ -36,6 +41,8 @@ pub enum Attack {
     None,
     /// Panic unconditionally, simulating a broken or hostile token.
     Fail,
+    /// Panic only when the recipient matches the configured blocked address.
+    FailForRecipient,
     /// Burn the CPU budget with a long metered loop ("infinite gas").
     BurnBudget,
     /// Re-enter `confirm_delivery(actor, escrow_id)` during the transfer.
@@ -63,6 +70,7 @@ enum Key {
     Balance(Address),
     Attack,
     Reentry,
+    BlockedRecipient,
 }
 
 #[contract]
@@ -85,6 +93,13 @@ impl MaliciousToken {
                 escrow_id,
             },
         );
+    }
+
+    /// Configure the recipient that `Attack::FailForRecipient` rejects.
+    pub fn set_blocked_recipient(env: Env, recipient: Address) {
+        env.storage()
+            .instance()
+            .set(&Key::BlockedRecipient, &recipient);
     }
 
     /// Credit `amount` to `to` (test-only minting helper).
@@ -117,6 +132,12 @@ impl MaliciousToken {
         match attack {
             Attack::None => {}
             Attack::Fail => panic!("malicious token: transfer rejected"),
+            Attack::FailForRecipient => {
+                let blocked: Option<Address> = env.storage().instance().get(&Key::BlockedRecipient);
+                if blocked.as_ref() == Some(&to) {
+                    panic!("malicious token: recipient blocked");
+                }
+            }
             Attack::BurnBudget => {
                 // Each `sha256` is a metered host call. Under a constrained CPU
                 // budget (set by the test) this exhausts the budget long before

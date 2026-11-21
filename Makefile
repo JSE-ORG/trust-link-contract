@@ -1,5 +1,6 @@
 .PHONY: help build build-wasm test test-all fmt clippy bench clean check check-error-codes docs-link-check doc audit indexer-test xtask-test \
-	testnet testnet-reset testnet-stop fuzz-build fuzz fuzz-check setup hooks-uninstall
+	testnet testnet-reset testnet-stop fuzz-build fuzz fuzz-check setup hooks-uninstall \
+	bench-gas bench-gas-update
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -62,6 +63,12 @@ check: fmt-check clippy test check-error-codes docs-link-check ## Run all checks
 
 bench: ## Run benchmarks (if available)
 	cargo test --release -- --ignored
+
+bench-gas: ## Fail if any gas_profile metric regressed >5% versus the committed baseline
+	python3 scripts/check_gas_regression.py
+
+bench-gas-update: ## Refresh contracts/escrow/gas_baseline.json from a local gas-profile run
+	python3 scripts/check_gas_regression.py --update
 
 fuzz-check: ## Type-check every fuzz target on stable (no cargo-fuzz needed)
 	cargo check --manifest-path contracts/escrow/fuzz/Cargo.toml --all-targets

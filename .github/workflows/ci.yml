@@ -36,6 +36,8 @@ jobs:
         run: make build-debug
       - name: Test (unit, lib)
         run: make test
+      - name: Gas Benchmark Regression
+        run: make bench-gas
       - name: "Test (all targets: unit + integration)"
         run: make test-all
       - name: Fuzz targets (type-check)
