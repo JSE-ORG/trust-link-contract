@@ -321,8 +321,9 @@ pub(crate) fn validate_shipping_window(shipping_window: u64) -> Result<(), Contr
 }
 
 /// Validates resolver set to ensure no conflicts with seller/buyer, and for a
-/// `Fallback` set that the backup's `dispute_deadline` is within
-/// `MAX_FALLBACK_DEADLINE_OFFSET` of the current ledger timestamp.
+/// `Fallback` set that the backup's `dispute_deadline` lies between
+/// `MIN_FALLBACK_DEADLINE_OFFSET` and `MAX_FALLBACK_DEADLINE_OFFSET` past the
+/// current ledger timestamp.
 pub(crate) fn validate_resolvers(
     resolvers: &ResolverSet,
     seller: &Address,
@@ -359,13 +360,20 @@ pub(crate) fn validate_resolvers(
             return Err(ContractError::DuplicateResolver);
         }
 
+        let now = f.primary.env().ledger().timestamp();
+
+        // A deadline in the past (or too close to now) would co-authorize the
+        // backup immediately, defeating the primary's exclusive window.
+        let min_deadline = now
+            .checked_add(MIN_FALLBACK_DEADLINE_OFFSET)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if f.dispute_deadline < min_deadline {
+            return Err(ContractError::InvalidFallbackDeadline);
+        }
+
         // An unbounded deadline (e.g. u64::MAX) would never admit the backup,
         // leaving disputed funds locked if the primary stops responding.
-        let max_deadline = f
-            .primary
-            .env()
-            .ledger()
-            .timestamp()
+        let max_deadline = now
             .checked_add(MAX_FALLBACK_DEADLINE_OFFSET)
             .ok_or(ContractError::ArithmeticOverflow)?;
         if f.dispute_deadline > max_deadline {

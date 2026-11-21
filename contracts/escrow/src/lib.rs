@@ -142,6 +142,12 @@ const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 /// a dispute before the backup must be allowed to act (`2_592_000` = 30 days).
 const FALLBACK_PRIMARY_GRACE: u64 = 2_592_000;
 
+/// Shortest window (in seconds) a fallback escrow's primary resolver is
+/// guaranteed exclusive authority over a dispute (`86_400` = 1 day).
+/// `FallbackResolver::dispute_deadline` must be at least this far past the
+/// creation timestamp (`dispute_deadline >= now + MIN_FALLBACK_DEADLINE_OFFSET`).
+const MIN_FALLBACK_DEADLINE_OFFSET: u64 = 86_400;
+
 /// Furthest past the creation timestamp a `FallbackResolver::dispute_deadline`
 /// may be set. A dispute can be raised no later than `PENDING_EXPIRY_WINDOW +
 /// DISPUTE_WINDOW` after creation (fund within 7 days, dispute within 48h of

@@ -574,7 +574,7 @@ impl Escrow {
     /// * `ContractError::ResolverRoleConflict` - `primary_resolver` or `backup_resolver` matches `seller` or `buyer`.
     /// * `ContractError::DuplicateResolver` - `primary_resolver` equals `backup_resolver`.
     /// * `ContractError::ResolverNotApproved` - Strict resolver mode is enabled and a resolver is not on the approved list.
-    /// * `ContractError::InvalidFallbackDeadline` - `dispute_deadline` is more than `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past the current ledger timestamp.
+    /// * `ContractError::InvalidFallbackDeadline` - `dispute_deadline` is less than `MIN_FALLBACK_DEADLINE_OFFSET` (1 day) or more than `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past the current ledger timestamp.
     ///
     /// # Example
     /// ```rust,ignore
@@ -613,11 +613,13 @@ impl Escrow {
     /// - `dispute_deadline` — **absolute ledger timestamp in Unix seconds** at
     ///   which `backup_resolver` becomes authorized. This is unrelated to
     ///   `Escrow::dispute_deadline` (the buyer's dispute window, computed at
-    ///   funding). It must be at most `MAX_FALLBACK_DEADLINE_OFFSET` (39
-    ///   days) past the current ledger timestamp (`InvalidFallbackDeadline`),
-    ///   so the backup can always step in eventually. A past value (or `0`)
-    ///   simply co-authorizes the backup from the start; callers normally
-    ///   pass `env.ledger().timestamp() + grace_seconds`.
+    ///   funding). It must be at least `MIN_FALLBACK_DEADLINE_OFFSET` (1 day)
+    ///   and at most `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past the current
+    ///   ledger timestamp (`InvalidFallbackDeadline`), guaranteeing the
+    ///   primary at least 24 hours of exclusive authority while ensuring the
+    ///   backup can always step in eventually. Past values (including `0`)
+    ///   are rejected; callers pass `env.ledger().timestamp() + grace_seconds`
+    ///   with `grace_seconds >= 86_400`.
     /// - `token`, `amount`, `fee_bps`, `shipping_window` — as for
     ///   `create_escrow` (`amount` within `[MIN_ESCROW_AMOUNT,
     ///   MAX_ESCROW_AMOUNT]`, `fee_bps <= MAX_ESCROW_FEE_BPS`).
