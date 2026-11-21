@@ -1,4 +1,4 @@
-.PHONY: help build build-wasm test test-all fmt clippy bench clean check check-error-codes docs-link-check doc audit indexer-test xtask-test \
+.PHONY: help build build-wasm test test-all fmt clippy bench clean check check-error-codes docs-link-check malware-check doc audit indexer-test xtask-test \
 	testnet testnet-reset testnet-stop fuzz-build fuzz fuzz-check setup hooks-uninstall
 
 help: ## Show this help
@@ -58,7 +58,7 @@ CLIPPY_PANIC_FREE := \
 clippy: ## Run clippy lints, including clippy::pedantic + the panic-free restriction lints (canonical scope, used by hook and CI)
 	cargo clippy --lib -- -D warnings -W clippy::pedantic $(CLIPPY_PEDANTIC_ALLOW) $(CLIPPY_PANIC_FREE)
 
-check: fmt-check clippy test check-error-codes docs-link-check ## Run all checks (fmt + clippy + test + error-code drift + required docs links)
+check: fmt-check clippy test check-error-codes docs-link-check malware-check ## Run all checks (fmt + clippy + test + error-code drift + docs links + malware guard)
 
 bench: ## Run benchmarks (if available)
 	cargo test --release -- --ignored
@@ -83,6 +83,9 @@ check-error-codes: ## Verify errors.rs and bindings/src/errors.ts agree
 
 docs-link-check: ## Verify required resolver documentation links
 	node scripts/check-resolver-links.mjs
+
+malware-check: ## Scan the tree for malicious / obfuscated code and committed binaries
+	node scripts/scan-malware.mjs
 
 doc: ## Generate and open documentation
 	cargo doc --open

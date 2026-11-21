@@ -156,3 +156,55 @@ fn test_upgrade_unauthorized() {
     let result = client.try_upgrade(&fake_admin, &new_wasm_hash);
     assert!(matches!(result, Err(Ok(ContractError::NotAuthorized))));
 }
+
+/// Issue #1204: `recovery_withdraw` must reject `PendingFinalization` escrows,
+/// while `Disputed` escrows stay recoverable.
+#[test]
+fn test_recovery_withdraw_blocked_on_pending_finalization() {
+    use crate::test_helpers::create_funded_escrow;
+    use crate::{EscrowState, ResolutionType};
+    use soroban_sdk::{symbol_short, Bytes, BytesN};
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let token = register_token(&env);
+    let (_cid, client, admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let disputed_id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1_000, 0, 3600,
+    );
+    let pending_id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1_000, 0, 3600,
+    );
+
+    for id in [disputed_id, pending_id] {
+        client.raise_dispute(
+            &buyer,
+            &id,
+            &symbol_short!("OTHER"),
+            &Bytes::from_slice(&env, b"desc"),
+            &BytesN::from_array(&env, &[1u8; 32]),
+        );
+    }
+    client.resolve_dispute(&resolver, &pending_id, &ResolutionType::Release);
+    assert_eq!(
+        client.get_escrow(&pending_id).state,
+        EscrowState::PendingFinalization
+    );
+
+    client.enable_recovery_mode(&admin);
+
+    let result = client.try_recovery_withdraw(&buyer, &pending_id);
+    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+    assert_eq!(
+        client.get_escrow(&pending_id).state,
+        EscrowState::PendingFinalization
+    );
+
+    // Disputed escrows remain recoverable.
+    client.recovery_withdraw(&buyer, &disputed_id);
+    assert_eq!(client.get_escrow(&disputed_id).state, EscrowState::Refunded);
+}

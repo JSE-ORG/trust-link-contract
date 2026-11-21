@@ -233,7 +233,7 @@ impl Escrow {
         // during the refund finds a terminal state and is rejected instead of
         // draining the same escrow twice.
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_escrow_expired(
             &env,
@@ -805,7 +805,7 @@ impl Escrow {
 
         if should_refund {
             payout(&env, &escrow.token, &caller, escrow.amount);
-            payout_basket_tokens(&env, escrow_id, &caller)?;
+            payout_basket_tokens(&env, escrow_id, &caller, None)?;
         }
         let first_payee_addr = escrow
             .payees
@@ -868,7 +868,7 @@ impl Escrow {
 
         payout(&env, &escrow.token, &buyer, escrow.amount);
 
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_escrow_canceled(
             &env,
@@ -1257,7 +1257,12 @@ impl Escrow {
             updated.amount,
             fee_config.protocol_fee_bps,
         )?;
-        payout_basket_tokens(&env, escrow_id, &first_payee)?;
+        payout_basket_tokens(
+            &env,
+            escrow_id,
+            &first_payee,
+            Some(fee_config.protocol_fee_bps),
+        )?;
         emit_escrow_completed(
             &env,
             escrow_id,
@@ -1883,7 +1888,7 @@ impl Escrow {
 
         // ── INTERACTIONS (external token transfers) ──
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_refund_approved(
             &env,

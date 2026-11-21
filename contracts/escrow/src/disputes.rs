@@ -63,7 +63,8 @@ impl Escrow {
     /// so no length check is needed here; the contract cannot verify the
     /// *content*, so consumers must re-hash the evidence and compare it against
     /// the stored digest before treating it as proof. The all-zero digest is
-    /// accepted and conventionally means "no evidence attached".
+    /// rejected with `InvalidEvidenceHash`: a dispute must carry a non-zero
+    /// evidence commitment.
     ///
     /// `reason` must be one of [`DISPUTE_REASONS`]; any other symbol reverts
     /// with `InvalidDisputeReason`.
@@ -101,6 +102,12 @@ impl Escrow {
             return Err(ContractError::DisputeWindowStillOpen);
         }
 
+        // An all-zero digest is the "no evidence" placeholder; reject it so a
+        // dispute is always backed by a real evidence commitment (issue #1206).
+        if evidence_hash.to_array() == [0u8; 32] {
+            return Err(ContractError::InvalidEvidenceHash);
+        }
+
         if !is_valid_dispute_reason(&env, &reason) {
             return Err(ContractError::InvalidDisputeReason);
         }
@@ -127,6 +134,7 @@ impl Escrow {
             arbitration_fee: 0,
             resolver_fee: 0,
             fees_charged: false,
+            compensated_resolvers: Vec::new(&env),
         };
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
@@ -312,7 +320,7 @@ impl Escrow {
         }
         payout(&env, &escrow.token, &recipient, payout_amount);
         payout(&env, &escrow.token, &fee_collector, protocol_fee);
-        payout_basket_tokens(&env, escrow_id, &recipient)?;
+        payout_basket_tokens(&env, escrow_id, &recipient, Some(escrow.fee_bps))?;
 
         emit_dispute_resolved(
             &env,
@@ -349,6 +357,12 @@ impl Escrow {
     /// fee collector on every appeal, so spamming appeals up to `MAX_APPEALS`
     /// always costs the griefer. A zero fee (the default) preserves the
     /// historical free-appeal behavior.
+    ///
+    /// # Fee escalation (issue #1205)
+    ///
+    /// The fee escalates linearly with the appeal round: round `n` (1-based)
+    /// charges `n * appeal_fee_bps`, capped at `BASIS_POINTS` (100%). The
+    /// exact amount deducted and the round are logged in `dispute_appealed`.
     pub fn appeal_dispute(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_action_not_paused(&env, Symbol::new(&env, "appeal_dispute"))?;
@@ -392,7 +406,19 @@ impl Escrow {
         // Resolve the out-of-pocket appeal fee before mutating state. The
         // lookup is a plain storage read (a Check, not an Interaction); the
         // transfer itself happens after the state mutations below, per CEI.
-        let appeal_fee_bps = read_appeal_fee_bps(&env);
+        // Escalation (issue #1205): round `n` charges `n * appeal_fee_bps`
+        // (1x, 2x, 3x, ...), so repeated appeals cost progressively more. The
+        // multiplier and the escalated rate are bounded by
+        // `MAX_APPEAL_FEE_MULTIPLIER` and `BASIS_POINTS` respectively.
+        let appeal_round = dispute_data
+            .appeal_count
+            .checked_add(1)
+            .ok_or(ContractError::MaxAppealsReached)?;
+        let multiplier = appeal_round.min(crate::MAX_APPEAL_FEE_MULTIPLIER);
+        let appeal_fee_bps = read_appeal_fee_bps(&env)
+            .checked_mul(multiplier)
+            .ok_or(ContractError::ArithmeticError)?
+            .min(crate::BASIS_POINTS);
         let appeal_fee = crate::helpers::payout::calculate_fee(escrow.amount, appeal_fee_bps)?;
         let fee_collector: Option<Address> = if appeal_fee > 0 {
             Some(
@@ -439,7 +465,7 @@ impl Escrow {
             token::Client::new(&env, &escrow.token).transfer(&caller, &fee_collector, &appeal_fee);
         }
 
-        emit_dispute_appealed(&env, escrow_id, caller);
+        emit_dispute_appealed(&env, escrow_id, caller, appeal_fee, appeal_round);
         Ok(())
     }
 
@@ -584,7 +610,7 @@ impl Escrow {
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         let first_payee_addr = escrow
             .payees

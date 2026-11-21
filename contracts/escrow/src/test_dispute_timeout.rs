@@ -68,7 +68,7 @@ fn disputed_single_resolver_escrow(
         &id,
         &symbol_short!("OTHER"),
         &soroban_sdk::Bytes::from_slice(env, b"never arrived"),
-        &BytesN::from_array(env, &[0; 32]),
+        &BytesN::from_array(env, &[1; 32]),
     );
     id
 }
