@@ -952,6 +952,9 @@ pub(crate) fn payout_basket_tokens(
         }
         crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);
     }
+    env.storage()
+        .persistent()
+        .remove(&DataKey::BasketTokens(escrow_id));
     Ok(())
 }
 

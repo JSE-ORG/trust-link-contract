@@ -327,6 +327,16 @@ pub fn read_escrow_data(env: &Env, escrow_id: u64) -> Option<EscrowData> {
     result
 }
 
+/// Removes the basket-token entry for `escrow_id` once the escrow has reached
+/// a terminal state and all basket funds have been disbursed. Called from the
+/// settlement path so that the removal is part of the same transaction and
+/// rolls back atomically with any failed transfer.
+pub fn remove_basket_tokens(env: &Env, escrow_id: u64) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::BasketTokens(escrow_id));
+}
+
 fn page_count(total: u32) -> u32 {
     total.div_ceil(crate::ESCROW_INDEX_PAGE_SIZE)
 }
