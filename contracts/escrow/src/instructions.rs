@@ -1257,7 +1257,7 @@ impl Escrow {
             updated.amount,
             fee_config.protocol_fee_bps,
         )?;
-        payout_basket_tokens(&env, escrow_id, &first_payee)?;
+        distribute_basket_tokens(&env, escrow_id, &updated.payees)?;
         emit_escrow_completed(
             &env,
             escrow_id,
@@ -1359,8 +1359,12 @@ impl Escrow {
         auth!(seller);
         ensure_action_not_paused(&env, Symbol::new(&env, "create_basket_escrow"))?;
 
+        // `MAX_BASKET_SIZE` is the hard ceiling; the admin-configured value
+        // lets governance tighten it further without a contract upgrade.
+        let max_basket_size = crate::read_max_basket_size(&env);
         if tokens.len() != amounts.len()
             || tokens.is_empty()
+            || tokens.len() > max_basket_size
             || tokens.len() > crate::MAX_BASKET_SIZE
         {
             return Err(ContractError::BasketTokenMismatch);
@@ -1568,8 +1572,8 @@ impl Escrow {
     /// Notes for integrators:
     /// - The primary token (`tokens[0]`) is transferred as part of the basket
     ///   loop, so a basket of size `N` issues exactly `N` transfers.
-    /// - Entries with `amount == 0` are skipped and do not incur a transfer,
-    ///   but they still contribute to the loop's iteration overhead.
+    /// - Every stored entry must carry a positive amount; zero or negative
+    ///   amounts are rejected with `InvalidAmount` instead of being skipped.
     /// - The cost is dominated by the token contracts' own `transfer`
     ///   implementations; the figures above assume a standard SEP-41 token.
     /// - Re-measure with `env.budget()` when upgrading Soroban or the token
@@ -1647,15 +1651,16 @@ impl Escrow {
             let entry = basket_tokens
                 .get(i)
                 .ok_or(ContractError::IndexOutOfBounds)?;
-            if entry.amount > 0 {
-                transfer_helper(
-                    &env,
-                    &entry.token,
-                    &buyer,
-                    &env.current_contract_address(),
-                    entry.amount,
-                );
+            if entry.amount <= 0 {
+                return Err(ContractError::InvalidAmount);
             }
+            transfer_helper(
+                &env,
+                &entry.token,
+                &buyer,
+                &env.current_contract_address(),
+                entry.amount,
+            );
         }
 
         let prev_state = escrow.state.clone();
