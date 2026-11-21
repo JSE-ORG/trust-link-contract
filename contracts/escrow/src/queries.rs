@@ -57,14 +57,16 @@ impl Escrow {
 
     /// Returns the full list of tokens and amounts for a basket escrow.
     /// Returns `None` if the escrow does not exist. Returns `Some(empty Vec)`
-    /// for single-token escrows (created via `create_escrow`). Returns
-    /// `Some(Vec<TokenEntry>)` for basket escrows with additional tokens.
+    /// for single-token escrows (created via `create_escrow`) and for basket
+    /// escrows whose basket storage has been reclaimed after terminal settlement
+    /// (`Completed`, `Refunded`, or `Canceled`). Returns `Some(Vec<TokenEntry>)`
+    /// for basket escrows with additional tokens that have not yet been settled.
     pub fn get_basket_tokens(env: Env, escrow_id: u64) -> Option<Vec<TokenEntry>> {
         // Check if escrow exists first
         if load_escrow(&env, escrow_id).is_err() {
             return None;
         }
-        // Return Some(Vec) - empty for single-token, populated for basket
+        // Return Some(Vec) - empty for single-token or reclaimed, populated for basket
         Some(load_basket_tokens(&env, escrow_id))
     }
 
@@ -266,49 +268,4 @@ impl Escrow {
         storage::extend_instance_ttl(&env);
 
         let fee_config = read_fee_config(&env);
-        let paused = crate::storage::read_global_config(&env).state_flags
-            & crate::types::GLOBAL_CONFIG_FLAG_PAUSED
-            != 0;
-
-        let current_counter: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCounter)
-            .unwrap_or(1);
-        let escrow_count = current_counter.saturating_sub(1);
-
-        PublicContractConfig {
-            fee_bps: fee_config.protocol_fee_bps,
-            arbitration_fee_bps: fee_config.arbitration_fee_bps,
-            paused,
-            escrow_count,
-        }
-    }
-
-    /// Returns admin-only contract configuration: admin address, protocol
-    /// fee, arbitration fee, fee collector, and total escrow count. Requires
-    /// the caller to authenticate as the current admin. Reverts with
-    /// `NotInitialized` if the contract has not been initialized.
-    pub fn get_contract_config(env: Env) -> Result<ContractConfig, ContractError> {
-        let admin = require_admin(&env)?;
-        admin.require_auth();
-
-        let fee_config = read_fee_config(&env);
-        let fee_collector: Address = crate::storage::read_global_config(&env)
-            .fee_collector
-            .ok_or(ContractError::NotInitialized)?;
-        let escrow_count: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCounter)
-            .unwrap_or(1u64)
-            .saturating_sub(1);
-        Ok(ContractConfig {
-            admin,
-            fee_bps: fee_config.protocol_fee_bps,
-            arbitration_fee_bps: fee_config.arbitration_fee_bps,
-            fee_collector,
-            escrow_count,
-        })
-    }
-}
+        let pau
