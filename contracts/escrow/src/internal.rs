@@ -1292,8 +1292,20 @@ pub(crate) fn ensure_funding_not_expired(env: &Env, escrow_id: u64) -> Result<()
 /// [`read_sharded_counter_total`]. Keep stable: they are persisted in storage.
 pub(crate) const COUNTER_KIND_CREATED: u32 = 0;
 pub(crate) const COUNTER_KIND_COMPLETED: u32 = 1;
+/// Counts **unique escrows** that have ever been disputed, not dispute
+/// proceedings. It is incremented exactly once per escrow, by `raise_dispute`
+/// (which only accepts an escrow that is not yet disputed). `appeal_dispute`
+/// moves an escrow `PendingFinalization -> Disputed` again but deliberately
+/// does **not** touch this counter, so `ContractStats::total_disputed` is never
+/// inflated by appeal cycles. Appeal volume is tracked separately by
+/// [`COUNTER_KIND_APPEALS`].
 pub(crate) const COUNTER_KIND_DISPUTED: u32 = 2;
 pub(crate) const COUNTER_KIND_REFUNDED: u32 = 3;
+/// Counts appeal cycles across the contract: incremented once for every
+/// successful `appeal_dispute`. Monotonically increasing; an escrow appealed
+/// `n` times contributes `n`. Complements [`COUNTER_KIND_DISPUTED`] (unique
+/// disputed escrows). New counter, so it has no legacy singleton key.
+pub(crate) const COUNTER_KIND_APPEALS: u32 = 4;
 
 /// Records a *completion* of `escrow_id`.
 ///

@@ -142,6 +142,9 @@ impl Escrow {
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         save_dispute(&env, escrow_id, &dispute_data);
         crate::internal::clear_delivery_proposal(&env, escrow_id);
+        // Counts unique disputed escrows: bumped here exactly once per escrow
+        // (an escrow can only be disputed from a non-disputed state). Appeals
+        // (`appeal_dispute`) do not re-increment it; see `COUNTER_KIND_APPEALS`.
         increment_sharded_counter(&env, COUNTER_KIND_DISPUTED, escrow_id)?;
         emit_dispute_raised(
             &env,
@@ -530,6 +533,11 @@ impl Escrow {
         // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
         save_dispute(&env, escrow_id, &updated_dispute);
+        // Accounting invariant: an appeal re-enters `Disputed` but is NOT a new
+        // disputed escrow, so `COUNTER_KIND_DISPUTED` (unique disputed escrows,
+        // bumped once in `raise_dispute`) is intentionally left untouched.
+        // Appeal volume is tracked in its own counter instead.
+        increment_sharded_counter(&env, COUNTER_KIND_APPEALS, escrow_id)?;
 
         // ── INTERACTIONS (external token transfers) ──
         // The state transition above is already persisted, so a re-entrant

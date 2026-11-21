@@ -217,6 +217,12 @@ impl Escrow {
     /// `increment_sharded_counter`) to avoid a single contended instance key;
     /// this view re-aggregates them, including any value written by a
     /// pre-sharding deployment.
+    ///
+    /// Dispute accounting: `total_disputed` counts **unique escrows** that
+    /// were ever disputed (an appeal does not re-increment it), while
+    /// `total_appeals` counts every appeal cycle across the contract. An
+    /// escrow disputed once and appealed twice contributes `1` to
+    /// `total_disputed` and `2` to `total_appeals`.
     pub fn get_stats(env: Env) -> ContractStats {
         ContractStats {
             total_created: read_counter_total(&env, COUNTER_KIND_CREATED, &DataKey::TotalCreated),
@@ -235,6 +241,8 @@ impl Escrow {
                 COUNTER_KIND_REFUNDED,
                 &DataKey::TotalRefunded,
             ),
+            // Appeals have no pre-sharding history, so only the shards count.
+            total_appeals: read_sharded_counter_total(&env, COUNTER_KIND_APPEALS),
         }
     }
 

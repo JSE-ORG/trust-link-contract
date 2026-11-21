@@ -621,8 +621,13 @@ pub struct Message {
 pub struct ContractStats {
     pub total_created: u64,
     pub total_completed: u64,
+    /// Number of **unique escrows** that have ever been disputed. Incremented
+    /// once by `raise_dispute`; appeals do not inflate it.
     pub total_disputed: u64,
     pub total_refunded: u64,
+    /// Total appeal cycles across all escrows: incremented by every
+    /// successful `appeal_dispute` (so one escrow appealed twice adds 2).
+    pub total_appeals: u64,
 }
 
 /// Payee with address and basis points share.
