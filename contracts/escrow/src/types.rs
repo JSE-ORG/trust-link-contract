@@ -375,9 +375,36 @@ pub struct DisputeData {
     /// Resolvers compensated from `resolver_fee` (the voters who backed the
     /// winning resolution); empty until fees are charged.
     pub compensated_resolvers: Vec<Address>,
+    /// Standardized reason the resolver gave for the current resolution
+    /// (e.g. `NON_DELIVERY`, `DAMAGED`, `MUTUAL`), or `None` when none was
+    /// supplied. Cleared by `clear_resolution` on appeal.
+    ///
+    /// Entries written before this field existed lack the key in storage;
+    /// `load_dispute` back-fills it as `None` (see `decode_dispute`).
+    pub resolution_reason: Option<Symbol>,
+    /// Optional free-form resolver memo (raw bytes, UTF-8 expected, at most
+    /// `MAX_DESCRIPTION_LEN`). Empty when none was supplied. Cleared by
+    /// `clear_resolution` on appeal. Back-filled as empty for legacy entries.
+    pub resolution_memo: Bytes,
 }
 
 impl DisputeData {
+    /// Reason recorded with the current resolution, if any.
+    pub fn get_resolution_reason(&self) -> Option<Symbol> {
+        self.resolution_reason.clone()
+    }
+
+    /// Memo recorded with the current resolution (empty when none).
+    pub fn get_resolution_memo(&self) -> Bytes {
+        self.resolution_memo.clone()
+    }
+
+    /// Records the reason and memo supplied alongside the current resolution.
+    pub fn set_resolution_note(&mut self, reason: Option<Symbol>, memo: Bytes) {
+        self.resolution_reason = reason;
+        self.resolution_memo = memo;
+    }
+
     /// Records `r` in the packed `resolution` code (see
     /// [`ResolutionType::to_code`]).
     pub fn set_resolution(&mut self, r: ResolutionType) {
@@ -399,6 +426,8 @@ impl DisputeData {
     /// to charge those fees **once per dispute** rather than again for every
     /// appeal round (see `execute_resolution_transition`).
     pub fn clear_resolution(&mut self) {
+        self.resolution_reason = None;
+        self.resolution_memo = Bytes::new(self.resolution_memo.env());
         self.resolution = 0;
         self.resolved_by = None;
         self.resolved_at = 0;

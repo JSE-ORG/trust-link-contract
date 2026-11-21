@@ -766,6 +766,9 @@ pub struct DisputePendingFinalization {
     pub amount: i128,
     pub appeal_deadline: u64,
     pub pending_at: u64,
+    /// Standardized reason supplied by the resolver (`None` when the
+    /// resolution was made without one, e.g. via `resolve_dispute`).
+    pub resolution_reason: Option<Symbol>,
 }
 
 /// Topic: `(symbol_short!("Dispute"), symbol_short!("Pending"), resolver.clone(),)`, data: `DisputePendingFinalization`.
@@ -776,6 +779,7 @@ pub fn emit_dispute_pending_finalization(
     resolution: crate::ResolutionType,
     amount: i128,
     appeal_deadline: u64,
+    resolution_reason: Option<Symbol>,
 ) {
     env.events().publish(
         (
@@ -791,6 +795,7 @@ pub fn emit_dispute_pending_finalization(
             amount,
             appeal_deadline,
             pending_at: env.ledger().timestamp(),
+            resolution_reason,
         },
     );
 }

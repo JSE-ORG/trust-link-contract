@@ -135,6 +135,8 @@ impl Escrow {
             resolver_fee: 0,
             fees_charged: false,
             compensated_resolvers: Vec::new(&env),
+            resolution_reason: None,
+            resolution_memo: Bytes::new(&env),
         };
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
@@ -168,7 +170,41 @@ impl Escrow {
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        crate::resolve_or_vote_internal(&env, caller, escrow_id, resolution)
+        crate::resolve_or_vote_internal(
+            &env,
+            caller,
+            escrow_id,
+            resolution,
+            None,
+            Bytes::new(&env),
+        )
+    }
+
+    /// Like `resolve_dispute`, but also records *why* the resolver decided as
+    /// they did: an optional standardized `reason` symbol (e.g.
+    /// `NON_DELIVERY`, `DAMAGED`, `MUTUAL`) and a free-form `memo` (pass an
+    /// empty `Bytes` for none). They are stored on `DisputeData`
+    /// (`resolution_reason` / `resolution_memo`, readable via `get_dispute`)
+    /// when this call moves the escrow to `PendingFinalization`, and the
+    /// reason is included in the `DisputePendingFinalization` event. For a
+    /// multi-resolver set that is the vote that reaches the threshold. They
+    /// are cleared again if the resolution is appealed.
+    ///
+    /// Reverts with `InputTooLong` if `memo` exceeds `MAX_DESCRIPTION_LEN`
+    /// bytes, plus every error `resolve_dispute` can return.
+    pub fn resolve_dispute_with_reason(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        resolution: ResolutionType,
+        reason: Option<Symbol>,
+        memo: Bytes,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        if memo.len() > MAX_DESCRIPTION_LEN {
+            return Err(ContractError::InputTooLong);
+        }
+        crate::resolve_or_vote_internal(&env, caller, escrow_id, resolution, reason, memo)
     }
 
     /// Cast or change a vote on a disputed escrow.
@@ -180,7 +216,14 @@ impl Escrow {
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        crate::resolve_or_vote_internal(&env, caller, escrow_id, resolution)
+        crate::resolve_or_vote_internal(
+            &env,
+            caller,
+            escrow_id,
+            resolution,
+            None,
+            Bytes::new(&env),
+        )
     }
 
     /// Get the resolver votes for a disputed escrow (for multi-resolver voting tracking)
@@ -556,6 +599,8 @@ impl Escrow {
             ResolutionType::Refund,
             votes,
             false,
+            None,
+            Bytes::new(&env),
         )
     }
 
@@ -599,7 +644,17 @@ impl Escrow {
 
         let resolution = tally_votes_majority(&votes);
         let actor = voter_for(&votes, &resolution).ok_or(ContractError::NoResolverVotes)?;
-        execute_resolution_transition(&env, escrow_id, escrow, actor, resolution, votes, true)
+        execute_resolution_transition(
+            &env,
+            escrow_id,
+            escrow,
+            actor,
+            resolution,
+            votes,
+            true,
+            None,
+            Bytes::new(&env),
+        )
     }
 
     /// Admin override to cancel an escrow in `PendingFinalization`.

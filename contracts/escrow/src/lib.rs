@@ -341,6 +341,8 @@ fn resolve_or_vote_internal(
     caller: Address,
     escrow_id: u64,
     resolution: ResolutionType,
+    reason: Option<Symbol>,
+    memo: soroban_sdk::Bytes,
 ) -> Result<(), ContractError> {
     ensure_action_not_paused(env, Symbol::new(env, "RESOLVE"))?;
     resolution.validate()?;
@@ -381,6 +383,8 @@ fn resolve_or_vote_internal(
             final_resolution,
             votes,
             true,
+            reason,
+            memo,
         )?;
     } else {
         save_resolver_votes(env, escrow_id, &votes);

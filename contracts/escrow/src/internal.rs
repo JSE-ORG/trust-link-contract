@@ -701,13 +701,39 @@ pub(crate) fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
         .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
+/// Decodes a stored dispute, back-filling fields added after the entry was
+/// written. A `#[contracttype]` struct is stored as a map keyed by field name
+/// and fails to decode when a key is missing, so any absent
+/// `resolution_reason` (defaults to `None`) or `resolution_memo` (defaults to
+/// empty) is inserted before converting. Current-format entries are untouched.
+fn decode_dispute(env: &Env, mut raw: soroban_sdk::Map<Symbol, soroban_sdk::Val>) -> DisputeData {
+    use soroban_sdk::{IntoVal, TryFromVal};
+
+    let reason_key = Symbol::new(env, "resolution_reason");
+    if !raw.contains_key(reason_key.clone()) {
+        let none: Option<Symbol> = None;
+        raw.set(reason_key, none.into_val(env));
+    }
+    let memo_key = Symbol::new(env, "resolution_memo");
+    if !raw.contains_key(memo_key.clone()) {
+        raw.set(memo_key, soroban_sdk::Bytes::new(env).into_val(env));
+    }
+    let val: soroban_sdk::Val = raw.into_val(env);
+    DisputeData::try_from_val(env, &val).unwrap_or_else(|_| {
+        soroban_sdk::panic_with_error!(env, ContractError::DisputeNotFound)
+    })
+}
+
 pub(crate) fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
     let key = DataKey::Dispute(id);
-    let dispute: DisputeData = env
+    // Read as a raw field map so entries serialized before `resolution_reason`
+    // / `resolution_memo` existed still decode (see `decode_dispute`).
+    let raw: soroban_sdk::Map<Symbol, soroban_sdk::Val> = env
         .storage()
         .persistent()
         .get(&key)
         .ok_or(ContractError::DisputeNotFound)?;
+    let dispute = decode_dispute(env, raw);
     let ext = get_ttl_extension(env);
     env.storage()
         .persistent()
@@ -1603,6 +1629,8 @@ pub(crate) fn execute_resolution_transition(
     final_resolution: ResolutionType,
     votes: Vec<ResolverVote>,
     charge_fees: bool,
+    reason: Option<Symbol>,
+    memo: soroban_sdk::Bytes,
 ) -> Result<(), ContractError> {
     let mut dispute_data = load_dispute(env, escrow_id)?;
     let fees_already_charged = dispute_data.fees_charged;
@@ -1683,6 +1711,7 @@ pub(crate) fn execute_resolution_transition(
         .ok_or(ContractError::ArithmeticError)?;
 
     dispute_data.set_resolution(final_resolution.clone());
+    dispute_data.set_resolution_note(reason.clone(), memo);
     dispute_data.resolved_by = Some(caller.clone());
     dispute_data.resolved_at = now;
     dispute_data.arbitration_fee = arbitration_fee;
@@ -1730,6 +1759,7 @@ pub(crate) fn execute_resolution_transition(
         final_resolution,
         updated_escrow.amount,
         appeal_deadline,
+        reason,
     );
     Ok(())
 }
