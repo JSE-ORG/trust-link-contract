@@ -1329,3 +1329,187 @@ fn create_basket_escrow_validates_shipping_window() {
         SHIPPING_WINDOW
     );
 }
+
+#[test]
+fn create_basket_escrow_respects_admin_configured_max_basket_size() {
+    use crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, admin, _fee_collector) = crate::test_helpers::setup_contract(&env);
+    let _ = contract_id;
+    let seller = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let make_basket = |len: usize, env: &Env| {
+        let mut tokens = Vec::new(env);
+        let mut amounts = Vec::new(env);
+        for _ in 0..len {
+            tokens.push_back(Address::generate(env));
+            amounts.push_back(100_i128);
+        }
+        (tokens, amounts)
+    };
+
+    client.queue_set_max_basket_size(&admin, &3_u32);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + ADMIN_TIMELOCK_DELAY_SECONDS + 1);
+    client.execute_set_max_basket_size(&admin, &3_u32);
+    assert_eq!(client.get_max_basket_size(), 3);
+
+    // At the configured limit the escrow is still accepted.
+    let (tokens, amounts) = make_basket(3, &env);
+    let accepted = client.try_create_basket_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert!(accepted.is_ok(), "3-token basket must be accepted at max=3");
+
+    // One over the admin-configured limit is rejected.
+    let (tokens, amounts) = make_basket(4, &env);
+    let rejected = client.try_create_basket_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(rejected, Err(Ok(ContractError::BasketTokenMismatch)));
+
+    assert_eq!(
+        client.get_escrow(&accepted.unwrap().unwrap()).state,
+        EscrowState::Pending
+    );
+}
+
+#[test]
+fn fund_basket_escrow_rejects_a_stored_zero_amount_entry() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let secondary = make_token(&fx.env);
+
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address, &secondary.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+
+    // Simulate a legacy/corrupted entry: creation now rejects zero amounts,
+    // so write one directly to prove funding refuses to move it.
+    let mut entries = Vec::new(&fx.env);
+    entries.push_back(crate::TokenEntry {
+        token: primary.address.clone(),
+        amount: 0,
+    });
+    entries.push_back(crate::TokenEntry {
+        token: secondary.address.clone(),
+        amount: 500,
+    });
+    fx.env.as_contract(&fx.contract_id, || {
+        crate::internal::save_basket_tokens(&fx.env, escrow_id, &entries);
+    });
+
+    assert_eq!(
+        client.try_fund_basket_escrow(&escrow_id, &fx.buyer),
+        Err(Ok(ContractError::InvalidAmount))
+    );
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+}
+
+#[test]
+fn basket_tokens_are_distributed_pro_rata_across_payees() {
+    use crate::types::BoundedPayees;
+
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let second = make_token(&fx.env);
+    let third = make_token(&fx.env);
+    let second_payee = Address::generate(&fx.env);
+    let third_payee = Address::generate(&fx.env);
+
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(
+            &fx.env,
+            &[&primary.address, &second.address, &third.address],
+        ),
+        &vec_i128(&fx.env, &[1_000, 1_001, 997]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+
+    // A multi-payee split is not reachable through today's public creation
+    // entry point (it fixes a single 100% payee), so write the configured
+    // payees directly — the shape a future/migrated escrow would have.
+    let mut payees = Vec::new(&fx.env);
+    payees.push_back(Payee {
+        address: fx.seller.clone(),
+        bps: 5_000,
+    });
+    payees.push_back(Payee {
+        address: second_payee.clone(),
+        bps: 3_000,
+    });
+    payees.push_back(Payee {
+        address: third_payee.clone(),
+        bps: 2_000,
+    });
+    let mut escrow = client.get_escrow(&escrow_id);
+    escrow.payees = BoundedPayees { inner: payees };
+    fx.env.as_contract(&fx.contract_id, || {
+        crate::internal::save_escrow(&fx.env, escrow_id, &escrow, None);
+    });
+
+    primary.admin.mint(&fx.buyer, &1_000);
+    second.admin.mint(&fx.buyer, &1_001);
+    third.admin.mint(&fx.buyer, &997);
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    let escrow = client.get_escrow(&escrow_id);
+    fx.env
+        .ledger()
+        .set_timestamp(escrow.dispute_deadline() + SHIPPING_WINDOW + 1);
+    client.auto_release(&escrow_id);
+
+    // 50% / 30% / 20%, floors for non-primary payees and dust to the primary:
+    // primary token 1_000 -> 500 / 300 / 200
+    // second token  1_001 -> 501 / 300 / 200
+    // third token     997 -> 499 / 299 / 199
+    assert_eq!(primary.token.balance(&fx.seller), 500);
+    assert_eq!(second.token.balance(&fx.seller), 501);
+    assert_eq!(third.token.balance(&fx.seller), 499);
+    assert_eq!(second.token.balance(&second_payee), 300);
+    assert_eq!(third.token.balance(&second_payee), 299);
+    assert_eq!(second.token.balance(&third_payee), 200);
+    assert_eq!(third.token.balance(&third_payee), 199);
+    assert_eq!(second.token.balance(&fx.contract_id), 0);
+    assert_eq!(third.token.balance(&fx.contract_id), 0);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+}

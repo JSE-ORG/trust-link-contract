@@ -312,7 +312,14 @@ impl Escrow {
         }
         payout(&env, &escrow.token, &recipient, payout_amount);
         payout(&env, &escrow.token, &fee_collector, protocol_fee);
-        payout_basket_tokens(&env, escrow_id, &recipient)?;
+        match &resolution {
+            ResolutionType::Release => {
+                distribute_basket_tokens(&env, escrow_id, &escrow.payees)?;
+            }
+            ResolutionType::Refund => {
+                payout_basket_tokens(&env, escrow_id, &recipient)?;
+            }
+        }
 
         emit_dispute_resolved(
             &env,

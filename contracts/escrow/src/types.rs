@@ -114,6 +114,18 @@ pub struct TokenEntry {
     pub amount: i128,
 }
 
+/// Pledged versus custodied balance for one basket token.
+///
+/// `pledged_amount` is the amount recorded at escrow creation;
+/// `contract_balance` is the contract's current SEP-41 balance for `token`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TokenBalanceInfo {
+    pub token: Address,
+    pub pledged_amount: i128,
+    pub contract_balance: i128,
+}
+
 /// Optional per-escrow expiration schedule, set via `create_escrow_with_expiration`.
 ///
 /// `expires_at` is the hard deadline: `fund_escrow` and `mark_shipped` both
