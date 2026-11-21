@@ -45,9 +45,11 @@ fn make_token(env: &Env) -> Tk {
 struct Fx {
     env: Env,
     contract_id: Address,
+    admin: Address,
     seller: Address,
     buyer: Address,
     resolver: Address,
+    fee_collector: Address,
 }
 
 fn setup() -> Fx {
@@ -67,9 +69,11 @@ fn setup() -> Fx {
     Fx {
         env,
         contract_id,
+        admin,
         seller,
         buyer,
         resolver,
+        fee_collector,
     }
 }
 
@@ -1348,13 +1352,186 @@ fn fund_basket_escrow_rejects_fee_on_transfer_token_and_rolls_back() {
     let primary_amount = 1_000_i128;
     let malicious_amount = 500_i128;
 
+// ── Issue #1220 – token allowlist gating for every basket token ─────────────
+
+/// When the token allowlist is enabled, every token in the basket — not just
+/// the primary at index 0 — must be allowlisted. A single unapproved token
+/// rejects the entire basket with `TokenNotAllowed`.
+#[test]
+fn create_basket_escrow_rejects_unallowlisted_secondary_token() {
+    let fx = setup();
+    let admin = Address::generate(&fx.env);
+    let fee_collector = Address::generate(&fx.env);
+    let contract_id = fx.env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&fx.env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    // Tokens A and B are allowlisted; C is deliberately not.
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let c = make_token(&fx.env);
+    client.set_token_allowlist_enabled(&admin, &true);
+    client.add_allowed_token(&admin, &a.address);
+    client.add_allowed_token(&admin, &b.address);
+
+    // All-allowlisted basket succeeds.
+    let ok_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+// Issue #1219 - protocol/platform fees on secondary basket tokens
+
+/// Writes a treasury directly into the global config. The public
+/// `set_treasury`/`accept_treasury` flow cannot install the *first* treasury
+/// (`validate_treasury_change` requires an existing one), so tests seed it via
+/// the internal writer.
+fn set_treasury(fx: &Fx, treasury: &Address) {
+    fx.env.as_contract(&fx.contract_id, || {
+        crate::internal::write_treasury(&fx.env, treasury);
+    });
+}
+
+fn fee(amount: i128, bps: i128) -> i128 {
+    amount * bps / 10_000
+}
+
+#[test]
+fn confirm_delivery_collects_protocol_and_platform_fees_on_basket_tokens() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env); // primary
+    let b = make_token(&fx.env); // secondary
+    let c = make_token(&fx.env); // secondary
+    let treasury = Address::generate(&fx.env);
+
+    // 1% protocol fee (per-escrow, used by confirm_delivery) + 2% platform fee.
+    client.set_platform_fee(&fx.admin, &200_u32);
+    set_treasury(&fx, &treasury);
+
+    let a_amount = 10_000_i128;
+    let b_amount = 5_000_i128;
+    let c_amount = 2_000_i128;
     let escrow_id = client.create_basket_escrow(
         &fx.seller,
         &Some(fx.buyer.clone()),
         &fx.resolver,
-        &vec_addr(&fx.env, &[&primary.address, &malicious]),
-        &vec_i128(&fx.env, &[primary_amount, malicious_amount]),
+        &vec_addr(&fx.env, &[&a.address, &b.address, &c.address]),
+        &vec_i128(&fx.env, &[a_amount, b_amount, c_amount]),
+        &100_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(client.get_basket_tokens(&ok_id).unwrap().len(), 2);
+
+    // Swapping the allowlisted secondary B for the unapproved C must reject
+    // the whole basket, even though the primary token A is allowlisted.
+    let rejected = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &c.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
         &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(rejected, Err(Ok(ContractError::TokenNotAllowed)));
+}
+
+/// With the allowlist disabled (the default), basket creation stays a no-op
+/// for token gating and accepts any token set.
+#[test]
+fn create_basket_escrow_accepts_any_token_when_allowlist_disabled() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let c = make_token(&fx.env);
+
+    // No `set_token_allowlist_enabled`/`add_allowed_token` calls.
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &c.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+
+    a.admin.mint(&fx.buyer, &a_amount);
+    b.admin.mint(&fx.buyer, &b_amount);
+    c.admin.mint(&fx.buyer, &c_amount);
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+    client.mark_shipped(
+        &fx.seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&fx.env, "TRACK-1219"),
+    );
+    client.confirm_delivery(&fx.buyer, &escrow_id, &true);
+
+    // Primary token keeps its existing treatment: only the protocol fee is
+    // taken (no platform fee is charged on the primary on this path).
+    assert_eq!(
+        a.token.balance(&fx.fee_collector),
+        fee(a_amount, 100),
+        "primary protocol fee"
+    );
+    assert_eq!(a.token.balance(&treasury), 0, "no platform fee on primary");
+    assert_eq!(
+        a.token.balance(&fx.seller),
+        a_amount - fee(a_amount, 100),
+        "primary net to seller"
+    );
+
+    // Secondary tokens are charged both protocol (1%) and platform (2%) fees.
+    for (tk, amount) in [(&b, b_amount), (&c, c_amount)] {
+        assert_eq!(
+            tk.token.balance(&fx.seller),
+            amount - fee(amount, 100) - fee(amount, 200),
+            "secondary net to seller"
+        );
+        assert_eq!(
+            tk.token.balance(&fx.fee_collector),
+            fee(amount, 100),
+            "secondary protocol fee"
+        );
+        assert_eq!(
+            tk.token.balance(&treasury),
+            fee(amount, 200),
+            "secondary platform fee"
+        );
+        assert_eq!(tk.token.balance(&fx.contract_id), 0, "contract drained");
+    }
+}
+
+#[test]
+fn refund_paths_return_gross_basket_tokens_without_fees() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let treasury = Address::generate(&fx.env);
+
+    // Configure both fee rates so a fee leak on refunds would be visible.
+    client.set_platform_fee(&fx.admin, &200_u32);
+    set_treasury(&fx, &treasury);
+
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let a_amount = 10_000_i128;
+    let b_amount = 5_000_i128;
+
+    // Refund path 1: mutual_cancel.
+    let mutual_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address]),
+        &vec_i128(&fx.env, &[a_amount, b_amount]),
+        &100_u32,
         &SHIPPING_WINDOW,
         &None::<soroban_sdk::String>,
         &None::<u64>,
@@ -1375,4 +1552,47 @@ fn fund_basket_escrow_rejects_fee_on_transfer_token_and_rolls_back() {
     assert_eq!(mclient.balance(&fx.buyer), malicious_amount);
     assert_eq!(mclient.balance(&fx.contract_id), 0);
     assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+    assert_eq!(client.get_basket_tokens(&escrow_id).unwrap().len(), 2);
+    a.admin.mint(&fx.buyer, &a_amount);
+    b.admin.mint(&fx.buyer, &b_amount);
+    client.fund_basket_escrow(&mutual_id, &fx.buyer);
+    client.mutual_cancel(&mutual_id);
+
+    assert_eq!(a.token.balance(&fx.buyer), a_amount);
+    assert_eq!(b.token.balance(&fx.buyer), b_amount);
+    assert_eq!(a.token.balance(&fx.fee_collector), 0);
+    assert_eq!(b.token.balance(&fx.fee_collector), 0);
+    assert_eq!(a.token.balance(&treasury), 0);
+    assert_eq!(b.token.balance(&treasury), 0);
+    assert_eq!(a.token.balance(&fx.contract_id), 0);
+    assert_eq!(b.token.balance(&fx.contract_id), 0);
+
+    // Refund path 2: cancel_escrow (buyer cancellation of a funded escrow).
+    // Use a fresh buyer so the two refunds' balances don't accumulate.
+    let buyer2 = Address::generate(&fx.env);
+    let cancel_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(buyer2.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address]),
+        &vec_i128(&fx.env, &[a_amount, b_amount]),
+        &100_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    a.admin.mint(&buyer2, &a_amount);
+    b.admin.mint(&buyer2, &b_amount);
+    client.fund_basket_escrow(&cancel_id, &buyer2);
+    client.cancel_escrow(&buyer2, &cancel_id);
+
+    assert_eq!(a.token.balance(&buyer2), a_amount);
+    assert_eq!(b.token.balance(&buyer2), b_amount);
+    assert_eq!(a.token.balance(&fx.fee_collector), 0);
+    assert_eq!(b.token.balance(&fx.fee_collector), 0);
+    assert_eq!(a.token.balance(&treasury), 0);
+    assert_eq!(b.token.balance(&treasury), 0);
+    assert_eq!(a.token.balance(&fx.contract_id), 0);
+    assert_eq!(b.token.balance(&fx.contract_id), 0);
 }

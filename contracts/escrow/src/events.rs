@@ -802,10 +802,21 @@ pub struct DisputeAppealed {
     pub escrow_id: u64,
     pub appellant: Address,
     pub timestamp: u64,
+    /// Exact appeal fee deducted from the appellant for this round (0 when the
+    /// appeal fee is disabled). Appended after the original fields.
+    pub appeal_fee_charged: i128,
+    /// 1-based appeal round (1 = first appeal).
+    pub appeal_round: u32,
 }
 
 /// Topic: `(symbol_short!("Dispute"), symbol_short!("Appealed"), appellant.clone(),)`, data: `DisputeAppealed`.
-pub fn emit_dispute_appealed(env: &Env, escrow_id: u64, appellant: Address) {
+pub fn emit_dispute_appealed(
+    env: &Env,
+    escrow_id: u64,
+    appellant: Address,
+    appeal_fee_charged: i128,
+    appeal_round: u32,
+) {
     env.events().publish(
         (
             symbol_short!("Dispute"),
@@ -817,6 +828,8 @@ pub fn emit_dispute_appealed(env: &Env, escrow_id: u64, appellant: Address) {
             escrow_id,
             appellant,
             timestamp: env.ledger().timestamp(),
+            appeal_fee_charged,
+            appeal_round,
         },
     );
 }
@@ -1372,6 +1385,26 @@ pub fn emit_emergency_drain(env: &Env, escrow_id: u64, token: Address, amount: i
             escrow_id,
             token,
             amount,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmergencyDrainBlocked {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub timestamp: u64,
+}
+
+/// Diagnostic. Topic: `(symbol_short!("Emergency"), symbol_short!("Blocked"),)`, data: `EmergencyDrainBlocked`.
+pub fn emit_emergency_drain_blocked(env: &Env, escrow_id: u64) {
+    env.events().publish(
+        (symbol_short!("Emergency"), symbol_short!("Blocked")),
+        EmergencyDrainBlocked {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
             timestamp: env.ledger().timestamp(),
         },
     );

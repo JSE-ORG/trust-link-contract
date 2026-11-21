@@ -35,4 +35,17 @@ fi
 
 echo "Clippy check passed."
 
+# Scan for malicious / obfuscated code and committed binaries (fast, stdlib-only).
+echo "Running malware guard (make malware-check)..."
+
+if ! make malware-check; then
+    echo ""
+    echo "ERROR: Malware guard flagged a finding."
+    echo "Review the output above. If it is a false positive, add a narrow entry to"
+    echo ".malware-guard-allowlist.json (see SECURITY.md), then re-add your files."
+    exit 1
+fi
+
+echo "Malware guard passed."
+
 echo "Pre-commit checks complete. Proceeding with commit."

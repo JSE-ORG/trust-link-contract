@@ -188,7 +188,7 @@ fn test_raise_dispute_blocked_when_paused() {
         &soroban_sdk::String::from_str(&env, "TRACK-PAUSE"),
     );
     client.pause_contract(&admin);
-    let hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    let hash = soroban_sdk::BytesN::from_array(&env, &[1u8; 32]);
     let result = client.try_raise_dispute(
         &buyer,
         &id,
@@ -227,7 +227,7 @@ fn test_resolve_dispute_blocked_when_paused() {
         &id,
         &soroban_sdk::String::from_str(&env, "TRACK-PAUSE2"),
     );
-    let hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    let hash = soroban_sdk::BytesN::from_array(&env, &[1u8; 32]);
     client.raise_dispute(
         &buyer,
         &id,
@@ -400,7 +400,7 @@ fn test_unpause_resumes_operations() {
             &escrow_id,
             &Symbol::new(&env, "OTHER"),
             &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-            &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+            &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
         )
         .is_err());
     assert!(client
