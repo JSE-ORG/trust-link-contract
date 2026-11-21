@@ -107,6 +107,7 @@ This installs a pre-commit hook that automatically checks:
 
 - **Formatting**: `make fmt-check` (`cargo fmt --all -- --check`)
 - **Lints**: `make clippy` — the canonical lint gate, identical to CI (see [Building & Testing](#building--testing))
+- **Malware Guard**: `make malware-check` (`node scripts/scan-malware.mjs`) — fast local check for obfuscation, secrets, and committed binaries
 
 Commits will be rejected if either check fails.
 
@@ -345,6 +346,7 @@ cargo test --lib -- --nocapture   # show println! output
 make fuzz-check      # type-check the fuzz targets (separate workspace)
 make xtask-test      # fmt + clippy + test the developer CLI
 make indexer-test    # typecheck + test the event indexer (run npm ci first)
+make malware-check   # scan for obfuscated code, secrets, and committed binaries
 
 # Run the core checks in sequence
 make check
@@ -360,6 +362,15 @@ make check
 - **End-to-End Tests (`make e2e`):** The repository provides shell-based end-to-end scripts in `e2e/` (`01_setup_and_deploy.sh` through `04_cancel_path.sh`). These scripts execute against a live Stellar network (requiring the `stellar` CLI, `jq`, and either `make testnet` or public testnet). `make e2e` is **excluded from CI** because public testnet / Friendbot introduces rate limits and network flakiness, while local devnet containers introduce heavy CI spin-up latency. Instead, full multi-step protocol flows are deterministically covered in CI by `make test-all` (`contracts/escrow/tests/*`). Contributors can run `make e2e` locally against devnet or testnet.
 
 These checks — `fmt`, `clippy`, `test`, `test-all`, `fuzz-check`, `xtask-test`, `indexer-test`, `snapshot-drift`, and `build-wasm` — are exactly what the CI pipeline runs, so running them locally before pushing means no CI surprises. The lib-target build/test commands work on any platform (Windows, Linux, macOS).
+
+### Malware Guard & PR Checks
+
+To ensure code security and protect against supply-chain attacks, pull requests run automated checks:
+
+- **Fast, blocking checks**: Secret scanning (`gitleaks`), custom pattern scanning (`make malware-check`), workflow linting (`actionlint`), and lockfile integrity checks.
+- **Diff-based & contributor friendly**: Checks inspect only your changes on PRs. An existing CVE or advisory on an untouched dependency will never block your PR.
+- **Advisory scans**: Dependency vulnerability scans (`osv-scanner`) and filesystem scans (`trivy`) run in non-blocking / warning-only mode on PRs to prevent spurious failures. Full repository audits and ClamAV scans run on the nightly schedule.
+- **Handling False Positives**: If a legitimate change trips a pattern (e.g. test fixture or documentation string), add a narrow exemption to [`.malware-guard-allowlist.json`](.malware-guard-allowlist.json) or [`.gitleaks.toml`](.gitleaks.toml). See [SECURITY.md](SECURITY.md) for full details.
 
 ---
 
@@ -409,6 +420,7 @@ make fmt-check
 make clippy
 make build-wasm
 make test-all
+make malware-check
 
 # Sanity-check the WASM binary size hasn't ballooned unexpectedly
 ls -lh target/wasm32v1-none/release/trustlink_escrow.wasm

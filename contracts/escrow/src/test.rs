@@ -229,7 +229,7 @@ fn test_raise_and_resolve_dispute_release_to_seller() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
 
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
@@ -275,7 +275,7 @@ fn test_raise_and_resolve_dispute_refund_buyer() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
 
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund);
@@ -427,14 +427,14 @@ fn test_raise_dispute_only_once() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
     let res = client.try_raise_dispute(
         &buyer,
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
     assert!(matches!(res, Err(Ok(ContractError::InvalidState))));
 }
@@ -597,7 +597,7 @@ fn test_dispute_resolved_to_seller_with_non_usdc_token() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
 
     let escrow = client.get_escrow(&id);
@@ -651,7 +651,7 @@ fn test_dispute_refunded_to_buyer_with_non_usdc_token() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund);
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
@@ -783,7 +783,7 @@ fn test_multi_asset_concurrent_escrows_different_tokens() {
         &id2,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &id2, &ResolutionType::Refund);
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
@@ -961,7 +961,7 @@ fn test_dispute_after_shipping_succeeds() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
 
     let escrow = client.get_escrow(&id);
@@ -1002,7 +1002,7 @@ fn test_dispute_requires_shipped_state() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
     // Should succeed now that Funded -> Disputed transition is allowed
     assert!(res.is_ok());
@@ -1327,7 +1327,7 @@ fn test_dispute_resolved_event_amount_is_gross_of_final_fees() {
         &escrow_id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Release);
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
@@ -1436,7 +1436,7 @@ fn test_event_integrity_dispute_resolved_release_to_seller() {
         &escrow_id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Release);
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
@@ -1493,7 +1493,7 @@ fn test_event_integrity_dispute_resolved_refund_buyer() {
         &escrow_id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
     client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Refund);
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
@@ -1645,7 +1645,7 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
         &id2,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &BytesN::from_array(&env, &[1u8; 32]),
+        &BytesN::from_array(&env, &[0u8; 32]),
     );
     assert!(has_event::<DisputeRaised, _>(&env, &cid, "Dispute", |ev| {
         ev.escrow_id == id2 as u64
