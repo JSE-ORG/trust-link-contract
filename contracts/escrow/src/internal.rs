@@ -978,7 +978,7 @@ pub(crate) fn payout_basket_tokens(
         if !is_transferable_basket_entry(&entry, primary_token) {
             continue;
         }
-        match &fee_context {
+        let (net_amount, fee) = match &fee_context {
             Some((fee_bps, platform_fee_bps, fee_collector, treasury)) => {
                 crate::helpers::payout::transfer_basket_with_fees(
                     env,
@@ -989,12 +989,21 @@ pub(crate) fn payout_basket_tokens(
                     *platform_fee_bps,
                     fee_collector,
                     treasury.as_ref(),
-                )?;
+                )?
             }
             None => {
                 crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);
+                (entry.amount, 0)
             }
-        }
+        };
+        crate::events::emit_basket_token_payout(
+            env,
+            escrow_id,
+            entry.token.clone(),
+            recipient.clone(),
+            net_amount,
+            fee,
+        );
     }
     Ok(())
 }

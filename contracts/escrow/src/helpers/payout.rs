@@ -93,6 +93,8 @@ pub(crate) fn transfer_with_protocol_fee(
 /// a large secondary basket balance cannot be used to evade them (Issue
 /// #1219). Both fees are computed independently on the gross `amount` (no
 /// compounding), and `payout` skips any fee that rounds to zero.
+///
+/// Returns `(net_amount, total_fee)`.
 pub(crate) fn transfer_basket_with_fees(
     env: &Env,
     token_addr: &Address,
@@ -102,7 +104,7 @@ pub(crate) fn transfer_basket_with_fees(
     platform_fee_bps: u32,
     fee_collector: &Address,
     treasury: Option<&Address>,
-) -> Result<(), ContractError> {
+) -> Result<(i128, i128), ContractError> {
     let protocol_fee = calculate_fee(amount, fee_bps)?;
     let platform_fee = match treasury {
         Some(_) => calculate_fee(amount, platform_fee_bps)?,
@@ -113,13 +115,16 @@ pub(crate) fn transfer_basket_with_fees(
         .ok_or(ContractError::AmountCalculationOverflow)?
         .checked_sub(platform_fee)
         .ok_or(ContractError::AmountCalculationOverflow)?;
+    let total_fee = protocol_fee
+        .checked_add(platform_fee)
+        .ok_or(ContractError::AmountCalculationOverflow)?;
 
     payout(env, token_addr, recipient, net_amount);
     payout(env, token_addr, fee_collector, protocol_fee);
     if let Some(treasury_addr) = treasury {
         payout(env, token_addr, treasury_addr, platform_fee);
     }
-    Ok(())
+    Ok((net_amount, total_fee))
 }
 
 /// Transfers `amount` of `token_addr` from this contract to `recipient`.

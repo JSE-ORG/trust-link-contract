@@ -908,6 +908,45 @@ pub fn emit_basket_escrow_created(env: &Env, escrow_id: u64, seller: Address, to
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BasketTokenPayout {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub token: Address,
+    pub recipient: Address,
+    pub net_amount: i128,
+    pub fee: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Basket"), symbol_short!("Payout"), token.clone(),)`, data: `BasketTokenPayout`.
+pub fn emit_basket_token_payout(
+    env: &Env,
+    escrow_id: u64,
+    token: Address,
+    recipient: Address,
+    net_amount: i128,
+    fee: i128,
+) {
+    env.events().publish(
+        (
+            symbol_short!("Basket"),
+            symbol_short!("Payout"),
+            token.clone(),
+        ),
+        BasketTokenPayout {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            token,
+            recipient,
+            net_amount,
+            fee,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MessagePosted {
     pub schema_version: u32,
     pub escrow_id: u64,
