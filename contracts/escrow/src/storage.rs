@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::types::Message;
+use crate::types::{EvidenceEntry, Message};
 use crate::{
     ContractError, DataKey, EscrowData, FeeConfig, GlobalConfig, TimelockProposal,
     DEFAULT_APPEAL_FEE_BPS, DEFAULT_DISPUTE_TIMEOUT, DEFAULT_TTL_EXTENSION, MAX_ESCROW_AMOUNT,
@@ -237,6 +237,36 @@ pub fn append_message(
     env.storage().persistent().set(&count_key, &(count + 1));
     extend_ttl_for_key(env, &count_key);
     Ok(())
+}
+
+// ── Dispute evidence log ────────────────────────────────────────────────────
+
+/// Reads the evidence log for `escrow_id` (empty if nothing was submitted).
+pub fn read_evidence_log(env: &Env, escrow_id: u64) -> Vec<EvidenceEntry> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EvidenceLog(escrow_id))
+        .unwrap_or(Vec::new(env))
+}
+
+/// Appends `entry` to the evidence log for `escrow_id`, rejecting with
+/// `EvidenceLimitReached` once `cap` entries already exist. Returns the new
+/// number of entries.
+pub fn append_evidence(
+    env: &Env,
+    escrow_id: u64,
+    entry: &EvidenceEntry,
+    cap: u32,
+) -> Result<u32, ContractError> {
+    let key = DataKey::EvidenceLog(escrow_id);
+    let mut log = read_evidence_log(env, escrow_id);
+    if log.len() >= cap {
+        return Err(ContractError::EvidenceLimitReached);
+    }
+    log.push_back(entry.clone());
+    env.storage().persistent().set(&key, &log);
+    extend_ttl_for_key(env, &key);
+    Ok(log.len())
 }
 
 /// One-time relocation of `escrow_id`'s messages from the pre-paging vector

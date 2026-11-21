@@ -193,4 +193,7 @@ pub enum ContractError {
     /// [`ContractError::ConflictingRoles`] so telemetry can tell a duplicate
     /// resolver apart from a resolver colliding with the seller or buyer.
     DuplicateResolver = 80,
+    /// Returned by `submit_dispute_evidence` when the escrow's evidence log
+    /// already holds `MAX_EVIDENCE_ENTRIES` entries.
+    EvidenceLimitReached = 81,
 }

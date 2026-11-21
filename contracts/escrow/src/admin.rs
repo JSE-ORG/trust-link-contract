@@ -1912,6 +1912,93 @@ impl Escrow {
         Ok(())
     }
 
+    /// Admin-only sanction: forcibly replaces the resolver set of a live
+    /// escrow with `replacement_resolver`, which must be on the approved
+    /// resolver list. Unlike `remove_approved_resolver` (which only edits the
+    /// global registry), this frees parties of an already-assigned resolver
+    /// who turned malicious, was compromised, or went unresponsive.
+    ///
+    /// The escrow's resolver set becomes `Single(replacement_resolver)` and
+    /// any votes recorded so far are discarded, so the sanctioned resolver's
+    /// stale votes cannot count toward the new set's threshold. The escrow
+    /// state is untouched. Reverts with `EscrowAlreadyCompleted` /
+    /// `EscrowAlreadyRefunded` for those terminal states (`InvalidState` for
+    /// `Canceled` / `Expired`), `UnauthorizedResolver` when the replacement is
+    /// not on the approved list, `SameAddress` when it already is the sole
+    /// resolver, and `InvalidAddress` when it is the buyer or a payee.
+    /// Emits `resolver_sanctioned`.
+    pub fn sanction_resolver(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        replacement_resolver: Address,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin_caller(&env, &caller)?;
+
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        if matches!(
+            escrow.state,
+            EscrowState::Completed
+                | EscrowState::Refunded
+                | EscrowState::Canceled
+                | EscrowState::Expired
+        ) {
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
+        }
+
+        let approved: soroban_sdk::Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::ApprovedResolvers)
+            .unwrap_or(soroban_sdk::Vec::new(&env));
+        if !crate::internal::contains(&approved, &replacement_resolver) {
+            return Err(ContractError::UnauthorizedResolver);
+        }
+
+        // The resolver being sanctioned: the sole resolver, the fallback
+        // primary, or the first member of a multi-resolver set.
+        let old_resolver = match &escrow.resolvers {
+            ResolverSet::Single(resolver) => resolver.clone(),
+            ResolverSet::Fallback(f) => f.primary.clone(),
+            ResolverSet::Multi(m) => m
+                .resolvers
+                .get(0)
+                .ok_or(ContractError::InvalidResolverThreshold)?,
+        };
+        if escrow.resolvers == ResolverSet::Single(replacement_resolver.clone()) {
+            return Err(ContractError::SameAddress);
+        }
+
+        // The replacement must not hold a conflicting role on this escrow.
+        for i in 0..escrow.payees.inner.len() {
+            let payee = escrow
+                .payees
+                .inner
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            if replacement_resolver == payee.address {
+                return Err(ContractError::InvalidAddress);
+            }
+        }
+        if escrow.buyer.as_ref() == Some(&replacement_resolver) {
+            return Err(ContractError::InvalidAddress);
+        }
+
+        escrow.resolvers = ResolverSet::Single(replacement_resolver.clone());
+        save_escrow(&env, escrow_id, &escrow, Some(&escrow.state));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::ResolverVotes(escrow_id));
+
+        emit_resolver_sanctioned(&env, escrow_id, old_resolver, replacement_resolver, caller);
+        Ok(())
+    }
+
     #[cfg(any(test, feature = "testutils"))]
     pub fn get_approved_resolvers(env: Env) -> soroban_sdk::Vec<Address> {
         env.storage()
