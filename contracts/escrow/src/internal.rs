@@ -97,33 +97,40 @@ pub(crate) fn tally_votes(
         return Ok(None);
     }
 
-    let mut release_count = 0u32;
-    let mut refund_count = 0u32;
+    // Release and Refund keep their historical precedence; a `Split` only
+    // wins when resolvers cast the *same* `Split(bps)` (exact match) in
+    // numbers that reach the threshold.
+    for candidate in [ResolutionType::Release, ResolutionType::Refund] {
+        if count_votes_for(votes, &candidate)? >= threshold {
+            return Ok(Some(candidate));
+        }
+    }
 
     for i in 0..votes.len() {
         if let Some(vote) = votes.get(i) {
-            match vote.resolution {
-                ResolutionType::Release => {
-                    release_count = release_count
-                        .checked_add(1)
-                        .ok_or(ContractError::ArithmeticError)?;
-                }
-                ResolutionType::Refund => {
-                    refund_count = refund_count
-                        .checked_add(1)
-                        .ok_or(ContractError::ArithmeticError)?;
-                }
+            if matches!(vote.resolution, ResolutionType::Split(_))
+                && count_votes_for(votes, &vote.resolution)? >= threshold
+            {
+                return Ok(Some(vote.resolution));
             }
         }
     }
 
-    if release_count >= threshold {
-        Ok(Some(ResolutionType::Release))
-    } else if refund_count >= threshold {
-        Ok(Some(ResolutionType::Refund))
-    } else {
-        Ok(None)
+    Ok(None)
+}
+
+/// Number of recorded votes that exactly match `resolution`.
+fn count_votes_for(
+    votes: &Vec<ResolverVote>,
+    resolution: &ResolutionType,
+) -> Result<u32, ContractError> {
+    let mut count = 0u32;
+    for vote in votes.iter() {
+        if &vote.resolution == resolution {
+            count = count.checked_add(1).ok_or(ContractError::ArithmeticError)?;
+        }
     }
+    Ok(count)
 }
 
 /// Simple-majority fallback used once a multi-resolver vote has been
@@ -132,22 +139,28 @@ pub(crate) fn tally_votes(
 /// winner) resolves to `Refund`, which is the conservative default because it
 /// returns the escrowed principal to the buyer rather than paying it out.
 pub(crate) fn tally_votes_majority(votes: &Vec<ResolverVote>) -> ResolutionType {
-    let mut release_count = 0u32;
-    let mut refund_count = 0u32;
+    // The leader is the resolution with the strictly highest number of
+    // identical votes (`Split(a)` and `Split(b)` are distinct options). Any
+    // tie for the lead falls back to `Refund`.
+    let mut leader = ResolutionType::Refund;
+    let mut leader_count = 0u32;
+    let mut tied = false;
 
-    for i in 0..votes.len() {
-        if let Some(vote) = votes.get(i) {
-            match vote.resolution {
-                ResolutionType::Release => release_count = release_count.saturating_add(1),
-                ResolutionType::Refund => refund_count = refund_count.saturating_add(1),
-            }
+    for vote in votes.iter() {
+        let count = count_votes_for(votes, &vote.resolution).unwrap_or(u32::MAX);
+        if count > leader_count {
+            leader = vote.resolution.clone();
+            leader_count = count;
+            tied = false;
+        } else if count == leader_count && vote.resolution != leader {
+            tied = true;
         }
     }
 
-    if release_count > refund_count {
-        ResolutionType::Release
-    } else {
+    if tied {
         ResolutionType::Refund
+    } else {
+        leader
     }
 }
 
@@ -1003,6 +1016,47 @@ pub(crate) fn payout_basket_tokens(
                 crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);
             }
         }
+    }
+    Ok(())
+}
+
+/// Pays out every non-primary basket token for a `Split(split_bps)` dispute
+/// resolution: fees are deducted per entry (as in [`payout_basket_tokens`]) and
+/// the net of each entry is divided between `payee` and `buyer`.
+pub(crate) fn payout_basket_tokens_split(
+    env: &Env,
+    escrow_id: u64,
+    payee: &Address,
+    buyer: &Address,
+    split_bps: u32,
+    fee_bps: u32,
+) -> Result<(), ContractError> {
+    let escrow = load_escrow(env, escrow_id)?;
+    let primary_token = &escrow.token;
+    let basket_tokens = load_basket_tokens(env, escrow_id);
+
+    let config = crate::storage::read_global_config(env);
+    let fee_collector = config.fee_collector.ok_or(ContractError::NotInitialized)?;
+
+    for i in 0..basket_tokens.len() {
+        let entry = basket_tokens
+            .get(i)
+            .ok_or(ContractError::BasketIndexOutOfBounds)?;
+        if !is_transferable_basket_entry(&entry, primary_token) {
+            continue;
+        }
+        crate::helpers::payout::transfer_basket_split_with_fees(
+            env,
+            &entry.token,
+            payee,
+            buyer,
+            entry.amount,
+            split_bps,
+            fee_bps,
+            config.platform_fee_bps,
+            &fee_collector,
+            config.treasury.as_ref(),
+        )?;
     }
     Ok(())
 }

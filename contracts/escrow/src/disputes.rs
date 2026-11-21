@@ -229,8 +229,10 @@ impl Escrow {
         }
 
         let prev_state = escrow.state.clone();
+        // For `Split` the event's `recipient` is the primary payee; the buyer
+        // is paid its share separately below (see `buyer_split`).
         let recipient = match resolution {
-            ResolutionType::Release => escrow
+            ResolutionType::Release | ResolutionType::Split(_) => escrow
                 .payees
                 .get(0)
                 .ok_or(ContractError::IndexOutOfBounds)?
@@ -240,6 +242,16 @@ impl Escrow {
                 .buyer
                 .clone()
                 .ok_or(ContractError::EscrowHasNoBuyer)?,
+        };
+        let buyer_split = if matches!(resolution, ResolutionType::Split(_)) {
+            Some(
+                escrow
+                    .buyer
+                    .clone()
+                    .ok_or(ContractError::EscrowHasNoBuyer)?,
+            )
+        } else {
+            None
         };
 
         let fee_collector: Address = crate::storage::read_global_config(&env)
@@ -296,7 +308,7 @@ impl Escrow {
 
         // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let new_state = match resolution {
-            ResolutionType::Release => EscrowState::Completed,
+            ResolutionType::Release | ResolutionType::Split(_) => EscrowState::Completed,
             ResolutionType::Refund => EscrowState::Refunded,
         };
         escrow.state = new_state.clone();
@@ -306,7 +318,7 @@ impl Escrow {
         save_dispute(&env, escrow_id, &dispute_data);
 
         match resolution {
-            ResolutionType::Release => {
+            ResolutionType::Release | ResolutionType::Split(_) => {
                 record_escrow_completed(&env, escrow_id)?;
             }
             ResolutionType::Refund => {
@@ -318,9 +330,29 @@ impl Escrow {
         if let Some(ref treasury_addr) = treasury {
             payout(&env, &escrow.token, treasury_addr, platform_fee);
         }
-        payout(&env, &escrow.token, &recipient, payout_amount);
-        payout(&env, &escrow.token, &fee_collector, protocol_fee);
-        payout_basket_tokens(&env, escrow_id, &recipient, Some(escrow.fee_bps))?;
+        match (&resolution, &buyer_split) {
+            (ResolutionType::Split(split_bps), Some(buyer)) => {
+                // payee_net + buyer_net == payout_amount: nothing is stranded.
+                let (payee_net, buyer_net) =
+                    crate::helpers::payout::split_net(payout_amount, *split_bps)?;
+                payout(&env, &escrow.token, &recipient, payee_net);
+                payout(&env, &escrow.token, buyer, buyer_net);
+                payout(&env, &escrow.token, &fee_collector, protocol_fee);
+                crate::internal::payout_basket_tokens_split(
+                    &env,
+                    escrow_id,
+                    &recipient,
+                    buyer,
+                    *split_bps,
+                    escrow.fee_bps,
+                )?;
+            }
+            _ => {
+                payout(&env, &escrow.token, &recipient, payout_amount);
+                payout(&env, &escrow.token, &fee_collector, protocol_fee);
+                payout_basket_tokens(&env, escrow_id, &recipient, Some(escrow.fee_bps))?;
+            }
+        }
 
         emit_dispute_resolved(
             &env,
@@ -602,7 +634,7 @@ impl Escrow {
         if let Ok(mut dispute) = load_dispute(&env, escrow_id) {
             dispute.status = DisputeStatus::Resolved;
             dispute.resolved_by = Some(caller.clone());
-            dispute.resolution = ResolutionType::Refund as u32;
+            dispute.set_resolution(ResolutionType::Refund);
             dispute.resolved_at = env.ledger().timestamp();
             save_dispute(&env, escrow_id, &dispute);
         }

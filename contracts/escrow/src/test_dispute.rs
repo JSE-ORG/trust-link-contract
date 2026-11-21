@@ -673,3 +673,140 @@ fn test_raise_dispute_rejects_all_zero_evidence_hash() {
     );
     assert_eq!(client.get_escrow(&id).state, crate::EscrowState::Disputed);
 }
+
+/// Creates a funded, disputed escrow with `amount` and a 1% protocol fee.
+fn disputed_escrow_for_split(
+    env: &Env,
+    client: &EscrowClient,
+    seller: &Address,
+    buyer: &Address,
+    resolver: &Address,
+    token: &Address,
+    amount: i128,
+) -> u64 {
+    let seller_val = seller.clone().into_val(env);
+    let id = client.create_escrow_8(
+        &seller_val,
+        &Some(buyer.clone()),
+        resolver,
+        token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+    token::StellarAssetClient::new(env, token).mint(buyer, &amount);
+    client.fund_escrow(&id, buyer);
+    client.raise_dispute(
+        buyer,
+        &id,
+        &Symbol::new(env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(env, b"desc"),
+        &BytesN::from_array(env, &[0xab; 32]),
+    );
+    id
+}
+
+#[test]
+fn test_split_resolution_50_50_pays_both_sides_with_no_stranded_funds() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    // Odd amount so the 1% fee and the 50/50 split both hit rounding.
+    let amount = 10_001_i128;
+    let id = disputed_escrow_for_split(&env, &client, &seller, &buyer, &resolver, &token, amount);
+
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Split(5_000));
+    assert_eq!(
+        client.get_escrow(&id).state,
+        crate::EscrowState::PendingFinalization
+    );
+    assert_eq!(
+        client.get_dispute(&id).unwrap().get_resolution(),
+        Some(crate::ResolutionType::Split(5_000))
+    );
+
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+    client.finalize_dispute(&resolver, &id);
+
+    assert_eq!(client.get_escrow(&id).state, crate::EscrowState::Completed);
+
+    let tc = token::Client::new(&env, &token);
+    let seller_bal = tc.balance(&seller);
+    let buyer_bal = tc.balance(&buyer);
+    let fee_bal = tc.balance(&fee_collector);
+    let contract_bal = tc.balance(&contract_id);
+
+    // Net principal = everything that is not a fee.
+    let net = amount - fee_bal;
+    assert_eq!(seller_bal, net * 5_000 / 10_000, "payee gets 50% of net");
+    assert_eq!(buyer_bal, net - seller_bal, "buyer gets the remainder");
+
+    // Invariants: payee_net + buyer_net == net, and zero stroops stranded.
+    assert_eq!(seller_bal + buyer_bal, net);
+    assert_eq!(seller_bal + buyer_bal + fee_bal, amount);
+    assert_eq!(contract_bal, 0);
+}
+
+#[test]
+fn test_split_resolution_extremes_match_release_and_refund() {
+    for (bps, payee_gets_all) in [(10_000_u32, true), (0_u32, false)] {
+        let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+        let contract_id = env.register(Escrow, ());
+        let client = EscrowClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0_u32);
+
+        let id =
+            disputed_escrow_for_split(&env, &client, &seller, &buyer, &resolver, &token, 10_001);
+        client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Split(bps));
+        env.ledger()
+            .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+        client.finalize_dispute(&resolver, &id);
+
+        let tc = token::Client::new(&env, &token);
+        if payee_gets_all {
+            assert_eq!(tc.balance(&buyer), 0);
+            assert!(tc.balance(&seller) > 0);
+        } else {
+            assert_eq!(tc.balance(&seller), 0);
+            assert!(tc.balance(&buyer) > 0);
+        }
+        assert_eq!(tc.balance(&contract_id), 0);
+    }
+}
+
+#[test]
+fn test_split_resolution_rejects_bps_above_10000() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let id = disputed_escrow_for_split(&env, &client, &seller, &buyer, &resolver, &token, 10_001);
+
+    assert_eq!(
+        client.try_resolve_dispute(&resolver, &id, &crate::ResolutionType::Split(10_001)),
+        Err(Ok(crate::ContractError::InvalidSplitBps))
+    );
+    assert_eq!(
+        client.try_vote(&resolver, &id, &crate::ResolutionType::Split(u32::MAX)),
+        Err(Ok(crate::ContractError::InvalidSplitBps))
+    );
+    assert_eq!(client.get_escrow(&id).state, crate::EscrowState::Disputed);
+}
+
+#[test]
+fn test_resolution_code_roundtrip_including_split() {
+    use crate::ResolutionType;
+
+    assert_eq!(ResolutionType::from_code(0), None);
+    assert_eq!(ResolutionType::from_code(1), Some(ResolutionType::Release));
+    assert_eq!(ResolutionType::from_code(2), Some(ResolutionType::Refund));
+    for bps in [0_u32, 1, 5_000, 9_999, 10_000] {
+        let r = ResolutionType::Split(bps);
+        assert_eq!(ResolutionType::from_code(r.to_code()), Some(r));
+    }
+    assert_eq!(ResolutionType::from_code(10_004), None);
+}

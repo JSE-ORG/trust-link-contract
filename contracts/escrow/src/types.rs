@@ -353,7 +353,9 @@ pub struct DisputeData {
     pub status: DisputeStatus,
     pub disputed_at: u64,
     pub tracking_id: Option<String>,
-    /// Resolution code: 0 = not resolved, 1 = Release, 2 = Refund
+    /// Resolution code: 0 = not resolved, 1 = Release, 2 = Refund,
+    /// `3 + bps` = `Split(bps)` (payee share in basis points, so the valid
+    /// range is `3..=10_003`). See [`ResolutionType::to_code`].
     pub resolution: u32,
     /// Which address made the resolution (the resolver who triggered finalization)
     pub resolved_by: Option<Address>,
@@ -376,19 +378,16 @@ pub struct DisputeData {
 }
 
 impl DisputeData {
+    /// Records `r` in the packed `resolution` code (see
+    /// [`ResolutionType::to_code`]).
     pub fn set_resolution(&mut self, r: ResolutionType) {
-        self.resolution = match r {
-            ResolutionType::Release => 1,
-            ResolutionType::Refund => 2,
-        };
+        self.resolution = r.to_code();
     }
 
+    /// Decodes the packed `resolution` code; `None` when unresolved or the
+    /// code is not a valid resolution.
     pub fn get_resolution(&self) -> Option<ResolutionType> {
-        match self.resolution {
-            1 => Some(ResolutionType::Release),
-            2 => Some(ResolutionType::Refund),
-            _ => None,
-        }
+        ResolutionType::from_code(self.resolution)
     }
 
     /// Clears the recorded resolution so a fresh round of voting can begin
@@ -409,8 +408,54 @@ impl DisputeData {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResolutionType {
+    /// 100% of the net principal goes to the primary payee.
     Release,
+    /// 100% of the net principal goes to the buyer.
     Refund,
+    /// Partial settlement: the payee receives `bps / 10_000` of the net
+    /// principal and the buyer receives the remainder. `bps` must be
+    /// `<= 10_000` (enforced by [`ResolutionType::validate`]).
+    Split(u32),
+}
+
+/// First `DisputeData::resolution` code used by `Split(bps)`; the code for a
+/// split is `SPLIT_CODE_BASE + bps`.
+const SPLIT_CODE_BASE: u32 = 3;
+
+impl ResolutionType {
+    /// Rejects a `Split` whose payee share exceeds `BASIS_POINTS`.
+    pub fn validate(&self) -> Result<(), crate::ContractError> {
+        match self {
+            ResolutionType::Split(bps) if *bps > crate::BASIS_POINTS => {
+                Err(crate::ContractError::InvalidSplitBps)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Packs the resolution into the `DisputeData::resolution` code:
+    /// `1` = Release, `2` = Refund, `3 + bps` = `Split(bps)`.
+    /// (`0` is reserved for "not resolved".)
+    pub fn to_code(&self) -> u32 {
+        match self {
+            ResolutionType::Release => 1,
+            ResolutionType::Refund => 2,
+            ResolutionType::Split(bps) => SPLIT_CODE_BASE.saturating_add(*bps),
+        }
+    }
+
+    /// Inverse of [`ResolutionType::to_code`]; `None` for `0` or any code
+    /// that does not decode to a valid resolution.
+    pub fn from_code(code: u32) -> Option<ResolutionType> {
+        match code {
+            1 => Some(ResolutionType::Release),
+            2 => Some(ResolutionType::Refund),
+            c if (SPLIT_CODE_BASE..=SPLIT_CODE_BASE + crate::BASIS_POINTS).contains(&c) => {
+                Some(ResolutionType::Split(c - SPLIT_CODE_BASE))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Configuration for protocol and arbitration fee rates in basis points.

@@ -343,6 +343,7 @@ fn resolve_or_vote_internal(
     resolution: ResolutionType,
 ) -> Result<(), ContractError> {
     ensure_action_not_paused(env, Symbol::new(env, "RESOLVE"))?;
+    resolution.validate()?;
     let escrow = load_escrow(env, escrow_id)?;
 
     if escrow.state != EscrowState::Disputed {
