@@ -1519,20 +1519,17 @@ fn winning_resolvers(
 /// Execute the resolution transition once a resolution has been determined.
 /// Transitions the escrow to `PendingFinalization`.
 ///
-/// When `charge_fees` is true, deducts the arbitration and resolver fees from
-/// the escrow (once per dispute, see below) and pays the resolver fee to
-/// `caller`. Timeout fallbacks pass `false`, since no resolver actually
-/// decided the outcome and charging a resolver fee would be inappropriate.
-///
-/// # Fee timing
-/// Arbitration and resolver fees are charged to the escrow **once per
-/// dispute**, not once per appeal round. `fees_charged` on the dispute record
-/// means a prior round already deducted and paid them out (`clear_resolution`
-/// deliberately preserves it and the recorded amounts), so later rounds reuse
-/// the recorded amounts and skip the deduction, the accounting bump, and the
-/// transfers. A dedicated flag is required: the recorded amounts can
-/// legitimately be zero, and inferring "not yet charged" from that would let
-/// an appeal pick up a since-raised fee config.
+/// When `charge_fees` is true, the arbitration and resolver fees are computed
+/// and *provisionally* recorded in `DisputeData` (together with the winning
+/// resolvers). `escrow.amount` is reduced by the provisional fees so the
+/// payout math stays consistent, but **no external token transfer happens
+/// here**: the contract's token balance is unchanged until `finalize_dispute`
+/// settles the fees atomically with the principal payout. `PendingFinalization`
+/// is not terminal (the parties can appeal), so paying fees out early would
+/// leak them irreversibly. An appeal clears the provisional allocations and
+/// restores `escrow.amount`; the next round records fresh allocations for the
+/// final resolver. Timeout fallbacks pass `charge_fees = false`, since no
+/// resolver actually decided the outcome.
 pub(crate) fn execute_resolution_transition(
     env: &Env,
     escrow_id: u64,
@@ -1543,21 +1540,14 @@ pub(crate) fn execute_resolution_transition(
     charge_fees: bool,
 ) -> Result<(), ContractError> {
     let mut dispute_data = load_dispute(env, escrow_id)?;
-    let fees_already_charged = dispute_data.fees_charged;
 
-    let (arbitration_fee, resolver_fee) = if fees_already_charged {
-        (dispute_data.arbitration_fee, dispute_data.resolver_fee)
-    } else if !charge_fees {
-        (0, 0)
-    } else {
+    let (arbitration_fee, resolver_fee) = if charge_fees {
         // Guard order (issue #1065):
         // 1. Compute each fee with checked math (`calculate_fee`).
         // 2. Reject a combined fee larger than the escrow amount *before* any
         //    state mutation. This is the semantic guard that keeps the payout
         //    non-negative.
-        // 3. Only then deduct both fees with `checked_sub` below. The combined
-        //    check makes those subtractions safe for any valid fee schedule,
-        //    while the checked operations remain as defence in depth.
+        // 3. Only then deduct both fees with `checked_sub` below.
         let arbitration_fee_bps = read_fee_config(env).arbitration_fee_bps;
         let arbitration_fee =
             crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;
@@ -1572,44 +1562,19 @@ pub(crate) fn execute_resolution_transition(
         }
 
         (arbitration_fee, resolver_fee)
-    };
-
-    // fee_collector is only needed for the transfer below, but the lookup
-    // itself is a Check (a plain storage read), not an Interaction — resolved
-    // up front alongside the other fallible reads, before any state mutates.
-    let fee_collector: Option<Address> = if fees_already_charged {
-        None
     } else {
-        Some(
-            crate::storage::read_global_config(env)
-                .fee_collector
-                .ok_or(ContractError::NotInitialized)?,
-        )
+        (0, 0)
     };
 
     let prev_state = escrow.state.clone();
     let mut updated_escrow = escrow;
 
-    if !fees_already_charged && charge_fees {
-        updated_escrow.amount = updated_escrow
-            .amount
-            .checked_sub(arbitration_fee)
-            .ok_or(ContractError::ArithmeticError)?;
-        updated_escrow.amount = updated_escrow
-            .amount
-            .checked_sub(resolver_fee)
-            .ok_or(ContractError::ArithmeticError)?;
-
-        // Update Accounting
-        let total_key = DataKey::TotalArbitrationFees(updated_escrow.token.clone());
-        let current_total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
-        env.storage().instance().set(
-            &total_key,
-            &current_total
-                .checked_add(arbitration_fee)
-                .ok_or(ContractError::ArithmeticError)?,
-        );
-    }
+    updated_escrow.amount = updated_escrow
+        .amount
+        .checked_sub(arbitration_fee)
+        .ok_or(ContractError::ArithmeticError)?
+        .checked_sub(resolver_fee)
+        .ok_or(ContractError::ArithmeticError)?;
 
     // Store resolution in dispute data and transition to PendingFinalization
     let now = env.ledger().timestamp();
@@ -1625,41 +1590,17 @@ pub(crate) fn execute_resolution_transition(
     dispute_data.resolved_at = now;
     dispute_data.arbitration_fee = arbitration_fee;
     dispute_data.resolver_fee = resolver_fee;
-    if !fees_already_charged {
-        dispute_data.compensated_resolvers =
-            winning_resolvers(env, &votes, &final_resolution, &caller);
-    }
-    dispute_data.fees_charged = true;
+    dispute_data.compensated_resolvers = winning_resolvers(env, &votes, &final_resolution, &caller);
+    // `fees_charged` is only set to `true` by `finalize_dispute`.
 
     updated_escrow.state = EscrowState::PendingFinalization;
 
-    // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
+    // ── EFFECTS (state mutations) ──
     save_escrow(env, escrow_id, &updated_escrow, Some(&prev_state));
     save_dispute(env, escrow_id, &dispute_data);
     save_resolver_votes(env, escrow_id, &votes);
 
-    // ── INTERACTIONS (external token transfers) ──
-    if let Some(fee_collector) = fee_collector {
-        crate::helpers::payout::payout(env, &updated_escrow.token, &fee_collector, arbitration_fee);
-
-        // Resolver fee: split equally among every resolver whose vote matches
-        // the final resolution (issue #1203). Dust from the integer division
-        // goes to the finalizing voter (`caller`) so the shares plus dust sum
-        // to exactly `resolver_fee`.
-        if resolver_fee > 0 {
-            let winners = winning_resolvers(env, &votes, &final_resolution, &caller);
-            // `winners` is never empty (falls back to `caller`).
-            let count = i128::from(winners.len());
-            let share = resolver_fee / count;
-            let dust = resolver_fee - share * count;
-            for winner in winners.iter() {
-                crate::helpers::payout::payout(env, &updated_escrow.token, &winner, share);
-            }
-            if dust > 0 {
-                crate::helpers::payout::payout(env, &updated_escrow.token, &caller, dust);
-            }
-        }
-    }
+    // No INTERACTIONS: fee payouts are deferred to `finalize_dispute`.
 
     emit_dispute_pending_finalization(
         env,

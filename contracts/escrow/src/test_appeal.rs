@@ -31,6 +31,11 @@ struct Setup {
 
 /// Creates and funds a single-resolver escrow, ready for `raise_dispute`.
 fn setup_funded_escrow() -> Setup {
+    setup_funded_escrow_with_resolver_fee(0)
+}
+
+/// Same as [`setup_funded_escrow`], with a per-escrow resolver fee.
+fn setup_funded_escrow_with_resolver_fee(resolver_fee_bps: u32) -> Setup {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -61,7 +66,7 @@ fn setup_funded_escrow() -> Setup {
         &token_address,
         &AMOUNT,
         &0_u32,
-        &0_u32,
+        &resolver_fee_bps,
         &3600_u64,
         &None::<String>,
     );
@@ -270,6 +275,14 @@ fn appeal_succeeds_by_seller_and_reopens_dispute() {
 
 // ── Issue #1205: appeal fee escalation ──────────────────────────────────────
 
+/// The original funded principal for the pending dispute: the (provisionally
+/// reduced) escrow amount plus the recorded arbitration and resolver fees.
+fn fee_basis(setup: &Setup) -> i128 {
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let dispute = client.get_dispute(&setup.escrow_id).unwrap();
+    client.get_escrow(&setup.escrow_id).amount + dispute.arbitration_fee + dispute.resolver_fee
+}
+
 /// Event helper: true if a `DisputeAppealed` event with the given fee/round
 /// was emitted by the most recent invocation.
 fn appealed_event_matches(setup: &Setup, fee: i128, round: u32) -> bool {
@@ -314,7 +327,7 @@ fn appeal_fee_escalates_linearly_per_round() {
 
     let mut previous_fee = 0_i128;
     for round in 1..=crate::MAX_APPEALS {
-        let amount = client.get_escrow(&setup.escrow_id).amount;
+        let amount = fee_basis(&setup);
         let expected = crate::helpers::payout::calculate_fee(amount, BASE_BPS * round).unwrap();
         let collector_before = token_client.balance(&setup.fee_collector);
         let buyer_before = token_client.balance(&setup.buyer);
@@ -343,7 +356,7 @@ fn appeal_fails_when_balance_covers_only_the_base_fee() {
     client.set_appeal_fee(&setup.admin, &BASE_BPS);
     raise_and_resolve(&setup);
 
-    let amount = client.get_escrow(&setup.escrow_id).amount;
+    let amount = fee_basis(&setup);
     let round1 = crate::helpers::payout::calculate_fee(amount, BASE_BPS).unwrap();
     let round2 = crate::helpers::payout::calculate_fee(amount, BASE_BPS * 2).unwrap();
     assert!(round2 > round1);
@@ -364,4 +377,146 @@ fn appeal_fails_when_balance_covers_only_the_base_fee() {
         client.get_escrow(&setup.escrow_id).state,
         EscrowState::PendingFinalization
     );
+}
+
+// ── Issue #1202: appeal fee basis reconstruction ────────────────────────────
+
+/// Returns the `fee_basis` of the `DisputeAppealed` event emitted by the most
+/// recent invocation, if any.
+fn appealed_event_fee_basis(setup: &Setup) -> Option<i128> {
+    use soroban_sdk::{testutils::Events as _, TryFromVal, Val};
+    let expected_topic = Symbol::new(&setup.env, "Dispute");
+    setup
+        .env
+        .events()
+        .all()
+        .filter_by_contract(&setup.contract_id)
+        .events()
+        .iter()
+        .find_map(|event| match &event.body {
+            soroban_sdk::xdr::ContractEventBody::V0(v0) => {
+                let topic = v0.topics.iter().next()?;
+                if Symbol::try_from_val(&setup.env, topic).ok() != Some(expected_topic.clone()) {
+                    return None;
+                }
+                let data = Val::try_from_val(&setup.env, &v0.data).ok()?;
+                crate::events::DisputeAppealed::try_from_val(&setup.env, &data)
+                    .ok()
+                    .map(|ev| ev.fee_basis)
+            }
+        })
+}
+
+/// With non-zero arbitration and resolver fees the escrow amount is
+/// provisionally reduced at resolution time, but the appeal fee must still be
+/// charged on the initial principal.
+#[test]
+fn appeal_fee_is_charged_on_reconstructed_principal() {
+    let setup = setup_funded_escrow_with_resolver_fee(200); // 2% resolver fee
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let token_client = token::Client::new(&setup.env, &setup.token);
+    token::StellarAssetClient::new(&setup.env, &setup.token).mint(&setup.buyer, &1_000);
+
+    client.set_arbitration_fee(&setup.admin, &500_u32); // 5% => 50
+    client.set_appeal_fee(&setup.admin, &500_u32); // 5%
+    raise_and_resolve(&setup);
+
+    // 1_000 principal - 50 arbitration - 20 resolver = 930 remaining.
+    assert_eq!(client.get_escrow(&setup.escrow_id).amount, 930);
+    let dispute = client.get_dispute(&setup.escrow_id).unwrap();
+    assert_eq!(dispute.arbitration_fee, 50);
+    assert_eq!(dispute.resolver_fee, 20);
+
+    let collector_before = token_client.balance(&setup.fee_collector);
+    client.appeal_dispute(&setup.buyer, &setup.escrow_id);
+    // Must run before any further contract call, which resets the buffer.
+    assert_eq!(appealed_event_fee_basis(&setup), Some(1_000));
+
+    // 5% of the initial 1_000 principal = 50 (not 5% of 930 = 46).
+    assert_eq!(
+        token_client.balance(&setup.fee_collector) - collector_before,
+        50
+    );
+    assert_eq!(token_client.balance(&setup.buyer), 1_000 - 50);
+    // The provisional deductions are dropped; the full principal is custodied.
+    assert_eq!(client.get_escrow(&setup.escrow_id).amount, 1_000);
+}
+
+/// A disabled appeal fee (`appeal_fee_bps == 0`) skips the transfer.
+#[test]
+fn appeal_fee_disabled_skips_fee_transfer() {
+    let setup = setup_funded_escrow_with_resolver_fee(200);
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let token_client = token::Client::new(&setup.env, &setup.token);
+
+    client.set_appeal_fee(&setup.admin, &0_u32);
+    raise_and_resolve(&setup);
+
+    let collector_before = token_client.balance(&setup.fee_collector);
+    client.appeal_dispute(&setup.buyer, &setup.escrow_id);
+    assert!(appealed_event_matches(&setup, 0, 1));
+
+    assert_eq!(token_client.balance(&setup.fee_collector), collector_before);
+    assert_eq!(
+        client.get_escrow(&setup.escrow_id).state,
+        EscrowState::Disputed
+    );
+}
+
+/// `execute_resolution_transition` performs no token transfer: the contract
+/// balance is constant from resolution through appeal until finalization, and
+/// the resolver fee goes to the resolver of the final round.
+#[test]
+fn resolve_appeal_reresolve_with_new_resolver_defers_and_pays_final_resolver() {
+    let setup = setup_funded_escrow_with_resolver_fee(200);
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let token_client = token::Client::new(&setup.env, &setup.token);
+
+    client.set_arbitration_fee(&setup.admin, &500_u32); // 5% => 50
+    client.set_appeal_fee(&setup.admin, &0_u32);
+    assert_eq!(token_client.balance(&setup.contract_id), AMOUNT);
+
+    raise_and_resolve(&setup);
+    // Resolution into PendingFinalization moves no tokens.
+    assert_eq!(token_client.balance(&setup.contract_id), AMOUNT);
+    assert_eq!(token_client.balance(&setup.fee_collector), 0);
+    assert_eq!(token_client.balance(&setup.resolver), 0);
+    let dispute = client.get_dispute(&setup.escrow_id).unwrap();
+    assert!(!dispute.fees_charged);
+    assert_eq!(dispute.resolved_by, Some(setup.resolver.clone()));
+
+    // Appeal clears the provisional allocations without moving tokens.
+    client.appeal_dispute(&setup.buyer, &setup.escrow_id);
+    assert_eq!(token_client.balance(&setup.contract_id), AMOUNT);
+    let dispute = client.get_dispute(&setup.escrow_id).unwrap();
+    assert_eq!(dispute.arbitration_fee, 0);
+    assert_eq!(dispute.resolver_fee, 0);
+    assert_eq!(dispute.resolved_by, None);
+    assert_eq!(dispute.compensated_resolvers.len(), 0);
+    assert_eq!(client.get_escrow(&setup.escrow_id).amount, AMOUNT);
+
+    // Re-resolve with a different resolver.
+    let new_resolver = Address::generate(&setup.env);
+    client.rotate_resolver(&setup.admin, &setup.escrow_id, &new_resolver);
+    client.resolve_dispute(&new_resolver, &setup.escrow_id, &ResolutionType::Release);
+    assert_eq!(token_client.balance(&setup.contract_id), AMOUNT);
+    let dispute = client.get_dispute(&setup.escrow_id).unwrap();
+    assert_eq!(dispute.resolved_by, Some(new_resolver.clone()));
+    assert_eq!(dispute.arbitration_fee, 50);
+    assert_eq!(dispute.resolver_fee, 20);
+
+    setup
+        .env
+        .ledger()
+        .set_timestamp(setup.env.ledger().timestamp() + 86_401);
+    client.finalize_dispute(&new_resolver, &setup.escrow_id);
+
+    // Arbitration fee, resolver fee and the net payout (this escrow has no
+    // protocol fee) are all settled together at finalization.
+    assert_eq!(token_client.balance(&new_resolver), 20);
+    assert_eq!(token_client.balance(&setup.resolver), 0);
+    assert_eq!(token_client.balance(&setup.fee_collector), 50);
+    assert_eq!(token_client.balance(&setup.seller), 1_000 - 50 - 20);
+    assert_eq!(token_client.balance(&setup.contract_id), 0);
+    assert!(client.get_dispute(&setup.escrow_id).unwrap().fees_charged);
 }

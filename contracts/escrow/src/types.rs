@@ -360,17 +360,18 @@ pub struct DisputeData {
     pub appeal_count: u32,
     /// Timestamp when the resolution was made
     pub resolved_at: u64,
-    /// Arbitration fee deducted when the resolution transition executed
+    /// Provisional arbitration fee recorded by the resolution transition.
+    /// Not transferred until `finalize_dispute`; cleared on appeal.
     pub arbitration_fee: i128,
-    /// Resolver fee paid out when the resolution transition executed
+    /// Provisional resolver fee recorded by the resolution transition.
+    /// Not transferred until `finalize_dispute`; cleared on appeal.
     pub resolver_fee: i128,
-    /// Whether the arbitration and resolver fees have been charged for this
-    /// dispute. Set on the first resolution transition and never cleared, so
-    /// appeal rounds cannot charge again — even when the recorded fees were
-    /// zero and the global fee config has since been raised.
+    /// Whether the arbitration and resolver fees have been settled (paid out)
+    /// for this dispute. Only set to `true` by `finalize_dispute`.
     pub fees_charged: bool,
-    /// Resolvers compensated from `resolver_fee` (the voters who backed the
-    /// winning resolution); empty until fees are charged.
+    /// Resolvers to be compensated from `resolver_fee` (the voters who backed
+    /// the winning resolution); provisional until finalization, cleared on
+    /// appeal.
     pub compensated_resolvers: Vec<Address>,
 }
 
@@ -391,17 +392,18 @@ impl DisputeData {
     }
 
     /// Clears the recorded resolution so a fresh round of voting can begin
-    /// after an appeal.
-    ///
-    /// `fees_charged`, `arbitration_fee` and `resolver_fee` are intentionally
-    /// left in place: they record that (and how much) was already deducted
-    /// from the escrow for this dispute. The resolution transition reads them
-    /// to charge those fees **once per dispute** rather than again for every
-    /// appeal round (see `execute_resolution_transition`).
+    /// after an appeal, together with the provisional fee allocations
+    /// (`arbitration_fee`, `resolver_fee`, `compensated_resolvers`). No fee has
+    /// been transferred at this point, so nothing needs to be reclaimed; the
+    /// next resolution round records fresh allocations for the final resolver.
+    /// `fees_charged` stays `false` until `finalize_dispute` settles the fees.
     pub fn clear_resolution(&mut self) {
         self.resolution = 0;
         self.resolved_by = None;
         self.resolved_at = 0;
+        self.arbitration_fee = 0;
+        self.resolver_fee = 0;
+        self.compensated_resolvers = Vec::new(self.compensated_resolvers.env());
     }
 }
 

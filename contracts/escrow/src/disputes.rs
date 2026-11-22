@@ -246,21 +246,17 @@ impl Escrow {
             .fee_collector
             .ok_or(ContractError::NotInitialized)?;
 
-        // Arbitration and resolver fees are settled exactly once in
-        // `execute_resolution_transition` at resolve time (guarded by
-        // `fees_charged`), so they must NOT be paid again here — only the
-        // platform and protocol fees settle at finalization.
+        // Arbitration and resolver fees were only recorded provisionally by
+        // `execute_resolution_transition`; they are paid here, atomically with
+        // the principal payout, so an appeal can never leak them.
         let platform_fee_bps = read_platform_fee_bps(&env);
 
         // ── FEE BASIS (original funded principal) ──
-        // `execute_resolution_transition` has already paid the arbitration and
-        // resolver fees out of the contract and subtracted them from
-        // `escrow.amount`. Charging the platform and protocol fees on that
-        // reduced remainder would compound every fee on a shrinking base and
-        // under-collect relative to the configured rates, so reconstruct the
-        // original funded principal by adding the two recorded fees back. They
-        // are recorded exactly once per dispute (guarded by `fees_charged`) and
-        // preserved across appeals, so this reconstruction is exact.
+        // `execute_resolution_transition` provisionally subtracted the
+        // arbitration and resolver fees from `escrow.amount`. Charging the
+        // platform and protocol fees on that reduced remainder would compound
+        // every fee on a shrinking base, so reconstruct the original funded
+        // principal by adding the two recorded fees back.
         let fee_basis = escrow
             .amount
             .checked_add(dispute_data.arbitration_fee)
@@ -284,9 +280,9 @@ impl Escrow {
         // independent of the platform fee — no compounding on a reduced base.
         let protocol_fee = crate::helpers::payout::calculate_fee(fee_basis, escrow.fee_bps)?;
 
-        // What is still custodied for this escrow: the principal minus the
-        // arbitration/resolver fees already paid, minus the platform and
-        // protocol fees settled here.
+        // Net payout: the principal minus the provisional arbitration and
+        // resolver fees (`escrow.amount` is already net of them), minus the
+        // platform and protocol fees settled here.
         let payout_amount = escrow
             .amount
             .checked_sub(platform_fee)
@@ -303,7 +299,21 @@ impl Escrow {
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
         dispute_data.status = DisputeStatus::Resolved;
+        dispute_data.fees_charged = true;
         save_dispute(&env, escrow_id, &dispute_data);
+
+        // Arbitration-fee accounting is bumped only when the fee is settled.
+        let arbitration_fee = dispute_data.arbitration_fee;
+        if arbitration_fee > 0 {
+            let total_key = DataKey::TotalArbitrationFees(escrow.token.clone());
+            let current_total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
+            env.storage().instance().set(
+                &total_key,
+                &current_total
+                    .checked_add(arbitration_fee)
+                    .ok_or(ContractError::ArithmeticError)?,
+            );
+        }
 
         match resolution {
             ResolutionType::Release => {
@@ -315,6 +325,36 @@ impl Escrow {
         }
 
         // ── INTERACTIONS (external token transfers) ──
+        payout(
+            &env,
+            &escrow.token,
+            &fee_collector,
+            dispute_data.arbitration_fee,
+        );
+
+        // Resolver fee: split equally among every resolver whose vote matches
+        // the final resolution (issue #1203). Dust from the integer division
+        // goes to `resolved_by` so shares plus dust sum to `resolver_fee`.
+        let resolver_fee = dispute_data.resolver_fee;
+        if resolver_fee > 0 {
+            let winners = if dispute_data.compensated_resolvers.is_empty() {
+                let mut w = soroban_sdk::Vec::new(&env);
+                w.push_back(resolved_by.clone());
+                w
+            } else {
+                dispute_data.compensated_resolvers.clone()
+            };
+            let count = i128::from(winners.len());
+            let share = resolver_fee / count;
+            let dust = resolver_fee - share * count;
+            for winner in winners.iter() {
+                payout(&env, &escrow.token, &winner, share);
+            }
+            if dust > 0 {
+                payout(&env, &escrow.token, &resolved_by, dust);
+            }
+        }
+
         if let Some(ref treasury_addr) = treasury {
             payout(&env, &escrow.token, treasury_addr, platform_fee);
         }
@@ -419,7 +459,24 @@ impl Escrow {
             .checked_mul(multiplier)
             .ok_or(ContractError::ArithmeticError)?
             .min(crate::BASIS_POINTS);
-        let appeal_fee = crate::helpers::payout::calculate_fee(escrow.amount, appeal_fee_bps)?;
+        // Fee basis: the original funded principal. `escrow.amount` was
+        // provisionally reduced by the arbitration and resolver fees, so add
+        // them back (checked) — consistent with `finalize_dispute`. Skipped
+        // entirely when the appeal fee is disabled.
+        let (appeal_fee, fee_basis) = if appeal_fee_bps == 0 {
+            (0, escrow.amount)
+        } else {
+            let fee_basis = escrow
+                .amount
+                .checked_add(dispute_data.arbitration_fee)
+                .ok_or(ContractError::ArithmeticError)?
+                .checked_add(dispute_data.resolver_fee)
+                .ok_or(ContractError::ArithmeticError)?;
+            (
+                crate::helpers::payout::calculate_fee(fee_basis, appeal_fee_bps)?,
+                fee_basis,
+            )
+        };
         let fee_collector: Option<Address> = if appeal_fee > 0 {
             Some(
                 crate::storage::read_global_config(&env)
@@ -431,12 +488,16 @@ impl Escrow {
         };
 
         let prev_state = escrow.state.clone();
-        // NOTE: arbitration/resolver fees settled at resolve time are NOT
-        // restored here. They were already transferred out by
-        // `execute_resolution_transition` (guarded by `fees_charged`), so
-        // adding them back would create unbacked funds: `escrow.amount` must
-        // always equal what the contract actually custodies. The second
-        // resolution round reuses the recorded fees without charging again.
+        // The provisional arbitration/resolver fees were never transferred, so
+        // restoring `escrow.amount` to the full principal keeps it equal to
+        // what the contract custodies. `clear_resolution` drops the
+        // provisional allocations; the next round records fresh ones.
+        escrow.amount = escrow
+            .amount
+            .checked_add(dispute_data.arbitration_fee)
+            .ok_or(ContractError::ArithmeticError)?
+            .checked_add(dispute_data.resolver_fee)
+            .ok_or(ContractError::ArithmeticError)?;
         escrow.state = EscrowState::Disputed;
 
         let mut updated_dispute = dispute_data;
@@ -465,7 +526,7 @@ impl Escrow {
             token::Client::new(&env, &escrow.token).transfer(&caller, &fee_collector, &appeal_fee);
         }
 
-        emit_dispute_appealed(&env, escrow_id, caller, appeal_fee, appeal_round);
+        emit_dispute_appealed(&env, escrow_id, caller, appeal_fee, appeal_round, fee_basis);
         Ok(())
     }
 

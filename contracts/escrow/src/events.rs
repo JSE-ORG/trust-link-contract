@@ -807,6 +807,9 @@ pub struct DisputeAppealed {
     pub appeal_fee_charged: i128,
     /// 1-based appeal round (1 = first appeal).
     pub appeal_round: u32,
+    /// Exact fee basis the appeal fee was calculated on: the original funded
+    /// principal (`escrow.amount` + provisional arbitration + resolver fees).
+    pub fee_basis: i128,
 }
 
 /// Topic: `(symbol_short!("Dispute"), symbol_short!("Appealed"), appellant.clone(),)`, data: `DisputeAppealed`.
@@ -816,6 +819,7 @@ pub fn emit_dispute_appealed(
     appellant: Address,
     appeal_fee_charged: i128,
     appeal_round: u32,
+    fee_basis: i128,
 ) {
     env.events().publish(
         (
@@ -830,6 +834,7 @@ pub fn emit_dispute_appealed(
             timestamp: env.ledger().timestamp(),
             appeal_fee_charged,
             appeal_round,
+            fee_basis,
         },
     );
 }

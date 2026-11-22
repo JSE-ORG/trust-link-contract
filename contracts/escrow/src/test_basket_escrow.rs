@@ -1392,6 +1392,35 @@ fn fund_basket_escrow_rejects_fee_on_transfer_token_and_rolls_back() {
     let primary_amount = 1_000_i128;
     let malicious_amount = 500_i128;
 
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address, &malicious]),
+        &vec_i128(&fx.env, &[primary_amount, malicious_amount]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+
+    primary.admin.mint(&fx.buyer, &primary_amount);
+    mclient.mint(&fx.buyer, &malicious_amount);
+    mclient.set_attack(&Attack::FeeOnTransfer);
+
+    let result = client.try_fund_basket_escrow(&escrow_id, &fx.buyer);
+    assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
+
+    // Atomic revert: even the primary token transfer that already succeeded is
+    // rolled back when the secondary token under-funds the contract.
+    assert_eq!(primary.token.balance(&fx.buyer), primary_amount);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+    assert_eq!(mclient.balance(&fx.buyer), malicious_amount);
+    assert_eq!(mclient.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+}
+
 // ── Issue #1220 – token allowlist gating for every basket token ─────────────
 
 /// When the token allowlist is enabled, every token in the basket — not just
@@ -1422,6 +1451,55 @@ fn create_basket_escrow_rejects_unallowlisted_secondary_token() {
         &vec_addr(&fx.env, &[&a.address, &b.address]),
         &vec_i128(&fx.env, &[1_000, 500]),
         &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(client.get_basket_tokens(&ok_id).unwrap().len(), 2);
+
+    // Swapping the allowlisted secondary B for the unapproved C must reject
+    // the whole basket, even though the primary token A is allowlisted.
+    let rejected = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &c.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(rejected, Err(Ok(ContractError::TokenNotAllowed)));
+}
+
+/// With the allowlist disabled (the default), basket creation stays a no-op
+/// for token gating and accepts any token set.
+#[test]
+fn create_basket_escrow_accepts_any_token_when_allowlist_disabled() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let c = make_token(&fx.env);
+
+    // No `set_token_allowlist_enabled`/`add_allowed_token` calls.
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &c.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(client.get_basket_tokens(&escrow_id).unwrap().len(), 2);
+}
+
 // Issue #1219 - protocol/platform fees on secondary basket tokens
 
 /// Writes a treasury directly into the global config. The public
@@ -1466,42 +1544,6 @@ fn confirm_delivery_collects_protocol_and_platform_fees_on_basket_tokens() {
         &None::<u64>,
         &0_u64,
     );
-    assert_eq!(client.get_basket_tokens(&ok_id).unwrap().len(), 2);
-
-    // Swapping the allowlisted secondary B for the unapproved C must reject
-    // the whole basket, even though the primary token A is allowlisted.
-    let rejected = client.try_create_basket_escrow(
-        &fx.seller,
-        &None::<Address>,
-        &fx.resolver,
-        &vec_addr(&fx.env, &[&a.address, &c.address]),
-        &vec_i128(&fx.env, &[1_000, 500]),
-        &0_u32,
-        &SHIPPING_WINDOW,
-        &None::<soroban_sdk::String>,
-        &None::<u64>,
-        &0_u64,
-    );
-    assert_eq!(rejected, Err(Ok(ContractError::TokenNotAllowed)));
-}
-
-/// With the allowlist disabled (the default), basket creation stays a no-op
-/// for token gating and accepts any token set.
-#[test]
-fn create_basket_escrow_accepts_any_token_when_allowlist_disabled() {
-    let fx = setup();
-    let client = EscrowClient::new(&fx.env, &fx.contract_id);
-    let a = make_token(&fx.env);
-    let c = make_token(&fx.env);
-
-    // No `set_token_allowlist_enabled`/`add_allowed_token` calls.
-    let escrow_id = client.create_basket_escrow(
-        &fx.seller,
-        &None::<Address>,
-        &fx.resolver,
-        &vec_addr(&fx.env, &[&a.address, &c.address]),
-        &vec_i128(&fx.env, &[1_000, 500]),
-        &0_u32,
 
     a.admin.mint(&fx.buyer, &a_amount);
     b.admin.mint(&fx.buyer, &b_amount);
@@ -1577,22 +1619,6 @@ fn refund_paths_return_gross_basket_tokens_without_fees() {
         &None::<u64>,
         &0_u64,
     );
-
-    primary.admin.mint(&fx.buyer, &primary_amount);
-    mclient.mint(&fx.buyer, &malicious_amount);
-    mclient.set_attack(&Attack::FeeOnTransfer);
-
-    let result = client.try_fund_basket_escrow(&escrow_id, &fx.buyer);
-    assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
-
-    // Atomic revert: even the primary token transfer that already succeeded is
-    // rolled back when the secondary token under-funds the contract.
-    assert_eq!(primary.token.balance(&fx.buyer), primary_amount);
-    assert_eq!(primary.token.balance(&fx.contract_id), 0);
-    assert_eq!(mclient.balance(&fx.buyer), malicious_amount);
-    assert_eq!(mclient.balance(&fx.contract_id), 0);
-    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
-    assert_eq!(client.get_basket_tokens(&escrow_id).unwrap().len(), 2);
     a.admin.mint(&fx.buyer, &a_amount);
     b.admin.mint(&fx.buyer, &b_amount);
     client.fund_basket_escrow(&mutual_id, &fx.buyer);
