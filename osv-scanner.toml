@@ -1,0 +1,4 @@
+# Same temporary Soroban exception as deny.toml and the security workflow.
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0387"
+reason = "Soroban uses elliptic-curve 0.13, which requires crypto-bigint 0.5; remove when a compatible fixed version is available."
