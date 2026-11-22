@@ -316,6 +316,62 @@ Before mainnet deployment:
 
 ---
 
+## Malware Guard & Supply Chain Security
+
+To protect against malicious code injection, compromised dependencies, and accidental secret disclosure, this repository enforces automated malware and supply-chain gates in local git hooks and CI (`.github/workflows/malware-guard.yml`).
+
+### Local Checks
+
+Run the custom scanner locally across the tree at any time:
+
+```bash
+make malware-check
+# or directly:
+node scripts/scan-malware.mjs
+```
+
+The pre-commit hook installed via `make setup` executes `make malware-check` automatically before allowing commits. It runs in under 2 seconds and uses only Node.js standard library (no extra npm dependencies required).
+
+### What the Guard Inspects
+
+1. **Obfuscation & Dynamic Execution**: Flags dynamic code execution (`eval` / dynamic Function constructor), character-code string synthesis, and suspiciously long base64 payloads.
+2. **Reverse Shells & Exfiltration**: Flags download-and-execute one-liners (piped curl/wget to shell), network socket redirection, and reverse-shell indicators.
+3. **Key Material & Credentials**: Detects private key headers, references to SSH private key files, and mnemonic recovery phrases.
+4. **Dangerous npm Lifecycle Scripts**: Scans `package.json` files for high-risk commands inside `preinstall`, `install`, `postinstall`, or `prepare`.
+5. **Committed Binaries**: Enforces zero committed native binaries (PE, ELF, Mach-O, or compiled WASM modules).
+6. **Cargo Integrity**: Disallows unapproved git dependencies and patch overrides, and checks for process execution in `build.rs`.
+
+### PR Gate vs. Nightly Deep Scans
+
+To keep contributor feedback fast and deterministic without failing PRs on upstream vulnerabilities in untouched code:
+
+| Scanner | PR Scope | Push / Nightly Scope | PR Blocking? |
+|---|---|---|---|
+| **Secret Scan (gitleaks)** | Changed commits (`base..head`) | Full git history | **Yes** (blocking) |
+| **Custom Patterns (`scan-malware.mjs`)** | Changed files only | Full repository tree | **Yes** (blocking) |
+| **Workflow Lint (`actionlint` + `zizmor`)** | Workflow syntax & security | Workflow files | **Yes** (syntax blocks; zizmor advisory) |
+| **Lockfile Integrity** | `npm ci --ignore-scripts`, `cargo metadata` | Full lockfile validation | **Yes** (blocking) |
+| **Dependencies (`osv-scanner`)** | PR diff | Full audit | **Warn-only on PR** (non-blocking) |
+| **Filesystem Scan (`trivy`)** | PR diff | Full filesystem | **Warn-only on PR** (non-blocking) |
+| **Antivirus (`ClamAV`)** | *Skipped on PR* | Nightly deep scan | Scheduled only |
+
+### Suppressing False Positives (Allowlist Process)
+
+When a legitimate file matches a heuristic (e.g. documentation discussing seed phrases or test files testing base64 encodings):
+
+1. **Custom Scanner**: Add a targeted rule exemption in [`.malware-guard-allowlist.json`](.malware-guard-allowlist.json):
+   ```json
+   {
+     "rules": {
+       "seed-phrase": ["docs/EXAMPLE.md"]
+     }
+   }
+   ```
+2. **Secret Scanner**: Add an explicit path pattern to the `[[allowlists]]` section in [`.gitleaks.toml`](.gitleaks.toml).
+3. All allowlist changes are strictly guarded by `.github/CODEOWNERS` and require maintainer review.
+
+---
+
 ## Emergency Contacts
 
 - **Critical Bug**: security@trustlink.dev

@@ -1,0 +1,26 @@
+title = "TrustLink secret scanning"
+description = "Extends the default gitleaks rules; suppresses known test/docs false positives. Reviewed by CODEOWNERS."
+
+[extend]
+useDefault = true
+
+# False positives we deliberately allow. Keep this list narrow: test fixtures,
+# documentation examples, and generated files that legitimately contain fake
+# Stellar addresses/keys or placeholder secrets.
+[[allowlists]]
+description = "Test fixtures and documentation placeholders"
+paths = [
+  '''docs/.*''',
+  '''ORACLE_TRUST_MODEL\.md''',
+  '''SECURITY\.md''',
+  '''CONTRIBUTING\.md''',
+  '''contracts/escrow/src/test.*\.rs''',
+  '''contracts/escrow/tests/.*''',
+  '''bindings/src/.*\.test\.ts''',
+  '''indexer/src/.*\.test\.ts''',
+  '''e2e/.*\.sh''',
+  '''\.malware-guard-allowlist\.json''',
+]
+regexes = [
+  '''S\.\.\.''',
+]

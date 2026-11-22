@@ -1,6 +1,9 @@
 name: CI
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
 # Note on E2E integration test exclusion (Issue #1168):
 # The `make e2e` target (e2e/01_setup_and_deploy.sh - e2e/04_cancel_path.sh) is intentionally
 # excluded from this CI workflow. The e2e scripts run live transactions against an active Stellar

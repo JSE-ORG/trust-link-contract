@@ -157,7 +157,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_release() {
         &id,
         &Symbol::new(&env, "FRAUD"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
@@ -204,7 +204,7 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_refund() {
         &id,
         &Symbol::new(&env, "FRAUD"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund);
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);

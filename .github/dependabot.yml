@@ -14,3 +14,17 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+
+  # Automated dependency updates for npm (TypeScript bindings)
+  - package-ecosystem: "npm"
+    directory: "/bindings"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # Automated dependency updates for npm (Event indexer)
+  - package-ecosystem: "npm"
+    directory: "/indexer"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

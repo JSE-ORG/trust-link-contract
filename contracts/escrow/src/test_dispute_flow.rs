@@ -199,7 +199,7 @@ fn dispute_resolution_with_zero_resolver_fee_and_appeal() {
     // Raise dispute (t=1_000 < dispute_deadline=172_800 ✓).
     let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
     let description = soroban_sdk::Bytes::from_slice(&env, b"Item not received");
-    let evidence = BytesN::from_array(&env, &[0u8; 32]);
+    let evidence = BytesN::from_array(&env, &[1u8; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
 
     // ── Round 1: resolve in favour of seller ────────────────────────────────
