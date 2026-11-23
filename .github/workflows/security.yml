@@ -44,3 +44,6 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # Temporary Soroban transitive-dependency exception; keep in sync with
+          # deny.toml and remove when a compatible fixed release is available.
+          ignore: RUSTSEC-2026-0387

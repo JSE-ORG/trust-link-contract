@@ -6,7 +6,11 @@
 # Pull the RustSec advisory DB from the default source. A known *vulnerability*
 # fails `cargo deny check advisories` (and therefore CI). Add RUSTSEC ids here,
 # with a justification, only to temporarily accept an unavoidable advisory.
-ignore = []
+# Temporary exception: soroban-env-host's elliptic-curve 0.13 dependency
+# requires crypto-bigint 0.5; a compatible patched version is not available.
+# Remove when the Soroban dependency chain supports a fixed release.
+# https://rustsec.org/advisories/RUSTSEC-2026-0387
+ignore = ["RUSTSEC-2026-0387"]
 yanked = "deny"
 # Only fail on unmaintained crates we actually own (workspace deps). Deep,
 # unavoidable transitive crates (e.g. `paste`, pulled in via soroban-sdk) would

@@ -94,7 +94,10 @@ pub enum ContractError {
     GracePeriodNotElapsed = 40,
     /// Returned when the maximum number of dispute appeals has been reached.
     MaxAppealsReached = 41,
-    /// Returned when `create_basket_escrow` is called with mismatched or empty `tokens`/`amounts`.
+    /// Returned when `create_basket_escrow` is called with mismatched or empty
+    /// `tokens`/`amounts`, a basket exceeding `MAX_BASKET_SIZE`, or a duplicate
+    /// token address (including the primary token repeated as a secondary
+    /// entry).
     BasketTokenMismatch = 42,
     /// Returned when a `multicall` call argument is missing or fails to decode into the expected type.
     InvalidMulticallArg = 43,
@@ -193,4 +196,7 @@ pub enum ContractError {
     /// [`ContractError::ConflictingRoles`] so telemetry can tell a duplicate
     /// resolver apart from a resolver colliding with the seller or buyer.
     DuplicateResolver = 80,
+    /// Returned by `submit_dispute_evidence` when the escrow's evidence log
+    /// already holds `MAX_EVIDENCE_ENTRIES` entries.
+    EvidenceLimitReached = 81,
 }

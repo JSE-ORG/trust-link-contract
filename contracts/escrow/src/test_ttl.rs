@@ -598,7 +598,7 @@ fn execute_ttl_extension_before_timelock_elapses_is_rejected() {
 
     assert_eq!(
         client.try_execute_set_ttl_extension(&admin, &42_000_u32),
-        Err(Ok(ContractError::InvalidState)),
+        Err(Ok(ContractError::TimelockNotElapsed)),
     );
     assert_eq!(
         effective_ttl_extension(&env, &contract_id).1,

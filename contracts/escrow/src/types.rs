@@ -43,8 +43,9 @@ pub enum DataKey {
     TotalDisputed,
     TotalCompleted,
     TotalRefunded,
-    /// Reserved for future use. Currently unused; may store per-escrow
-    /// evidence audit logs if on-chain verification is added later.
+    /// Per-escrow log of additional dispute evidence (`Vec<EvidenceEntry>`),
+    /// appended to by `submit_dispute_evidence` and capped at
+    /// `MAX_EVIDENCE_ENTRIES` entries.
     EvidenceLog(u64),
     BasketTokens(u64),
     DeliveryProposal(u64),
@@ -93,7 +94,15 @@ pub enum DataKey {
     /// lets buyers reclaim custodied funds without going through the standard
     /// state machine. Absent means false.
     RecoveryMode,
-    /// Configurable 24-hour timelock delay for privileged admin operations.
+    /// Timelock delay (seconds) applied to privileged admin operations.
+    /// Absent means `ADMIN_TIMELOCK_DELAY_SECONDS` (24 hours); valid values
+    /// lie in `MIN_TIMELOCK_DELAY_SECONDS..=MAX_TIMELOCK_DELAY_SECONDS`.
+    ///
+    /// Changed only through the two-step `queue_set_timelock_delay` ->
+    /// `execute_set_timelock_delay` flow, and that change waits
+    /// `max(current_delay, new_delay)` (#1238): shortening the delay costs the
+    /// full current delay, lengthening it costs the new one. Proposals queued
+    /// before the change keep the `ready_at` they were queued with.
     AdminTimelockDelay,
     /// Every admin-tunable fee, limit and toggle, packed into one
     /// [`GlobalConfig`] entry so hot paths pay for a single instance-storage
@@ -542,6 +551,18 @@ pub struct EscrowInput {
     pub shipping_window: u64,
     /// Empty string is the "no notes" sentinel (see `Escrow.notes`).
     pub notes: String,
+}
+
+/// One piece of dispute evidence submitted via `submit_dispute_evidence` by
+/// the buyer, a payee or an assigned resolver. `evidence_hash` is a commitment
+/// to off-chain evidence (conventionally its SHA-256 digest).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceEntry {
+    pub submitter: Address,
+    pub timestamp: u64,
+    pub evidence_hash: BytesN<32>,
+    pub description: Bytes,
 }
 
 #[contracttype]
