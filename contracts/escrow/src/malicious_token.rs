@@ -13,6 +13,9 @@
 //! * [`Attack::Fail`] — always panics, modelling a broken / hostile token.
 //! * [`Attack::BurnBudget`] — runs a long metered loop, modelling an
 //!   "infinite-gas" token that tries to wedge the call.
+//! * [`Attack::FeeOnTransfer`] — debits the sender in full but credits the
+//!   recipient one stroop less, modelling a fee-on-transfer token that
+//!   silently under-funds a basket.
 //! * `Attack::Reenter*` — calls back into the still-executing escrow, modelling
 //!   a classic re-entrancy attack (target configured via [`set_reentry`]).
 //!
@@ -38,6 +41,9 @@ pub enum Attack {
     Fail,
     /// Burn the CPU budget with a long metered loop ("infinite gas").
     BurnBudget,
+    /// Debit the sender the full `amount` but credit the recipient one stroop
+    /// less, modelling a fee-on-transfer token that under-funds the escrow.
+    FeeOnTransfer,
     /// Re-enter `confirm_delivery(actor, escrow_id)` during the transfer.
     ReenterConfirm,
     /// Re-enter `fund_escrow(escrow_id, actor)` during the transfer.
@@ -148,6 +154,13 @@ impl MaliciousToken {
                 let r = Self::reentry(&env);
                 EscrowClient::new(&env, &r.escrow).mutual_cancel(&r.escrow_id);
             }
+            Attack::FeeOnTransfer => {
+                // Take the full amount from the sender but credit one stroop
+                // less to the recipient, then return without the plain
+                // `do_transfer` below (which would credit the full amount).
+                Self::do_transfer_with_fee(&env, &from, &to, amount, 1);
+                return;
+            }
         }
 
         // Only reached when the configured attack does not abort the call.
@@ -180,5 +193,25 @@ impl MaliciousToken {
         env.storage()
             .persistent()
             .set(&to_key, &(to_balance + amount));
+    }
+
+    /// Like [`Self::do_transfer`] but credits the recipient `amount - fee`
+    /// while still debiting the sender the full `amount`. Models a
+    /// fee-on-transfer token.
+    fn do_transfer_with_fee(env: &Env, from: &Address, to: &Address, amount: i128, fee: i128) {
+        let from_key = Key::Balance(from.clone());
+        let from_balance: i128 = env.storage().persistent().get(&from_key).unwrap_or(0);
+        if from_balance < amount {
+            panic!("malicious token: insufficient balance");
+        }
+        env.storage()
+            .persistent()
+            .set(&from_key, &(from_balance - amount));
+
+        let to_key = Key::Balance(to.clone());
+        let to_balance: i128 = env.storage().persistent().get(&to_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&to_key, &(to_balance + (amount - fee)));
     }
 }

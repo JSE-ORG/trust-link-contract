@@ -95,7 +95,7 @@ fn test_admin_cancel_pending_finalization_succeeds() {
 
     let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
     let desc = soroban_sdk::Bytes::from_slice(&env, b"item not received");
-    let evidence = BytesN::from_array(&env, &[0u8; 32]);
+    let evidence = BytesN::from_array(&env, &[1u8; 32]);
     client.raise_dispute(&buyer, &id, &reason, &desc, &evidence);
 
     // Resolve dispute -> transitions to PendingFinalization
@@ -128,7 +128,7 @@ fn test_cancel_pending_finalization_rejects_non_admin() {
 
     let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
     let desc = soroban_sdk::Bytes::from_slice(&env, b"item not received");
-    let evidence = BytesN::from_array(&env, &[0u8; 32]);
+    let evidence = BytesN::from_array(&env, &[1u8; 32]);
     client.raise_dispute(&buyer, &id, &reason, &desc, &evidence);
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund);
 
@@ -149,7 +149,7 @@ fn test_cancel_pending_finalization_rejects_invalid_state() {
     // Calling while in Disputed state must fail
     let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
     let desc = soroban_sdk::Bytes::from_slice(&env, b"item not received");
-    let evidence = BytesN::from_array(&env, &[0u8; 32]);
+    let evidence = BytesN::from_array(&env, &[1u8; 32]);
     client.raise_dispute(&buyer, &id, &reason, &desc, &evidence);
 
     let result = client.try_cancel_pending_finalization(&admin, &id);
@@ -163,7 +163,7 @@ fn test_admin_cancel_finalization_alias_works() {
 
     let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
     let desc = soroban_sdk::Bytes::from_slice(&env, b"item not received");
-    let evidence = BytesN::from_array(&env, &[0u8; 32]);
+    let evidence = BytesN::from_array(&env, &[1u8; 32]);
     client.raise_dispute(&buyer, &id, &reason, &desc, &evidence);
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund);
 
@@ -310,7 +310,7 @@ fn test_execute_resolution_transition_rejects_timestamp_before_disputed_at() {
     env.ledger().set_timestamp(1_700_000_100);
     let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
     let desc = soroban_sdk::Bytes::from_slice(&env, b"item not received");
-    let evidence = BytesN::from_array(&env, &[0u8; 32]);
+    let evidence = BytesN::from_array(&env, &[1u8; 32]);
     client.raise_dispute(&buyer, &id, &reason, &desc, &evidence);
 
     // Move timestamp backwards to simulate timestamp regression

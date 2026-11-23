@@ -127,7 +127,7 @@ impl<'a> CounterFixture<'a> {
         );
         let reason = Symbol::new(&self.env, "ITEM_NOT_RECEIVED");
         let description = Bytes::from_slice(&self.env, b"missing");
-        let evidence = BytesN::from_array(&self.env, &[0u8; 32]);
+        let evidence = BytesN::from_array(&self.env, &[1u8; 32]);
         self.client
             .raise_dispute(&self.buyer, escrow_id, &reason, &description, &evidence);
         self.client

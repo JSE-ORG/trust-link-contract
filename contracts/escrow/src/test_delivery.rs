@@ -742,7 +742,7 @@ fn test_confirm_delivery_from_disputed_state_fails() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"dispute description"),
-        &soroban_sdk::BytesN::from_array(&env, &[0; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1; 32]),
     );
 
     let res = client.try_confirm_delivery(&buyer, &id, &false);
@@ -999,7 +999,7 @@ fn test_propose_record_delivery_then_raise_dispute_blocks_execute() {
     // (funded_at + 172_800). funded_at ≈ 0, so the window is 0..172_800.
     // Current ledger time is 1_000, well within the window.
     env.ledger().set_timestamp(2_000);
-    let hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    let hash = soroban_sdk::BytesN::from_array(&env, &[1u8; 32]);
     client.raise_dispute(
         &buyer,
         &id,

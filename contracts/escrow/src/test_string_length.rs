@@ -87,7 +87,7 @@ fn test_description_at_limit_succeeds() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &desc,
-        &BytesN::from_array(&env, &[0u8; 32]),
+        &BytesN::from_array(&env, &[1u8; 32]),
     );
 }
 
@@ -111,7 +111,7 @@ fn test_description_over_limit_reverts() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &desc,
-        &BytesN::from_array(&env, &[0u8; 32]),
+        &BytesN::from_array(&env, &[1u8; 32]),
     );
     assert!(matches!(res, Err(Ok(ContractError::InputTooLong))));
 }

@@ -233,7 +233,7 @@ impl Escrow {
         // during the refund finds a terminal state and is rejected instead of
         // draining the same escrow twice.
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_escrow_expired(
             &env,
@@ -805,7 +805,7 @@ impl Escrow {
 
         if should_refund {
             payout(&env, &escrow.token, &caller, escrow.amount);
-            payout_basket_tokens(&env, escrow_id, &caller)?;
+            payout_basket_tokens(&env, escrow_id, &caller, None)?;
         }
         let first_payee_addr = escrow
             .payees
@@ -868,7 +868,7 @@ impl Escrow {
 
         payout(&env, &escrow.token, &buyer, escrow.amount);
 
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_escrow_canceled(
             &env,
@@ -1257,7 +1257,12 @@ impl Escrow {
             updated.amount,
             fee_config.protocol_fee_bps,
         )?;
-        distribute_basket_tokens(&env, escrow_id, &updated.payees)?;
+        payout_basket_tokens(
+            &env,
+            escrow_id,
+            &first_payee,
+            Some(fee_config.protocol_fee_bps),
+        )?;
         emit_escrow_completed(
             &env,
             escrow_id,
@@ -1583,8 +1588,11 @@ impl Escrow {
     /// Reverts with `EscrowExpired` if the `PendingExpiry` schedule or the
     /// blanket `PENDING_EXPIRY_WINDOW` has elapsed, `ConflictingRoles` if the
     /// buyer matches a payee or resolver, `NotAuthorizedBuyer` if a designated
-    /// buyer does not match, and `BasketTokenMismatch` if no basket tokens are
-    /// stored for the escrow.
+    /// buyer does not match, `BasketTokenMismatch` if no basket tokens are
+    /// stored for the escrow, and `InsufficientBalance` if the contract does
+    /// not receive the full pledged amount for any token (e.g. a
+    /// fee-on-transfer token).
+    #[allow(clippy::too_many_lines)]
     pub fn fund_basket_escrow(
         env: Env,
         escrow_id: u64,
@@ -1647,12 +1655,54 @@ impl Escrow {
             return Err(ContractError::BasketTokenMismatch);
         }
 
+        let contract_addr = env.current_contract_address();
+
+        // ── PRE-TRANSFER BALANCE SNAPSHOT (Issue #1221) ──
+        // Record what the contract already holds for each basket token before
+        // pulling funds in. The post-transfer check below uses these snapshots
+        // to prove the contract's balance grew by at least the pledged amount
+        // for every token, not just that `transfer` returned successfully. A
+        // non-standard token can report success while crediting less (e.g. a
+        // fee-on-transfer token), which would otherwise under-fund the basket
+        // while the escrow still flips to `Funded`.
+        let mut starting_balances = soroban_sdk::Vec::new(&env);
         for i in 0..basket_tokens.len() {
             let entry = basket_tokens
                 .get(i)
                 .ok_or(ContractError::IndexOutOfBounds)?;
-            if entry.amount <= 0 {
-                return Err(ContractError::InvalidAmount);
+            let balance =
+                soroban_sdk::token::Client::new(&env, &entry.token).balance(&contract_addr);
+            starting_balances.push_back(balance);
+        }
+
+        for i in 0..basket_tokens.len() {
+            let entry = basket_tokens
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            if entry.amount > 0 {
+                transfer_helper(&env, &entry.token, &buyer, &contract_addr, entry.amount);
+            }
+        }
+
+        // ── POST-TRANSFER INFLOW INVARIANT (Issue #1221) ──
+        // Every basket token's contract balance must have increased by at
+        // least its pledged amount. Returning `InsufficientBalance` here
+        // aborts the whole Soroban invocation, so a shortfall from any single
+        // token rolls back every transfer in the basket atomically.
+        for i in 0..basket_tokens.len() {
+            let entry = basket_tokens
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            let starting = starting_balances
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            let expected = starting
+                .checked_add(entry.amount)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+            let current =
+                soroban_sdk::token::Client::new(&env, &entry.token).balance(&contract_addr);
+            if current < expected {
+                return Err(ContractError::InsufficientBalance);
             }
             transfer_helper(
                 &env,
@@ -1888,7 +1938,7 @@ impl Escrow {
 
         // ── INTERACTIONS (external token transfers) ──
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_refund_approved(
             &env,
