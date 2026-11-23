@@ -690,13 +690,18 @@ impl Escrow {
     /// Buyer reclaims escrowed funds while recovery mode is enabled (issue
     /// #914). Deliberately bypasses the contract pause flag and the standard
     /// state machine: any escrow holding buyer funds (`Funded`, `Shipped`,
-    /// `Disputed`, `PendingFinalization`, or `RefundRequested`) transitions to
-    /// `Refunded` and pays the principal plus any basket tokens to the buyer.
+    /// `Disputed`, or `RefundRequested`) transitions to `Refunded` and pays
+    /// the principal plus any basket tokens to the buyer.
+    ///
+    /// `PendingFinalization` is explicitly excluded (issue #1204): a resolver
+    /// has already ruled and the appeal window is open, so the dispute must
+    /// run through `finalize_dispute` / `appeal_dispute`.
     ///
     /// Reverts with `NotInRecoveryMode` unless the admin has called
     /// `enable_recovery_mode`, with `NotAuthorizedBuyer` if `caller` is not
-    /// the escrow's buyer, or with `InvalidState` for escrows holding no buyer
-    /// funds (`Pending`, `Completed`, `Refunded`, `Canceled`, `Expired`).
+    /// the escrow's buyer, or with `InvalidState` for `PendingFinalization`
+    /// and for escrows holding no buyer funds (`Pending`, `Completed`,
+    /// `Refunded`, `Canceled`, `Expired`).
     /// Emits `recovery_withdraw`.
     pub fn recovery_withdraw(
         env: Env,
@@ -710,12 +715,18 @@ impl Escrow {
 
         let mut escrow = load_escrow(&env, escrow_id)?;
 
+        // A `PendingFinalization` escrow already has a ruling and an open
+        // appeal window; draining it would bypass `finalize_dispute` /
+        // `appeal_dispute` (issue #1204).
+        if escrow.state == EscrowState::PendingFinalization {
+            return Err(ContractError::InvalidState);
+        }
+
         let is_recoverable = matches!(
             escrow.state,
             EscrowState::Funded
                 | EscrowState::Shipped
                 | EscrowState::Disputed
-                | EscrowState::PendingFinalization
                 | EscrowState::RefundRequested
         );
         if !is_recoverable {
@@ -743,7 +754,7 @@ impl Escrow {
         // ── INTERACTIONS (external token transfers) ──
         let amount = escrow.amount;
         payout(&env, &escrow.token, &buyer, amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_recovery_withdraw(&env, escrow_id, buyer, amount);
         Ok(())
@@ -1608,12 +1619,18 @@ impl Escrow {
 
         let mut escrow = load_escrow(&env, escrow_id)?;
 
+        // Issue #1204: a `PendingFinalization` escrow already has a resolver
+        // ruling and an open appeal window. Draining it would bypass
+        // `finalize_dispute` / `appeal_dispute`, so reject it and emit a
+        // diagnostic event.
+        if escrow.state == EscrowState::PendingFinalization {
+            crate::events::emit_emergency_drain_blocked(&env, escrow_id);
+            return Err(ContractError::InvalidState);
+        }
+
         let is_drainable = matches!(
             escrow.state,
-            EscrowState::Funded
-                | EscrowState::Shipped
-                | EscrowState::Disputed
-                | EscrowState::PendingFinalization
+            EscrowState::Funded | EscrowState::Shipped | EscrowState::Disputed
         );
         if !is_drainable {
             return Err(terminal_state_error(
@@ -1655,7 +1672,7 @@ impl Escrow {
 
         // ── INTERACTIONS (external token transfers) ──
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         crate::events::emit_emergency_drain(&env, escrow_id, escrow.token.clone(), escrow.amount);
         Ok(())

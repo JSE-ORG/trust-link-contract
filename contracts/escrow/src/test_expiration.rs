@@ -193,7 +193,7 @@ fn test_reclaim_with_active_dispute() {
 
     // Buyer raises a dispute at timestamp 5.
     env.ledger().set_timestamp(5);
-    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    let hash = BytesN::from_array(&env, &[1u8; 32]);
     client.raise_dispute(
         &buyer,
         &id,

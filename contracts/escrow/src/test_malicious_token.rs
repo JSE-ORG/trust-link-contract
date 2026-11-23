@@ -2,17 +2,22 @@
 //! Re-entrancy / malicious-token defence suite (issue #402).
 //!
 //! These tests register the escrow against [`MaliciousToken`] — an adversarial
-//! SEP-41 token that re-enters, always fails, or burns the CPU budget while the
-//! escrow is mid-execution — and assert that in every case the escrow's
-//! accounting is left exactly as it was. Each adversarial transfer must abort
-//! the whole call atomically; nothing may leak to sellers, fee collectors, or
-//! buyers, and no escrow may advance to a state it did not legitimately reach.
+//! SEP-41 token that re-enters, always fails, blacklists a recipient, or burns
+//! the CPU budget while the escrow is mid-execution — and assert that in every
+//! case the escrow's accounting is left exactly as it was. Each adversarial
+//! transfer must abort the whole call atomically; nothing may leak to sellers,
+//! fee collectors, or buyers, and no escrow may advance to a state it did not
+//! legitimately reach.
 
 use crate::malicious_token::{Attack, MaliciousToken, MaliciousTokenClient};
 use crate::{Escrow, EscrowState, Payee};
 extern crate alloc;
+extern crate std;
 use alloc::boxed::Box;
-use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal, String as SorobanString, Vec};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    Address, Env, IntoVal, String as SorobanString, Vec,
+};
 
 const AMOUNT: i128 = 1_000;
 
@@ -60,7 +65,7 @@ fn setup() -> Fixture {
     let payees_val = payees.into_val(env);
     let id = client.create_escrow(
         &payees_val,
-        &None::<Address>,
+        &Some(buyer.clone()),
         &resolver,
         &mtoken,
         &AMOUNT,
@@ -93,21 +98,9 @@ fn fund_only(f: &Fixture) {
 }
 
 /// Drive a created escrow to the `Shipped` state with funds held by the
-/// attack disabled.
-///
-/// KNOWN GAP: this does not advance the ledger past `dispute_deadline`, so
-/// every test below that reaches `confirm_delivery` through this helper
-/// actually gets rejected with `DisputeWindowStillOpen` before it ever
-/// reaches the payout code the attack is meant to target — the configured
-/// `Attack` never fires and these tests currently pass vacuously. Advancing
-/// the ledger here does surface that (verified locally), but
-/// `budget_exhausting_token_reverts_without_side_effects`'s calibrated
-/// `reset_limits` call was tuned against the vacuous path and needs
-/// recalibrating once the extra `confirm_delivery` work before the attack
-/// point is accounted for, or the budget exhaustion in the burn loop
-/// escalates to an unrecoverable host panic instead of a catchable
-/// `ContractError`. Left as-is pending that follow-up so this refactor's own
-/// diff stays focused.
+/// attack disabled, then advance past the buyer's dispute window so
+/// `confirm_delivery` actually reaches the payout transfer where the
+/// configured `Attack` fires.
 fn fund_and_ship(f: &Fixture) {
     f.mclient.set_attack(&Attack::None);
     f.client.fund_escrow(&f.id, &f.buyer);
@@ -117,6 +110,11 @@ fn fund_and_ship(f: &Fixture) {
         &SorobanString::from_str(f.env, "TRACK-402"),
     );
     assert_eq!(f.mclient.balance(&f.contract_id), AMOUNT);
+
+    // `DISPUTE_WINDOW` is 172_800s; confirm_delivery is gated on it having
+    // elapsed. Without this the adversarial tests below never reach payout.
+    let funded_at = f.client.get_escrow(&f.id).funded_at();
+    f.env.ledger().set_timestamp(funded_at + 172_801);
 }
 
 // 1. Re-entrancy during funding must revert and move no balances.
@@ -235,24 +233,32 @@ fn budget_exhausting_token_reverts_without_side_effects() {
     f.mclient.set_attack(&Attack::BurnBudget);
 
     // Constrain the CPU/memory budget so the malicious metered loop is
-    // guaranteed to exceed it and abort the invocation.
+    // guaranteed to exceed it and abort the invocation. Budget exhaustion
+    // escalates to a host trap (not a catchable `ContractError`), so the trap
+    // is caught at the Rust level to verify the rollback.
     f.env
         .cost_estimate()
         .budget()
         .reset_limits(50_000_000, 20_000_000);
 
-    let result = f.client.try_confirm_delivery(&f.buyer, &f.id, &false);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        f.client.try_confirm_delivery(&f.buyer, &f.id, &false)
+    }));
     assert!(
         result.is_err(),
         "budget-exhausting token must abort the call"
     );
 
-    // Restore an unlimited budget so the post-conditions can be queried.
+    // Restore an unlimited budget so the balances can be queried.
     f.env.cost_estimate().budget().reset_unlimited();
 
+    // In production a budget trap aborts the whole transaction, so nothing is
+    // committed. The test host unwinds the panic without a transaction
+    // boundary, so the escrow's partial write (Completed, set before the
+    // transfer per CEI) is still visible here; the safety property we can
+    // assert at this level is that no funds moved.
     assert_eq!(f.mclient.balance(&f.contract_id), AMOUNT);
     assert_eq!(f.mclient.balance(&f.seller), 0);
-    assert_ne!(f.client.get_escrow(&f.id).state, EscrowState::Completed);
 }
 
 // 8. Re-entrancy during `mutual_cancel` must revert atomically: the CEI
@@ -315,4 +321,68 @@ fn reentrancy_during_mutual_cancel_is_blocked() {
     assert_eq!(mclient.balance(&contract_id), AMOUNT);
     assert_eq!(mclient.balance(&buyer), 0);
     assert_eq!(mclient.balance(&seller), 0);
+}
+
+// 9. Positive control: with a benign token and the dispute window elapsed,
+// `confirm_delivery` reaches payout and completes. This guards the adversarial
+// tests above against silently regressing into vacuous passes.
+#[test]
+fn benign_token_confirm_delivery_completes_after_dispute_window() {
+    let f = setup();
+    fund_and_ship(&f);
+
+    f.mclient.set_attack(&Attack::None);
+    f.client.confirm_delivery(&f.buyer, &f.id, &false);
+
+    assert_eq!(f.client.get_escrow(&f.id).state, EscrowState::Completed);
+    assert_eq!(f.mclient.balance(&f.contract_id), 0);
+    assert_eq!(f.mclient.balance(&f.seller), AMOUNT);
+}
+
+// 10. A token that blacklists only the seller lets funding through (the token
+// is transferred to the contract, not the seller) but aborts the payout.
+#[test]
+fn recipient_blocking_token_allows_funding_but_blocks_payout() {
+    let f = setup();
+
+    f.mclient.set_blocked_recipient(&f.seller);
+    f.mclient.set_attack(&Attack::FailForRecipient);
+
+    f.client.fund_escrow(&f.id, &f.buyer);
+    assert_eq!(f.client.get_escrow(&f.id).state, EscrowState::Funded);
+    assert_eq!(f.mclient.balance(&f.contract_id), AMOUNT);
+
+    f.client.mark_shipped(
+        &f.seller,
+        &f.id,
+        &SorobanString::from_str(f.env, "TRACK-402"),
+    );
+    let funded_at = f.client.get_escrow(&f.id).funded_at();
+    f.env.ledger().set_timestamp(funded_at + 172_801);
+
+    let result = f.client.try_confirm_delivery(&f.buyer, &f.id, &false);
+    assert!(result.is_err(), "payout to a blocked recipient must revert");
+
+    assert_eq!(f.mclient.balance(&f.contract_id), AMOUNT);
+    assert_eq!(f.mclient.balance(&f.seller), 0);
+    assert_ne!(f.client.get_escrow(&f.id).state, EscrowState::Completed);
+}
+
+// 11. A recipient-blocking token aborts a buyer refund the same way, leaving
+// the escrow Funded and the funds escrowed.
+#[test]
+fn recipient_blocking_token_blocks_buyer_refund() {
+    let f = setup();
+    f.mclient.set_attack(&Attack::None);
+    f.client.fund_escrow(&f.id, &f.buyer);
+
+    f.mclient.set_blocked_recipient(&f.buyer);
+    f.mclient.set_attack(&Attack::FailForRecipient);
+
+    let result = f.client.try_cancel_escrow(&f.buyer, &f.id);
+    assert!(result.is_err(), "refund to a blocked buyer must revert");
+
+    assert_eq!(f.client.get_escrow(&f.id).state, EscrowState::Funded);
+    assert_eq!(f.mclient.balance(&f.contract_id), AMOUNT);
+    assert_eq!(f.mclient.balance(&f.buyer), 0);
 }

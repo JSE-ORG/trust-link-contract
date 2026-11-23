@@ -369,6 +369,9 @@ pub struct DisputeData {
     /// appeal rounds cannot charge again — even when the recorded fees were
     /// zero and the global fee config has since been raised.
     pub fees_charged: bool,
+    /// Resolvers compensated from `resolver_fee` (the voters who backed the
+    /// winning resolution); empty until fees are charged.
+    pub compensated_resolvers: Vec<Address>,
 }
 
 impl DisputeData {

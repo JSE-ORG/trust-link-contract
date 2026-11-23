@@ -111,8 +111,14 @@ const MIN_APPEAL_FEE_BPS: u32 = 10;
 /// opts in.
 const DEFAULT_APPEAL_FEE_BPS: u32 = 0;
 
-/// Minimum escrow amount in stroops.
-/// Keeps the contract from accepting zero or negative escrows.
+/// Default minimum escrow amount in stroops.
+///
+/// This is only the **default**: the canonical bound enforced by
+/// `create_escrow` and `create_basket_escrow` is `GlobalConfig::min_amount`,
+/// which is seeded from this constant by `storage::default_global_config` and
+/// can be changed by the admin through `set_amount_limits`. Validation always
+/// reads the stored config, so this constant alone does not describe what an
+/// initialized contract accepts.
 pub const MIN_ESCROW_AMOUNT: i128 = 1;
 
 /// Length of the dispute window in seconds (`172_800` = 48 hours).
@@ -230,9 +236,14 @@ pub const MAX_IDS_PER_QUERY: u32 = 50;
 /// and `get_escrows_by_seller`, regardless of the caller-supplied `limit`.
 pub const MAX_ESCROWS_PER_PAGE: u64 = 50;
 
-/// Maximum escrow amount intentionally capped to
-/// preserve arithmetic safety for fee calculations
-/// and aggregate accounting operations.
+/// Default maximum escrow amount, capped to preserve arithmetic safety for fee
+/// calculations and aggregate accounting operations.
+///
+/// Like [`MIN_ESCROW_AMOUNT`], this is only the **default**. The canonical
+/// bound is `GlobalConfig::max_amount` (seeded from this constant by
+/// `storage::default_global_config`), and the admin may lower or raise it with
+/// `set_amount_limits`; validation reads the stored config rather than this
+/// constant.
 pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 10_000;
 
 #[contract]
@@ -241,6 +252,12 @@ pub struct Escrow;
 /// Default maximum number of appeals allowed per dispute. Admin can override
 /// via `queue_set_max_appeals` / `execute_set_max_appeals`.
 pub const MAX_APPEALS: u32 = 3;
+
+/// Upper bound on the appeal-fee escalation multiplier. Round `n` (1-based)
+/// charges `n * appeal_fee_bps`; `MAX_MAX_APPEALS + 1` is the largest multiplier
+/// reachable under the configurable appeal cap, and the escalated rate is
+/// additionally capped at `BASIS_POINTS` (100%).
+pub const MAX_APPEAL_FEE_MULTIPLIER: u32 = MAX_MAX_APPEALS + 1;
 
 /// Minimum value accepted by `set_max_appeals`.
 pub const MIN_MAX_APPEALS: u32 = 1;
@@ -415,6 +432,7 @@ mod test_fee_property_invariants;
 mod test_fee_snapshot;
 mod test_fee_update;
 mod test_finalize_dispute_appeal_boundary;
+mod test_gas_profile;
 mod test_get_escrows_by_buyer;
 mod test_get_escrows_by_ids;
 mod test_get_escrows_by_seller;
@@ -446,6 +464,7 @@ mod test_shipping_window;
 mod test_state_flow_fixes;
 mod test_state_history;
 mod test_storage_collision;
+mod test_storage_differential;
 mod test_string_length;
 mod test_token_allowlist;
 mod test_ttl;
