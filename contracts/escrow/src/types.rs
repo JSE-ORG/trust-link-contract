@@ -104,6 +104,8 @@ pub enum DataKey {
     /// `ResolverStrict` and `RecoveryMode` keys, which are kept only so
     /// pre-v2 deployments can still be read and migrated.
     GlobalConfig,
+    /// Marks a proposal invalidated by an admin rotation until its slot is requeued.
+    InvalidatedTimelockOp(u32),
 }
 
 /// A token-amount pair for multi-token basket escrows.

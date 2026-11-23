@@ -1558,6 +1558,32 @@ pub fn emit_timelock_cancelled(env: &Env, operation: u32, proposer: Address, can
     );
 }
 
+/// Companion to `TimelockCancelled` for automatic admin-rotation cancellations.
+/// Kept separate so the existing cancellation event payload remains compatible.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimelockCancellationReason {
+    pub schema_version: u32,
+    pub operation: u32,
+    pub proposer: Address,
+    pub reason: Symbol,
+    pub cancelled_at: u64,
+}
+
+/// Topic: `(Timelock, CancelWhy)`. The reason is `AdmChange` on rotation.
+pub fn emit_timelock_admin_mismatch(env: &Env, operation: u32, proposer: Address) {
+    env.events().publish(
+        (symbol_short!("Timelock"), symbol_short!("CancelWhy")),
+        TimelockCancellationReason {
+            schema_version: EVENT_SCHEMA_VERSION,
+            operation,
+            proposer,
+            reason: symbol_short!("AdmChange"),
+            cancelled_at: env.ledger().timestamp(),
+        },
+    );
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MaxAppealsUpdated {
