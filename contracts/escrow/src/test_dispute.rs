@@ -797,6 +797,8 @@ fn evidence_log_is_capped() {
         fx.client.get_dispute_evidence(&fx.id).len(),
         crate::MAX_EVIDENCE_ENTRIES
     );
+}
+
 /// Issue #1206: an all-zero evidence hash is rejected; non-zero digests pass.
 #[test]
 fn test_raise_dispute_rejects_all_zero_evidence_hash() {

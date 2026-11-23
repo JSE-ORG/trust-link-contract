@@ -169,6 +169,28 @@ fn execute_timelock_op(
     Ok(proposal)
 }
 
+/// Purges every queued timelock proposal when the admin key rotates (#1234).
+///
+/// The numeric discriminants are append-only (see [`TimelockOperation`]), so
+/// iterating `1..=SetTimelockDelay` covers all currently queued operations;
+/// bump the upper bound when a new variant is appended. A `TimelockCancelled`
+/// event is emitted for each removed proposal so indexers can immediately
+/// update governance status for the old key.
+///
+/// `execute_timelock_op` already rejects a proposal whose `proposer` is no
+/// longer the current admin, so this cannot make a stale proposal executable;
+/// its purpose is to leave the incoming admin a clean governance slate and to
+/// make the cancellation observable. `canceller` is the incoming admin (the
+/// party whose rotation causes the purge).
+fn clear_all_timelock_proposals(env: &Env, canceller: &Address) {
+    for operation in 1..=(TimelockOperation::SetTimelockDelay as u32) {
+        if let Some(proposal) = storage::read_timelock_proposal(env, operation) {
+            storage::remove_timelock_proposal(env, operation);
+            emit_timelock_cancelled(env, operation, proposal.proposer, canceller.clone());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -977,6 +999,9 @@ impl Escrow {
             return Err(ContractError::SameAddress);
         }
         env.storage().instance().set(&DataKey::Admin, &new_admin);
+        // #1234: the incoming admin must not inherit any queued changes from
+        // the predecessor (fee changes, upgrades, allowlist edits, …).
+        clear_all_timelock_proposals(&env, &new_admin);
         emit_admin_rotated(&env, old_admin, new_admin);
         Ok(())
     }
@@ -1752,6 +1777,8 @@ impl Escrow {
             return Err(ContractError::SameAddress);
         }
         env.storage().instance().set(&DataKey::Admin, &new_admin);
+        // Same invariant as the timelocked `execute_set_admin` path (#1234).
+        clear_all_timelock_proposals(&env, &new_admin);
         emit_admin_rotated(&env, old_admin, new_admin);
         Ok(())
     }

@@ -113,6 +113,11 @@ pub enum DataKey {
     /// `ResolverStrict` and `RecoveryMode` keys, which are kept only so
     /// pre-v2 deployments can still be read and migrated.
     GlobalConfig,
+    /// Capacity-bounded basket value ([`BoundedBasket`]). Written by
+    /// `save_basket_tokens`; the legacy `BasketTokens(u64)` key holds the old
+    /// unbounded `Vec<TokenEntry>` layout and is read/migrated on first load,
+    /// so deploying this change does not require an explicit storage migration.
+    BasketTokensV2(u64),
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -121,6 +126,70 @@ pub enum DataKey {
 pub struct TokenEntry {
     pub token: Address,
     pub amount: i128,
+}
+
+/// Hard capacity of a stored basket, mirroring the on-chain
+/// [`crate::MAX_BASKET_SIZE`] ceiling.
+///
+/// The issue that introduced this wrapper described a capacity of 10; the
+/// contract's hard ceiling has since grown to 20, so the type bound tracks the
+/// canonical constant rather than a stale literal. Governance can tighten the
+/// effective limit further via `MaxBasketSize`, but never beyond this bound.
+pub const BASKET_CAPACITY: u32 = crate::MAX_BASKET_SIZE;
+
+/// A capacity-bounded wrapper around `Vec<TokenEntry>` for basket storage.
+///
+/// Stored as a single-field `#[contracttype]` struct instead of a bare,
+/// unbounded `Vec`, so the XDR shape is explicit and capacity is checked at
+/// every construction point. Together with the bounded helper methods this
+/// keeps host metering predictable for basket reads/writes and removes the
+/// unbounded-vector length prefix from the storage value.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundedBasket {
+    pub inner: Vec<TokenEntry>,
+}
+
+impl BoundedBasket {
+    /// Constructs a basket, rejecting oversized vectors (defence in depth for
+    /// the `create_basket_escrow` size checks).
+    pub fn try_new(inner: Vec<TokenEntry>) -> Result<Self, crate::ContractError> {
+        if inner.len() > BASKET_CAPACITY {
+            return Err(crate::ContractError::BasketTokenMismatch);
+        }
+        Ok(Self { inner })
+    }
+
+    /// Constructs a trusted basket (e.g. one just validated by the caller).
+    /// Storage-boundary code uses [`Self::try_new`] instead.
+    ///
+    /// # Panics
+    /// Panics if `inner` has more than [`BASKET_CAPACITY`] entries. Callers
+    /// holding untrusted vectors must use [`Self::try_new`].
+    pub fn new(inner: Vec<TokenEntry>) -> Self {
+        assert!(
+            inner.len() <= BASKET_CAPACITY,
+            "basket exceeds BASKET_CAPACITY"
+        );
+        Self { inner }
+    }
+
+    pub fn get(&self, i: u32) -> Option<TokenEntry> {
+        self.inner.get(i)
+    }
+
+    pub fn len(&self) -> u32 {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Returns the underlying vector (for public queries and legacy migration).
+    pub fn into_inner(self) -> Vec<TokenEntry> {
+        self.inner
+    }
 }
 
 /// Pledged versus custodied balance for one basket token.

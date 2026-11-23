@@ -25,10 +25,10 @@ mod queries;
 pub use crate::errors::ContractError;
 pub use crate::events::*;
 pub use crate::types::{
-    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, Escrow as EscrowData,
-    EscrowInput, EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee, PublicContractConfig,
-    ResolutionType, ResolverSet, ResolverVote, TimelockOperation, TimelockProposal,
-    TokenBalanceInfo, TokenEntry,
+    BoundedBasket, ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus,
+    Escrow as EscrowData, EscrowInput, EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee,
+    PublicContractConfig, ResolutionType, ResolverSet, ResolverVote, TimelockOperation,
+    TimelockProposal, TokenBalanceInfo, TokenEntry, BASKET_CAPACITY,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
@@ -412,6 +412,7 @@ mod test_auth_matrix;
 mod test_auth_ordering;
 mod test_auto_release;
 mod test_basket_escrow;
+mod test_bounded_basket;
 mod test_cancel_restrictions;
 mod test_co_signed_release;
 mod test_concurrent_vendor_escrows;

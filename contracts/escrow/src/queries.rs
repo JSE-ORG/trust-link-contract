@@ -64,8 +64,10 @@ impl Escrow {
         if load_escrow(&env, escrow_id).is_err() {
             return None;
         }
-        // Return Some(Vec) - empty for single-token, populated for basket
-        Some(load_basket_tokens(&env, escrow_id))
+        // Return Some(Vec) - empty for single-token, populated for basket.
+        // The query ABI stays `Vec<TokenEntry>`; the bounded wrapper is an
+        // internal storage representation only.
+        Some(load_basket_tokens(&env, escrow_id).into_inner())
     }
 
     /// Returns pledged versus custodied balances for every token in a basket

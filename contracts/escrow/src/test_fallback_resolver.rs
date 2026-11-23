@@ -751,7 +751,7 @@ fn test_fallback_backup_resolves_appeal_clears_votes_primary_reresolves() {
     assert_eq!(votes.get(0).unwrap().resolver, setup.backup);
     let dispute = client.get_dispute(&escrow_id).unwrap();
     assert_eq!(dispute.resolved_by, Some(setup.backup.clone()));
-    assert_eq!(dispute.resolution, ResolutionType::Refund as u32);
+    assert_eq!(dispute.get_resolution(), Some(ResolutionType::Refund));
 
     // Seller appeals inside the appeal window.
     client.appeal_dispute(&setup.seller, &escrow_id);
@@ -778,7 +778,7 @@ fn test_fallback_backup_resolves_appeal_clears_votes_primary_reresolves() {
     assert_eq!(vote.resolution, ResolutionType::Release);
     let dispute = client.get_dispute(&escrow_id).unwrap();
     assert_eq!(dispute.resolved_by, Some(setup.primary.clone()));
-    assert_eq!(dispute.resolution, ResolutionType::Release as u32);
+    assert_eq!(dispute.get_resolution(), Some(ResolutionType::Release));
 
     // Finalize round 2: the seller is paid, not the buyer.
     setup

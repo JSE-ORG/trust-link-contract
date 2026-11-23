@@ -717,8 +717,13 @@ pub(crate) fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractEr
     Ok(dispute)
 }
 
-pub(crate) fn save_basket_tokens(env: &Env, escrow_id: u64, tokens: &soroban_sdk::Vec<TokenEntry>) {
-    let key = DataKey::BasketTokens(escrow_id);
+/// Persists a basket as a single capacity-bounded XDR value (issue #1232).
+///
+/// Writes go to the V2 key so that existing deployments keep reading their
+/// legacy `BasketTokens(u64)` vectors unchanged until [`load_basket_tokens`]
+/// migrates them on first access.
+pub(crate) fn save_basket_tokens(env: &Env, escrow_id: u64, tokens: &BoundedBasket) {
+    let key = DataKey::BasketTokensV2(escrow_id);
     let ext = get_ttl_extension(env);
     env.storage().persistent().set(&key, tokens);
     env.storage()
@@ -726,18 +731,42 @@ pub(crate) fn save_basket_tokens(env: &Env, escrow_id: u64, tokens: &soroban_sdk
         .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
-pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<TokenEntry> {
-    let key = DataKey::BasketTokens(escrow_id);
-    match env.storage().persistent().get(&key) {
-        Some(tokens) => {
-            let ext = get_ttl_extension(env);
-            env.storage()
-                .persistent()
-                .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
-            tokens
-        }
-        None => soroban_sdk::Vec::new(env),
+/// Loads a basket, transparently migrating the legacy unbounded-vector layout.
+///
+/// The V2 key takes precedence. When only the legacy key exists, its value is
+/// decoded as `Vec<TokenEntry>`, wrapped in a [`BoundedBasket`], written under
+/// V2 and the stale key removed. This keeps deployed state readable without an
+/// explicit migration transaction.
+pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> BoundedBasket {
+    let key = DataKey::BasketTokensV2(escrow_id);
+    let ext = get_ttl_extension(env);
+    if let Some(basket) = env.storage().persistent().get(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
+        return basket;
     }
+
+    let legacy_key = DataKey::BasketTokens(escrow_id);
+    if !env.storage().persistent().has(&legacy_key) {
+        // No basket data at all (single-token escrow): do not write a V2
+        // entry — that would add a storage write to every funding.
+        return BoundedBasket::new(soroban_sdk::Vec::new(env));
+    }
+    let legacy: soroban_sdk::Vec<TokenEntry> = env
+        .storage()
+        .persistent()
+        .get(&legacy_key)
+        .unwrap_or_else(|| soroban_sdk::Vec::new(env));
+    // `new` asserts capacity: a legacy basket larger than the hard ceiling
+    // cannot exist, and silently dropping entries would lose funds.
+    let basket = BoundedBasket::new(legacy);
+    env.storage().persistent().set(&key, &basket);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
+    env.storage().persistent().remove(&legacy_key);
+    basket
 }
 
 /// Drops any pending admin delivery proposal (`propose_record_delivery`).
@@ -1018,37 +1047,6 @@ pub(crate) fn payout_basket_tokens(
                 crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);
             }
         }
-    }
-    Ok(())
-}
-
-/// Distributes every non-primary basket token across `payees` in proportion to
-/// their basis points.
-///
-/// This is the multi-payee counterpart to [`payout_basket_tokens`]: instead of
-/// sending 100% of each secondary token to one address, it reuses
-/// [`distribute_to_payees`] so every payee receives its configured share and
-/// any rounding dust is awarded to the primary payee. Used by the release
-/// paths (`confirm_delivery`, `auto_release`, `co_signed_release`, and a
-/// `Release` dispute resolution); refund paths keep the single-recipient
-/// behaviour.
-pub(crate) fn distribute_basket_tokens(
-    env: &Env,
-    escrow_id: u64,
-    payees: &BoundedPayees,
-) -> Result<(), ContractError> {
-    let escrow = load_escrow(env, escrow_id)?;
-    let primary_token = &escrow.token;
-    let basket_tokens = load_basket_tokens(env, escrow_id);
-    for i in 0..basket_tokens.len() {
-        let entry = basket_tokens
-            .get(i)
-            .ok_or(ContractError::BasketIndexOutOfBounds)?;
-        // The primary token is settled by the caller before this helper runs.
-        if !is_transferable_basket_entry(&entry, primary_token) {
-            continue;
-        }
-        distribute_to_payees(env, &entry.token, payees, entry.amount)?;
     }
     Ok(())
 }

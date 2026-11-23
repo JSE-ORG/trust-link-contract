@@ -2,6 +2,7 @@
 //! and finalization.
 
 use crate::internal::*;
+use crate::types::EvidenceEntry;
 use crate::*;
 use soroban_sdk::{contractimpl, token, Address, Bytes, BytesN, Env, Symbol, Vec};
 

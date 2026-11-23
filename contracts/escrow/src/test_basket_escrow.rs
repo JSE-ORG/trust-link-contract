@@ -472,13 +472,17 @@ fn fund_basket_escrow_rejects_empty_basket_with_basket_token_mismatch() {
         &0_u64,
     );
 
-    // Simulate a corrupt/empty basket: clear the stored token entries directly.
+    // Simulate a corrupt/empty basket: clear the bounded storage value directly.
     fx.env.as_contract(&fx.contract_id, || {
-        let empty: Vec<crate::TokenEntry> = Vec::new(&fx.env);
+        let empty = crate::BoundedBasket::new(Vec::new(&fx.env));
         fx.env
             .storage()
             .persistent()
-            .set(&crate::DataKey::BasketTokens(escrow_id), &empty);
+            .set(&crate::DataKey::BasketTokensV2(escrow_id), &empty);
+        fx.env
+            .storage()
+            .persistent()
+            .remove(&crate::DataKey::BasketTokens(escrow_id));
     });
 
     let result = client.try_fund_basket_escrow(&escrow_id, &fx.buyer);
@@ -1694,7 +1698,7 @@ fn refund_paths_return_gross_basket_tokens_without_fees() {
 /// the primary at index 0 — must be allowlisted. A single unapproved token
 /// rejects the entire basket with `TokenNotAllowed`.
 #[test]
-fn create_basket_escrow_rejects_unallowlisted_secondary_token() {
+fn create_basket_escrow_rejects_unallowlisted_secondary_token_additional_case() {
     let fx = setup();
     let admin = Address::generate(&fx.env);
     let fee_collector = Address::generate(&fx.env);
@@ -1745,7 +1749,7 @@ fn create_basket_escrow_rejects_unallowlisted_secondary_token() {
 /// With the allowlist disabled (the default), basket creation stays a no-op
 /// for token gating and accepts any token set.
 #[test]
-fn create_basket_escrow_accepts_any_token_when_allowlist_disabled() {
+fn create_basket_escrow_accepts_any_token_when_allowlist_disabled_additional_case() {
     let fx = setup();
     let client = EscrowClient::new(&fx.env, &fx.contract_id);
     let a = make_token(&fx.env);
@@ -1774,7 +1778,7 @@ fn create_basket_escrow_accepts_any_token_when_allowlist_disabled() {
 /// shortfall with its post-transfer balance check and abort the whole
 /// invocation, rolling back the transfers that already succeeded.
 #[test]
-fn fund_basket_escrow_rejects_fee_on_transfer_token_and_rolls_back() {
+fn fund_basket_escrow_rejects_fee_on_transfer_token_and_rolls_back_additional_case() {
     let fx = setup();
     let client = EscrowClient::new(&fx.env, &fx.contract_id);
     let primary = make_token(&fx.env);

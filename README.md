@@ -729,9 +729,15 @@ The pause behavior is tested in `test_pause.rs` and corresponding snapshots.
 
 ### 7.2 Admin rotation
 
-Admin rotation is performed by `set_admin(new_admin)`.
+Admin rotation is performed by `queue_set_admin(new_admin)` followed by
+`execute_set_admin(new_admin)` after the timelock delay (the `set_admin(new_admin)`
+helper exists only in test builds).
 
-Only the current admin can rotate; rotation emits an `AdminRotated` event.
+Only the current admin can queue a rotation; rotation emits an `AdminRotated`
+event. As part of the rotation every queued timelock proposal from the previous
+admin is purged from storage and a `TimelockCancelled` event is emitted for each
+one, so the incoming admin starts with a clean governance slate. See
+[ADMIN.md → Automatic invalidation on admin rotation](ADMIN.md#automatic-invalidation-on-admin-rotation).
 
 This is useful to recover from lost keys and to evolve operational security posture.
 

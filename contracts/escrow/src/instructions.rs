@@ -1510,7 +1510,7 @@ impl Escrow {
             let amount = amounts.get(i).ok_or(ContractError::IndexOutOfBounds)?;
             basket_entries.push_back(TokenEntry { token, amount });
         }
-        save_basket_tokens(&env, escrow_id, &basket_entries);
+        save_basket_tokens(&env, escrow_id, &BoundedBasket::try_new(basket_entries)?);
 
         if let Some(expires_at) = expires_at {
             let schedule = crate::ExpirySchedule {
@@ -1643,6 +1643,37 @@ impl Escrow {
             return Err(ContractError::BasketTokenMismatch);
         }
 
+        // ── EFFECTS: commit the Funded state BEFORE any external call (CEI) ──
+        // Issue #1231: a malicious token in the basket can re-enter this
+        // contract from inside `transfer`. State must therefore already read
+        // `Funded` (and be persisted) by the time we call out to any token,
+        // otherwise a re-entrant `fund_basket_escrow` / `cancel_escrow` sees
+        // a still-`Pending` escrow and can double-fund or race the transition.
+        // Soroban aborts and rolls the whole invocation back on transfer
+        // failure, so this early write is safe: no observer ever sees a Funded
+        // escrow whose transfers did not land.
+        let prev_state = escrow.state.clone();
+        escrow.buyer = Some(buyer.clone());
+        escrow.state = EscrowState::Funded;
+        let dispute_deadline_basket = now
+            .checked_add(DISPUTE_WINDOW)
+            .ok_or(ContractError::ArithmeticError)?;
+        // Pack: high 32 bits = funded_at, low 32 bits = dispute_deadline
+        escrow.packed_timestamps = (now << 32) | (dispute_deadline_basket & 0xFFFF_FFFF);
+
+        // Index the buyer for lookup (paged, bounded per storage entry).
+        storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        // Issue #811: Clear PendingExpiry on funding so `ensure_not_expired`
+        // does not block operations on Funded escrows once the pending window
+        // has passed (same ordering as `fund_escrow`).
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingExpiry(escrow_id));
+        emit_pending_expiry_cleared(&env, escrow_id);
+
+        // ── INTERACTIONS: external token transfers ──
         let contract_addr = env.current_contract_address();
 
         // ── PRE-TRANSFER BALANCE SNAPSHOT (Issue #1221) ──
@@ -1663,6 +1694,9 @@ impl Escrow {
             starting_balances.push_back(balance);
         }
 
+        // Exactly one pull per token. A second `transfer_helper` here would
+        // double-charge the buyer (and left `InsufficientBalance` unreachable
+        // for honestly minted buyers).
         for i in 0..basket_tokens.len() {
             let entry = basket_tokens
                 .get(i)
@@ -1692,36 +1726,7 @@ impl Escrow {
             if current < expected {
                 return Err(ContractError::InsufficientBalance);
             }
-            transfer_helper(
-                &env,
-                &entry.token,
-                &buyer,
-                &env.current_contract_address(),
-                entry.amount,
-            );
         }
-
-        let prev_state = escrow.state.clone();
-        escrow.buyer = Some(buyer.clone());
-        escrow.state = EscrowState::Funded;
-        let dispute_deadline_basket = now
-            .checked_add(DISPUTE_WINDOW)
-            .ok_or(ContractError::ArithmeticError)?;
-        // Pack: high 32 bits = funded_at, low 32 bits = dispute_deadline
-        escrow.packed_timestamps = (now << 32) | (dispute_deadline_basket & 0xFFFF_FFFF);
-
-        // Index the buyer for lookup (paged, bounded per storage entry).
-        storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
-
-        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-
-        // Issue #811: Clear PendingExpiry after successful funding. Mirrors fix in
-        // fund_escrow to prevent ensure_not_expired from incorrectly blocking operations
-        // on Funded escrows when the Pending timeout window has passed.
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PendingExpiry(escrow_id));
-        emit_pending_expiry_cleared(&env, escrow_id);
 
         // Build basket_tokens event data (always Some for basket escrows)
         let mut basket_event_tuples = soroban_sdk::Vec::new(&env);
