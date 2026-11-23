@@ -1694,7 +1694,7 @@ fn refund_paths_return_gross_basket_tokens_without_fees() {
 /// the primary at index 0 — must be allowlisted. A single unapproved token
 /// rejects the entire basket with `TokenNotAllowed`.
 #[test]
-fn create_basket_escrow_rejects_unallowlisted_secondary_token() {
+fn create_basket_escrow_rejects_unallowlisted_secondary_token_additional_case() {
     let fx = setup();
     let admin = Address::generate(&fx.env);
     let fee_collector = Address::generate(&fx.env);
@@ -1745,7 +1745,7 @@ fn create_basket_escrow_rejects_unallowlisted_secondary_token() {
 /// With the allowlist disabled (the default), basket creation stays a no-op
 /// for token gating and accepts any token set.
 #[test]
-fn create_basket_escrow_accepts_any_token_when_allowlist_disabled() {
+fn create_basket_escrow_accepts_any_token_when_allowlist_disabled_additional_case() {
     let fx = setup();
     let client = EscrowClient::new(&fx.env, &fx.contract_id);
     let a = make_token(&fx.env);
@@ -1774,7 +1774,7 @@ fn create_basket_escrow_accepts_any_token_when_allowlist_disabled() {
 /// shortfall with its post-transfer balance check and abort the whole
 /// invocation, rolling back the transfers that already succeeded.
 #[test]
-fn fund_basket_escrow_rejects_fee_on_transfer_token_and_rolls_back() {
+fn fund_basket_escrow_rejects_fee_on_transfer_token_and_rolls_back_additional_case() {
     let fx = setup();
     let client = EscrowClient::new(&fx.env, &fx.contract_id);
     let primary = make_token(&fx.env);

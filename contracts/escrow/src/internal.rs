@@ -1022,37 +1022,6 @@ pub(crate) fn payout_basket_tokens(
     Ok(())
 }
 
-/// Distributes every non-primary basket token across `payees` in proportion to
-/// their basis points.
-///
-/// This is the multi-payee counterpart to [`payout_basket_tokens`]: instead of
-/// sending 100% of each secondary token to one address, it reuses
-/// [`distribute_to_payees`] so every payee receives its configured share and
-/// any rounding dust is awarded to the primary payee. Used by the release
-/// paths (`confirm_delivery`, `auto_release`, `co_signed_release`, and a
-/// `Release` dispute resolution); refund paths keep the single-recipient
-/// behaviour.
-pub(crate) fn distribute_basket_tokens(
-    env: &Env,
-    escrow_id: u64,
-    payees: &BoundedPayees,
-) -> Result<(), ContractError> {
-    let escrow = load_escrow(env, escrow_id)?;
-    let primary_token = &escrow.token;
-    let basket_tokens = load_basket_tokens(env, escrow_id);
-    for i in 0..basket_tokens.len() {
-        let entry = basket_tokens
-            .get(i)
-            .ok_or(ContractError::BasketIndexOutOfBounds)?;
-        // The primary token is settled by the caller before this helper runs.
-        if !is_transferable_basket_entry(&entry, primary_token) {
-            continue;
-        }
-        distribute_to_payees(env, &entry.token, payees, entry.amount)?;
-    }
-    Ok(())
-}
-
 /// State and timing gate for [`Escrow::auto_release`](crate::Escrow::auto_release).
 ///
 /// `auto_release` is permissionless — anyone may call it — so the safety of the

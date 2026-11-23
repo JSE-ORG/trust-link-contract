@@ -1692,13 +1692,6 @@ impl Escrow {
             if current < expected {
                 return Err(ContractError::InsufficientBalance);
             }
-            transfer_helper(
-                &env,
-                &entry.token,
-                &buyer,
-                &env.current_contract_address(),
-                entry.amount,
-            );
         }
 
         let prev_state = escrow.state.clone();

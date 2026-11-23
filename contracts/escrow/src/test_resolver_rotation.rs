@@ -488,10 +488,10 @@ fn admin_sanctions_resolver_during_active_dispute_and_replacement_finalizes() {
     fx.client
         .sanction_resolver(&fx.admin, &fx.escrow_id, &replacement);
 
+    assert!(resolver_sanctioned_emitted(&fx, &fx.resolver, &replacement));
     let escrow = fx.client.get_escrow(&fx.escrow_id);
     assert_eq!(escrow.resolvers, ResolverSet::Single(replacement.clone()));
     assert_eq!(escrow.state, EscrowState::Disputed);
-    assert!(resolver_sanctioned_emitted(&fx, &fx.resolver, &replacement));
 
     // The sanctioned resolver can no longer vote.
     let result =
