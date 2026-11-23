@@ -30,6 +30,11 @@ pub fn get_ttl_extension(env: &Env) -> u32 {
 
 /// Configuration a contract has before any admin setting is written. Each
 /// value matches what the matching pre-v2 key fell back to when absent.
+///
+/// `min_amount`/`max_amount` here are the *defaults* taken from
+/// [`MIN_ESCROW_AMOUNT`]/[`MAX_ESCROW_AMOUNT`]. Once written, the stored
+/// `GlobalConfig` is the canonical source of the amount bounds — the constants
+/// are not consulted during validation.
 pub fn default_global_config() -> GlobalConfig {
     GlobalConfig {
         fee_collector: None,

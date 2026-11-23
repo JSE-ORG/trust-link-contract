@@ -58,7 +58,7 @@ fn setup(env: &Env, threshold: u32, resolver_count: u32) -> MultiSetup {
         &id,
         &symbol_short!("OTHER"),
         &soroban_sdk::Bytes::from_slice(env, b"split committee"),
-        &BytesN::from_array(env, &[0; 32]),
+        &BytesN::from_array(env, &[1; 32]),
     );
 
     MultiSetup {

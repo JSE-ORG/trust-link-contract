@@ -11,6 +11,17 @@ contracts/ @trustlink-core
 Cargo.toml @trustlink-core
 rust-toolchain.toml @trustlink-core
 
+# Workflows, scripts, manifests, and lockfiles
+.github/workflows/** @trustlink-core
+scripts/** @trustlink-core
+*.toml @trustlink-core
+Cargo.lock @trustlink-core
+**/Cargo.lock @trustlink-core
+package-lock.json @trustlink-core
+**/package-lock.json @trustlink-core
+.gitleaks.toml @trustlink-core
+.malware-guard-allowlist.json @trustlink-core
+
 # CI/CD and security
 .github/ @trustlink-core
 SECURITY.md @trustlink-core

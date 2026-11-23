@@ -797,4 +797,45 @@ fn evidence_log_is_capped() {
         fx.client.get_dispute_evidence(&fx.id).len(),
         crate::MAX_EVIDENCE_ENTRIES
     );
+/// Issue #1206: an all-zero evidence hash is rejected; non-zero digests pass.
+#[test]
+fn test_raise_dispute_rejects_all_zero_evidence_hash() {
+    use crate::test_helpers::{create_funded_escrow, setup_contract};
+    use soroban_sdk::{symbol_short, testutils::Address as _, Address, Bytes, BytesN, Env};
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let (_cid, client, _admin, _fc) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1_000, 0, 3600,
+    );
+
+    let zero = BytesN::from_array(&env, &[0u8; 32]);
+    let result = client.try_raise_dispute(
+        &buyer,
+        &id,
+        &symbol_short!("OTHER"),
+        &Bytes::from_slice(&env, b"desc"),
+        &zero,
+    );
+    assert_eq!(result, Err(Ok(crate::ContractError::InvalidEvidenceHash)));
+    assert_eq!(client.get_escrow(&id).state, crate::EscrowState::Funded);
+
+    // A valid, non-zero digest still succeeds.
+    let mut digest = [0u8; 32];
+    digest[31] = 1;
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &symbol_short!("OTHER"),
+        &Bytes::from_slice(&env, b"desc"),
+        &BytesN::from_array(&env, &digest),
+    );
+    assert_eq!(client.get_escrow(&id).state, crate::EscrowState::Disputed);
 }
