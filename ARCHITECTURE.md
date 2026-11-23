@@ -352,66 +352,86 @@ Indexers expecting complete history for high-churn escrows should either:
 
 ## Timelock Permission Model
 
-All admin-level mutations (fee changes, upgrades, resolver registry changes, pause/unpause, TTL extension, token allowlist) are guarded by a **24-hour timelock delay**. This enforces a two-step workflow:
+All admin-level mutations (fee changes, upgrades, resolver registry changes, pause/unpause, TTL extension, token allowlist, the timelock delay itself) are guarded by an **admin timelock delay** (`DataKey::AdminTimelockDelay`, default 24 hours, configurable between 12 hours and 30 days). This enforces a two-step workflow:
 
 1. **Queue**: Admin calls `queue_<operation>(params)` to propose the change.
+   - Requires admin auth.
    - A proposal record is created with:
-     - `proposer`: the address that queued the operation (the calling admin)
-     - `ready_at`: current timestamp + 24-hour delay
-     - `params_hash`: SHA-256 digest of the params vector
+     - `proposer`: the admin that queued the operation
+     - `ready_at`: current timestamp + the current timelock delay (see [Timelock delay changes](#timelock-delay-changes))
+     - `params_hash`: domain-separated hash from `compute_proposal_hash` (below)
    - Emits `emit_timelock_queued` event
 
-2. **Execute**: After 24 hours, **anyone can call** `execute_<operation>(params)` to finalize — this
-   step is permissionless by design (keeper execution). `execute_timelock_op` never calls
-   `caller.require_auth()`; it only checks that the `caller` *value* passed in equals the stored
-   `proposal.proposer`, which is public information (readable from storage and the
-   `TimelockQueued` event). So a keeper, bot, or cron job can submit the transaction on the
-   original proposer's behalf without needing that proposer's signature.
-   - Validates the `caller` argument matches `proposal.proposer` (value check, not an auth check)
-   - Validates the params hash matches the queued proposal
-   - Returns error `NotAuthorized` if `caller != proposal.proposer`
-   - Deletes the proposal record and applies the operation
-   - Emits `emit_timelock_executed` event
+2. **Execute**: Once `ready_at` has passed, **any address** can call `execute_<operation>(caller, params)` — the admin, a keeper bot, a cron job (#1235). The admin's authorization was captured at queue time, so execution needs no admin signature. `execute_timelock_op` checks, in order:
+   - `caller.require_auth()` — the *executor* signs for its own address, so the recorded executor is authentic
+   - a proposal is queued for the operation, else `InvalidState`
+   - `now >= proposal.ready_at`, else `TimelockNotElapsed`
+   - `proposal.proposer` is the **current** admin, else `NotAuthorized` (a proposal from a rotated-out admin never executes)
+   - `compute_proposal_hash(operation, params)` equals `proposal.params_hash`, else `InvalidProposalHash`
+   - Deletes the proposal record, applies the operation, and emits `TimelockExecuted { proposer, executor, params, .. }`. `executor == proposer` means the admin executed it; `executor != proposer` means a keeper did.
 
 3. **Cancel**: The **current admin** can cancel any pending proposal via `cancel_timelock_op(operation)`.
    - Requires admin auth; non-admin callers rejected with `NotAuthorized`
-   - Allows admins to cancel accidental or superseded proposals
+   - Allows admins to cancel accidental, superseded, or orphaned proposals
    - Emits `emit_timelock_cancelled` event
 
 ### Permission Summary
 
 | Operation | Queue | Execute | Cancel |
 |---|---|---|---|
-| `queue_*` (any mutation) | Current admin | **Anyone** (permissionless keeper execution, after 24h, if `caller` == stored `proposal.proposer`) | Current admin |
+| `queue_*` (any mutation) | Current admin | **Anyone** who signs for their own address, after `ready_at`, while the proposer is still admin | Current admin |
 | `cancel_timelock_op` | — | Current admin only (`require_auth` + admin check) | — |
+
+### Proposal hash (domain separation)
+
+`compute_proposal_hash(env, operation, params)` hashes
+`params.to_xdr() || current_contract_address().to_xdr() || (operation as u32).to_xdr()`
+with SHA-256 (#1236). Binding the hash to the contract address and the operation code means:
+
+- the same parameter vector queued for two different operations (e.g. `SetPlatformFee(50)` and `SetArbitrationFee(50)`) produces two different hashes;
+- a proposal record copied into, or replayed against, another escrow instance does not verify there.
+
+Both queue and execute use the same helper, and a mismatch is `InvalidProposalHash`.
+
+### Timelock delay changes
+
+`queue_set_timelock_delay(new_delay)` rejects values outside `MIN_TIMELOCK_DELAY_SECONDS..=MAX_TIMELOCK_DELAY_SECONDS` with `InvalidTimelockDelay`. Otherwise the change itself is queued with a delay of **`max(current_delay, new_delay)`** (#1238):
+
+- **Shortening** (e.g. 24h → 12h) still waits the full *current* 24h, so a briefly compromised admin key cannot collapse the timelock and push a malicious upgrade through the shorter window.
+- **Lengthening** (e.g. 24h → 72h) waits the new 72h.
+- Proposals already queued keep the `ready_at` they were queued with, so a reduction never shortens an in-flight countdown.
+
+Executing early reverts with `TimelockNotElapsed`.
 
 ### Admin Rotation Scenario
 
 If the admin role is rotated before a proposal executes:
 
 - **Old admin** queued a proposal; **new admin** takes over
-- **New admin** cannot execute old admin's proposal *as themselves* — passing their own address
-  as `caller` fails the proposer-value check
-- Execution is permissionless, though: anyone (a keeper) can still execute the old admin's
-  proposal by passing the **old admin's** address as `caller` — there is no `require_auth()` tying
-  execution to the old admin being the one who submits the transaction
-- **New admin** can cancel old admin's proposal via `cancel_timelock_op`
-- **New admin** must queue their own proposal and wait the full 24-hour delay
-
-This prevents a new admin from substituting their own identity into a prior admin's queued
-proposal; it does not prevent a prior admin's own proposal from being executed by a third party
-after it's ready.
+- The old proposal is **orphaned**: nobody (keeper, new admin, old admin) can execute it, because its proposer is no longer the current admin (`NotAuthorized`)
+- **New admin** can cancel it via `cancel_timelock_op` to free the operation slot
+- **New admin** must queue their own proposal and wait the full delay
 
 ### Implementation
 
-All timelock operations are routed through `execute_timelock_op(env, caller, operation, params)` in `contracts/escrow/src/admin.rs:65–90`. Key validation:
+All timelock operations go through `queue_timelock_op` / `execute_timelock_op` in `contracts/escrow/src/admin.rs`:
 
 ```rust
-// Verify that the caller is the original proposer (#975)
-if *caller != proposal.proposer {
+caller.require_auth(); // executor, may be a keeper
+// ...
+if now < proposal.ready_at {
+    return Err(ContractError::TimelockNotElapsed);
+}
+let admin = require_admin(env)?;
+if proposal.proposer != admin {
     return Err(ContractError::NotAuthorized);
 }
+if compute_proposal_hash(env, operation, &params) != proposal.params_hash {
+    return Err(ContractError::InvalidProposalHash);
+}
 ```
+
+Selected admin entry points can additionally be paused one at a time with `pause_action`; see [ADMIN.md](ADMIN.md#pausable-admin-actions).
 
 ---
 

@@ -4,7 +4,7 @@
 
 use crate::{
     ContractError, Escrow, EscrowClient, EscrowState, Payee, ResolutionType, ResolverRotated,
-    ResolverSet,
+    ResolverSanctioned, ResolverSet,
 };
 use soroban_sdk::{
     symbol_short,
@@ -427,4 +427,161 @@ fn rotation_emits_resolver_rotated_event() {
         resolver_rotated_emitted(&fx, &fx.resolver, &new_resolver),
         "expected a resolver_rotated event with the old and new resolver",
     );
+}
+
+// ── sanction_resolver ───────────────────────────────────────────────────────
+
+/// Returns true if the contract emitted a `resolver_sanctioned` event whose
+/// fields match the expected escrow, old and replacement resolvers.
+fn resolver_sanctioned_emitted(fx: &Fx, old: &Address, replacement: &Address) -> bool {
+    let expected_t1 = symbol_short!("Resolver");
+    let expected_t2 = symbol_short!("Sanction");
+    fx.env
+        .events()
+        .all()
+        .filter_by_contract(&fx.client.address)
+        .events()
+        .iter()
+        .any(|event| match &event.body {
+            soroban_sdk::xdr::ContractEventBody::V0(v0) => {
+                let mut topics = v0.topics.iter();
+                let Some(t1) = topics.next() else {
+                    return false;
+                };
+                let Some(t2) = topics.next() else {
+                    return false;
+                };
+                let Ok(sym1) = Symbol::try_from_val(&fx.env, t1) else {
+                    return false;
+                };
+                let Ok(sym2) = Symbol::try_from_val(&fx.env, t2) else {
+                    return false;
+                };
+                if sym1 != expected_t1 || sym2 != expected_t2 {
+                    return false;
+                }
+                let Ok(data) = Val::try_from_val(&fx.env, &v0.data) else {
+                    return false;
+                };
+                ResolverSanctioned::try_from_val(&fx.env, &data)
+                    .map(|ev| {
+                        ev.escrow_id == fx.escrow_id
+                            && &ev.old_resolver == old
+                            && &ev.replacement_resolver == replacement
+                            && ev.sanctioned_by == fx.admin
+                    })
+                    .unwrap_or(false)
+            }
+        })
+}
+
+/// Admin sanctions a bad resolver mid-dispute: the replacement can vote and
+/// finalize, while the sanctioned resolver is locked out.
+#[test]
+fn admin_sanctions_resolver_during_active_dispute_and_replacement_finalizes() {
+    let fx = setup();
+    drive_to_dispute(&fx);
+
+    let replacement = Address::generate(&fx.env);
+    fx.client.add_approved_resolver(&fx.admin, &replacement);
+
+    fx.client
+        .sanction_resolver(&fx.admin, &fx.escrow_id, &replacement);
+
+    let escrow = fx.client.get_escrow(&fx.escrow_id);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(replacement.clone()));
+    assert_eq!(escrow.state, EscrowState::Disputed);
+    assert!(resolver_sanctioned_emitted(&fx, &fx.resolver, &replacement));
+
+    // The sanctioned resolver can no longer vote.
+    let result =
+        fx.client
+            .try_resolve_dispute(&fx.resolver, &fx.escrow_id, &ResolutionType::Refund);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+
+    // The replacement casts the deciding vote and finalizes.
+    fx.client
+        .vote(&replacement, &fx.escrow_id, &ResolutionType::Release);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + 86401);
+    fx.client.finalize_dispute(&replacement, &fx.escrow_id);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::Completed
+    );
+}
+
+#[test]
+fn sanction_resolver_requires_admin() {
+    let fx = setup();
+    drive_to_dispute(&fx);
+
+    let replacement = Address::generate(&fx.env);
+    fx.client.add_approved_resolver(&fx.admin, &replacement);
+
+    let result = fx
+        .client
+        .try_sanction_resolver(&fx.seller, &fx.escrow_id, &replacement);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+}
+
+#[test]
+fn sanction_resolver_rejects_unapproved_replacement() {
+    let fx = setup();
+    drive_to_dispute(&fx);
+
+    let unapproved = Address::generate(&fx.env);
+    let result = fx
+        .client
+        .try_sanction_resolver(&fx.admin, &fx.escrow_id, &unapproved);
+    assert_eq!(result, Err(Ok(ContractError::UnauthorizedResolver)));
+    // Resolver is unchanged.
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).resolvers,
+        ResolverSet::Single(fx.resolver.clone())
+    );
+}
+
+#[test]
+fn sanction_resolver_rejects_completed_escrow() {
+    let fx = setup();
+    drive_to_dispute(&fx);
+    fx.client
+        .resolve_dispute(&fx.resolver, &fx.escrow_id, &ResolutionType::Release);
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + 86401);
+    fx.client.finalize_dispute(&fx.resolver, &fx.escrow_id);
+
+    let replacement = Address::generate(&fx.env);
+    fx.client.add_approved_resolver(&fx.admin, &replacement);
+    let result = fx
+        .client
+        .try_sanction_resolver(&fx.admin, &fx.escrow_id, &replacement);
+    assert_eq!(result, Err(Ok(ContractError::EscrowAlreadyCompleted)));
+}
+
+#[test]
+fn sanction_resolver_rejects_refunded_escrow() {
+    let fx = setup();
+    drive_to_dispute(&fx);
+    fx.client
+        .resolve_dispute(&fx.resolver, &fx.escrow_id, &ResolutionType::Refund);
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + 86401);
+    fx.client.finalize_dispute(&fx.resolver, &fx.escrow_id);
+
+    let replacement = Address::generate(&fx.env);
+    fx.client.add_approved_resolver(&fx.admin, &replacement);
+    let result = fx
+        .client
+        .try_sanction_resolver(&fx.admin, &fx.escrow_id, &replacement);
+    assert_eq!(result, Err(Ok(ContractError::EscrowAlreadyRefunded)));
 }

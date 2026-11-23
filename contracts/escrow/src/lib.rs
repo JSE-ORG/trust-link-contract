@@ -27,7 +27,8 @@ pub use crate::events::*;
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, Escrow as EscrowData,
     EscrowInput, EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee, PublicContractConfig,
-    ResolutionType, ResolverSet, ResolverVote, TimelockOperation, TimelockProposal, TokenEntry,
+    ResolutionType, ResolverSet, ResolverVote, TimelockOperation, TimelockProposal,
+    TokenBalanceInfo, TokenEntry,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
@@ -178,6 +179,12 @@ pub const MAX_DESCRIPTION_LEN: u32 = 256;
 pub const MAX_NOTES_LEN: u32 = 500;
 pub const MAX_MESSAGE_LEN: u32 = 500;
 pub const MAX_MESSAGES_PER_ESCROW: u32 = 100;
+
+/// Maximum number of additional evidence entries that may be appended to an
+/// escrow's `EvidenceLog` via `submit_dispute_evidence`. Bounds the size of the
+/// single storage entry; the buyer's initial `raise_dispute` evidence is stored
+/// separately on `DisputeData` and does not count toward this cap.
+pub const MAX_EVIDENCE_ENTRIES: u32 = 5;
 
 /// Maximum number of tokens allowed in a basket escrow. Bounds iteration cost
 /// in `save_basket_tokens` and `payout_basket_tokens`, and keeps the basket
