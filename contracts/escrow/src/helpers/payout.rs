@@ -118,23 +118,51 @@ pub struct TransferInstruction {
     pub amount: i128,
 }
 
+/// Computes the transfer allocations for a resolved dispute.
+///
+/// # Fee Basis Alignment (#1250)
+///
+/// `finalize_dispute` computes protocol fees on the **full funded principal**
+/// (`escrow.amount + arbitration_fee + resolver_fee`), reconstructing it from
+/// the already-reduced `escrow.amount`. This function mirrors that basis so
+/// that simulation outputs match on-chain settlement exactly:
+///
+///   fee_basis = escrow.amount + arbitration_fee + resolver_fee
+///   protocol_fee = fee_basis * escrow.fee_bps / 10_000
+///   net = escrow.amount - platform_fee - protocol_fee
+///
+/// The invariant `net + protocol_fee + arbitration_fee + resolver_fee + platform_fee
+/// == fee_basis` holds by construction.
 pub fn calculate_dispute_allocations(
     env: &Env,
     escrow: &Escrow,
     resolution: &ResolutionType,
     arbitration_fee: i128,
+    resolver_fee: i128,
     fee_collector: &Address,
 ) -> Result<Vec<TransferInstruction>, ContractError> {
-    if escrow.amount < arbitration_fee {
-        return Err(ContractError::InsufficientBalance);
+    if escrow.amount < 0 {
+        return Err(ContractError::InvalidAmount);
     }
 
-    let remaining_amount = escrow
+    // Reconstruct the full funded principal — matches finalize_dispute's fee_basis.
+    let fee_basis = escrow
         .amount
-        .checked_sub(arbitration_fee)
+        .checked_add(arbitration_fee)
+        .ok_or(ContractError::AmountCalculationOverflow)?
+        .checked_add(resolver_fee)
         .ok_or(ContractError::AmountCalculationOverflow)?;
 
-    let (fee, net_amount) = calculate_protocol_fee(remaining_amount, escrow.fee_bps)?;
+    let (protocol_fee, _) = calculate_protocol_fee(fee_basis, escrow.fee_bps)?;
+
+    let net_amount = escrow
+        .amount
+        .checked_sub(protocol_fee)
+        .ok_or(ContractError::AmountCalculationOverflow)?;
+
+    if net_amount < 0 {
+        return Err(ContractError::InsufficientBalance);
+    }
 
     let recipient = match resolution {
         ResolutionType::Release => escrow
@@ -155,10 +183,10 @@ pub fn calculate_dispute_allocations(
         amount: net_amount,
     });
 
-    if fee > 0 {
+    if protocol_fee > 0 {
         transfers.push_back(TransferInstruction {
             recipient: fee_collector.clone(),
-            amount: fee,
+            amount: protocol_fee,
         });
     }
 

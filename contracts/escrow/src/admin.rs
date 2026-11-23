@@ -824,6 +824,11 @@ impl Escrow {
         caller: Address,
         new_admin: Address,
     ) -> Result<(), ContractError> {
+        // #1246: Reject self-assignment before consuming the timelock slot.
+        let current_admin = require_admin(&env)?;
+        if new_admin == current_admin {
+            return Err(ContractError::SameAddress);
+        }
         let mut params = Vec::new(&env);
         params.push_back(new_admin.into_val(&env));
         queue_timelock_op(&env, &caller, TimelockOperation::SetAdmin as u32, params)
@@ -876,9 +881,35 @@ impl Escrow {
         }
 
         let admin = require_admin(&env)?;
+
+        // #1245: Append an immutable upgrade record to the on-chain audit ledger
+        // before executing the upgrade so the record reflects the state that
+        // is about to become active.
+        let version = {
+            let mut history: soroban_sdk::Vec<crate::types::UpgradeRecord> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::UpgradeHistory)
+                .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
+            let next_version = u32::try_from(history.len())
+                .unwrap_or(u32::MAX)
+                .saturating_add(1);
+            history.push_back(crate::types::UpgradeRecord {
+                wasm_hash: new_wasm_hash.clone(),
+                upgraded_at: env.ledger().timestamp(),
+                upgraded_by: admin.clone(),
+                version: next_version,
+            });
+            let ext = storage::get_ttl_extension(&env);
+            env.storage().persistent().set(&DataKey::UpgradeHistory, &history);
+            env.storage().persistent().extend_ttl(&DataKey::UpgradeHistory, ext / 2, ext);
+            next_version
+        };
+
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
         emit_contract_upgraded(&env, admin, new_wasm_hash);
+        let _ = version; // version is embedded in the history record
         Ok(())
     }
 
@@ -1729,10 +1760,46 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
+        // #1243: If strict governance mode is active, direct unpause is blocked.
+        // The admin must use queue_unpause_contract → execute_unpause_contract.
+        let flags = storage::read_global_config(&env).state_flags;
+        if flags & crate::types::GLOBAL_CONFIG_FLAG_TIMELOCKED_UNPAUSE_ONLY != 0 {
+            return Err(ContractError::DirectUnpauseBlocked);
+        }
         storage::update_global_config(&env, |c| {
             c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
         });
         emit_contract_unpaused(&env, admin);
+        Ok(())
+    }
+
+    /// #1243: Enable or disable strict governance mode for unpausing.
+    ///
+    /// When `enabled` is `true`, direct calls to `unpause_contract` are
+    /// rejected with `DirectUnpauseBlocked`. Callers must use the timelocked
+    /// `queue_unpause_contract` → `execute_unpause_contract` path instead.
+    /// This formalises the security asymmetry: `pause_contract` is an
+    /// immediate circuit-breaker, while resuming operations is subject to
+    /// mandatory governance delay.
+    ///
+    /// Only callable by admin.
+    pub fn set_timelocked_unpause_only(
+        env: Env,
+        caller: Address,
+        enabled: bool,
+    ) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        storage::update_global_config(&env, |c| {
+            if enabled {
+                c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_TIMELOCKED_UNPAUSE_ONLY;
+            } else {
+                c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_TIMELOCKED_UNPAUSE_ONLY;
+            }
+        });
         Ok(())
     }
 

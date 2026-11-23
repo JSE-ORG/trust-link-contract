@@ -104,6 +104,11 @@ pub enum DataKey {
     /// `ResolverStrict` and `RecoveryMode` keys, which are kept only so
     /// pre-v2 deployments can still be read and migrated.
     GlobalConfig,
+    /// Persistent on-chain log of contract upgrades. Each entry is an
+    /// [`UpgradeRecord`] appended by `execute_upgrade`. Stored as a
+    /// bounded `Vec` under a single persistent key; callers read it via
+    /// `get_upgrade_history`.
+    UpgradeHistory,
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -421,6 +426,12 @@ pub const GLOBAL_CONFIG_FLAG_PAUSED: u32 = 1 << 0;
 pub const GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED: u32 = 1 << 1;
 pub const GLOBAL_CONFIG_FLAG_RESOLVER_STRICT: u32 = 1 << 2;
 pub const GLOBAL_CONFIG_FLAG_RECOVERY_MODE: u32 = 1 << 3;
+/// When set, direct calls to `unpause_contract` are rejected with
+/// `ContractError::NotAuthorized`. Unpausing must go through the
+/// timelocked `queue_unpause_contract` → `execute_unpause_contract` path.
+/// This enforces the security asymmetry: immediate pause for threat
+/// containment, mandatory timelock delay before resuming operations.
+pub const GLOBAL_CONFIG_FLAG_TIMELOCKED_UNPAUSE_ONLY: u32 = 1 << 4;
 
 /// Admin-tunable global configuration, stored under [`DataKey::GlobalConfig`].
 ///
@@ -555,7 +566,21 @@ pub struct Payee {
     pub bps: u32,
 }
 
-/// Maximum number of payees per escrow. Enforced by [`BoundedPayees`] so
+/// A single on-chain record written every time `execute_upgrade` runs.
+/// Records are appended to `DataKey::UpgradeHistory` and are immutable
+/// after insertion — the full list forms a tamper-evident audit ledger.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeRecord {
+    /// The new WASM hash installed by this upgrade.
+    pub wasm_hash: BytesN<32>,
+    /// Ledger timestamp when the upgrade was executed.
+    pub upgraded_at: u64,
+    /// Admin address that triggered the upgrade.
+    pub upgraded_by: Address,
+    /// Contract version counter after the upgrade (monotonically increasing).
+    pub version: u32,
+}/// Maximum number of payees per escrow. Enforced by [`BoundedPayees`] so
 /// storage cost is bounded at creation time and the length-prefix overhead of
 /// an unbounded `Vec` is eliminated.
 pub const MAX_PAYEES: u32 = 10;

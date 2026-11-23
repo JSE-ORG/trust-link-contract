@@ -283,4 +283,16 @@ impl Escrow {
             escrow_count,
         })
     }
+
+    /// Returns the complete chronological list of on-chain upgrade records.
+    ///
+    /// Each entry is an [`UpgradeRecord`] appended by `execute_upgrade` and
+    /// is immutable after insertion — the list forms a tamper-evident audit
+    /// ledger. Returns an empty `Vec` if the contract has never been upgraded.
+    pub fn get_upgrade_history(env: Env) -> soroban_sdk::Vec<crate::types::UpgradeRecord> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::UpgradeHistory)
+            .unwrap_or_else(|| soroban_sdk::Vec::new(&env))
+    }
 }
