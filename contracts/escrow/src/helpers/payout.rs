@@ -261,10 +261,14 @@ pub fn calculate_dispute_allocations(
 
     let (protocol_fee, _) = calculate_protocol_fee(fee_basis, escrow.fee_bps)?;
 
+    if protocol_fee > escrow.amount {
+        return Err(ContractError::InsufficientBalance);
+    }
+
     let net_amount = escrow
         .amount
         .checked_sub(protocol_fee)
-        .ok_or(ContractError::AmountCalculationOverflow)?;
+        .ok_or(ContractError::InsufficientBalance)?;
 
     if net_amount < 0 {
         return Err(ContractError::InsufficientBalance);
@@ -363,5 +367,51 @@ mod tests {
             })
             .unwrap();
         assert_eq!((fee, net), (0, 0));
+    }
+
+    #[test]
+    fn calculate_dispute_allocations_returns_insufficient_balance_when_fees_exceed_amount() {
+        let env = Env::default();
+        let payee = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let resolver = Address::generate(&env);
+        let token = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+
+        let mut payees = Vec::new(&env);
+        payees.push_back(crate::types::Payee {
+            address: payee,
+            bps: BASIS_POINTS,
+        });
+
+        let escrow = Escrow {
+            payees: crate::types::BoundedPayees { inner: payees },
+            buyer: Some(buyer),
+            resolvers: crate::types::ResolverSet::Single(resolver),
+            token,
+            amount: 100,
+            fee_bps: 300,
+            resolver_fee_bps: 0,
+            shipping_window: 100,
+            packed_timestamps: 0,
+            shipped_at: 0,
+            delivered_at: None,
+            tracking_id: None,
+            state: crate::types::EscrowState::PendingFinalization,
+            notes: soroban_sdk::String::from_str(&env, ""),
+            expires_at: None,
+            grace_period: 0,
+        };
+
+        // fee_basis = 100 + 100_000 = 100_100; protocol_fee = 3_003 > escrow.amount (100)
+        let res = calculate_dispute_allocations(
+            &env,
+            &escrow,
+            &ResolutionType::Release,
+            100_000,
+            0,
+            &fee_collector,
+        );
+        assert_eq!(res, Err(ContractError::InsufficientBalance));
     }
 }

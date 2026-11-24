@@ -422,12 +422,16 @@ impl Escrow {
         // Net payout: the principal minus the provisional arbitration and
         // resolver fees (`escrow.amount` is already net of them), minus the
         // platform and protocol fees settled here.
+        let total_fees = platform_fee
+            .checked_add(protocol_fee)
+            .ok_or(ContractError::FeeCalculationOverflow)?;
+        if total_fees > escrow.amount {
+            return Err(ContractError::InsufficientBalance);
+        }
         let payout_amount = escrow
             .amount
-            .checked_sub(platform_fee)
-            .ok_or(ContractError::ArithmeticError)?
-            .checked_sub(protocol_fee)
-            .ok_or(ContractError::ArithmeticError)?;
+            .checked_sub(total_fees)
+            .ok_or(ContractError::InsufficientBalance)?;
 
         // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let new_state = match resolution {
@@ -762,12 +766,16 @@ impl Escrow {
         } else {
             0
         };
+        let total_fees = protocol_fee
+            .checked_add(platform_fee)
+            .ok_or(ContractError::FeeCalculationOverflow)?;
+        if total_fees > escrow.amount {
+            return Err(ContractError::InsufficientBalance);
+        }
         let payout_amount = escrow
             .amount
-            .checked_sub(protocol_fee)
-            .ok_or(ContractError::AmountCalculationOverflow)?
-            .checked_sub(platform_fee)
-            .ok_or(ContractError::AmountCalculationOverflow)?;
+            .checked_sub(total_fees)
+            .ok_or(ContractError::InsufficientBalance)?;
         let fee_collector = if protocol_fee > 0 {
             fee_config.fee_collector.clone()
         } else {
