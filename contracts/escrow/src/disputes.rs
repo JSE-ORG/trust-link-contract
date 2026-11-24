@@ -472,8 +472,6 @@ impl Escrow {
         }
 
         // ── INTERACTIONS (external token transfers) ──
-<<<<<<< HEAD
-=======
         payout(
             &env,
             &escrow.token,
@@ -504,7 +502,7 @@ impl Escrow {
             }
         }
 
->>>>>>> bc67541b31e79e6dabd84bc732a3f49b34955377
+
         if let Some(ref treasury_addr) = treasury {
             crate::helpers::payout::payout_platform_fee(
                 &env,
@@ -513,8 +511,6 @@ impl Escrow {
                 treasury_addr,
                 platform_fee,
             );
-<<<<<<< HEAD
-=======
         }
         match (&resolution, &buyer_split) {
             (ResolutionType::Split(split_bps), Some(buyer)) => {
@@ -536,7 +532,7 @@ impl Escrow {
                 payout(&env, &escrow.token, &recipient, payout_amount);
                 payout_basket_tokens(&env, escrow_id, &recipient, Some(escrow.fee_bps))?;
             }
->>>>>>> bc67541b31e79e6dabd84bc732a3f49b34955377
+
         }
 
         emit_dispute_resolved(
