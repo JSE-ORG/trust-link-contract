@@ -1400,6 +1400,203 @@ fn create_basket_escrow_validates_shipping_window() {
     );
 }
 
+// ── Issue #1230 – multi-resolver and fallback basket creation ───────────────
+
+/// Five distinct resolver addresses for 3-of-5 committee tests.
+fn five_resolvers(env: &Env) -> std::vec::Vec<Address> {
+    (0..5).map(|_| Address::generate(env)).collect()
+}
+
+#[test]
+fn create_basket_escrow_multi_with_3_of_5_resolvers() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let c = make_token(&fx.env);
+
+    let resolvers = five_resolvers(&fx.env);
+    let resolver_refs: std::vec::Vec<&Address> = resolvers.iter().collect();
+
+    let escrow_id = client.create_basket_escrow_multi(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &vec_addr(&fx.env, &resolver_refs),
+        &3_u32,
+        &primary.address,
+        &1_000_i128,
+        &vec_addr(&fx.env, &[&b.address, &c.address]),
+        &vec_i128(&fx.env, &[500, 200]),
+        &0_u32,
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+    );
+
+    // The primary plus both additional tokens are persisted in order.
+    let entries = client.get_basket_tokens(&escrow_id).unwrap();
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries.get(0).unwrap().token, primary.address);
+    assert_eq!(entries.get(0).unwrap().amount, 1_000);
+    assert_eq!(entries.get(1).unwrap().token, b.address);
+    assert_eq!(entries.get(2).unwrap().token, c.address);
+
+    // The escrow carries a 3-of-5 multi-resolver committee, not a Single.
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::Pending);
+    assert_eq!(escrow.token, primary.address);
+    assert_eq!(escrow.amount, 1_000);
+    match escrow.resolvers {
+        crate::ResolverSet::Multi(m) => {
+            assert_eq!(m.threshold, 3);
+            assert_eq!(m.resolvers.len(), 5);
+        }
+        _ => panic!("expected ResolverSet::Multi"),
+    }
+}
+
+#[test]
+fn multi_resolver_basket_dispute_votes_and_settles_all_tokens() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let c = make_token(&fx.env);
+
+    let resolvers = five_resolvers(&fx.env);
+    let resolver_refs: std::vec::Vec<&Address> = resolvers.iter().collect();
+
+    let escrow_id = client.create_basket_escrow_multi(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &vec_addr(&fx.env, &resolver_refs),
+        &3_u32,
+        &primary.address,
+        &1_000_i128,
+        &vec_addr(&fx.env, &[&b.address, &c.address]),
+        &vec_i128(&fx.env, &[500, 200]),
+        &0_u32,
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+    );
+
+    primary.admin.mint(&fx.buyer, &1_000);
+    b.admin.mint(&fx.buyer, &500);
+    c.admin.mint(&fx.buyer, &200);
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    client.raise_dispute(
+        &fx.buyer,
+        &escrow_id,
+        &soroban_sdk::Symbol::new(&fx.env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&fx.env, b"basket dispute"),
+        &soroban_sdk::BytesN::from_array(&fx.env, &[0xab; 32]),
+    );
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Disputed);
+
+    // Two of five votes are below the 3-vote threshold.
+    client.vote(&resolvers[0], &escrow_id, &crate::ResolutionType::Release);
+    client.vote(&resolvers[1], &escrow_id, &crate::ResolutionType::Release);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Disputed);
+    assert_eq!(client.get_resolver_votes(&escrow_id).len(), 2);
+
+    // The third vote meets the threshold and moves to PendingFinalization.
+    client.vote(&resolvers[2], &escrow_id, &crate::ResolutionType::Release);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+    assert_eq!(client.get_resolver_votes(&escrow_id).len(), 3);
+
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+    client.finalize_dispute(&fx.seller, &escrow_id);
+
+    // Every basket token is paid to the winning seller, none stranded. The
+    // 50 bps platform fee set up by the fixture applies to the primary token
+    // only; additional basket tokens pay out in full.
+    assert_eq!(primary.token.balance(&fx.seller), 995);
+    assert_eq!(b.token.balance(&fx.seller), 500);
+    assert_eq!(c.token.balance(&fx.seller), 200);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+    assert_eq!(b.token.balance(&fx.contract_id), 0);
+    assert_eq!(c.token.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Completed);
+}
+
+#[test]
+fn create_basket_escrow_fallback_settles_basket_on_backup_refund() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let b = make_token(&fx.env);
+
+    let backup = Address::generate(&fx.env);
+    let now = fx.env.ledger().timestamp();
+    let dispute_deadline = now + 100;
+
+    let escrow_id = client.create_basket_escrow_fallback(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &backup,
+        &dispute_deadline,
+        &primary.address,
+        &1_000_i128,
+        &vec_addr(&fx.env, &[&b.address]),
+        &vec_i128(&fx.env, &[500]),
+        &0_u32,
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+    );
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::Pending);
+    assert_eq!(client.get_basket_tokens(&escrow_id).unwrap().len(), 2);
+    match escrow.resolvers {
+        crate::ResolverSet::Fallback(f) => {
+            assert_eq!(f.primary, fx.resolver);
+            assert_eq!(f.backup, backup);
+            assert_eq!(f.dispute_deadline, dispute_deadline);
+        }
+        _ => panic!("expected ResolverSet::Fallback"),
+    }
+
+    primary.admin.mint(&fx.buyer, &1_000);
+    b.admin.mint(&fx.buyer, &500);
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    client.raise_dispute(
+        &fx.buyer,
+        &escrow_id,
+        &soroban_sdk::Symbol::new(&fx.env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&fx.env, b"basket dispute"),
+        &soroban_sdk::BytesN::from_array(&fx.env, &[0xab; 32]),
+    );
+
+    // The backup becomes authorized at the fallback deadline.
+    fx.env.ledger().set_timestamp(dispute_deadline);
+    client.resolve_dispute(&backup, &escrow_id, &crate::ResolutionType::Refund);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+    client.finalize_dispute(&fx.seller, &escrow_id);
+
+    // The refund returns the primary minus the fixture's 50 bps platform fee;
+    // the additional basket token is refunded in full.
+    assert_eq!(primary.token.balance(&fx.buyer), 995);
+    assert_eq!(b.token.balance(&fx.buyer), 500);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+    assert_eq!(b.token.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Refunded);
 // ── Issue #1221 – atomic inflow verification in fund_basket_escrow ──────────
 
 /// A fee-on-transfer token reports a successful `transfer` while crediting
@@ -1444,6 +1641,7 @@ fn fund_basket_escrow_rejects_fee_on_transfer_token_and_rolls_back() {
     assert_eq!(mclient.balance(&fx.buyer), malicious_amount);
     assert_eq!(mclient.balance(&fx.contract_id), 0);
     assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+    assert_eq!(client.get_basket_tokens(&escrow_id).unwrap().len(), 2);
 }
 
 // ── Issue #1220 – token allowlist gating for every basket token ─────────────
@@ -1644,6 +1842,7 @@ fn refund_paths_return_gross_basket_tokens_without_fees() {
         &None::<u64>,
         &0_u64,
     );
+
     a.admin.mint(&fx.buyer, &a_amount);
     b.admin.mint(&fx.buyer, &b_amount);
     client.fund_basket_escrow(&mutual_id, &fx.buyer);

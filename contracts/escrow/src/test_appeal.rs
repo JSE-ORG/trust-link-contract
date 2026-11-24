@@ -519,4 +519,68 @@ fn resolve_appeal_reresolve_with_new_resolver_defers_and_pays_final_resolver() {
     assert_eq!(token_client.balance(&setup.seller), 1_000 - 50 - 20);
     assert_eq!(token_client.balance(&setup.contract_id), 0);
     assert!(client.get_dispute(&setup.escrow_id).unwrap().fees_charged);
+// ── Dispute / appeal counter invariants ─────────────────────────────────────
+
+#[test]
+fn stats_total_disputed_stays_unique_while_total_appeals_increments() {
+    let setup = setup_funded_escrow();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    // Before any dispute.
+    let stats = client.get_stats();
+    assert_eq!(stats.total_disputed, 0);
+    assert_eq!(stats.total_appeals, 0);
+
+    // Raise + resolve: one unique disputed escrow, no appeals yet.
+    raise_and_resolve(&setup);
+    let stats = client.get_stats();
+    assert_eq!(stats.total_disputed, 1);
+    assert_eq!(stats.total_appeals, 0);
+
+    // Appeal 1 (buyer): the escrow re-enters Disputed, but is not a new
+    // disputed escrow.
+    client.appeal_dispute(&setup.buyer, &setup.escrow_id);
+    let stats = client.get_stats();
+    assert_eq!(stats.total_disputed, 1, "appeal must not inflate disputed");
+    assert_eq!(stats.total_appeals, 1);
+
+    // Appeal 2 (seller) after re-resolving.
+    client.resolve_dispute(&setup.resolver, &setup.escrow_id, &ResolutionType::Release);
+    client.appeal_dispute(&setup.seller, &setup.escrow_id);
+    let stats = client.get_stats();
+    assert_eq!(stats.total_disputed, 1);
+    assert_eq!(stats.total_appeals, 2);
+
+    // Appeal 3.
+    client.resolve_dispute(&setup.resolver, &setup.escrow_id, &ResolutionType::Refund);
+    client.appeal_dispute(&setup.buyer, &setup.escrow_id);
+    let stats = client.get_stats();
+    assert_eq!(stats.total_disputed, 1);
+    assert_eq!(stats.total_appeals, 3);
+    assert_eq!(
+        client
+            .get_dispute(&setup.escrow_id)
+            .expect("dispute exists")
+            .appeal_count,
+        3,
+        "per-escrow appeal_count agrees with the global counter"
+    );
+}
+
+#[test]
+fn stats_rejected_appeal_does_not_increment_total_appeals() {
+    let setup = setup_funded_escrow();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    raise_and_resolve(&setup);
+
+    // A non-participant's appeal is rejected and must leave the counter alone.
+    let stranger = Address::generate(&setup.env);
+    assert_eq!(
+        client.try_appeal_dispute(&stranger, &setup.escrow_id),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+    let stats = client.get_stats();
+    assert_eq!(stats.total_disputed, 1);
+    assert_eq!(stats.total_appeals, 0);
 }

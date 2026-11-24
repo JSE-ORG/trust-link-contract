@@ -207,6 +207,51 @@ fn test_multi_resolver_duplicate_returns_duplicate_resolver() {
 }
 
 #[test]
+fn test_multi_resolver_rejects_buyer_and_payee_roles() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &Address::generate(&env), &0_u32);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let mut buyer_resolver = Vec::new(&env);
+    buyer_resolver.push_back(buyer.clone());
+    assert_eq!(
+        client.try_create_escrow_multi(
+            &seller,
+            &Some(buyer.clone()),
+            &buyer_resolver,
+            &1,
+            &token,
+            &1000,
+            &0,
+            &3600,
+        ),
+        Err(Ok(ContractError::ConflictingRoles))
+    );
+
+    let mut payee_resolver = Vec::new(&env);
+    payee_resolver.push_back(seller.clone());
+    assert_eq!(
+        client.try_create_escrow_multi(
+            &seller,
+            &Some(buyer),
+            &payee_resolver,
+            &1,
+            &token,
+            &1000,
+            &0,
+            &3600,
+        ),
+        Err(Ok(ContractError::ConflictingRoles))
+    );
+}
+
+#[test]
 fn test_multi_resolver_threshold_validation_errors() {
     let env = Env::default();
     env.mock_all_auths();
