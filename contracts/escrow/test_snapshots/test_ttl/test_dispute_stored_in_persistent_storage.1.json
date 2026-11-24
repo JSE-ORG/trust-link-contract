@@ -376,6 +376,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "compensated_resolvers"
+                    },
+                    "val": {
+                      "vec": []
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "description"
                     },
                     "val": {

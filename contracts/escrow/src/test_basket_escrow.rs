@@ -554,6 +554,31 @@ fn create_basket_escrow_rejects_zero_secondary_amount() {
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
 
+/// ERROR_CODES.md: a basket entry with `amount <= 0` is an amount error
+/// (`InvalidAmount`), and the primary entry is no exception — it previously
+/// reported `AmountBelowMinimum` instead.
+#[test]
+fn create_basket_escrow_rejects_zero_primary_amount() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let secondary = make_token(&fx.env);
+
+    let result = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address, &secondary.address]),
+        &vec_i128(&fx.env, &[0, 200]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
+}
+
 #[test]
 fn fund_basket_escrow_rejects_a_buyer_other_than_the_expected_buyer() {
     let fx = setup();
@@ -1375,6 +1400,203 @@ fn create_basket_escrow_validates_shipping_window() {
     );
 }
 
+// ── Issue #1230 – multi-resolver and fallback basket creation ───────────────
+
+/// Five distinct resolver addresses for 3-of-5 committee tests.
+fn five_resolvers(env: &Env) -> std::vec::Vec<Address> {
+    (0..5).map(|_| Address::generate(env)).collect()
+}
+
+#[test]
+fn create_basket_escrow_multi_with_3_of_5_resolvers() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let c = make_token(&fx.env);
+
+    let resolvers = five_resolvers(&fx.env);
+    let resolver_refs: std::vec::Vec<&Address> = resolvers.iter().collect();
+
+    let escrow_id = client.create_basket_escrow_multi(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &vec_addr(&fx.env, &resolver_refs),
+        &3_u32,
+        &primary.address,
+        &1_000_i128,
+        &vec_addr(&fx.env, &[&b.address, &c.address]),
+        &vec_i128(&fx.env, &[500, 200]),
+        &0_u32,
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+    );
+
+    // The primary plus both additional tokens are persisted in order.
+    let entries = client.get_basket_tokens(&escrow_id).unwrap();
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries.get(0).unwrap().token, primary.address);
+    assert_eq!(entries.get(0).unwrap().amount, 1_000);
+    assert_eq!(entries.get(1).unwrap().token, b.address);
+    assert_eq!(entries.get(2).unwrap().token, c.address);
+
+    // The escrow carries a 3-of-5 multi-resolver committee, not a Single.
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::Pending);
+    assert_eq!(escrow.token, primary.address);
+    assert_eq!(escrow.amount, 1_000);
+    match escrow.resolvers {
+        crate::ResolverSet::Multi(m) => {
+            assert_eq!(m.threshold, 3);
+            assert_eq!(m.resolvers.len(), 5);
+        }
+        _ => panic!("expected ResolverSet::Multi"),
+    }
+}
+
+#[test]
+fn multi_resolver_basket_dispute_votes_and_settles_all_tokens() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let c = make_token(&fx.env);
+
+    let resolvers = five_resolvers(&fx.env);
+    let resolver_refs: std::vec::Vec<&Address> = resolvers.iter().collect();
+
+    let escrow_id = client.create_basket_escrow_multi(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &vec_addr(&fx.env, &resolver_refs),
+        &3_u32,
+        &primary.address,
+        &1_000_i128,
+        &vec_addr(&fx.env, &[&b.address, &c.address]),
+        &vec_i128(&fx.env, &[500, 200]),
+        &0_u32,
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+    );
+
+    primary.admin.mint(&fx.buyer, &1_000);
+    b.admin.mint(&fx.buyer, &500);
+    c.admin.mint(&fx.buyer, &200);
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    client.raise_dispute(
+        &fx.buyer,
+        &escrow_id,
+        &soroban_sdk::Symbol::new(&fx.env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&fx.env, b"basket dispute"),
+        &soroban_sdk::BytesN::from_array(&fx.env, &[0xab; 32]),
+    );
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Disputed);
+
+    // Two of five votes are below the 3-vote threshold.
+    client.vote(&resolvers[0], &escrow_id, &crate::ResolutionType::Release);
+    client.vote(&resolvers[1], &escrow_id, &crate::ResolutionType::Release);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Disputed);
+    assert_eq!(client.get_resolver_votes(&escrow_id).len(), 2);
+
+    // The third vote meets the threshold and moves to PendingFinalization.
+    client.vote(&resolvers[2], &escrow_id, &crate::ResolutionType::Release);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+    assert_eq!(client.get_resolver_votes(&escrow_id).len(), 3);
+
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+    client.finalize_dispute(&fx.seller, &escrow_id);
+
+    // Every basket token is paid to the winning seller, none stranded. The
+    // 50 bps platform fee set up by the fixture applies to the primary token
+    // only; additional basket tokens pay out in full.
+    assert_eq!(primary.token.balance(&fx.seller), 995);
+    assert_eq!(b.token.balance(&fx.seller), 500);
+    assert_eq!(c.token.balance(&fx.seller), 200);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+    assert_eq!(b.token.balance(&fx.contract_id), 0);
+    assert_eq!(c.token.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Completed);
+}
+
+#[test]
+fn create_basket_escrow_fallback_settles_basket_on_backup_refund() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let b = make_token(&fx.env);
+
+    let backup = Address::generate(&fx.env);
+    let now = fx.env.ledger().timestamp();
+    let dispute_deadline = now + 100;
+
+    let escrow_id = client.create_basket_escrow_fallback(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &backup,
+        &dispute_deadline,
+        &primary.address,
+        &1_000_i128,
+        &vec_addr(&fx.env, &[&b.address]),
+        &vec_i128(&fx.env, &[500]),
+        &0_u32,
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+    );
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::Pending);
+    assert_eq!(client.get_basket_tokens(&escrow_id).unwrap().len(), 2);
+    match escrow.resolvers {
+        crate::ResolverSet::Fallback(f) => {
+            assert_eq!(f.primary, fx.resolver);
+            assert_eq!(f.backup, backup);
+            assert_eq!(f.dispute_deadline, dispute_deadline);
+        }
+        _ => panic!("expected ResolverSet::Fallback"),
+    }
+
+    primary.admin.mint(&fx.buyer, &1_000);
+    b.admin.mint(&fx.buyer, &500);
+    client.fund_basket_escrow(&escrow_id, &fx.buyer);
+
+    client.raise_dispute(
+        &fx.buyer,
+        &escrow_id,
+        &soroban_sdk::Symbol::new(&fx.env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&fx.env, b"basket dispute"),
+        &soroban_sdk::BytesN::from_array(&fx.env, &[0xab; 32]),
+    );
+
+    // The backup becomes authorized at the fallback deadline.
+    fx.env.ledger().set_timestamp(dispute_deadline);
+    client.resolve_dispute(&backup, &escrow_id, &crate::ResolutionType::Refund);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+    client.finalize_dispute(&fx.seller, &escrow_id);
+
+    // The refund returns the primary minus the fixture's 50 bps platform fee;
+    // the additional basket token is refunded in full.
+    assert_eq!(primary.token.balance(&fx.buyer), 995);
+    assert_eq!(b.token.balance(&fx.buyer), 500);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+    assert_eq!(b.token.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Refunded);
 // ── Issue #1221 – atomic inflow verification in fund_basket_escrow ──────────
 
 /// A fee-on-transfer token reports a successful `transfer` while crediting
@@ -1545,6 +1767,7 @@ fn confirm_delivery_collects_protocol_and_platform_fees_on_basket_tokens() {
         &None::<u64>,
         &0_u64,
     );
+
     a.admin.mint(&fx.buyer, &a_amount);
     b.admin.mint(&fx.buyer, &b_amount);
     c.admin.mint(&fx.buyer, &c_amount);
@@ -1662,4 +1885,161 @@ fn refund_paths_return_gross_basket_tokens_without_fees() {
     assert_eq!(b.token.balance(&treasury), 0);
     assert_eq!(a.token.balance(&fx.contract_id), 0);
     assert_eq!(b.token.balance(&fx.contract_id), 0);
+}
+
+// ── Issue #1220 – token allowlist gating for every basket token ─────────────
+
+/// When the token allowlist is enabled, every token in the basket — not just
+/// the primary at index 0 — must be allowlisted. A single unapproved token
+/// rejects the entire basket with `TokenNotAllowed`.
+#[test]
+fn create_basket_escrow_rejects_unallowlisted_secondary_token() {
+    let fx = setup();
+    let admin = Address::generate(&fx.env);
+    let fee_collector = Address::generate(&fx.env);
+    let contract_id = fx.env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&fx.env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    // Tokens A and B are allowlisted; C is deliberately not.
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let c = make_token(&fx.env);
+    client.set_token_allowlist_enabled(&admin, &true);
+    client.add_allowed_token(&admin, &a.address);
+    client.add_allowed_token(&admin, &b.address);
+
+    // All-allowlisted basket succeeds.
+    let ok_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &b.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(client.get_basket_tokens(&ok_id).unwrap().len(), 2);
+
+    // Swapping the allowlisted secondary B for the unapproved C must reject
+    // the whole basket, even though the primary token A is allowlisted.
+    let rejected = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &c.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(rejected, Err(Ok(ContractError::TokenNotAllowed)));
+}
+
+/// With the allowlist disabled (the default), basket creation stays a no-op
+/// for token gating and accepts any token set.
+#[test]
+fn create_basket_escrow_accepts_any_token_when_allowlist_disabled() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let c = make_token(&fx.env);
+
+    // No `set_token_allowlist_enabled`/`add_allowed_token` calls.
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&a.address, &c.address]),
+        &vec_i128(&fx.env, &[1_000, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(client.get_basket_tokens(&escrow_id).unwrap().len(), 2);
+}
+
+// ── Issue #1221 – atomic inflow verification in fund_basket_escrow ──────────
+
+/// A fee-on-transfer token reports a successful `transfer` while crediting
+/// less than the pledged amount. `fund_basket_escrow` must detect the
+/// shortfall with its post-transfer balance check and abort the whole
+/// invocation, rolling back the transfers that already succeeded.
+#[test]
+fn fund_basket_escrow_rejects_fee_on_transfer_token_and_rolls_back() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let primary = make_token(&fx.env);
+    let malicious = fx.env.register(MaliciousToken, ());
+    let mclient = MaliciousTokenClient::new(&fx.env, &malicious);
+
+    let primary_amount = 1_000_i128;
+    let malicious_amount = 500_i128;
+
+    let escrow_id = client.create_basket_escrow(
+        &fx.seller,
+        &Some(fx.buyer.clone()),
+        &fx.resolver,
+        &vec_addr(&fx.env, &[&primary.address, &malicious]),
+        &vec_i128(&fx.env, &[primary_amount, malicious_amount]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+
+    primary.admin.mint(&fx.buyer, &primary_amount);
+    mclient.mint(&fx.buyer, &malicious_amount);
+    mclient.set_attack(&Attack::FeeOnTransfer);
+
+    let result = client.try_fund_basket_escrow(&escrow_id, &fx.buyer);
+    assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
+
+    // Atomic revert: even the primary token transfer that already succeeded is
+    // rolled back when the secondary token under-funds the contract.
+    assert_eq!(primary.token.balance(&fx.buyer), primary_amount);
+    assert_eq!(primary.token.balance(&fx.contract_id), 0);
+    assert_eq!(mclient.balance(&fx.buyer), malicious_amount);
+    assert_eq!(mclient.balance(&fx.contract_id), 0);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Pending);
+}
+
+// ── Issue #1222 – duplicate token detection across the whole basket ─────────
+
+/// The bounded pairwise duplicate scan must catch a collision between two
+/// secondary tokens anywhere in the vector, not just adjacent entries or the
+/// primary token. This 5-token basket repeats `d` at positions 3 and 4.
+#[test]
+fn create_basket_escrow_rejects_duplicate_token_in_five_token_basket() {
+    let fx = setup();
+    let client = EscrowClient::new(&fx.env, &fx.contract_id);
+    let a = make_token(&fx.env);
+    let b = make_token(&fx.env);
+    let c = make_token(&fx.env);
+    let d = make_token(&fx.env);
+
+    let result = client.try_create_basket_escrow(
+        &fx.seller,
+        &None::<Address>,
+        &fx.resolver,
+        &vec_addr(
+            &fx.env,
+            &[&a.address, &b.address, &c.address, &d.address, &d.address],
+        ),
+        &vec_i128(&fx.env, &[100, 200, 300, 400, 500]),
+        &0_u32,
+        &SHIPPING_WINDOW,
+        &None::<soroban_sdk::String>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(result, Err(Ok(ContractError::BasketTokenMismatch)));
 }

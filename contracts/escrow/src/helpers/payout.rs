@@ -56,6 +56,31 @@ pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, ContractError> 
         .ok_or(ContractError::FeeCalculationOverflow)
 }
 
+/// Splits `net` between the payee and the buyer for a `Split(split_bps)`
+/// resolution: `payee_net = net * split_bps / 10_000` (floored) and
+/// `buyer_net = net - payee_net`, so `payee_net + buyer_net == net` always
+/// holds and no stroop is stranded (the rounding remainder goes to the buyer).
+///
+/// Computed as `net / 10_000 * bps + (net % 10_000) * bps / 10_000`, which is
+/// the exact floor of `net * bps / 10_000` without risking an overflow of the
+/// intermediate product for very large `net`.
+pub fn split_net(net: i128, split_bps: u32) -> Result<(i128, i128), ContractError> {
+    if split_bps > BASIS_POINTS {
+        return Err(ContractError::InvalidSplitBps);
+    }
+    let bps = i128::from(split_bps);
+    let denom = i128::from(BASIS_POINTS);
+    let payee_net = (net / denom)
+        .checked_mul(bps)
+        .ok_or(ContractError::AmountCalculationOverflow)?
+        .checked_add((net % denom) * bps / denom)
+        .ok_or(ContractError::AmountCalculationOverflow)?;
+    let buyer_net = net
+        .checked_sub(payee_net)
+        .ok_or(ContractError::AmountCalculationOverflow)?;
+    Ok((payee_net, buyer_net))
+}
+
 pub fn calculate_protocol_fee(amount: i128, fee_bps: u32) -> Result<(i128, i128), ContractError> {
     let fee = calculate_fee(amount, fee_bps)?;
     let net = amount
@@ -155,6 +180,43 @@ pub(crate) fn payout(env: &Env, token_addr: &Address, recipient: &Address, amoun
     );
 }
 
+/// Like [`transfer_basket_with_fees`], but for a `Split(split_bps)` dispute
+/// resolution: the protocol and platform fees are taken from the gross
+/// `amount` exactly as for a full settlement, then the remaining net is split
+/// between `payee` (`split_bps`) and `buyer` (the remainder) via [`split_net`].
+pub(crate) fn transfer_basket_split_with_fees(
+    env: &Env,
+    token_addr: &Address,
+    payee: &Address,
+    buyer: &Address,
+    amount: i128,
+    split_bps: u32,
+    fee_bps: u32,
+    platform_fee_bps: u32,
+    fee_collector: &Address,
+    treasury: Option<&Address>,
+) -> Result<(), ContractError> {
+    let protocol_fee = calculate_fee(amount, fee_bps)?;
+    let platform_fee = match treasury {
+        Some(_) => calculate_fee(amount, platform_fee_bps)?,
+        None => 0,
+    };
+    let net_amount = amount
+        .checked_sub(protocol_fee)
+        .ok_or(ContractError::AmountCalculationOverflow)?
+        .checked_sub(platform_fee)
+        .ok_or(ContractError::AmountCalculationOverflow)?;
+    let (payee_net, buyer_net) = split_net(net_amount, split_bps)?;
+
+    payout(env, token_addr, payee, payee_net);
+    payout(env, token_addr, buyer, buyer_net);
+    payout(env, token_addr, fee_collector, protocol_fee);
+    if let Some(treasury_addr) = treasury {
+        payout(env, token_addr, treasury_addr, platform_fee);
+    }
+    Ok(())
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TransferInstruction {
@@ -180,24 +242,43 @@ pub fn calculate_dispute_allocations(
 
     let (fee, net_amount) = calculate_protocol_fee(remaining_amount, escrow.fee_bps)?;
 
-    let recipient = match resolution {
-        ResolutionType::Release => escrow
-            .payees
-            .get(0)
-            .ok_or(ContractError::PayeeIndexOutOfBounds)?
-            .address
-            .clone(),
-        ResolutionType::Refund => escrow
-            .buyer
-            .clone()
-            .ok_or(ContractError::EscrowHasNoBuyer)?,
-    };
+    let payee = escrow
+        .payees
+        .get(0)
+        .ok_or(ContractError::PayeeIndexOutOfBounds)?
+        .address
+        .clone();
 
     let mut transfers = Vec::new(env);
-    transfers.push_back(TransferInstruction {
-        recipient,
-        amount: net_amount,
-    });
+    match resolution {
+        ResolutionType::Release => transfers.push_back(TransferInstruction {
+            recipient: payee,
+            amount: net_amount,
+        }),
+        ResolutionType::Refund => transfers.push_back(TransferInstruction {
+            recipient: escrow
+                .buyer
+                .clone()
+                .ok_or(ContractError::EscrowHasNoBuyer)?,
+            amount: net_amount,
+        }),
+        ResolutionType::Split(split_bps) => {
+            // Two net payouts: payee_net + buyer_net == net_amount.
+            let (payee_net, buyer_net) = split_net(net_amount, *split_bps)?;
+            let buyer = escrow
+                .buyer
+                .clone()
+                .ok_or(ContractError::EscrowHasNoBuyer)?;
+            transfers.push_back(TransferInstruction {
+                recipient: payee,
+                amount: payee_net,
+            });
+            transfers.push_back(TransferInstruction {
+                recipient: buyer,
+                amount: buyer_net,
+            });
+        }
+    }
 
     if fee > 0 {
         transfers.push_back(TransferInstruction {

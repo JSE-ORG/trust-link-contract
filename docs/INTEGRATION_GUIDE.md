@@ -143,6 +143,35 @@ list. Consumers that persist a `token_count` (e.g. the indexer's
 `basket_escrows` table) must only write a row for the `Some([…])` case, using
 `len()` as `token_count`.
 
+### Basket size limit
+
+`create_basket_escrow` accepts at most `get_max_basket_size()` tokens. The
+default is `MAX_BASKET_SIZE`; governance can queue and execute a timelocked
+lower value (down to 1) without an upgrade. Baskets with an empty token list or
+more entries than the configured limit are rejected with
+`BasketTokenMismatch`, so clients should read `get_max_basket_size()` rather
+than hard-code 20.
+
+### Reading basket balances
+
+`get_basket_balances(escrow_id)` returns `Vec<TokenBalanceInfo>` — one entry per
+stored basket token, each carrying `token`, `pledged_amount` (recorded at
+creation) and `contract_balance` (the contract's current SEP-41 balance for that
+token). Use it to tell whether a basket is unfunded (`contract_balance` is 0),
+funded, or already paid out:
+
+```ts
+const balances = await client.get_basket_balances(escrowId);
+for (const b of balances) {
+  console.log(b.token, b.pledged_amount, b.contract_balance);
+}
+```
+
+A missing escrow reverts with `EscrowNotFound` (unlike `get_basket_tokens`,
+which returns `None`). Single-token escrows return an empty `Vec`. Secondary
+basket tokens are split pro-rata across the escrow's payees on release; refund
+paths return them to the buyer in full.
+
 ## Funding and progressing an escrow
 
 ```ts

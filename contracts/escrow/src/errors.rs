@@ -94,7 +94,10 @@ pub enum ContractError {
     GracePeriodNotElapsed = 40,
     /// Returned when the maximum number of dispute appeals has been reached.
     MaxAppealsReached = 41,
-    /// Returned when `create_basket_escrow` is called with mismatched or empty `tokens`/`amounts`.
+    /// Returned when `create_basket_escrow` is called with mismatched or empty
+    /// `tokens`/`amounts`, a basket exceeding `MAX_BASKET_SIZE`, or a duplicate
+    /// token address (including the primary token repeated as a secondary
+    /// entry).
     BasketTokenMismatch = 42,
     /// Returned when a `multicall` call argument is missing or fails to decode into the expected type.
     InvalidMulticallArg = 43,
@@ -106,8 +109,10 @@ pub enum ContractError {
     InvalidTtlExtension = 46,
     /// Returned when multi-resolver threshold is invalid (zero, exceeds resolver count, or resolver list is empty).
     InvalidResolverThreshold = 47,
-    /// Returned when a fallback resolver's `dispute_deadline` is later than
-    /// `MAX_FALLBACK_DEADLINE_OFFSET` past the current ledger timestamp.
+    /// Returned when a fallback resolver's `dispute_deadline` is earlier than
+    /// `MIN_FALLBACK_DEADLINE_OFFSET` (1 day) or later than
+    /// `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past the current ledger
+    /// timestamp.
     InvalidFallbackDeadline = 48,
     /// Returned when `claim_dispute_timeout` is called before the dispute has
     /// remained unresolved for the configured maximum dispute duration.
@@ -193,4 +198,10 @@ pub enum ContractError {
     /// [`ContractError::ConflictingRoles`] so telemetry can tell a duplicate
     /// resolver apart from a resolver colliding with the seller or buyer.
     DuplicateResolver = 80,
+    /// Returned when a `ResolutionType::Split(bps)` resolution carries a
+    /// payee share greater than `BASIS_POINTS` (`10_000`).
+    InvalidSplitBps = 81,
+    /// Returned by `submit_dispute_evidence` when the escrow's evidence log
+    /// already holds `MAX_EVIDENCE_ENTRIES` entries.
+    EvidenceLimitReached = 81,
 }

@@ -482,3 +482,160 @@ fn test_granular_pause_functionality() {
 
     assert!(!client.is_action_paused(&create_action));
 }
+
+// ── #1237: granular pausing of administrative functions ─────────────────────
+
+mod admin_action_pausing {
+    use crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS;
+    use crate::test_helpers::setup_contract;
+    use crate::ContractError;
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger as _},
+        Address, BytesN, Env, Symbol,
+    };
+
+    fn advance(env: &Env, seconds: u64) {
+        env.ledger().with_mut(|li| li.timestamp += seconds);
+    }
+
+    /// Pausing `execute_upgrade` blocks a mature upgrade proposal with
+    /// `ContractPaused` (for the admin and for keepers alike); unpausing
+    /// restores it. The all-zero hash makes the unpaused call stop at
+    /// `InvalidWasmHash` instead of swapping the WASM, proving the pause
+    /// gate — not the timelock — was what rejected it before.
+    #[test]
+    fn paused_execute_upgrade_reverts_with_contract_paused() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+        let keeper = Address::generate(&env);
+        let wasm_hash = BytesN::from_array(&env, &[0u8; 32]);
+        let action = Symbol::new(&env, "execute_upgrade");
+
+        client.queue_upgrade(&admin, &wasm_hash);
+        advance(&env, ADMIN_TIMELOCK_DELAY_SECONDS);
+
+        client.pause_action(&admin, &action);
+        assert!(client.is_action_paused(&action));
+        assert!(!client.is_paused(), "only the one action is paused");
+
+        assert_eq!(
+            client.try_execute_upgrade(&admin, &wasm_hash),
+            Err(Ok(ContractError::ContractPaused))
+        );
+        assert_eq!(
+            client.try_execute_upgrade(&keeper, &wasm_hash),
+            Err(Ok(ContractError::ContractPaused))
+        );
+
+        client.unpause_action(&admin, &action);
+        assert!(!client.is_action_paused(&action));
+        assert_eq!(
+            client.try_execute_upgrade(&admin, &wasm_hash),
+            Err(Ok(ContractError::InvalidWasmHash))
+        );
+    }
+
+    /// Pausing the upgrade path leaves standard admin operations running.
+    #[test]
+    fn pausing_upgrades_keeps_other_admin_operations_running() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+        let wasm_hash = BytesN::from_array(&env, &[7u8; 32]);
+
+        client.pause_action(&admin, &Symbol::new(&env, "queue_upgrade"));
+        client.pause_action(&admin, &Symbol::new(&env, "execute_upgrade"));
+
+        assert_eq!(
+            client.try_queue_upgrade(&admin, &wasm_hash),
+            Err(Ok(ContractError::ContractPaused))
+        );
+
+        client.queue_set_platform_fee(&admin, &40_u32);
+        advance(&env, ADMIN_TIMELOCK_DELAY_SECONDS);
+        client.execute_set_platform_fee(&admin, &40_u32);
+        assert_eq!(client.get_platform_fee_bps(), 40);
+    }
+
+    /// Every documented pausable admin symbol is actually gated.
+    #[test]
+    fn every_pausable_admin_action_is_gated() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+        let wasm_hash = BytesN::from_array(&env, &[7u8; 32]);
+
+        // Queue the timelocked ops first so the execute_* calls would
+        // otherwise succeed, then pause everything.
+        client.queue_set_platform_fee(&admin, &40_u32);
+        client.queue_set_arbitration_fee(&admin, &40_u32);
+        advance(&env, ADMIN_TIMELOCK_DELAY_SECONDS);
+
+        for name in [
+            "queue_upgrade",
+            "execute_upgrade",
+            "set_fee",
+            "set_platform_fee",
+            "queue_set_platform_fee",
+            "execute_set_platform_fee",
+            "queue_set_arbitration_fee",
+            "execute_set_arbitration_fee",
+        ] {
+            client.pause_action(&admin, &Symbol::new(&env, name));
+        }
+
+        let paused = Err(Ok(ContractError::ContractPaused));
+        assert_eq!(client.try_queue_upgrade(&admin, &wasm_hash), paused);
+        assert_eq!(client.try_execute_upgrade(&admin, &wasm_hash), paused);
+        assert_eq!(client.try_set_fee(&admin, &10_u32), paused);
+        assert_eq!(client.try_set_platform_fee(&admin, &10_u32), paused);
+        assert_eq!(client.try_queue_set_platform_fee(&admin, &10_u32), paused);
+        assert_eq!(client.try_execute_set_platform_fee(&admin, &40_u32), paused);
+        assert_eq!(
+            client.try_queue_set_arbitration_fee(&admin, &10_u32),
+            paused
+        );
+        assert_eq!(
+            client.try_execute_set_arbitration_fee(&admin, &40_u32),
+            paused
+        );
+        assert_eq!(client.get_platform_fee_bps(), 0);
+        assert_eq!(client.get_arbitration_fee(), 0);
+    }
+
+    /// `unpause_action` is never gated: even with it (nonsensically) paused,
+    /// the admin can still re-enable a paused admin action.
+    #[test]
+    fn unpause_action_remains_callable_while_admin_actions_are_paused() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+        let set_fee = Symbol::new(&env, "set_fee");
+
+        client.pause_action(&admin, &set_fee);
+        client.pause_action(&admin, &Symbol::new(&env, "unpause_action"));
+        client.pause_action(&admin, &Symbol::new(&env, "pause_action"));
+
+        client.unpause_action(&admin, &set_fee);
+        assert!(!client.is_action_paused(&set_fee));
+        client.set_fee(&admin, &25_u32);
+    }
+
+    /// The global contract pause halts user flows but not admin operations,
+    /// so an emergency upgrade or fee fix can still go out during an incident.
+    #[test]
+    fn global_pause_does_not_block_admin_actions() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+        let wasm_hash = BytesN::from_array(&env, &[7u8; 32]);
+
+        client.pause_contract(&admin);
+        assert!(client.is_paused());
+
+        client.queue_upgrade(&admin, &wasm_hash);
+        client.set_platform_fee(&admin, &30_u32);
+        assert_eq!(client.get_platform_fee_bps(), 30);
+    }
+}

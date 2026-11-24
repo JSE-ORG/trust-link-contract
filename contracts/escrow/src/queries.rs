@@ -3,7 +3,7 @@
 use crate::internal::*;
 use crate::types::Message;
 use crate::*;
-use soroban_sdk::{contractimpl, Address, Env, Vec};
+use soroban_sdk::{contractimpl, token, Address, Env, Vec};
 
 #[contractimpl]
 impl Escrow {
@@ -66,6 +66,39 @@ impl Escrow {
         }
         // Return Some(Vec) - empty for single-token, populated for basket
         Some(load_basket_tokens(&env, escrow_id))
+    }
+
+    /// Returns pledged versus custodied balances for every token in a basket
+    /// escrow.
+    ///
+    /// Each entry pairs the amount recorded at creation with the contract's
+    /// current SEP-41 balance for that token, so integrators can tell whether
+    /// the basket has been funded, partially paid out, or already drained.
+    /// Reverts with [`ContractError::EscrowNotFound`] if `escrow_id` does not
+    /// exist. Single-token escrows have no stored basket and return an empty
+    /// vector. Read-only: the only state touched is the TTL extension of the
+    /// basket entry.
+    pub fn get_basket_balances(
+        env: Env,
+        escrow_id: u64,
+    ) -> Result<Vec<TokenBalanceInfo>, ContractError> {
+        load_escrow(&env, escrow_id)?;
+
+        let basket_tokens = load_basket_tokens(&env, escrow_id);
+        let contract = env.current_contract_address();
+        let mut balances = Vec::new(&env);
+        for i in 0..basket_tokens.len() {
+            let entry = basket_tokens
+                .get(i)
+                .ok_or(ContractError::BasketIndexOutOfBounds)?;
+            let contract_balance = token::Client::new(&env, &entry.token).balance(&contract);
+            balances.push_back(TokenBalanceInfo {
+                token: entry.token,
+                pledged_amount: entry.amount,
+                contract_balance,
+            });
+        }
+        Ok(balances)
     }
 
     /// Returns the full escrow record for `escrow_id`. Reverts with
@@ -217,6 +250,12 @@ impl Escrow {
     /// `increment_sharded_counter`) to avoid a single contended instance key;
     /// this view re-aggregates them, including any value written by a
     /// pre-sharding deployment.
+    ///
+    /// Dispute accounting: `total_disputed` counts **unique escrows** that
+    /// were ever disputed (an appeal does not re-increment it), while
+    /// `total_appeals` counts every appeal cycle across the contract. An
+    /// escrow disputed once and appealed twice contributes `1` to
+    /// `total_disputed` and `2` to `total_appeals`.
     pub fn get_stats(env: Env) -> ContractStats {
         ContractStats {
             total_created: read_counter_total(&env, COUNTER_KIND_CREATED, &DataKey::TotalCreated),
@@ -235,6 +274,8 @@ impl Escrow {
                 COUNTER_KIND_REFUNDED,
                 &DataKey::TotalRefunded,
             ),
+            // Appeals have no pre-sharding history, so only the shards count.
+            total_appeals: read_sharded_counter_total(&env, COUNTER_KIND_APPEALS),
         }
     }
 

@@ -63,6 +63,12 @@ check: fmt-check clippy test check-error-codes docs-link-check malware-check ## 
 bench: ## Run benchmarks (if available)
 	cargo test --release -- --ignored
 
+bench-gas: ## Fail if any gas_profile metric regressed >5% versus the committed baseline
+	python3 scripts/check_gas_regression.py
+
+bench-gas-update: ## Refresh contracts/escrow/gas_baseline.json from a local gas-profile run
+	python3 scripts/check_gas_regression.py --update
+
 fuzz-check: ## Type-check every fuzz target on stable (no cargo-fuzz needed)
 	cargo check --manifest-path contracts/escrow/fuzz/Cargo.toml --all-targets
 
