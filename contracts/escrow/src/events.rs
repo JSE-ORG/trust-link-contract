@@ -838,6 +838,9 @@ pub struct DisputePendingFinalization {
     pub amount: i128,
     pub appeal_deadline: u64,
     pub pending_at: u64,
+    /// Standardized reason supplied by the resolver (`None` when the
+    /// resolution was made without one, e.g. via `resolve_dispute`).
+    pub resolution_reason: Option<Symbol>,
 }
 
 /// Topic: `(symbol_short!("Dispute"), symbol_short!("Pending"), resolver.clone(),)`, data: `DisputePendingFinalization`.
@@ -848,6 +851,7 @@ pub fn emit_dispute_pending_finalization(
     resolution: crate::ResolutionType,
     amount: i128,
     appeal_deadline: u64,
+    resolution_reason: Option<Symbol>,
 ) {
     env.events().publish(
         (
@@ -863,6 +867,7 @@ pub fn emit_dispute_pending_finalization(
             amount,
             appeal_deadline,
             pending_at: env.ledger().timestamp(),
+            resolution_reason,
         },
     );
 }
@@ -879,6 +884,9 @@ pub struct DisputeAppealed {
     pub appeal_fee_charged: i128,
     /// 1-based appeal round (1 = first appeal).
     pub appeal_round: u32,
+    /// Exact fee basis the appeal fee was calculated on: the original funded
+    /// principal (`escrow.amount` + provisional arbitration + resolver fees).
+    pub fee_basis: i128,
 }
 
 /// Topic: `(symbol_short!("Dispute"), symbol_short!("Appealed"), appellant.clone(),)`, data: `DisputeAppealed`.
@@ -888,6 +896,7 @@ pub fn emit_dispute_appealed(
     appellant: Address,
     appeal_fee_charged: i128,
     appeal_round: u32,
+    fee_basis: i128,
 ) {
     env.events().publish(
         (
@@ -902,6 +911,7 @@ pub fn emit_dispute_appealed(
             timestamp: env.ledger().timestamp(),
             appeal_fee_charged,
             appeal_round,
+            fee_basis,
         },
     );
 }
@@ -973,6 +983,45 @@ pub fn emit_basket_escrow_created(env: &Env, escrow_id: u64, seller: Address, to
             escrow_id,
             seller,
             token_count,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BasketTokenPayout {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub token: Address,
+    pub recipient: Address,
+    pub net_amount: i128,
+    pub fee: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Basket"), symbol_short!("Payout"), token.clone(),)`, data: `BasketTokenPayout`.
+pub fn emit_basket_token_payout(
+    env: &Env,
+    escrow_id: u64,
+    token: Address,
+    recipient: Address,
+    net_amount: i128,
+    fee: i128,
+) {
+    env.events().publish(
+        (
+            symbol_short!("Basket"),
+            symbol_short!("Payout"),
+            token.clone(),
+        ),
+        BasketTokenPayout {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            token,
+            recipient,
+            net_amount,
+            fee,
             timestamp: env.ledger().timestamp(),
         },
     );

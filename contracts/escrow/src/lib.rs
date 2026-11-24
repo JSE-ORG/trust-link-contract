@@ -17,6 +17,7 @@ pub mod storage;
 pub mod types;
 
 mod admin;
+mod dispute_state_machine;
 mod disputes;
 pub use crate::disputes::DISPUTE_REASONS;
 mod instructions;
@@ -148,6 +149,12 @@ const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 /// Longest a fallback escrow's primary resolver may hold sole authority over
 /// a dispute before the backup must be allowed to act (`2_592_000` = 30 days).
 const FALLBACK_PRIMARY_GRACE: u64 = 2_592_000;
+
+/// Shortest window (in seconds) a fallback escrow's primary resolver is
+/// guaranteed exclusive authority over a dispute (`86_400` = 1 day).
+/// `FallbackResolver::dispute_deadline` must be at least this far past the
+/// creation timestamp (`dispute_deadline >= now + MIN_FALLBACK_DEADLINE_OFFSET`).
+const MIN_FALLBACK_DEADLINE_OFFSET: u64 = 86_400;
 
 /// Furthest past the creation timestamp a `FallbackResolver::dispute_deadline`
 /// may be set. A dispute can be raised no later than `PENDING_EXPIRY_WINDOW +
@@ -353,8 +360,11 @@ fn resolve_or_vote_internal(
     caller: Address,
     escrow_id: u64,
     resolution: ResolutionType,
+    reason: Option<Symbol>,
+    memo: soroban_sdk::Bytes,
 ) -> Result<(), ContractError> {
     ensure_action_not_paused(env, Symbol::new(env, "RESOLVE"))?;
+    resolution.validate()?;
     let escrow = load_escrow(env, escrow_id)?;
 
     if escrow.state != EscrowState::Disputed {
@@ -392,6 +402,8 @@ fn resolve_or_vote_internal(
             final_resolution,
             votes,
             true,
+            reason,
+            memo,
         )?;
     } else {
         save_resolver_votes(env, escrow_id, &votes);
