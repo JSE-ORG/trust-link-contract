@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use crate::{Escrow, EscrowClient, Payee};
+    use crate::{Escrow, EscrowClient, Payee, PlatformFeeCollected, ResolutionType};
     use soroban_sdk::{
-        testutils::{Address as _, Ledger},
-        Address, Env, IntoVal, Vec,
+        testutils::{Address as _, Events as _, Ledger},
+        xdr::ContractEventBody,
+        Address, Bytes, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
     };
 
     const DISPUTE_WINDOW: u64 = 172_800;
@@ -33,6 +34,39 @@ mod tests {
             bps: 10_000,
         });
         payees
+    }
+
+    fn platform_fee_events(env: &Env, contract_id: &Address) -> Vec<PlatformFeeCollected> {
+        let mut found = Vec::new(env);
+        for event in env
+            .events()
+            .all()
+            .filter_by_contract(contract_id)
+            .events()
+            .iter()
+        {
+            let ContractEventBody::V0(body) = &event.body;
+            let mut topics = body.topics.iter();
+            let (Some(first), Some(second)) = (topics.next(), topics.next()) else {
+                continue;
+            };
+            let (Ok(first), Ok(second)) = (
+                Symbol::try_from_val(env, first),
+                Symbol::try_from_val(env, second),
+            ) else {
+                continue;
+            };
+            if first != Symbol::new(env, "Treasury") || second != Symbol::new(env, "Fee") {
+                continue;
+            }
+            let Ok(data) = Val::try_from_val(env, &body.data) else {
+                continue;
+            };
+            if let Ok(decoded) = PlatformFeeCollected::try_from_val(env, &data) {
+                found.push_back(decoded);
+            }
+        }
+        found
     }
 
     /// Core regression: fee snapshotted at create_escrow time must be used
@@ -181,5 +215,160 @@ mod tests {
             fee_collector_balance, expected_fee,
             "fee collector should receive live protocol fee on auto_release"
         );
+    }
+
+    #[test]
+    fn finalize_dispute_emits_platform_fee_collected_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let resolver = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        let token_admin = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
+        let token_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+        token_client.mint(&buyer, &1_000_000_000_i128);
+
+        let contract_id = env.register(Escrow, ());
+        let client = EscrowClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0_u32);
+        client.set_platform_fee(&admin, &100_u32);
+        env.as_contract(&contract_id, || {
+            crate::internal::write_treasury(&env, &treasury);
+        });
+
+        let amount = 1_000_000_i128;
+        let payees_val = single_payee(&env, &seller).into_val(&env);
+        let escrow_id = client.create_escrow_8(
+            &payees_val,
+            &Some(buyer.clone()),
+            &resolver,
+            &token_id,
+            &amount,
+            &100_u32,
+            &604_800_u64,
+        );
+
+        client.fund_escrow(&escrow_id, &buyer);
+        client.mark_shipped(
+            &seller,
+            &escrow_id,
+            &soroban_sdk::String::from_str(&env, "TRACK-FEE-EVENT"),
+        );
+        client.raise_dispute(
+            &buyer,
+            &escrow_id,
+            &Symbol::new(&env, "OTHER"),
+            &Bytes::from_slice(&env, b"desc"),
+            &BytesN::from_array(&env, &[1u8; 32]),
+        );
+        client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Release);
+        env.ledger()
+            .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+        client.finalize_dispute(&resolver, &escrow_id);
+        let events = platform_fee_events(&env, &contract_id);
+
+        let expected_fee = amount * 100 / 10_000;
+        let tc = soroban_sdk::token::Client::new(&env, &token_id);
+        assert_eq!(tc.balance(&treasury), expected_fee);
+
+        assert_eq!(events.len(), 1, "one platform fee transfer to treasury");
+        let event = events.get(0).unwrap();
+        assert_eq!(event.schema_version, crate::EVENT_SCHEMA_VERSION);
+        assert_eq!(event.escrow_id, escrow_id);
+        assert_eq!(event.token, token_id);
+        assert_eq!(event.treasury, treasury);
+        assert_eq!(event.fee_amount, expected_fee);
+        assert_eq!(event.timestamp, env.ledger().timestamp());
+    }
+
+    #[test]
+    fn settle_escrow_to_payees_emits_platform_fee_collected_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let resolver = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        let primary_admin = Address::generate(&env);
+        let primary_id = env
+            .register_stellar_asset_contract_v2(primary_admin.clone())
+            .address();
+        let secondary_admin = Address::generate(&env);
+        let secondary_id = env
+            .register_stellar_asset_contract_v2(secondary_admin.clone())
+            .address();
+        let primary_token = soroban_sdk::token::StellarAssetClient::new(&env, &primary_id);
+        let secondary_token = soroban_sdk::token::StellarAssetClient::new(&env, &secondary_id);
+
+        let contract_id = env.register(Escrow, ());
+        let client = EscrowClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0_u32);
+        client.set_platform_fee(&admin, &200_u32);
+        env.as_contract(&contract_id, || {
+            crate::internal::write_treasury(&env, &treasury);
+        });
+
+        let primary_amount = 10_000_i128;
+        let secondary_amount = 5_000_i128;
+        let mut tokens = Vec::new(&env);
+        tokens.push_back(primary_id.clone());
+        tokens.push_back(secondary_id.clone());
+        let mut amounts = Vec::new(&env);
+        amounts.push_back(primary_amount);
+        amounts.push_back(secondary_amount);
+        let escrow_id = client.create_basket_escrow(
+            &seller,
+            &Some(buyer.clone()),
+            &resolver,
+            &tokens,
+            &amounts,
+            &100_u32,
+            &604_800_u64,
+            &None::<soroban_sdk::String>,
+            &None::<u64>,
+            &0_u64,
+        );
+
+        primary_token.mint(&buyer, &(primary_amount * 2));
+        secondary_token.mint(&buyer, &(secondary_amount * 2));
+        client.fund_basket_escrow(&escrow_id, &buyer);
+        client.mark_shipped(
+            &seller,
+            &escrow_id,
+            &soroban_sdk::String::from_str(&env, "TRACK-BASKET-FEE-EVENT"),
+        );
+        client.confirm_delivery(&buyer, &escrow_id, &true);
+        let events = platform_fee_events(&env, &contract_id);
+
+        let expected_fee = secondary_amount * 200 / 10_000;
+        let primary_client = soroban_sdk::token::Client::new(&env, &primary_id);
+        let secondary_client = soroban_sdk::token::Client::new(&env, &secondary_id);
+        assert_eq!(
+            primary_client.balance(&treasury),
+            0,
+            "no primary platform fee"
+        );
+        assert_eq!(secondary_client.balance(&treasury), expected_fee);
+
+        assert_eq!(events.len(), 1, "one secondary-token platform fee transfer");
+        let event = events.get(0).unwrap();
+        assert_eq!(event.schema_version, crate::EVENT_SCHEMA_VERSION);
+        assert_eq!(event.escrow_id, escrow_id);
+        assert_eq!(event.token, secondary_id);
+        assert_eq!(event.treasury, treasury);
+        assert_eq!(event.fee_amount, expected_fee);
+        assert_eq!(event.timestamp, env.ledger().timestamp());
     }
 }

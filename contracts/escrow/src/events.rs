@@ -952,6 +952,41 @@ pub fn emit_treasury_updated(env: &Env, old_treasury: Address, new_treasury: Add
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformFeeCollected {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub token: Address,
+    pub treasury: Address,
+    pub fee_amount: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Treasury"), symbol_short!("Fee"),)`, data: `PlatformFeeCollected`.
+///
+/// Published for every non-zero platform fee disbursed to the treasury so
+/// accounting dashboards can stream fee accruals without parsing payout events.
+pub fn emit_platform_fee_collected(
+    env: &Env,
+    escrow_id: u64,
+    token: Address,
+    treasury: Address,
+    fee_amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("Treasury"), symbol_short!("Fee")),
+        PlatformFeeCollected {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            token,
+            treasury,
+            fee_amount,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BasketEscrowCreated {
     pub schema_version: u32,
     pub escrow_id: u64,

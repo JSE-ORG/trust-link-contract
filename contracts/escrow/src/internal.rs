@@ -1005,6 +1005,7 @@ pub(crate) fn payout_basket_tokens(
             Some((fee_bps, platform_fee_bps, fee_collector, treasury)) => {
                 crate::helpers::payout::transfer_basket_with_fees(
                     env,
+                    escrow_id,
                     &entry.token,
                     recipient,
                     entry.amount,

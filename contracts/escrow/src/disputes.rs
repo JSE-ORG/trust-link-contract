@@ -393,7 +393,13 @@ impl Escrow {
 
         // ── INTERACTIONS (external token transfers) ──
         if let Some(ref treasury_addr) = treasury {
-            payout(&env, &escrow.token, treasury_addr, platform_fee);
+            crate::helpers::payout::payout_platform_fee(
+                &env,
+                escrow_id,
+                &escrow.token,
+                treasury_addr,
+                platform_fee,
+            );
         }
         payout(&env, &escrow.token, &recipient, payout_amount);
         payout(&env, &escrow.token, &fee_collector, protocol_fee);

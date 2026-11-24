@@ -1,6 +1,7 @@
 # Rust's output directory
 target
 target_local
+fix.md
 
 # Build artifacts
 *.wasm

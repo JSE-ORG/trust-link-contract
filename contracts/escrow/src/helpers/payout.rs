@@ -95,6 +95,7 @@ pub(crate) fn transfer_with_protocol_fee(
 /// compounding), and `payout` skips any fee that rounds to zero.
 pub(crate) fn transfer_basket_with_fees(
     env: &Env,
+    escrow_id: u64,
     token_addr: &Address,
     recipient: &Address,
     amount: i128,
@@ -117,9 +118,32 @@ pub(crate) fn transfer_basket_with_fees(
     payout(env, token_addr, recipient, net_amount);
     payout(env, token_addr, fee_collector, protocol_fee);
     if let Some(treasury_addr) = treasury {
-        payout(env, token_addr, treasury_addr, platform_fee);
+        payout_platform_fee(env, escrow_id, token_addr, treasury_addr, platform_fee);
     }
     Ok(())
+}
+
+/// Transfers a platform fee to `treasury` and publishes the matching
+/// `PlatformFeeCollected` telemetry event. A fee that rounds down to zero is
+/// not disbursed and therefore produces no event.
+pub(crate) fn payout_platform_fee(
+    env: &Env,
+    escrow_id: u64,
+    token_addr: &Address,
+    treasury: &Address,
+    fee_amount: i128,
+) {
+    if fee_amount <= 0 {
+        return;
+    }
+    payout(env, token_addr, treasury, fee_amount);
+    crate::events::emit_platform_fee_collected(
+        env,
+        escrow_id,
+        token_addr.clone(),
+        treasury.clone(),
+        fee_amount,
+    );
 }
 
 /// Transfers `amount` of `token_addr` from this contract to `recipient`.
