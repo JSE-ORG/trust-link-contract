@@ -56,4 +56,3 @@ USER vscode
 RUN rustup component add rustfmt clippy \
     && rustup target add wasm32v1-none
 
-USER root

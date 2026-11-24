@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::types::Message;
+use crate::types::{EvidenceEntry, Message};
 use crate::{
     ContractError, DataKey, EscrowData, FeeConfig, GlobalConfig, TimelockProposal,
     DEFAULT_APPEAL_FEE_BPS, DEFAULT_DISPUTE_TIMEOUT, DEFAULT_TTL_EXTENSION, MAX_ESCROW_AMOUNT,
@@ -30,6 +30,11 @@ pub fn get_ttl_extension(env: &Env) -> u32 {
 
 /// Configuration a contract has before any admin setting is written. Each
 /// value matches what the matching pre-v2 key fell back to when absent.
+///
+/// `min_amount`/`max_amount` here are the *defaults* taken from
+/// [`MIN_ESCROW_AMOUNT`]/[`MAX_ESCROW_AMOUNT`]. Once written, the stored
+/// `GlobalConfig` is the canonical source of the amount bounds — the constants
+/// are not consulted during validation.
 pub fn default_global_config() -> GlobalConfig {
     GlobalConfig {
         fee_collector: None,
@@ -237,6 +242,36 @@ pub fn append_message(
     env.storage().persistent().set(&count_key, &(count + 1));
     extend_ttl_for_key(env, &count_key);
     Ok(())
+}
+
+// ── Dispute evidence log ────────────────────────────────────────────────────
+
+/// Reads the evidence log for `escrow_id` (empty if nothing was submitted).
+pub fn read_evidence_log(env: &Env, escrow_id: u64) -> Vec<EvidenceEntry> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EvidenceLog(escrow_id))
+        .unwrap_or(Vec::new(env))
+}
+
+/// Appends `entry` to the evidence log for `escrow_id`, rejecting with
+/// `EvidenceLimitReached` once `cap` entries already exist. Returns the new
+/// number of entries.
+pub fn append_evidence(
+    env: &Env,
+    escrow_id: u64,
+    entry: &EvidenceEntry,
+    cap: u32,
+) -> Result<u32, ContractError> {
+    let key = DataKey::EvidenceLog(escrow_id);
+    let mut log = read_evidence_log(env, escrow_id);
+    if log.len() >= cap {
+        return Err(ContractError::EvidenceLimitReached);
+    }
+    log.push_back(entry.clone());
+    env.storage().persistent().set(&key, &log);
+    extend_ttl_for_key(env, &key);
+    Ok(log.len())
 }
 
 /// One-time relocation of `escrow_id`'s messages from the pre-paging vector

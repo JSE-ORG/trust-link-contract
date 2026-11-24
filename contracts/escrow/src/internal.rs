@@ -163,6 +163,9 @@ pub(crate) fn tally_votes_majority(votes: &Vec<ResolverVote>) -> ResolutionType 
         leader
     }
 }
+pub(crate) use crate::dispute_state_machine::{
+    add_or_update_vote, tally_votes, tally_votes_majority,
+};
 
 #[allow(dead_code)]
 pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
@@ -170,6 +173,29 @@ pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
         & crate::types::GLOBAL_CONFIG_FLAG_PAUSED
         != 0;
     if paused {
+        return Err(ContractError::ContractPaused);
+    }
+    Ok(())
+}
+
+/// Rejects a privileged admin entry point that has been individually paused
+/// with `pause_action(Symbol::new(env, action))` (#1237), returning
+/// `ContractPaused`.
+///
+/// Unlike [`ensure_action_not_paused`], this deliberately ignores the global
+/// pause flag: a global pause halts user flows during an incident, and the
+/// admin must still be able to ship a fix (upgrade, fee correction) while it
+/// is in force. Admin operations are only blocked when paused one by one.
+/// `pause_action`/`unpause_action` themselves are never guarded, so a paused
+/// admin action can always be re-enabled. The full list of guarded symbols
+/// is documented in `ADMIN.md` ("Pausable admin actions").
+pub(crate) fn ensure_admin_action_not_paused(env: &Env, action: &str) -> Result<(), ContractError> {
+    let action_paused: bool = env
+        .storage()
+        .instance()
+        .get(&DataKey::ActionPaused(Symbol::new(env, action)))
+        .unwrap_or(false);
+    if action_paused {
         return Err(ContractError::ContractPaused);
     }
     Ok(())
@@ -339,12 +365,14 @@ pub(crate) fn validate_shipping_window(shipping_window: u64) -> Result<(), Contr
 /// current ledger timestamp.
 pub(crate) fn validate_resolvers(
     resolvers: &ResolverSet,
-    seller: &Address,
+    payees: &BoundedPayees,
     buyer: Option<&Address>,
 ) -> Result<(), ContractError> {
-    // Ensure resolvers are distinct from seller and buyer
-    if resolvers.contains(seller) {
-        return Err(ContractError::ConflictingRoles);
+    // Ensure resolvers are distinct from every payee and the buyer.
+    for payee in payees.inner.iter() {
+        if resolvers.contains(&payee.address) {
+            return Err(ContractError::ConflictingRoles);
+        }
     }
 
     if let Some(b) = buyer {
@@ -1056,6 +1084,20 @@ pub(crate) fn payout_basket_tokens_split(
     buyer: &Address,
     split_bps: u32,
     fee_bps: u32,
+/// Distributes every non-primary basket token across `payees` in proportion to
+/// their basis points.
+///
+/// This is the multi-payee counterpart to [`payout_basket_tokens`]: instead of
+/// sending 100% of each secondary token to one address, it reuses
+/// [`distribute_to_payees`] so every payee receives its configured share and
+/// any rounding dust is awarded to the primary payee. Used by the release
+/// paths (`confirm_delivery`, `auto_release`, `co_signed_release`, and a
+/// `Release` dispute resolution); refund paths keep the single-recipient
+/// behaviour.
+pub(crate) fn distribute_basket_tokens(
+    env: &Env,
+    escrow_id: u64,
+    payees: &BoundedPayees,
 ) -> Result<(), ContractError> {
     let escrow = load_escrow(env, escrow_id)?;
     let primary_token = &escrow.token;
@@ -1595,44 +1637,6 @@ pub(crate) fn create_escrow_internal(
     Ok(escrow_id)
 }
 
-/// Resolvers whose recorded vote matches `final_resolution`, in vote order.
-/// The finalizing voter (`caller`) is always included: it is the sole winner
-/// when no recorded vote matches (and the dust recipient otherwise).
-fn winning_resolvers(
-    env: &Env,
-    votes: &Vec<ResolverVote>,
-    final_resolution: &ResolutionType,
-    caller: &Address,
-) -> Vec<Address> {
-    let mut winners: Vec<Address> = Vec::new(env);
-    for vote in votes.iter() {
-        if &vote.resolution == final_resolution && !winners.contains(&vote.resolver) {
-            winners.push_back(vote.resolver.clone());
-        }
-    }
-    if winners.is_empty() {
-        winners.push_back(caller.clone());
-    }
-    winners
-}
-
-/// Execute the resolution transition once a resolution has been determined.
-/// Transitions the escrow to `PendingFinalization`.
-///
-/// When `charge_fees` is true, deducts the arbitration and resolver fees from
-/// the escrow (once per dispute, see below) and pays the resolver fee to
-/// `caller`. Timeout fallbacks pass `false`, since no resolver actually
-/// decided the outcome and charging a resolver fee would be inappropriate.
-///
-/// # Fee timing
-/// Arbitration and resolver fees are charged to the escrow **once per
-/// dispute**, not once per appeal round. `fees_charged` on the dispute record
-/// means a prior round already deducted and paid them out (`clear_resolution`
-/// deliberately preserves it and the recorded amounts), so later rounds reuse
-/// the recorded amounts and skip the deduction, the accounting bump, and the
-/// transfers. A dedicated flag is required: the recorded amounts can
-/// legitimately be zero, and inferring "not yet charged" from that would let
-/// an appeal pick up a since-raised fee config.
 pub(crate) fn execute_resolution_transition(
     env: &Env,
     escrow_id: u64,
@@ -1765,8 +1769,10 @@ pub(crate) fn execute_resolution_transition(
     }
 
     emit_dispute_pending_finalization(
+    crate::dispute_state_machine::execute_resolution_transition(
         env,
         escrow_id,
+        escrow,
         caller,
         final_resolution,
         updated_escrow.amount,
@@ -1774,6 +1780,9 @@ pub(crate) fn execute_resolution_transition(
         reason,
     );
     Ok(())
+        votes,
+        charge_fees,
+    )
 }
 
 pub(crate) fn escrow_created_at(env: &Env, escrow_id: u64) -> u64 {

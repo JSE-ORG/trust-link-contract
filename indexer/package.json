@@ -21,5 +21,10 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "@stellar/stellar-sdk": {
+      "axios": "1.21.1"
+    }
   }
 }

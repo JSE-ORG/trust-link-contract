@@ -340,3 +340,94 @@ fn dispute_resolution_with_zero_resolver_fee_and_appeal() {
         "escrow must be Completed after finalize"
     );
 }
+
+#[test]
+fn finalize_and_appeal_report_terminal_state_errors() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    token::StellarAssetClient::new(&env, &token).mint(&buyer, &3_000);
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let create = || {
+        client.create_escrow(
+            &payees_val,
+            &Some(buyer.clone()),
+            &resolver,
+            &token,
+            &1_000_i128,
+            &0_u32,
+            &0_u32,
+            &3600_u64,
+            &None::<String>,
+        )
+    };
+
+    let completed_id = create();
+    client.fund_escrow(&completed_id, &buyer);
+    client.raise_dispute(
+        &buyer,
+        &completed_id,
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"completed"),
+        &BytesN::from_array(&env, &[1; 32]),
+    );
+    client.resolve_dispute(&resolver, &completed_id, &ResolutionType::Release);
+    env.ledger().set_timestamp(crate::APPEAL_WINDOW + 1);
+    client.finalize_dispute(&admin, &completed_id);
+    assert_eq!(
+        client.try_finalize_dispute(&admin, &completed_id),
+        Err(Ok(crate::ContractError::EscrowAlreadyCompleted))
+    );
+    assert_eq!(
+        client.try_appeal_dispute(&buyer, &completed_id),
+        Err(Ok(crate::ContractError::EscrowAlreadyCompleted))
+    );
+
+    let refunded_id = create();
+    client.fund_escrow(&refunded_id, &buyer);
+    client.raise_dispute(
+        &buyer,
+        &refunded_id,
+        &Symbol::new(&env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"refunded"),
+        &BytesN::from_array(&env, &[2; 32]),
+    );
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + crate::DEFAULT_DISPUTE_TIMEOUT + 1);
+    client.claim_dispute_timeout(&buyer, &refunded_id);
+    assert_eq!(
+        client.try_finalize_dispute(&admin, &refunded_id),
+        Err(Ok(crate::ContractError::EscrowAlreadyRefunded))
+    );
+    assert_eq!(
+        client.try_appeal_dispute(&buyer, &refunded_id),
+        Err(Ok(crate::ContractError::EscrowAlreadyRefunded))
+    );
+
+    let pending_id = create();
+    client.fund_escrow(&pending_id, &buyer);
+    assert_eq!(
+        client.try_finalize_dispute(&admin, &pending_id),
+        Err(Ok(crate::ContractError::NotPendingFinalization))
+    );
+    assert_eq!(
+        client.try_appeal_dispute(&buyer, &pending_id),
+        Err(Ok(crate::ContractError::NotPendingFinalization))
+    );
+}
