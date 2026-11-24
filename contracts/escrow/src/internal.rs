@@ -441,6 +441,7 @@ pub(crate) fn validate_payees(env: &Env, payees: &BoundedPayees) -> Result<(), C
         return Err(ContractError::InvalidAddress);
     }
 
+    let zero = crate::zero_address(env);
     let mut total_bps: u32 = 0;
     for i in 0..payees.inner.len() {
         let payee = payees
@@ -449,13 +450,21 @@ pub(crate) fn validate_payees(env: &Env, payees: &BoundedPayees) -> Result<(), C
             .ok_or(ContractError::PayeeIndexOutOfBounds)?;
         let bps = payee.bps;
 
-        // Check for overflow
-        total_bps = total_bps
+        // Reject zero-share payees so every payee strictly increases the cumulative sum.
+        if bps == 0 {
+            return Err(ContractError::PayeeBpsMismatch);
+        }
+
+        // Enforce strict monotonicity and prevent arithmetic wrap/overflow.
+        let next_total = total_bps
             .checked_add(bps)
             .ok_or(ContractError::ArithmeticError)?;
+        if next_total <= total_bps || next_total > BASIS_POINTS {
+            return Err(ContractError::PayeeBpsMismatch);
+        }
+        total_bps = next_total;
 
         // Validate each payee address is not zero
-        let zero = crate::zero_address(env);
         if payee.address == zero {
             return Err(ContractError::InvalidAddress);
         }
@@ -1806,4 +1815,71 @@ pub(crate) fn escrow_created_at(env: &Env, escrow_id: u64) -> u64 {
     load_state_history(env, escrow_id)
         .get(0)
         .map_or(0, |(_, ts)| ts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{BoundedPayees, Payee};
+    use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+
+    #[test]
+    fn validate_payees_rejects_zero_bps_and_non_monotonic_sum() {
+        let env = Env::default();
+        let p1 = Address::generate(&env);
+        let p2 = Address::generate(&env);
+
+        let mut list = Vec::new(&env);
+        list.push_back(Payee {
+            address: p1.clone(),
+            bps: 10_000,
+        });
+        list.push_back(Payee {
+            address: p2.clone(),
+            bps: 0,
+        });
+        assert_eq!(
+            validate_payees(&env, &BoundedPayees { inner: list }),
+            Err(ContractError::PayeeBpsMismatch)
+        );
+    }
+
+    #[test]
+    fn validate_payees_rejects_overflow() {
+        let env = Env::default();
+        let p1 = Address::generate(&env);
+        let p2 = Address::generate(&env);
+
+        let mut list = Vec::new(&env);
+        list.push_back(Payee {
+            address: p1,
+            bps: 5_000,
+        });
+        list.push_back(Payee {
+            address: p2,
+            bps: u32::MAX,
+        });
+        assert_eq!(
+            validate_payees(&env, &BoundedPayees { inner: list }),
+            Err(ContractError::ArithmeticError)
+        );
+    }
+
+    #[test]
+    fn validate_payees_accepts_strictly_monotonic_10000() {
+        let env = Env::default();
+        let p1 = Address::generate(&env);
+        let p2 = Address::generate(&env);
+
+        let mut list = Vec::new(&env);
+        list.push_back(Payee {
+            address: p1,
+            bps: 6_000,
+        });
+        list.push_back(Payee {
+            address: p2,
+            bps: 4_000,
+        });
+        assert_eq!(validate_payees(&env, &BoundedPayees { inner: list }), Ok(()));
+    }
 }
