@@ -501,6 +501,26 @@ pub(crate) fn validate_combined_fees(
     Ok(())
 }
 
+/// Validates that the cumulative sum of all concurrent fee rates
+/// (`protocol_fee_bps + platform_fee_bps + arbitration_fee_bps + resolver_fee_bps`)
+/// does not exceed `MAX_TOTAL_FEE_BPS` (2,500 = 25%).
+pub(crate) fn validate_total_fee_bps(
+    protocol_fee_bps: u32,
+    platform_fee_bps: u32,
+    arbitration_fee_bps: u32,
+    resolver_fee_bps: u32,
+) -> Result<(), ContractError> {
+    let total = protocol_fee_bps
+        .checked_add(platform_fee_bps)
+        .and_then(|s| s.checked_add(arbitration_fee_bps))
+        .and_then(|s| s.checked_add(resolver_fee_bps))
+        .ok_or(ContractError::FeeCalculationOverflow)?;
+    if total > crate::MAX_TOTAL_FEE_BPS {
+        return Err(ContractError::FeeExceedsMax);
+    }
+    Ok(())
+}
+
 /// Validates a proposed new fee collector and returns the current one.
 ///
 /// Applies the same invariants `initialize` enforces on the *initial*
@@ -587,6 +607,13 @@ pub(crate) fn update_arbitration_fee(
     let mut config = read_fee_config(env);
     // Validate that new arbitration fee + existing protocol fee doesn't exceed combined cap
     validate_combined_fees(config.protocol_fee_bps, fee_bps)?;
+    let global_config = read_global_config(env);
+    validate_total_fee_bps(
+        config.protocol_fee_bps,
+        global_config.platform_fee_bps,
+        fee_bps,
+        0,
+    )?;
     let old_fee = config.arbitration_fee_bps;
     config.arbitration_fee_bps = fee_bps;
     write_fee_config(env, &config);
@@ -1583,6 +1610,12 @@ pub(crate) fn create_escrow_internal(
 
     validate_escrow_fee_bps(fee_bps)?;
     validate_resolver_fee_bps(resolver_fee_bps)?;
+    validate_total_fee_bps(
+        fee_bps,
+        global_config.platform_fee_bps,
+        global_config.arbitration_fee_bps,
+        resolver_fee_bps,
+    )?;
     validate_payees(env, &payees)?;
 
     // Validate notes length
@@ -1881,5 +1914,18 @@ mod tests {
             bps: 4_000,
         });
         assert_eq!(validate_payees(&env, &BoundedPayees { inner: list }), Ok(()));
+    }
+
+    #[test]
+    fn validate_total_fee_bps_enforces_global_cap() {
+        assert_eq!(validate_total_fee_bps(1_000, 500, 500, 500), Ok(()));
+        assert_eq!(
+            validate_total_fee_bps(1_000, 501, 500, 500),
+            Err(ContractError::FeeExceedsMax)
+        );
+        assert_eq!(
+            validate_total_fee_bps(u32::MAX, 1, 0, 0),
+            Err(ContractError::FeeCalculationOverflow)
+        );
     }
 }

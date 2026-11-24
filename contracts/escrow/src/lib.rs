@@ -71,6 +71,11 @@ const MAX_PROTOCOL_FEE_BPS: u32 = 500;
 /// preventing the malicious admin attack where combined fees drain entire escrows.
 const MAX_COMBINED_FEE_BPS: u32 = 1_000;
 
+/// Global cumulative maximum across all concurrent fee rates
+/// (`protocol_fee_bps + platform_fee_bps + arbitration_fee_bps + resolver_fee_bps`)
+/// in basis points (2500 = 25%).
+pub const MAX_TOTAL_FEE_BPS: u32 = 2_500;
+
 /// The semantic version of the contract.
 pub const CONTRACT_VERSION: u32 = 1;
 

@@ -1149,6 +1149,13 @@ impl Escrow {
         if fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::PlatformFeeExceedsMax);
         }
+        let global_config = read_global_config(&env);
+        validate_total_fee_bps(
+            global_config.protocol_fee_bps,
+            fee_bps,
+            global_config.arbitration_fee_bps,
+            0,
+        )?;
         let old_fee = read_platform_fee_bps(&env);
         write_platform_fee_bps(&env, fee_bps);
         emit_platform_fee_updated(&env, old_fee, fee_bps);
@@ -1847,6 +1854,13 @@ impl Escrow {
         }
         let mut config = read_fee_config(&env);
         validate_combined_fees(fee, config.arbitration_fee_bps)?;
+        let global_config = read_global_config(&env);
+        validate_total_fee_bps(
+            fee,
+            global_config.platform_fee_bps,
+            config.arbitration_fee_bps,
+            0,
+        )?;
         config.protocol_fee_bps = fee;
         write_fee_config(&env, &config);
         Ok(())
@@ -1868,6 +1882,13 @@ impl Escrow {
         }
         let mut config = read_fee_config(&env);
         validate_combined_fees(fee, config.arbitration_fee_bps)?;
+        let global_config = read_global_config(&env);
+        validate_total_fee_bps(
+            fee,
+            global_config.platform_fee_bps,
+            config.arbitration_fee_bps,
+            0,
+        )?;
         let old_fee = config.protocol_fee_bps;
         config.protocol_fee_bps = fee;
         write_fee_config(&env, &config);
@@ -2263,6 +2284,13 @@ impl Escrow {
         if fee > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::PlatformFeeExceedsMax);
         }
+        let global_config = read_global_config(&env);
+        validate_total_fee_bps(
+            global_config.protocol_fee_bps,
+            fee,
+            global_config.arbitration_fee_bps,
+            0,
+        )?;
         storage::update_global_config(&env, |c| c.platform_fee_bps = fee);
         Ok(())
     }
