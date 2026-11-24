@@ -11,6 +11,7 @@
 
 #![allow(dead_code)]
 
+use arbitrary::{Arbitrary, Unstructured};
 use soroban_sdk::{
     testutils::Address as _, token, Address, Bytes, BytesN, Env, IntoVal, String as SorobanString,
     Symbol, Val, Vec,
@@ -239,11 +240,13 @@ impl<'d> Reader<'d> {
         buf
     }
 
-    /// A uniformly distributed boolean: the low bit of a fuzzed byte. `u8` is
-    /// drawn uniformly from the input (zero-padded past the end), so `% 2 == 0`
-    /// yields an exact 50/50 split across both branches.
+    /// A uniformly distributed boolean generated via the `arbitrary` crate.
+    /// Draws a byte from the fuzz input (zero-padded past the end) and delegates
+    /// to `<bool as Arbitrary>::arbitrary` for standard, unbiased boolean generation.
     pub fn bool(&mut self) -> bool {
-        self.u8() % 2 == 0
+        let byte = [self.u8()];
+        let mut u = Unstructured::new(&byte);
+        <bool as Arbitrary>::arbitrary(&mut u).unwrap_or(false)
     }
 
     /// A ledger timestamp bounded to 63 bits. Full-width `u64::MAX` timestamps

@@ -326,6 +326,7 @@ fn test_auto_release_basket_escrow_payout() {
         &3600_u64,
         &None::<soroban_sdk::String>,
         &None::<u64>,
+        &0_u64,
     );
 
     mint(&fix.env, &fix.token, &fix.buyer, 1000);

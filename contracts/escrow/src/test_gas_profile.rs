@@ -1,9 +1,11 @@
 #![cfg(test)]
 
+extern crate std;
+
 use crate::test_helpers::{advance_time, mint_token, setup_contract};
-use crate::{Escrow, EscrowClient, EscrowState, Payee, ResolutionType, ResolverSet, TokenEntry};
-use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::{token, Address, Env, IntoVal, String as SorobanString, Vec};
+use crate::{Escrow, EscrowClient, Payee, ResolutionType};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{Address, Env, IntoVal, String as SorobanString, Vec};
 
 #[derive(Clone, Debug)]
 struct GasSample {
@@ -11,26 +13,25 @@ struct GasSample {
     mem_bytes: u64,
 }
 
-fn take_budget_snapshot(env: &Env) -> GasSample {
-    let b = env.budget();
-    GasSample {
-        cpu_insns: b.get_cpu_insns_count(),
-        mem_bytes: b.get_mem_bytes_count(),
-    }
+// Soroban resets the budget for each top-level invocation.
+fn reset_gas_meter(env: &Env) {
+    env.cost_estimate().budget().reset_tracker();
 }
 
-fn diff(env: &Env, before: &GasSample) -> GasSample {
-    let after = take_budget_snapshot(env);
+fn read_gas_meter(env: &Env) -> GasSample {
+    let b = env.cost_estimate().budget();
     GasSample {
-        cpu_insns: after.cpu_insns.saturating_sub(before.cpu_insns),
-        mem_bytes: after.mem_bytes.saturating_sub(before.mem_bytes),
+        cpu_insns: b.cpu_instruction_cost(),
+        mem_bytes: b.memory_bytes_cost(),
     }
 }
 
 fn print_gas(label: &str, sample: &GasSample) {
-    println!(
+    std::println!(
         "gas_profile | {:<36} | cpu={:>12} | mem={:>10}",
-        label, sample.cpu_insns, sample.mem_bytes
+        label,
+        sample.cpu_insns,
+        sample.mem_bytes
     );
 }
 
@@ -58,9 +59,9 @@ fn gas_profile_initialize() {
     let admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.initialize(&admin, &fee_collector, &0_u32);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("initialize", &sample);
     assert!(sample.cpu_insns > 0);
 }
@@ -69,12 +70,12 @@ fn gas_profile_initialize() {
 fn gas_profile_set_admin() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_contract_id, client, admin, _fc) = setup_contract(&env);
+    let (_contract_id, client, _admin, _fc) = setup_contract(&env);
     let new_admin = Address::generate(&env);
 
-    let before = take_budget_snapshot(&env);
-    client.set_admin(&admin, &new_admin);
-    let sample = diff(&env, &before);
+    reset_gas_meter(&env);
+    client.set_admin(&new_admin);
+    let sample = read_gas_meter(&env);
     print_gas("set_admin", &sample);
 }
 
@@ -84,9 +85,9 @@ fn gas_profile_set_fee() {
     env.mock_all_auths();
     let (_contract_id, client, admin, _fc) = setup_contract(&env);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.set_fee(&admin, &150_u32);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("set_fee", &sample);
 }
 
@@ -96,9 +97,9 @@ fn gas_profile_set_protocol_fee() {
     env.mock_all_auths();
     let (_contract_id, client, admin, _fc) = setup_contract(&env);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.set_protocol_fee(&admin, &200_u32);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("set_protocol_fee", &sample);
 }
 
@@ -108,9 +109,9 @@ fn gas_profile_set_arbitration_fee() {
     env.mock_all_auths();
     let (_contract_id, client, admin, _fc) = setup_contract(&env);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.set_arbitration_fee(&admin, &100_u32);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("set_arbitration_fee", &sample);
 }
 
@@ -126,7 +127,7 @@ fn gas_profile_create_escrow() {
     let payees = make_payees(&env, &seller);
     let payees_val = payees.into_val(&env);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     let _id = client.create_escrow_7(
         &payees_val,
         &None::<Address>,
@@ -135,7 +136,7 @@ fn gas_profile_create_escrow() {
         &1_000_000_i128,
         &100_u32,
     );
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("create_escrow", &sample);
 }
 
@@ -155,7 +156,7 @@ fn gas_profile_create_escrow_multi_resolver() {
     resolvers.push_back(r2);
     resolvers.push_back(r3);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     let _id = client.create_escrow_multi(
         &seller,
         &None::<Address>,
@@ -166,7 +167,7 @@ fn gas_profile_create_escrow_multi_resolver() {
         &100_u32,
         &3600_u64,
     );
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("create_escrow_multi(3-of-3)", &sample);
 }
 
@@ -181,7 +182,7 @@ fn gas_profile_create_escrow_with_fallback() {
     let backup = Address::generate(&env);
     let token = register_token(&env);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     let _id = client.create_escrow_with_fallback(
         &seller,
         &None::<Address>,
@@ -193,7 +194,7 @@ fn gas_profile_create_escrow_with_fallback() {
         &100_u32,
         &3600_u64,
     );
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("create_escrow_with_fallback", &sample);
 }
 
@@ -217,7 +218,7 @@ fn gas_profile_create_basket_escrow() {
     amounts.push_back(500_000_i128);
     amounts.push_back(250_000_i128);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     let _id = client.create_basket_escrow(
         &seller,
         &None::<Address>,
@@ -228,8 +229,9 @@ fn gas_profile_create_basket_escrow() {
         &3600_u64,
         &None::<SorobanString>,
         &None::<u64>,
+        &0_u64,
     );
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("create_basket_escrow(3 tokens)", &sample);
 }
 
@@ -255,9 +257,9 @@ fn gas_profile_fund_escrow() {
         &100_u32,
     );
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.fund_escrow(&id, &buyer);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("fund_escrow", &sample);
 }
 
@@ -284,12 +286,13 @@ fn gas_profile_mark_shipped() {
     );
     client.fund_escrow(&id, &buyer);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.mark_shipped(
         &seller,
-        &id, &soroban_sdk::String::from_str(&env, "TRACK-ABC-123"),
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-ABC-123"),
     );
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("mark_shipped", &sample);
 }
 
@@ -318,9 +321,9 @@ fn gas_profile_confirm_delivery() {
     client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "T-1"));
     advance_time(&env, 172_800 + 1);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.confirm_delivery(&buyer, &id, &false);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("confirm_delivery", &sample);
 }
 
@@ -347,9 +350,9 @@ fn gas_profile_co_signed_release() {
     );
     client.fund_escrow(&id, &buyer);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.co_signed_release(&buyer, &id);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("co_signed_release", &sample);
 }
 
@@ -377,9 +380,9 @@ fn gas_profile_auto_release() {
     client.fund_escrow(&id, &buyer);
     advance_time(&env, 172_800 + 3600 + 1);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.auto_release(&id);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("auto_release", &sample);
 }
 
@@ -403,9 +406,9 @@ fn gas_profile_cancel_escrow_pending() {
         &100_u32,
     );
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.cancel_escrow(&seller, &id);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("cancel_escrow (Pending)", &sample);
 }
 
@@ -432,9 +435,9 @@ fn gas_profile_mutual_cancel() {
     );
     client.fund_escrow(&id, &buyer);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.mutual_cancel(&id);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("mutual_cancel", &sample);
 }
 
@@ -463,15 +466,15 @@ fn gas_profile_raise_dispute() {
     client.mark_shipped(&seller, &id, &soroban_sdk::String::from_str(&env, "T-1"));
     advance_time(&env, 1);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.raise_dispute(
         &buyer,
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"item not as described"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("raise_dispute", &sample);
 }
 
@@ -504,12 +507,12 @@ fn gas_profile_resolve_dispute_release() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("resolve_dispute (Release)", &sample);
 }
 
@@ -542,12 +545,12 @@ fn gas_profile_resolve_dispute_refund() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("resolve_dispute (Refund)", &sample);
 }
 
@@ -586,12 +589,12 @@ fn gas_profile_vote_multi_resolver() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.vote(&r1, &id, &ResolutionType::Release);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("vote (multi-resolver, first)", &sample);
 }
 
@@ -624,14 +627,14 @@ fn gas_profile_finalize_dispute() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
     advance_time(&env, 86_400 + 1);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.finalize_dispute(&resolver, &id);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("finalize_dispute", &sample);
 }
 
@@ -664,13 +667,13 @@ fn gas_profile_appeal_dispute() {
         &id,
         &soroban_sdk::Symbol::new(&env, "DEFECTIVE"),
         &soroban_sdk::Bytes::from_slice(&env, b"x"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.appeal_dispute(&buyer, &id);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("appeal_dispute", &sample);
 }
 
@@ -697,13 +700,13 @@ fn gas_profile_post_message() {
     );
     client.fund_escrow(&id, &buyer);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.post_message(
         &id,
         &buyer,
         &SorobanString::from_str(&env, "Hello! Is this item still available?"),
     );
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("post_message", &sample);
 }
 
@@ -728,9 +731,9 @@ fn gas_profile_rotate_resolver() {
         &100_u32,
     );
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.rotate_resolver(&seller, &id, &new_resolver);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("rotate_resolver", &sample);
 }
 
@@ -757,14 +760,14 @@ fn gas_profile_request_refund_and_approve() {
     );
     client.fund_escrow(&id, &buyer);
 
-    let b1 = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.request_refund(&buyer, &id);
-    let s1 = diff(&env, &b1);
+    let s1 = read_gas_meter(&env);
     print_gas("request_refund", &s1);
 
-    let b2 = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.approve_refund(&seller, &id);
-    let s2 = diff(&env, &b2);
+    let s2 = read_gas_meter(&env);
     print_gas("approve_refund", &s2);
 }
 
@@ -788,9 +791,9 @@ fn gas_profile_get_escrow() {
         &100_u32,
     );
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     let _e = client.get_escrow(&id);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("get_escrow (view)", &sample);
 }
 
@@ -800,9 +803,9 @@ fn gas_profile_get_stats() {
     env.mock_all_auths();
     let (_contract_id, client, _admin, _fc) = setup_contract(&env);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     let _s = client.get_stats();
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("get_stats (view)", &sample);
 }
 
@@ -812,9 +815,9 @@ fn gas_profile_get_fee_config() {
     env.mock_all_auths();
     let (_contract_id, client, _admin, _fc) = setup_contract(&env);
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     let _f = client.get_fee_config();
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("get_fee_config (view)", &sample);
 }
 
@@ -824,14 +827,14 @@ fn gas_profile_pause_and_unpause() {
     env.mock_all_auths();
     let (_contract_id, client, admin, _fc) = setup_contract(&env);
 
-    let b1 = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.pause_contract(&admin);
-    let s1 = diff(&env, &b1);
+    let s1 = read_gas_meter(&env);
     print_gas("pause_contract", &s1);
 
-    let b2 = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     client.unpause_contract(&admin);
-    let s2 = diff(&env, &b2);
+    let s2 = read_gas_meter(&env);
     print_gas("unpause_contract", &s2);
 }
 
@@ -857,10 +860,11 @@ fn gas_profile_emergency_drain() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
+    client.pause_contract(&admin);
 
-    let before = take_budget_snapshot(&env);
-    client.emergency_drain(&admin, &token);
-    let sample = diff(&env, &before);
+    reset_gas_meter(&env);
+    client.emergency_drain(&id);
+    let sample = read_gas_meter(&env);
     print_gas("emergency_drain", &sample);
 }
 
@@ -883,13 +887,13 @@ fn gas_profile_batch_create_escrow_10() {
             fee_bps: 100,
             resolver_fee_bps: 0,
             shipping_window: 3600,
-            notes: None,
+            notes: SorobanString::from_str(&env, ""),
         });
     }
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     let ids = client.batch_create_escrow(&seller, &inputs);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     assert_eq!(ids.len(), 10);
     print_gas("batch_create_escrow(10)", &sample);
 }
@@ -901,10 +905,16 @@ fn gas_profile_multicall_3() {
     let (_contract_id, client, _admin, _fc) = setup_contract(&env);
 
     let seller = Address::generate(&env);
-    let buyer = Address::generate(&env);
+    let buyers = [
+        Address::generate(&env),
+        Address::generate(&env),
+        Address::generate(&env),
+    ];
     let resolver = Address::generate(&env);
     let token = register_token(&env);
-    mint_token(&env, &token, &buyer, 3_000_000);
+    for buyer in &buyers {
+        mint_token(&env, &token, buyer, 1_000_000);
+    }
     let payees = make_payees(&env, &seller);
     let payees_val = payees.into_val(&env);
     let id1 = client.create_escrow_7(
@@ -933,7 +943,7 @@ fn gas_profile_multicall_3() {
     );
 
     let mut calls = Vec::new(&env);
-    for id in [id1, id2, id3].iter() {
+    for (id, buyer) in [id1, id2, id3].iter().zip(buyers.iter()) {
         let mut args = Vec::new(&env);
         args.push_back(id.into_val(&env));
         args.push_back(buyer.clone().into_val(&env));
@@ -943,9 +953,9 @@ fn gas_profile_multicall_3() {
         });
     }
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     let _r = client.multicall(&calls);
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("multicall(fund x3)", &sample);
 }
 
@@ -961,11 +971,11 @@ fn gas_profile_ensure_action_not_paused() {
     let (contract_id, _client, _admin, _fc) = setup_contract(&env);
     let action = soroban_sdk::Symbol::new(&env, "create_escrow");
 
-    let before = take_budget_snapshot(&env);
+    reset_gas_meter(&env);
     env.as_contract(&contract_id, || {
         crate::internal::ensure_action_not_paused(&env, action.clone()).unwrap();
     });
-    let sample = diff(&env, &before);
+    let sample = read_gas_meter(&env);
     print_gas("ensure_action_not_paused", &sample);
 
     // Today's cost is one `read_global_config` instance read plus one

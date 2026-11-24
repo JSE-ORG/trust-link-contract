@@ -1,4 +1,4 @@
-.PHONY: help build build-wasm test test-all fmt clippy bench clean check check-error-codes docs-link-check doc audit indexer-test xtask-test \
+.PHONY: help build build-wasm test test-all fmt clippy bench clean check check-error-codes docs-link-check malware-check doc audit indexer-test xtask-test \
 	testnet testnet-reset testnet-stop fuzz-build fuzz fuzz-check setup hooks-uninstall
 
 help: ## Show this help
@@ -39,16 +39,35 @@ CLIPPY_PEDANTIC_ALLOW := \
 	-A clippy::must_use_candidate \
 	-A clippy::wildcard_imports
 
+# Panic-free contract code policy (CONTRIBUTING.md "Panic-Free Contract Code
+# Policy"): production code must never panic. `--lib` doesn't compile
+# `#[cfg(test)]` or `#[cfg(any(test, feature = "testutils"))]` items, so these
+# restriction lints only ever see non-test code and can be enabled
+# unconditionally here. `clippy::unwrap_used` (not `unwrap_in_result`, which
+# only fires on Result-unwraps inside a Result-returning fn and misses plain
+# Option::unwrap() entirely) catches every unwrap() on both Option and
+# Result regardless of the enclosing function's return type.
+CLIPPY_PANIC_FREE := \
+	-W clippy::unwrap_used \
+	-W clippy::expect_used \
+	-W clippy::panic
+
 # Canonical lint scope (issue #1102): this is the ONLY clippy command that
 # gates this repository. Both .githooks/pre-commit and .github/workflows/ci.yml
 # run it via `make clippy`, so a commit that passes locally passes in CI.
-clippy: ## Run clippy lints, including clippy::pedantic (canonical scope, used by hook and CI)
-	cargo clippy --lib -- -D warnings -W clippy::pedantic $(CLIPPY_PEDANTIC_ALLOW)
+clippy: ## Run clippy lints, including clippy::pedantic + the panic-free restriction lints (canonical scope, used by hook and CI)
+	cargo clippy --lib -- -D warnings -W clippy::pedantic $(CLIPPY_PEDANTIC_ALLOW) $(CLIPPY_PANIC_FREE)
 
-check: fmt-check clippy test check-error-codes docs-link-check ## Run all checks (fmt + clippy + test + error-code drift + required docs links)
+check: fmt-check clippy test check-error-codes docs-link-check malware-check ## Run all checks (fmt + clippy + test + error-code drift + docs links + malware guard)
 
 bench: ## Run benchmarks (if available)
 	cargo test --release -- --ignored
+
+bench-gas: ## Fail if any gas_profile metric regressed >5% versus the committed baseline
+	python3 scripts/check_gas_regression.py
+
+bench-gas-update: ## Refresh contracts/escrow/gas_baseline.json from a local gas-profile run
+	python3 scripts/check_gas_regression.py --update
 
 fuzz-check: ## Type-check every fuzz target on stable (no cargo-fuzz needed)
 	cargo check --manifest-path contracts/escrow/fuzz/Cargo.toml --all-targets
@@ -70,6 +89,9 @@ check-error-codes: ## Verify errors.rs and bindings/src/errors.ts agree
 
 docs-link-check: ## Verify required resolver documentation links
 	node scripts/check-resolver-links.mjs
+
+malware-check: ## Scan the tree for malicious / obfuscated code and committed binaries
+	node scripts/scan-malware.mjs
 
 doc: ## Generate and open documentation
 	cargo doc --open

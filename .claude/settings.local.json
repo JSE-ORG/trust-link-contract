@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"payees.get\\(0\\)\\\\|payees\\\\s*$\\\\|\\\\.get\\(0\\)\\\\|primary payee\\\\|primary_payee\\\\|first payee\" contracts/escrow/src/instructions.rs)",
+      "Bash(make check *)",
+      "Bash(cargo test *)"
+    ]
+  }
+}

@@ -99,7 +99,7 @@ fn shipped(ctx: &Ctx) -> (u64, Address, Address, Address) {
 
 fn disputed(ctx: &Ctx) -> (u64, Address, Address, Address) {
     let (id, seller, buyer, resolver) = shipped(ctx);
-    let hash = BytesN::from_array(ctx.env, &[0u8; 32]);
+    let hash = BytesN::from_array(ctx.env, &[1u8; 32]);
     ctx.client.raise_dispute(
         &buyer,
         &id,
@@ -170,7 +170,7 @@ fn upgrade_rejects_intruder() {
     let env = Env::default();
     let ctx = setup(&env);
     let intruder = Address::generate(&env);
-    let fake_hash = BytesN::from_array(&env, &[0u8; 32]);
+    let fake_hash = BytesN::from_array(&env, &[1u8; 32]);
     // Auth check happens before the actual WASM update, so NotAuthorized fires first.
     assert_eq!(
         ctx.client.try_upgrade(&intruder, &fake_hash),
@@ -528,7 +528,7 @@ fn raise_dispute_rejects_seller() {
     let env = Env::default();
     let ctx = setup(&env);
     let (id, seller, _, _) = shipped(&ctx);
-    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    let hash = BytesN::from_array(&env, &[1u8; 32]);
     assert_eq!(
         ctx.client.try_raise_dispute(
             &seller,
@@ -546,7 +546,7 @@ fn raise_dispute_rejects_resolver() {
     let env = Env::default();
     let ctx = setup(&env);
     let (id, _, _, resolver) = shipped(&ctx);
-    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    let hash = BytesN::from_array(&env, &[1u8; 32]);
     assert_eq!(
         ctx.client.try_raise_dispute(
             &resolver,
@@ -565,7 +565,7 @@ fn raise_dispute_rejects_intruder() {
     let ctx = setup(&env);
     let (id, _, _, _) = shipped(&ctx);
     let intruder = Address::generate(&env);
-    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    let hash = BytesN::from_array(&env, &[1u8; 32]);
     assert_eq!(
         ctx.client.try_raise_dispute(
             &intruder,
@@ -771,7 +771,7 @@ fn raise_dispute_rejects_buyer_in_pending_state() {
     let env = Env::default();
     let ctx = setup(&env);
     let (id, _, buyer, _) = pending(&ctx);
-    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    let hash = BytesN::from_array(&env, &[1u8; 32]);
     // buyer check passes (buyer is set after fund but NOT here — escrow is Pending
     // with no buyer yet, so EscrowHasNoBuyer fires before the state check)
     assert!(ctx
@@ -868,7 +868,7 @@ fn raise_dispute_rejects_completed_escrow() {
     let env = Env::default();
     let ctx = setup(&env);
     let (id, _, buyer, _) = completed(&ctx);
-    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    let hash = BytesN::from_array(&env, &[1u8; 32]);
     assert_eq!(
         ctx.client.try_raise_dispute(
             &buyer,
@@ -886,7 +886,7 @@ fn raise_dispute_rejects_refunded_escrow() {
     let env = Env::default();
     let ctx = setup(&env);
     let (id, _, buyer, _) = refunded(&ctx);
-    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    let hash = BytesN::from_array(&env, &[1u8; 32]);
     assert_eq!(
         ctx.client.try_raise_dispute(
             &buyer,

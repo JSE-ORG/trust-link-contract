@@ -127,7 +127,7 @@ impl<'a> CounterFixture<'a> {
         );
         let reason = Symbol::new(&self.env, "ITEM_NOT_RECEIVED");
         let description = Bytes::from_slice(&self.env, b"missing");
-        let evidence = BytesN::from_array(&self.env, &[0u8; 32]);
+        let evidence = BytesN::from_array(&self.env, &[1u8; 32]);
         self.client
             .raise_dispute(&self.buyer, escrow_id, &reason, &description, &evidence);
         self.client
@@ -205,20 +205,28 @@ fn dispute_release_records_stats_and_arbitration_fee() {
 
     fx.raise_and_resolve(&id);
 
-    let recorded_fee: i128 = env.as_contract(&fx.contract_id, || {
-        env.storage()
-            .instance()
-            .get(&DataKey::TotalArbitrationFees(fx.token.clone()))
-            .unwrap_or(0)
-    });
+    let read_recorded_fee = || -> i128 {
+        env.as_contract(&fx.contract_id, || {
+            env.storage()
+                .instance()
+                .get(&DataKey::TotalArbitrationFees(fx.token.clone()))
+                .unwrap_or(0)
+        })
+    };
     assert_eq!(
-        recorded_fee, 5,
-        "arbitration fee must be recorded exactly once at resolve time"
+        read_recorded_fee(),
+        0,
+        "arbitration fee is only provisional while the dispute is pending"
     );
 
     env.ledger()
         .set_timestamp(env.ledger().timestamp() + 86_401);
     fx.client.finalize_dispute(&fx.resolver, &id);
+    assert_eq!(
+        read_recorded_fee(),
+        5,
+        "arbitration fee must be recorded exactly once at finalization"
+    );
 
     let stats = fx.client.get_stats();
     assert_eq!(stats.total_disputed, 1, "one dispute was raised");

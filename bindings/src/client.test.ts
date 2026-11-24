@@ -324,7 +324,18 @@ describe("create_basket_escrow", () => {
     const client = new EscrowClient(transport);
     const tokens = [TOKEN, "GTOKEN200000000000000000000000000000000000000000000000000000"];
     const amounts = [AMOUNT, 500_000n];
-    const id = client.create_basket_escrow(SELLER, BUYER, RESOLVER, tokens, amounts, FEE_BPS, SHIPPING_WINDOW);
+    const id = client.create_basket_escrow(
+      SELLER,
+      BUYER,
+      RESOLVER,
+      tokens,
+      amounts,
+      FEE_BPS,
+      SHIPPING_WINDOW,
+      "basket notes",
+      1_700_000_000n,
+      3_600n,
+    );
     assert.equal(calls[0].method, "create_basket_escrow");
     assert.deepEqual(calls[0].args, [
       SELLER,
@@ -334,8 +345,9 @@ describe("create_basket_escrow", () => {
       amounts,
       FEE_BPS,
       SHIPPING_WINDOW,
-      null,
-      null,
+      "basket notes",
+      1_700_000_000n,
+      3_600n,
     ]);
     assert.equal(id, ESCROW_ID);
   });

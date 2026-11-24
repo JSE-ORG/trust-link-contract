@@ -349,7 +349,7 @@ fn test_record_delivery_on_disputed_escrow_reverts() {
         &id,
         &Symbol::new(&env, "DAMAGED"),
         &soroban_sdk::Bytes::from_slice(&env, b"item arrived damaged"),
-        &BytesN::from_array(&env, &[0u8; 32]),
+        &BytesN::from_array(&env, &[1u8; 32]),
     );
 
     // Admin oracle must not be able to record delivery on a Disputed escrow.

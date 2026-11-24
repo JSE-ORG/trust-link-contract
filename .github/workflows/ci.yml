@@ -1,6 +1,9 @@
 name: CI
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
 # Note on E2E integration test exclusion (Issue #1168):
 # The `make e2e` target (e2e/01_setup_and_deploy.sh - e2e/04_cancel_path.sh) is intentionally
 # excluded from this CI workflow. The e2e scripts run live transactions against an active Stellar
@@ -9,7 +12,8 @@ on: [push, pull_request]
 # in CI is excluded to prevent flaky failures from public network rate limits, latency, or resets.
 # Running against local dockerized quickstart is excluded to keep CI runs fast and lightweight.
 # Deterministic end-to-end contract protocol verification is instead enforced in CI via `make test-all`
-# (contracts/escrow/tests/*), which exercises multi-step integration flows in-memory without external network dependencies.
+# (contracts/escrow/tests/*), which exercises multi-step integration flows in-memory without external
+# network dependencies.
 
 jobs:
   check:
@@ -22,10 +26,9 @@ jobs:
         run: make fmt-check
       - name: Documentation Link Check
         run: make docs-link-check
-      # Canonical lint scope — identical to the pre-commit hook (issue #1102).
       - name: Audit Scope Drift Check
+        # AUDIT_SCOPE.md is canonical; guard against audit/ duplicate
         run: |
-          # AUDIT_SCOPE.md is canonical; guard against audit/ duplicate
           if [ -d "audit" ] && [ -f "audit/SCOPE.md" ]; then
             echo "Error: Duplicate audit scope file detected at audit/SCOPE.md. AUDIT_SCOPE.md is canonical."
             exit 1
@@ -36,12 +39,34 @@ jobs:
         run: make build-debug
       - name: Test (unit, lib)
         run: make test
+      - name: Gas Benchmark Regression
+        run: make bench-gas
       - name: "Test (all targets: unit + integration)"
         run: make test-all
       - name: Fuzz targets (type-check)
         run: make fuzz-check
       - name: Xtask (fmt + clippy + test)
         run: make xtask-test
+
+  snapshot-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Regenerate snapshots
+        run: |
+          make test
+          make test-all
+      - name: Check snapshot drift
+        run: |
+          if [ -n "$(git status --porcelain contracts/escrow/test_snapshots)" ]; then
+            echo "Error: Snapshot drift detected under contracts/escrow/test_snapshots."
+            echo "Run 'make test' and 'make test-all' locally, then commit updated snapshots."
+            git status --porcelain contracts/escrow/test_snapshots
+            git diff contracts/escrow/test_snapshots
+            exit 1
+          fi
 
   indexer:
     runs-on: ubuntu-latest
@@ -102,25 +127,3 @@ jobs:
         run: cargo build --lib
       - name: Test xtask
         run: make xtask-test
-
-  indexer:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Build contract
-        run: cargo build --lib
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Install dependencies
-        working-directory: ./indexer
-        run: npm ci
-      - name: Typecheck indexer
-        working-directory: ./indexer
-        run: npm run typecheck
-      - name: Test indexer
-        working-directory: ./indexer
-        run: npm test

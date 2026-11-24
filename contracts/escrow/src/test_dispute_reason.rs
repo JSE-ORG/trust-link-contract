@@ -31,7 +31,7 @@ fn try_raise(
         &id,
         &Symbol::new(env, reason),
         &soroban_sdk::Bytes::from_slice(env, b"desc"),
-        &BytesN::from_array(env, &[0u8; 32]),
+        &BytesN::from_array(env, &[1u8; 32]),
     ) {
         Ok(_) => Ok(()),
         Err(Ok(e)) => Err(e),

@@ -1,7 +1,19 @@
 #![cfg(test)]
 
-use crate::{Escrow, EscrowClient, Payee};
+use crate::{
+    internal::read_global_config, Escrow, EscrowClient, Payee, MAX_ESCROW_AMOUNT, MIN_ESCROW_AMOUNT,
+};
 use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal, Vec};
+
+#[test]
+fn global_config_defaults_match_amount_constants() {
+    let env = Env::default();
+    let contract_id = env.register(Escrow, ());
+    let config = env.as_contract(&contract_id, || read_global_config(&env));
+
+    assert_eq!(config.min_amount, MIN_ESCROW_AMOUNT);
+    assert_eq!(config.max_amount, MAX_ESCROW_AMOUNT);
+}
 
 #[test]
 fn test_get_public_config() {

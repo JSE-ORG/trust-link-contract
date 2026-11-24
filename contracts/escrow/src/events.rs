@@ -714,6 +714,78 @@ pub fn emit_resolver_rotated(
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeEvidenceSubmitted {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub submitter: Address,
+    pub evidence_hash: BytesN<32>,
+    pub description: Bytes,
+    /// Number of entries in the escrow's evidence log after this submission.
+    pub entry_count: u32,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Dispute"), symbol_short!("Evidence"), submitter.clone(),)`, data: `DisputeEvidenceSubmitted`.
+pub fn emit_dispute_evidence_submitted(
+    env: &Env,
+    escrow_id: u64,
+    submitter: Address,
+    evidence_hash: BytesN<32>,
+    description: Bytes,
+    entry_count: u32,
+) {
+    env.events().publish(
+        (
+            symbol_short!("Dispute"),
+            symbol_short!("Evidence"),
+            submitter.clone(),
+        ),
+        DisputeEvidenceSubmitted {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            submitter,
+            evidence_hash,
+            description,
+            entry_count,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolverSanctioned {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub old_resolver: Address,
+    pub replacement_resolver: Address,
+    pub sanctioned_by: Address,
+    pub sanctioned_at: u64,
+}
+
+/// Topic: `(symbol_short!("Resolver"), symbol_short!("Sanction"),)`, data: `ResolverSanctioned`.
+pub fn emit_resolver_sanctioned(
+    env: &Env,
+    escrow_id: u64,
+    old_resolver: Address,
+    replacement_resolver: Address,
+    sanctioned_by: Address,
+) {
+    env.events().publish(
+        (symbol_short!("Resolver"), symbol_short!("Sanction")),
+        ResolverSanctioned {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            old_resolver,
+            replacement_resolver,
+            sanctioned_by,
+            sanctioned_at: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TokenAllowlistUpdated {
     pub schema_version: u32,
     pub added: bool,
@@ -766,6 +838,9 @@ pub struct DisputePendingFinalization {
     pub amount: i128,
     pub appeal_deadline: u64,
     pub pending_at: u64,
+    /// Standardized reason supplied by the resolver (`None` when the
+    /// resolution was made without one, e.g. via `resolve_dispute`).
+    pub resolution_reason: Option<Symbol>,
 }
 
 /// Topic: `(symbol_short!("Dispute"), symbol_short!("Pending"), resolver.clone(),)`, data: `DisputePendingFinalization`.
@@ -776,6 +851,7 @@ pub fn emit_dispute_pending_finalization(
     resolution: crate::ResolutionType,
     amount: i128,
     appeal_deadline: u64,
+    resolution_reason: Option<Symbol>,
 ) {
     env.events().publish(
         (
@@ -791,6 +867,7 @@ pub fn emit_dispute_pending_finalization(
             amount,
             appeal_deadline,
             pending_at: env.ledger().timestamp(),
+            resolution_reason,
         },
     );
 }
@@ -802,10 +879,25 @@ pub struct DisputeAppealed {
     pub escrow_id: u64,
     pub appellant: Address,
     pub timestamp: u64,
+    /// Exact appeal fee deducted from the appellant for this round (0 when the
+    /// appeal fee is disabled). Appended after the original fields.
+    pub appeal_fee_charged: i128,
+    /// 1-based appeal round (1 = first appeal).
+    pub appeal_round: u32,
+    /// Exact fee basis the appeal fee was calculated on: the original funded
+    /// principal (`escrow.amount` + provisional arbitration + resolver fees).
+    pub fee_basis: i128,
 }
 
 /// Topic: `(symbol_short!("Dispute"), symbol_short!("Appealed"), appellant.clone(),)`, data: `DisputeAppealed`.
-pub fn emit_dispute_appealed(env: &Env, escrow_id: u64, appellant: Address) {
+pub fn emit_dispute_appealed(
+    env: &Env,
+    escrow_id: u64,
+    appellant: Address,
+    appeal_fee_charged: i128,
+    appeal_round: u32,
+    fee_basis: i128,
+) {
     env.events().publish(
         (
             symbol_short!("Dispute"),
@@ -817,6 +909,9 @@ pub fn emit_dispute_appealed(env: &Env, escrow_id: u64, appellant: Address) {
             escrow_id,
             appellant,
             timestamp: env.ledger().timestamp(),
+            appeal_fee_charged,
+            appeal_round,
+            fee_basis,
         },
     );
 }
@@ -888,6 +983,45 @@ pub fn emit_basket_escrow_created(env: &Env, escrow_id: u64, seller: Address, to
             escrow_id,
             seller,
             token_count,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BasketTokenPayout {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub token: Address,
+    pub recipient: Address,
+    pub net_amount: i128,
+    pub fee: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Basket"), symbol_short!("Payout"), token.clone(),)`, data: `BasketTokenPayout`.
+pub fn emit_basket_token_payout(
+    env: &Env,
+    escrow_id: u64,
+    token: Address,
+    recipient: Address,
+    net_amount: i128,
+    fee: i128,
+) {
+    env.events().publish(
+        (
+            symbol_short!("Basket"),
+            symbol_short!("Payout"),
+            token.clone(),
+        ),
+        BasketTokenPayout {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            token,
+            recipient,
+            net_amount,
+            fee,
             timestamp: env.ledger().timestamp(),
         },
     );
@@ -1379,6 +1513,26 @@ pub fn emit_emergency_drain(env: &Env, escrow_id: u64, token: Address, amount: i
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmergencyDrainBlocked {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub timestamp: u64,
+}
+
+/// Diagnostic. Topic: `(symbol_short!("Emergency"), symbol_short!("Blocked"),)`, data: `EmergencyDrainBlocked`.
+pub fn emit_emergency_drain_blocked(env: &Env, escrow_id: u64) {
+    env.events().publish(
+        (symbol_short!("Emergency"), symbol_short!("Blocked")),
+        EmergencyDrainBlocked {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeliveryProposed {
     pub schema_version: u32,
     pub escrow_id: u64,
@@ -1520,6 +1674,32 @@ pub fn emit_timelock_cancelled(env: &Env, operation: u32, proposer: Address, can
             operation,
             proposer,
             canceller,
+            cancelled_at: env.ledger().timestamp(),
+        },
+    );
+}
+
+/// Companion to `TimelockCancelled` for automatic admin-rotation cancellations.
+/// Kept separate so the existing cancellation event payload remains compatible.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimelockCancellationReason {
+    pub schema_version: u32,
+    pub operation: u32,
+    pub proposer: Address,
+    pub reason: Symbol,
+    pub cancelled_at: u64,
+}
+
+/// Topic: `(Timelock, CancelWhy)`. The reason is `AdmChange` on rotation.
+pub fn emit_timelock_admin_mismatch(env: &Env, operation: u32, proposer: Address) {
+    env.events().publish(
+        (symbol_short!("Timelock"), symbol_short!("CancelWhy")),
+        TimelockCancellationReason {
+            schema_version: EVENT_SCHEMA_VERSION,
+            operation,
+            proposer,
+            reason: symbol_short!("AdmChange"),
             cancelled_at: env.ledger().timestamp(),
         },
     );

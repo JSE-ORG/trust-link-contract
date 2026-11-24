@@ -107,6 +107,7 @@ This installs a pre-commit hook that automatically checks:
 
 - **Formatting**: `make fmt-check` (`cargo fmt --all -- --check`)
 - **Lints**: `make clippy` — the canonical lint gate, identical to CI (see [Building & Testing](#building--testing))
+- **Malware Guard**: `make malware-check` (`node scripts/scan-malware.mjs`) — fast local check for obfuscation, secrets, and committed binaries
 
 Commits will be rejected if either check fails.
 
@@ -297,9 +298,12 @@ if escrow.state != EscrowState::Funded {
 - For `Option<T>` with a reasonable default: use `.unwrap_or()` or `.unwrap_or_else()`.
 
 **Enforcement:**
-The canonical `make clippy` gate includes `clippy::panic`, `clippy::unwrap_in_result`, and `clippy::expect_used` lints at warning level, surfaced as hard errors by the `-D warnings` flag. CI enforces this on every commit — any use of these patterns in non-test code will fail the build.
+Non-test contract code enforces this via `#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic))]` at the crate root. CI enforces this on every commit via `make clippy` — any use of these patterns in non-test code will fail the build.
+The canonical `make clippy` gate includes `clippy::unwrap_used`, `clippy::expect_used`, and `clippy::panic` lints at warning level, surfaced as hard errors by the `-D warnings` flag (see `CLIPPY_PANIC_FREE` in the `Makefile`). CI and the pre-commit hook both run `make clippy`, so any new `unwrap()`, `expect()`, or `panic!()` in non-test code fails the build before it merges.
 
-Test code (files in `contracts/escrow/tests/` and `src/test_*.rs` modules under `#[cfg(test)]`) may use `unwrap()` and `panic!()` for clarity.
+(`clippy::unwrap_used` is used rather than the narrower `clippy::unwrap_in_result` — the latter only fires on `Result::unwrap()` calls inside a function that itself returns `Result`, and silently misses `Option::unwrap()` entirely.)
+
+Because `make clippy` runs `cargo clippy --lib`, which never compiles `#[cfg(test)]` or `#[cfg(any(test, feature = "testutils"))]` items, these lints structurally cannot fire on test code — no `#[allow]` escape hatch is needed for tests. Test code (files in `contracts/escrow/tests/` and `src/test_*.rs` modules under `#[cfg(test)]`) may use `unwrap()` and `panic!()` for clarity.
 
 ---
 
@@ -342,6 +346,7 @@ cargo test --lib -- --nocapture   # show println! output
 make fuzz-check      # type-check the fuzz targets (separate workspace)
 make xtask-test      # fmt + clippy + test the developer CLI
 make indexer-test    # typecheck + test the event indexer (run npm ci first)
+make malware-check   # scan for obfuscated code, secrets, and committed binaries
 
 # Run the core checks in sequence
 make check
@@ -356,7 +361,16 @@ make check
 - **Tests:** `make test` for the fast unit-only loop; `make test-all` runs every test target (unit + integration) and is what CI enforces before merge. The integration tests in `contracts/escrow/tests/` declare `required-features = ["testutils"]` in `contracts/escrow/Cargo.toml`, so bare `cargo test --tests` **skips** them with a note instead of failing — pass the feature (or use `make test-all`) to run them.
 - **End-to-End Tests (`make e2e`):** The repository provides shell-based end-to-end scripts in `e2e/` (`01_setup_and_deploy.sh` through `04_cancel_path.sh`). These scripts execute against a live Stellar network (requiring the `stellar` CLI, `jq`, and either `make testnet` or public testnet). `make e2e` is **excluded from CI** because public testnet / Friendbot introduces rate limits and network flakiness, while local devnet containers introduce heavy CI spin-up latency. Instead, full multi-step protocol flows are deterministically covered in CI by `make test-all` (`contracts/escrow/tests/*`). Contributors can run `make e2e` locally against devnet or testnet.
 
-These checks — `fmt`, `clippy`, `test`, `test-all`, `fuzz-check`, `xtask-test`, `indexer-test`, and `build-wasm` — are exactly what the CI pipeline runs, so running them locally before pushing means no CI surprises. The lib-target build/test commands work on any platform (Windows, Linux, macOS).
+These checks — `fmt`, `clippy`, `test`, `test-all`, `fuzz-check`, `xtask-test`, `indexer-test`, `snapshot-drift`, and `build-wasm` — are exactly what the CI pipeline runs, so running them locally before pushing means no CI surprises. The lib-target build/test commands work on any platform (Windows, Linux, macOS).
+
+### Malware Guard & PR Checks
+
+To ensure code security and protect against supply-chain attacks, pull requests run automated checks:
+
+- **Fast, blocking checks**: Secret scanning (`gitleaks`), custom pattern scanning (`make malware-check`), workflow linting (`actionlint`), and lockfile integrity checks.
+- **Diff-based & contributor friendly**: Checks inspect only your changes on PRs. An existing CVE or advisory on an untouched dependency will never block your PR.
+- **Advisory scans**: Dependency vulnerability scans (`osv-scanner`) and filesystem scans (`trivy`) run in non-blocking / warning-only mode on PRs to prevent spurious failures. Full repository audits and ClamAV scans run on the nightly schedule.
+- **Handling False Positives**: If a legitimate change trips a pattern (e.g. test fixture or documentation string), add a narrow exemption to [`.malware-guard-allowlist.json`](.malware-guard-allowlist.json) or [`.gitleaks.toml`](.gitleaks.toml). See [SECURITY.md](SECURITY.md) for full details.
 
 ---
 
@@ -406,6 +420,7 @@ make fmt-check
 make clippy
 make build-wasm
 make test-all
+make malware-check
 
 # Sanity-check the WASM binary size hasn't ballooned unexpectedly
 ls -lh target/wasm32v1-none/release/trustlink_escrow.wasm
@@ -568,8 +583,9 @@ snapshots no longer reflect the code and the PR's snapshot diff reveals the
 drift. Always regenerate snapshots in the same PR that changes behaviour, and
 review the diff — an unexpected snapshot change often means an accidental
 behaviour change. CI treats the committed snapshots as the source of truth:
-stale or omitted snapshots are caught when the regenerated output differs from
-what is committed.
+stale or omitted snapshots are caught by the [`snapshot-drift`](.github/workflows/ci.yml)
+CI job when the regenerated output differs from what is committed under
+`contracts/escrow/test_snapshots/`.
 
 **No Git LFS required.** Snapshots are plain, human-readable JSON text files
 (a few tens of kilobytes). Commit them with normal `git add`; do **not** route
