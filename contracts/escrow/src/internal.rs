@@ -162,6 +162,29 @@ pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
     Ok(())
 }
 
+/// Rejects a privileged admin entry point that has been individually paused
+/// with `pause_action(Symbol::new(env, action))` (#1237), returning
+/// `ContractPaused`.
+///
+/// Unlike [`ensure_action_not_paused`], this deliberately ignores the global
+/// pause flag: a global pause halts user flows during an incident, and the
+/// admin must still be able to ship a fix (upgrade, fee correction) while it
+/// is in force. Admin operations are only blocked when paused one by one.
+/// `pause_action`/`unpause_action` themselves are never guarded, so a paused
+/// admin action can always be re-enabled. The full list of guarded symbols
+/// is documented in `ADMIN.md` ("Pausable admin actions").
+pub(crate) fn ensure_admin_action_not_paused(env: &Env, action: &str) -> Result<(), ContractError> {
+    let action_paused: bool = env
+        .storage()
+        .instance()
+        .get(&DataKey::ActionPaused(Symbol::new(env, action)))
+        .unwrap_or(false);
+    if action_paused {
+        return Err(ContractError::ContractPaused);
+    }
+    Ok(())
+}
+
 pub(crate) fn ensure_action_not_paused(env: &Env, action: Symbol) -> Result<(), ContractError> {
     let paused = crate::storage::read_global_config(env).state_flags
         & crate::types::GLOBAL_CONFIG_FLAG_PAUSED
@@ -995,6 +1018,37 @@ pub(crate) fn payout_basket_tokens(
                 crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);
             }
         }
+    }
+    Ok(())
+}
+
+/// Distributes every non-primary basket token across `payees` in proportion to
+/// their basis points.
+///
+/// This is the multi-payee counterpart to [`payout_basket_tokens`]: instead of
+/// sending 100% of each secondary token to one address, it reuses
+/// [`distribute_to_payees`] so every payee receives its configured share and
+/// any rounding dust is awarded to the primary payee. Used by the release
+/// paths (`confirm_delivery`, `auto_release`, `co_signed_release`, and a
+/// `Release` dispute resolution); refund paths keep the single-recipient
+/// behaviour.
+pub(crate) fn distribute_basket_tokens(
+    env: &Env,
+    escrow_id: u64,
+    payees: &BoundedPayees,
+) -> Result<(), ContractError> {
+    let escrow = load_escrow(env, escrow_id)?;
+    let primary_token = &escrow.token;
+    let basket_tokens = load_basket_tokens(env, escrow_id);
+    for i in 0..basket_tokens.len() {
+        let entry = basket_tokens
+            .get(i)
+            .ok_or(ContractError::BasketIndexOutOfBounds)?;
+        // The primary token is settled by the caller before this helper runs.
+        if !is_transferable_basket_entry(&entry, primary_token) {
+            continue;
+        }
+        distribute_to_payees(env, &entry.token, payees, entry.amount)?;
     }
     Ok(())
 }

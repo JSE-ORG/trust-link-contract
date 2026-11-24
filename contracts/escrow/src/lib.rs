@@ -27,7 +27,8 @@ pub use crate::events::*;
 pub use crate::types::{
     ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, Escrow as EscrowData,
     EscrowInput, EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee, PublicContractConfig,
-    ResolutionType, ResolverSet, ResolverVote, TimelockOperation, TimelockProposal, TokenEntry,
+    ResolutionType, ResolverSet, ResolverVote, TimelockOperation, TimelockProposal,
+    TokenBalanceInfo, TokenEntry,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
@@ -111,8 +112,14 @@ const MIN_APPEAL_FEE_BPS: u32 = 10;
 /// opts in.
 const DEFAULT_APPEAL_FEE_BPS: u32 = 0;
 
-/// Minimum escrow amount in stroops.
-/// Keeps the contract from accepting zero or negative escrows.
+/// Default minimum escrow amount in stroops.
+///
+/// This is only the **default**: the canonical bound enforced by
+/// `create_escrow` and `create_basket_escrow` is `GlobalConfig::min_amount`,
+/// which is seeded from this constant by `storage::default_global_config` and
+/// can be changed by the admin through `set_amount_limits`. Validation always
+/// reads the stored config, so this constant alone does not describe what an
+/// initialized contract accepts.
 pub const MIN_ESCROW_AMOUNT: i128 = 1;
 
 /// Length of the dispute window in seconds (`172_800` = 48 hours).
@@ -173,6 +180,12 @@ pub const MAX_NOTES_LEN: u32 = 500;
 pub const MAX_MESSAGE_LEN: u32 = 500;
 pub const MAX_MESSAGES_PER_ESCROW: u32 = 100;
 
+/// Maximum number of additional evidence entries that may be appended to an
+/// escrow's `EvidenceLog` via `submit_dispute_evidence`. Bounds the size of the
+/// single storage entry; the buyer's initial `raise_dispute` evidence is stored
+/// separately on `DisputeData` and does not count toward this cap.
+pub const MAX_EVIDENCE_ENTRIES: u32 = 5;
+
 /// Maximum number of tokens allowed in a basket escrow. Bounds iteration cost
 /// in `save_basket_tokens` and `payout_basket_tokens`, and keeps the basket
 /// well within Soroban storage entry size limits.
@@ -230,9 +243,14 @@ pub const MAX_IDS_PER_QUERY: u32 = 50;
 /// and `get_escrows_by_seller`, regardless of the caller-supplied `limit`.
 pub const MAX_ESCROWS_PER_PAGE: u64 = 50;
 
-/// Maximum escrow amount intentionally capped to
-/// preserve arithmetic safety for fee calculations
-/// and aggregate accounting operations.
+/// Default maximum escrow amount, capped to preserve arithmetic safety for fee
+/// calculations and aggregate accounting operations.
+///
+/// Like [`MIN_ESCROW_AMOUNT`], this is only the **default**. The canonical
+/// bound is `GlobalConfig::max_amount` (seeded from this constant by
+/// `storage::default_global_config`), and the admin may lower or raise it with
+/// `set_amount_limits`; validation reads the stored config rather than this
+/// constant.
 pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 10_000;
 
 #[contract]
@@ -421,6 +439,7 @@ mod test_fee_property_invariants;
 mod test_fee_snapshot;
 mod test_fee_update;
 mod test_finalize_dispute_appeal_boundary;
+mod test_gas_profile;
 mod test_get_escrows_by_buyer;
 mod test_get_escrows_by_ids;
 mod test_get_escrows_by_seller;
@@ -452,6 +471,7 @@ mod test_shipping_window;
 mod test_state_flow_fixes;
 mod test_state_history;
 mod test_storage_collision;
+mod test_storage_differential;
 mod test_string_length;
 mod test_token_allowlist;
 mod test_ttl;
