@@ -17,6 +17,7 @@ pub mod storage;
 pub mod types;
 
 mod admin;
+mod dispute_state_machine;
 mod disputes;
 pub use crate::disputes::DISPUTE_REASONS;
 mod instructions;
@@ -25,10 +26,10 @@ mod queries;
 pub use crate::errors::ContractError;
 pub use crate::events::*;
 pub use crate::types::{
-    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, Escrow as EscrowData,
-    EscrowInput, EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee, PublicContractConfig,
-    ResolutionType, ResolverSet, ResolverVote, TimelockOperation, TimelockProposal,
-    TokenBalanceInfo, TokenEntry,
+    BoundedBasket, ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus,
+    Escrow as EscrowData, EscrowInput, EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee,
+    PublicContractConfig, ResolutionType, ResolverSet, ResolverVote, TimelockOperation,
+    TimelockProposal, TokenBalanceInfo, TokenEntry, BASKET_CAPACITY,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
@@ -69,6 +70,11 @@ const MAX_PROTOCOL_FEE_BPS: u32 = 500;
 /// Ensures that `protocol_fee_bps` + `arbitration_fee_bps` cannot exceed 10%,
 /// preventing the malicious admin attack where combined fees drain entire escrows.
 const MAX_COMBINED_FEE_BPS: u32 = 1_000;
+
+/// Global cumulative maximum across all concurrent fee rates
+/// (`protocol_fee_bps + platform_fee_bps + arbitration_fee_bps + resolver_fee_bps`)
+/// in basis points (2500 = 25%).
+pub const MAX_TOTAL_FEE_BPS: u32 = 2_500;
 
 /// The semantic version of the contract.
 pub const CONTRACT_VERSION: u32 = 1;
@@ -148,6 +154,12 @@ const PENDING_EXPIRY_WINDOW: u64 = 604_800;
 /// Longest a fallback escrow's primary resolver may hold sole authority over
 /// a dispute before the backup must be allowed to act (`2_592_000` = 30 days).
 const FALLBACK_PRIMARY_GRACE: u64 = 2_592_000;
+
+/// Shortest window (in seconds) a fallback escrow's primary resolver is
+/// guaranteed exclusive authority over a dispute (`86_400` = 1 day).
+/// `FallbackResolver::dispute_deadline` must be at least this far past the
+/// creation timestamp (`dispute_deadline >= now + MIN_FALLBACK_DEADLINE_OFFSET`).
+const MIN_FALLBACK_DEADLINE_OFFSET: u64 = 86_400;
 
 /// Furthest past the creation timestamp a `FallbackResolver::dispute_deadline`
 /// may be set. A dispute can be raised no later than `PENDING_EXPIRY_WINDOW +
@@ -353,8 +365,11 @@ fn resolve_or_vote_internal(
     caller: Address,
     escrow_id: u64,
     resolution: ResolutionType,
+    reason: Option<Symbol>,
+    memo: soroban_sdk::Bytes,
 ) -> Result<(), ContractError> {
     ensure_action_not_paused(env, Symbol::new(env, "RESOLVE"))?;
+    resolution.validate()?;
     let escrow = load_escrow(env, escrow_id)?;
 
     if escrow.state != EscrowState::Disputed {
@@ -392,6 +407,8 @@ fn resolve_or_vote_internal(
             final_resolution,
             votes,
             true,
+            reason,
+            memo,
         )?;
     } else {
         save_resolver_votes(env, escrow_id, &votes);
@@ -412,6 +429,7 @@ mod test_auth_matrix;
 mod test_auth_ordering;
 mod test_auto_release;
 mod test_basket_escrow;
+mod test_bounded_basket;
 mod test_cancel_restrictions;
 mod test_co_signed_release;
 mod test_concurrent_vendor_escrows;

@@ -16,6 +16,30 @@ flow:
 | `execute_<op>(caller, params)` | **Anyone** (admin or keeper), signing for their own address | Reverts with `TimelockNotElapsed` before `ready_at`, `NotAuthorized` if the proposer is no longer admin, `InvalidProposalHash` if `params` differ from what was queued. |
 | `cancel_timelock_op(caller, op)` | Current admin | Removes a pending proposal. |
 
+### Automatic invalidation on admin rotation
+
+`execute_set_admin` (and the `set_admin` test helper) purges **every** queued
+timelock proposal as part of the rotation. The contract iterates all
+`TimelockOperation` discriminants, removes each `DataKey::TimelockOp(op)`
+entry, and emits a `TimelockCancelled` event per purged proposal (with the
+outgoing admin recorded as `proposer` and the incoming admin as `canceller`).
+Indexers can therefore update governance status for the old key immediately.
+
+Consequences:
+
+- The new admin starts with a clean governance slate — no fee changes,
+  upgrades, allowlist edits or other queued operations survive the rotation.
+- A proposal queued by the previous admin cannot be executed afterwards. This
+  is additionally enforced by `execute_<op>`, which rejects any proposal whose
+  `proposer` is not the current admin; the purge removes the stored record as
+  defence in depth.
+- A rotation consumes the `SetAdmin` slot itself (that proposal executes
+  normally and emits `TimelockExecuted`, not `TimelockCancelled`). New proposals
+  must be queued by the incoming admin.
+
+Because reversible host calls roll back on error, a failed rotation leaves the
+existing proposals untouched.
+
 ### Running a keeper
 
 Once a proposal's `ready_at` (from the `TimelockQueued` event) has passed, a

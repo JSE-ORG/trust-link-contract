@@ -483,6 +483,56 @@ fn test_granular_pause_functionality() {
     assert!(!client.is_action_paused(&create_action));
 }
 
+/// #1243 — Part C: Verify immediate pause operates without timelock delay.
+#[test]
+fn test_immediate_pause_takes_effect_without_timelock() {
+    let (env, admin, _seller, _buyer, _resolver, _token, contract_id) = setup_env();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    // Before pausing, contract is live.
+    assert!(!client.is_paused());
+
+    // pause_contract is an immediate circuit-breaker — no queue/execute needed.
+    client.pause_contract(&admin);
+    assert!(client.is_paused());
+}
+
+/// #1243 — Part C: When timelocked-unpause-only policy is active, direct
+/// `unpause_contract` is blocked with `DirectUnpauseBlocked`.
+#[test]
+fn test_direct_unpause_blocked_when_strict_policy_enabled() {
+    let (env, admin, _seller, _buyer, _resolver, _token, contract_id) = setup_env();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    // Enable strict governance mode — unpause must go through the timelock.
+    client.set_timelocked_unpause_only(&admin, &true);
+    client.pause_contract(&admin);
+    assert!(client.is_paused());
+
+    // Direct unpause is now rejected.
+    let result = client.try_unpause_contract(&admin);
+    assert!(
+        matches!(result, Err(Ok(ContractError::DirectUnpauseBlocked))),
+        "expected DirectUnpauseBlocked, got {:?}",
+        result
+    );
+
+    // The contract is still paused.
+    assert!(client.is_paused());
+}
+
+/// #1243 — Part C: When timelocked-unpause-only is off, direct unpause works normally.
+#[test]
+fn test_direct_unpause_allowed_when_policy_disabled() {
+    let (env, admin, _seller, _buyer, _resolver, _token, contract_id) = setup_env();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    // No strict policy set — the default allows direct unpausing.
+    client.pause_contract(&admin);
+    assert!(client.is_paused());
+
+    client.unpause_contract(&admin);
+    assert!(!client.is_paused());
 // ── #1237: granular pausing of administrative functions ─────────────────────
 
 mod admin_action_pausing {

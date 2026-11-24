@@ -186,6 +186,116 @@ fn reentrancy_attempting_cancel_during_payout_is_blocked() {
     assert_eq!(f.mclient.balance(&f.buyer), 0);
 }
 
+/// Issue #1231: a malicious secondary token in a basket re-enters the escrow
+/// from inside `transfer` during `fund_basket_escrow`. The host traps the
+/// nested call and the whole funding invocation rolls back: the escrow stays
+/// `Pending` and no token balance moves. With CEI ordering the state written
+/// before the external call is `Funded`, so a re-entrant funding/cancel cannot
+/// observe a still-pending escrow.
+#[test]
+fn reentrancy_during_basket_funding_is_blocked() {
+    let env = Box::leak(Box::new(Env::default()));
+    env.mock_all_auths();
+
+    let contract_id = env.register(Escrow, ());
+    let client = crate::EscrowClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    let fee_collector = Address::generate(env);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let primary = env.register(MaliciousToken, ());
+    let secondary = env.register(MaliciousToken, ());
+    let primary_client = MaliciousTokenClient::new(env, &primary);
+    let secondary_client = MaliciousTokenClient::new(env, &secondary);
+    let buyer = Address::generate(env);
+    let seller = Address::generate(env);
+    let resolver = Address::generate(env);
+
+    primary_client.set_attack(&Attack::None);
+    secondary_client.set_attack(&Attack::None);
+    primary_client.mint(&buyer, &AMOUNT);
+    secondary_client.mint(&buyer, &AMOUNT);
+
+    let tokens = Vec::from_array(env, [primary.clone(), secondary.clone()]);
+    let amounts = Vec::from_array(env, [AMOUNT, AMOUNT]);
+    let id = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+
+    // The secondary token tries to cancel the escrow while it is being funded.
+    secondary_client.set_reentry(&contract_id, &buyer, &id);
+    secondary_client.set_attack(&Attack::ReenterCancel);
+
+    let result = client.try_fund_basket_escrow(&id, &buyer);
+    assert!(result.is_err(), "re-entrant basket funding must revert");
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Pending);
+    assert_eq!(primary_client.balance(&buyer), AMOUNT);
+    assert_eq!(secondary_client.balance(&buyer), AMOUNT);
+    assert_eq!(primary_client.balance(&contract_id), 0);
+    assert_eq!(secondary_client.balance(&contract_id), 0);
+}
+
+/// Issue #1231: if any token transfer fails mid-basket, the state write made
+/// before the external calls must be rolled back atomically.
+#[test]
+fn failing_secondary_token_rolls_back_basket_funding_state() {
+    let env = Box::leak(Box::new(Env::default()));
+    env.mock_all_auths();
+
+    let contract_id = env.register(Escrow, ());
+    let client = crate::EscrowClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    let fee_collector = Address::generate(env);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let primary = env.register(MaliciousToken, ());
+    let secondary = env.register(MaliciousToken, ());
+    let primary_client = MaliciousTokenClient::new(env, &primary);
+    let secondary_client = MaliciousTokenClient::new(env, &secondary);
+    let buyer = Address::generate(env);
+    let seller = Address::generate(env);
+    let resolver = Address::generate(env);
+
+    primary_client.set_attack(&Attack::None);
+    secondary_client.set_attack(&Attack::Fail);
+    primary_client.mint(&buyer, &AMOUNT);
+    secondary_client.mint(&buyer, &AMOUNT);
+
+    let tokens = Vec::from_array(env, [primary.clone(), secondary.clone()]);
+    let amounts = Vec::from_array(env, [AMOUNT, AMOUNT]);
+    let id = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &0_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+
+    let result = client.try_fund_basket_escrow(&id, &buyer);
+    assert!(result.is_err(), "a failing token must abort basket funding");
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Pending);
+    // The primary transfer happened first, but the failed secondary transfer
+    // rolls it back too — no partial funding is observable.
+    assert_eq!(primary_client.balance(&buyer), AMOUNT);
+    assert_eq!(primary_client.balance(&contract_id), 0);
+    assert_eq!(secondary_client.balance(&buyer), AMOUNT);
+    assert_eq!(secondary_client.balance(&contract_id), 0);
+}
+
 // 5. An always-failing token cannot fund an escrow.
 #[test]
 fn always_failing_token_cannot_fund() {

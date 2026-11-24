@@ -207,6 +207,51 @@ fn test_multi_resolver_duplicate_returns_duplicate_resolver() {
 }
 
 #[test]
+fn test_multi_resolver_rejects_buyer_and_payee_roles() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &Address::generate(&env), &0_u32);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let mut buyer_resolver = Vec::new(&env);
+    buyer_resolver.push_back(buyer.clone());
+    assert_eq!(
+        client.try_create_escrow_multi(
+            &seller,
+            &Some(buyer.clone()),
+            &buyer_resolver,
+            &1,
+            &token,
+            &1000,
+            &0,
+            &3600,
+        ),
+        Err(Ok(ContractError::ConflictingRoles))
+    );
+
+    let mut payee_resolver = Vec::new(&env);
+    payee_resolver.push_back(seller.clone());
+    assert_eq!(
+        client.try_create_escrow_multi(
+            &seller,
+            &Some(buyer),
+            &payee_resolver,
+            &1,
+            &token,
+            &1000,
+            &0,
+            &3600,
+        ),
+        Err(Ok(ContractError::ConflictingRoles))
+    );
+}
+
+#[test]
 fn test_multi_resolver_threshold_validation_errors() {
     let env = Env::default();
     env.mock_all_auths();
@@ -436,6 +481,14 @@ fn test_multi_resolver_fee_split_equally_among_winning_voters() {
     assert_eq!(resolver_fee, 300); // 3% of 10_000
     assert_eq!(dispute.compensated_resolvers.len(), 3);
 
+    // Nothing is paid to resolvers until the dispute is finalized.
+    for i in 0..5 {
+        assert_eq!(token_client.balance(&resolvers.get(i).unwrap()), 0);
+    }
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + 86_401);
+    client.finalize_dispute(&resolvers.get(0).unwrap(), &escrow_id);
+
     let share = resolver_fee / 3;
     for i in 0..3 {
         assert_eq!(token_client.balance(&resolvers.get(i).unwrap()), share);
@@ -475,6 +528,12 @@ fn test_multi_resolver_fee_dust_goes_to_finalizing_voter() {
 
     let resolver_fee = client.get_dispute(&escrow_id).unwrap().resolver_fee;
     assert_eq!(resolver_fee, 10);
+
+    // Resolver fees are deferred until finalization.
+    assert_eq!(token_client.balance(&finalizer), 0);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + 86_401);
+    client.finalize_dispute(&finalizer, &escrow_id);
 
     let a = token_client.balance(&resolvers.get(0).unwrap());
     let b = token_client.balance(&resolvers.get(1).unwrap());

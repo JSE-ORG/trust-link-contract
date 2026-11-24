@@ -74,6 +74,41 @@ pub fn update_global_config(env: &Env, f: impl FnOnce(&mut GlobalConfig)) {
     write_global_config(env, &config);
 }
 
+// ── Accumulated protocol fees (pull pattern) ────────────────────────────────
+
+/// Returns the accumulated unclaimed protocol fees for `token`.
+pub fn read_accumulated_fees(env: &Env, token: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::AccumulatedFees(token.clone()))
+        .unwrap_or(0)
+}
+
+/// Credits `amount` to `DataKey::AccumulatedFees(token)` for later pull
+/// withdrawal by the configured fee collector.
+pub fn add_accumulated_fee(env: &Env, token: &Address, amount: i128) -> Result<(), ContractError> {
+    if amount <= 0 {
+        return Ok(());
+    }
+    let key = DataKey::AccumulatedFees(token.clone());
+    let current: i128 = env.storage().instance().get(&key).unwrap_or(0);
+    let updated = current
+        .checked_add(amount)
+        .ok_or(ContractError::FeeCalculationOverflow)?;
+    env.storage().instance().set(&key, &updated);
+    Ok(())
+}
+
+/// Atomically reads and zeroes out `DataKey::AccumulatedFees(token)`.
+pub fn take_accumulated_fees(env: &Env, token: &Address) -> i128 {
+    let key = DataKey::AccumulatedFees(token.clone());
+    let amount: i128 = env.storage().instance().get(&key).unwrap_or(0);
+    if amount > 0 {
+        env.storage().instance().set(&key, &0i128);
+    }
+    amount
+}
+
 /// Pre-v2 keys whose values now live in [`GlobalConfig`].
 fn legacy_global_config_keys() -> [DataKey; 13] {
     [

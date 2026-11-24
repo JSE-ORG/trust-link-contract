@@ -2,7 +2,7 @@
 
 use crate::{ContractError, EscrowClient, Payee};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Env, IntoVal, Vec};
+use soroban_sdk::{Address, Env, IntoVal, String as SorobanString, Vec};
 
 #[allow(dead_code)]
 fn single_payee(env: &Env, address: &Address) -> Vec<Payee> {
@@ -114,6 +114,115 @@ fn test_amount_limits_enforced() {
         &3600,
     );
     assert_eq!(res, Err(Ok(ContractError::AmountExceedsMaximum)));
+}
+
+/// Issue #1229: every secondary token in a basket is validated against the
+/// same canonical `min_amount`/`max_amount` bounds as the primary amount.
+#[test]
+fn test_basket_secondary_amount_limits_are_enforced() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let second_token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+    client.set_amount_limits(&admin, &500, &5000);
+
+    let tokens = Vec::from_array(&env, [token.clone(), second_token.clone()]);
+
+    // Secondary token below min_amount.
+    let amounts = Vec::from_array(&env, [1_000_i128, 499_i128]);
+    let result = client.try_create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &100_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(result, Err(Ok(ContractError::AmountBelowMinimum)));
+
+    // Secondary token above max_amount.
+    let amounts = Vec::from_array(&env, [1_000_i128, 5_001_i128]);
+    let result = client.try_create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &100_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(result, Err(Ok(ContractError::AmountExceedsMaximum)));
+
+    // Both entries exactly at the configured boundaries are accepted.
+    let amounts = Vec::from_array(&env, [500_i128, 5_000_i128]);
+    let id = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &100_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(client.get_basket_tokens(&id).unwrap().len(), 2);
+}
+
+#[test]
+fn test_basket_secondary_amount_limits_follow_dynamic_config() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let second_token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let tokens = Vec::from_array(&env, [token.clone(), second_token.clone()]);
+    let amounts = Vec::from_array(&env, [1_000_i128, 900_i128]);
+
+    client.set_amount_limits(&admin, &100, &2_000);
+    let accepted = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &100_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+
+    // An admin limit change must apply immediately to secondary assets too.
+    client.set_amount_limits(&admin, &1_000, &2_000);
+    let result = client.try_create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &100_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(result, Err(Ok(ContractError::AmountBelowMinimum)));
+    assert!(accepted > 0);
 }
 
 #[test]

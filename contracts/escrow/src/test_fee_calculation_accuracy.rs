@@ -466,7 +466,7 @@ fn test_dispute_allocations_include_protocol_fee() {
     let resolution = ResolutionType::Release;
 
     let result =
-        calculate_dispute_allocations(&env, &escrow, &resolution, arbitration_fee, &fee_collector);
+        calculate_dispute_allocations(&env, &escrow, &resolution, arbitration_fee, 0_i128, &fee_collector);
 
     assert!(result.is_ok());
     let transfers = result.unwrap();
@@ -474,24 +474,23 @@ fn test_dispute_allocations_include_protocol_fee() {
     // Should have 2 transfers: net to seller + protocol fee to fee_collector
     assert_eq!(transfers.len(), 2);
 
-    // Verify amounts:
-    // Total = 1,000,000
-    // Arbitration fee = 50,000
-    // Remaining = 950,000
-    // Protocol fee (1%) = 9,500
-    // Net to seller = 940,500
+    // Verify amounts (#1250 aligned):
+    // escrow.amount = 1,000,000 (already has arbitration deducted externally)
+    // fee_basis = 1,000,000 + 50,000 (arbitration) + 0 (resolver) = 1,050,000
+    // Protocol fee (1% of fee_basis) = 10,500
+    // Net to seller = 1,000,000 - 10,500 = 989,500
 
     let seller_transfer = &transfers.get(0).unwrap();
     assert_eq!(seller_transfer.recipient, seller);
-    assert_eq!(seller_transfer.amount, 940_500);
+    assert_eq!(seller_transfer.amount, 989_500);
 
     let fee_transfer = &transfers.get(1).unwrap();
     assert_eq!(fee_transfer.recipient, fee_collector);
-    assert_eq!(fee_transfer.amount, 9_500);
+    assert_eq!(fee_transfer.amount, 10_500);
 
-    // Verify no funds are lost
+    // Verify invariant: net + protocol_fee == escrow.amount
     assert_eq!(
-        seller_transfer.amount + fee_transfer.amount + arbitration_fee,
+        seller_transfer.amount + fee_transfer.amount,
         escrow.amount
     );
 }
@@ -543,7 +542,7 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     let resolution = ResolutionType::Refund;
 
     let result =
-        calculate_dispute_allocations(&env, &escrow, &resolution, arbitration_fee, &fee_collector);
+        calculate_dispute_allocations(&env, &escrow, &resolution, arbitration_fee, 0_i128, &fee_collector);
 
     assert!(result.is_ok());
     let transfers = result.unwrap();
@@ -553,7 +552,8 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
 
     let buyer_transfer = &transfers.get(0).unwrap();
     assert_eq!(buyer_transfer.recipient, buyer);
-    assert_eq!(buyer_transfer.amount, 950_000); // 1,000,000 - 50,000 arbitration
+    // net = escrow.amount (protocol fee is 0)
+    assert_eq!(buyer_transfer.amount, 1_000_000);
 }
 
 /// Tests that `calculate_fee` correctly floors sub-stroop remainders when

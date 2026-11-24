@@ -12,8 +12,9 @@ use crate::storage;
 use crate::{
     emit_appeal_fee_updated, emit_fee_collector_accepted, emit_fee_collector_pending,
     emit_max_appeals_updated, emit_max_basket_size_updated, emit_recovery_mode_updated,
-    emit_recovery_withdraw, emit_timelock_cancelled, emit_timelock_executed, emit_timelock_queued,
-    ContractError, Escrow, EscrowState, TimelockOperation, TimelockProposal, *,
+    emit_recovery_withdraw, emit_timelock_admin_mismatch, emit_timelock_cancelled,
+    emit_timelock_executed, emit_timelock_queued, ContractError, Escrow, EscrowState,
+    TimelockOperation, TimelockProposal, *,
 };
 use soroban_sdk::{
     contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
@@ -103,6 +104,10 @@ fn queue_timelock_op_with_min_delay(
         ready_at,
     };
 
+    // A newly authorized proposal replaces any prior rotation invalidation.
+    env.storage()
+        .instance()
+        .remove(&DataKey::InvalidatedTimelockOp(operation as u32));
     storage::write_timelock_proposal(env, operation as u32, &proposal);
     emit_timelock_queued(env, operation as u32, caller.clone(), now, ready_at);
     Ok(())
@@ -110,25 +115,8 @@ fn queue_timelock_op_with_min_delay(
 
 /// Finalizes a queued timelock proposal once its delay has elapsed.
 ///
-/// **Execution is permissionless (keeper execution, #1235).** Any address may
-/// execute a mature proposal — the admin who queued it, a keeper bot, a cron
-/// job — as long as:
-///
-/// 1. a proposal is queued for `operation` (else `InvalidState`);
-/// 2. `now >= proposal.ready_at` (else `TimelockNotElapsed`);
-/// 3. `proposal.proposer` is still the **current** admin (else
-///    `NotAuthorized`). A proposal queued by an admin who has since been
-///    rotated out is orphaned and can never execute; the new admin must
-///    cancel it and queue their own;
-/// 4. the supplied parameters hash to `proposal.params_hash` under
-///    [`compute_proposal_hash`] (else `InvalidProposalHash`).
-///
-/// The admin's authorization was captured when the proposal was queued, so
-/// execution needs no admin signature. `caller` is the *executor*: it must
-/// authorize the call (`require_auth`) so the `executor` recorded in the
-/// `TimelockExecuted` event is authenticated rather than an arbitrary value.
-/// Audit consumers can tell admin-driven from keeper-driven executions by
-/// comparing the event's `executor` with its `proposer`.
+/// Execution requires the executor's authorization, not the proposer's: any
+/// keeper may execute a mature proposal queued by the current admin.
 fn execute_timelock_op(
     env: &Env,
     caller: &Address,
@@ -136,22 +124,25 @@ fn execute_timelock_op(
     params: Vec<Val>,
 ) -> Result<TimelockProposal, ContractError> {
     caller.require_auth();
-
-    let proposal = storage::read_timelock_proposal(env, operation as u32)
-        .ok_or(ContractError::InvalidState)?;
+    let current_admin = storage::read_admin_address(env).ok_or(ContractError::NotInitialized)?;
+    let proposal = match storage::read_timelock_proposal(env, operation as u32) {
+        Some(proposal) => proposal,
+        None if env
+            .storage()
+            .instance()
+            .has(&DataKey::InvalidatedTimelockOp(operation as u32)) =>
+        {
+            return Err(ContractError::NotAuthorized);
+        }
+        None => return Err(ContractError::InvalidState),
+    };
+    if proposal.proposer != current_admin {
+        return Err(ContractError::NotAuthorized);
+    }
 
     let now = env.ledger().timestamp();
     if now < proposal.ready_at {
         return Err(ContractError::TimelockNotElapsed);
-    }
-
-    // The proposal must have been queued by the admin currently in office.
-    // This replaces the old `caller == proposer` value check (#975): who
-    // submits the transaction no longer matters, but a proposal from a
-    // rotated-out admin must not execute.
-    let admin = require_admin(env)?;
-    if proposal.proposer != admin {
-        return Err(ContractError::NotAuthorized);
     }
 
     if compute_proposal_hash(env, operation, &params) != proposal.params_hash {
@@ -167,6 +158,47 @@ fn execute_timelock_op(
         params, // Emit the actual params, not the hash
     );
     Ok(proposal)
+}
+
+/// Purges every queued timelock proposal when the admin key rotates (#1234).
+///
+/// The numeric discriminants are append-only (see [`TimelockOperation`]), so
+/// iterating `1..=SetTimelockDelay` covers all currently queued operations;
+/// bump the upper bound when a new variant is appended. A `TimelockCancelled`
+/// event is emitted for each removed proposal so indexers can immediately
+/// update governance status for the old key.
+///
+/// `execute_timelock_op` already rejects a proposal whose `proposer` is no
+/// longer the current admin, so this cannot make a stale proposal executable;
+/// its purpose is to leave the incoming admin a clean governance slate and to
+/// make the cancellation observable. `canceller` is the incoming admin (the
+/// party whose rotation causes the purge).
+fn clear_all_timelock_proposals(env: &Env, canceller: &Address) {
+    for operation in 1..=(TimelockOperation::SetTimelockDelay as u32) {
+        if let Some(proposal) = storage::read_timelock_proposal(env, operation) {
+            storage::remove_timelock_proposal(env, operation);
+            emit_timelock_cancelled(env, operation, proposal.proposer, canceller.clone());
+/// Cancel all outstanding proposals when the admin changes. A rejected
+/// execution cannot do this itself: Soroban rolls back state and events on error.
+fn invalidate_timelocks_on_rotation(env: &Env) {
+    // TimelockOperation discriminants are append-only; update the upper bound
+    // when a new operation is added.
+    for operation in 1..=(TimelockOperation::SetTimelockDelay as u32) {
+        if let Some(proposal) = storage::read_timelock_proposal(env, operation) {
+            storage::remove_timelock_proposal(env, operation);
+            env.storage()
+                .instance()
+                .set(&DataKey::InvalidatedTimelockOp(operation), &true);
+            // Cancellation is automatic, not an action signed by the new admin.
+            emit_timelock_cancelled(
+                env,
+                operation,
+                proposal.proposer.clone(),
+                env.current_contract_address(),
+            );
+            emit_timelock_admin_mismatch(env, operation, proposal.proposer);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -958,6 +990,11 @@ impl Escrow {
         caller: Address,
         new_admin: Address,
     ) -> Result<(), ContractError> {
+        // #1246: Reject self-assignment before consuming the timelock slot.
+        let current_admin = require_admin(&env)?;
+        if new_admin == current_admin {
+            return Err(ContractError::SameAddress);
+        }
         let mut params = Vec::new(&env);
         params.push_back(new_admin.into_val(&env));
         queue_timelock_op(&env, &caller, TimelockOperation::SetAdmin as u32, params)
@@ -976,7 +1013,11 @@ impl Escrow {
         if new_admin == old_admin {
             return Err(ContractError::SameAddress);
         }
+        invalidate_timelocks_on_rotation(&env);
         env.storage().instance().set(&DataKey::Admin, &new_admin);
+        // #1234: the incoming admin must not inherit any queued changes from
+        // the predecessor (fee changes, upgrades, allowlist edits, …).
+        clear_all_timelock_proposals(&env, &new_admin);
         emit_admin_rotated(&env, old_admin, new_admin);
         Ok(())
     }
@@ -1012,9 +1053,35 @@ impl Escrow {
         }
 
         let admin = require_admin(&env)?;
+
+        // #1245: Append an immutable upgrade record to the on-chain audit ledger
+        // before executing the upgrade so the record reflects the state that
+        // is about to become active.
+        let version = {
+            let mut history: soroban_sdk::Vec<crate::types::UpgradeRecord> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::UpgradeHistory)
+                .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
+            let next_version = u32::try_from(history.len())
+                .unwrap_or(u32::MAX)
+                .saturating_add(1);
+            history.push_back(crate::types::UpgradeRecord {
+                wasm_hash: new_wasm_hash.clone(),
+                upgraded_at: env.ledger().timestamp(),
+                upgraded_by: admin.clone(),
+                version: next_version,
+            });
+            let ext = storage::get_ttl_extension(&env);
+            env.storage().persistent().set(&DataKey::UpgradeHistory, &history);
+            env.storage().persistent().extend_ttl(&DataKey::UpgradeHistory, ext / 2, ext);
+            next_version
+        };
+
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
         emit_contract_upgraded(&env, admin, new_wasm_hash);
+        let _ = version; // version is embedded in the history record
         Ok(())
     }
 
@@ -1082,6 +1149,13 @@ impl Escrow {
         if fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::PlatformFeeExceedsMax);
         }
+        let global_config = read_global_config(&env);
+        validate_total_fee_bps(
+            global_config.protocol_fee_bps,
+            fee_bps,
+            global_config.arbitration_fee_bps,
+            0,
+        )?;
         let old_fee = read_platform_fee_bps(&env);
         write_platform_fee_bps(&env, fee_bps);
         emit_platform_fee_updated(&env, old_fee, fee_bps);
@@ -1751,7 +1825,10 @@ impl Escrow {
         if new_admin == old_admin {
             return Err(ContractError::SameAddress);
         }
+        invalidate_timelocks_on_rotation(&env);
         env.storage().instance().set(&DataKey::Admin, &new_admin);
+        // Same invariant as the timelocked `execute_set_admin` path (#1234).
+        clear_all_timelock_proposals(&env, &new_admin);
         emit_admin_rotated(&env, old_admin, new_admin);
         Ok(())
     }
@@ -1777,6 +1854,13 @@ impl Escrow {
         }
         let mut config = read_fee_config(&env);
         validate_combined_fees(fee, config.arbitration_fee_bps)?;
+        let global_config = read_global_config(&env);
+        validate_total_fee_bps(
+            fee,
+            global_config.platform_fee_bps,
+            config.arbitration_fee_bps,
+            0,
+        )?;
         config.protocol_fee_bps = fee;
         write_fee_config(&env, &config);
         Ok(())
@@ -1798,6 +1882,13 @@ impl Escrow {
         }
         let mut config = read_fee_config(&env);
         validate_combined_fees(fee, config.arbitration_fee_bps)?;
+        let global_config = read_global_config(&env);
+        validate_total_fee_bps(
+            fee,
+            global_config.platform_fee_bps,
+            config.arbitration_fee_bps,
+            0,
+        )?;
         let old_fee = config.protocol_fee_bps;
         config.protocol_fee_bps = fee;
         write_fee_config(&env, &config);
@@ -1875,10 +1966,46 @@ impl Escrow {
         if caller != admin {
             return Err(ContractError::NotAuthorized);
         }
+        // #1243: If strict governance mode is active, direct unpause is blocked.
+        // The admin must use queue_unpause_contract → execute_unpause_contract.
+        let flags = storage::read_global_config(&env).state_flags;
+        if flags & crate::types::GLOBAL_CONFIG_FLAG_TIMELOCKED_UNPAUSE_ONLY != 0 {
+            return Err(ContractError::DirectUnpauseBlocked);
+        }
         storage::update_global_config(&env, |c| {
             c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
         });
         emit_contract_unpaused(&env, admin);
+        Ok(())
+    }
+
+    /// #1243: Enable or disable strict governance mode for unpausing.
+    ///
+    /// When `enabled` is `true`, direct calls to `unpause_contract` are
+    /// rejected with `DirectUnpauseBlocked`. Callers must use the timelocked
+    /// `queue_unpause_contract` → `execute_unpause_contract` path instead.
+    /// This formalises the security asymmetry: `pause_contract` is an
+    /// immediate circuit-breaker, while resuming operations is subject to
+    /// mandatory governance delay.
+    ///
+    /// Only callable by admin.
+    pub fn set_timelocked_unpause_only(
+        env: Env,
+        caller: Address,
+        enabled: bool,
+    ) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        storage::update_global_config(&env, |c| {
+            if enabled {
+                c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_TIMELOCKED_UNPAUSE_ONLY;
+            } else {
+                c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_TIMELOCKED_UNPAUSE_ONLY;
+            }
+        });
         Ok(())
     }
 
@@ -2157,6 +2284,13 @@ impl Escrow {
         if fee > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::PlatformFeeExceedsMax);
         }
+        let global_config = read_global_config(&env);
+        validate_total_fee_bps(
+            global_config.protocol_fee_bps,
+            fee,
+            global_config.arbitration_fee_bps,
+            0,
+        )?;
         storage::update_global_config(&env, |c| c.platform_fee_bps = fee);
         Ok(())
     }
@@ -2222,5 +2356,85 @@ impl Escrow {
             proposal.proposer,
         );
         Ok(())
+    }
+
+    /// Returns the accumulated unclaimed protocol fees for `token`.
+    pub fn get_accumulated_fees(env: Env, token: Address) -> i128 {
+        storage::read_accumulated_fees(&env, &token)
+    }
+
+    /// Pull-based withdrawal of accumulated protocol fees for `token`.
+    ///
+    /// Only callable by the configured `fee_collector`. Clears
+    /// `DataKey::AccumulatedFees(token)` before transferring tokens (CEI).
+    pub fn claim_accumulated_fees(
+        env: Env,
+        caller: Address,
+        token: Address,
+    ) -> Result<i128, ContractError> {
+        caller.require_auth();
+        let fee_collector = storage::read_global_config(&env)
+            .fee_collector
+            .ok_or(ContractError::NotInitialized)?;
+        if caller != fee_collector {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        let amount = storage::take_accumulated_fees(&env, &token);
+        if amount <= 0 {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        payout(&env, &token, &fee_collector, amount);
+        crate::events::emit_accumulated_fees_claimed(&env, fee_collector, token, amount);
+        Ok(amount)
+    }
+}
+
+#[cfg(test)]
+mod accumulated_fee_tests {
+    use crate::{ContractError, Escrow, EscrowClient};
+    use soroban_sdk::{
+        testutils::Address as _,
+        token::{Client as TokenClient, StellarAssetClient},
+        Address, Env,
+    };
+
+    #[test]
+    fn claim_accumulated_fees_pulls_accumulated_balance_and_resets_to_zero() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(Escrow, ());
+        let client = EscrowClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let outsider = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token_id = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+
+        client.initialize(&admin, &fee_collector, &0_u32);
+        StellarAssetClient::new(&env, &token_id).mint(&contract_id, &500);
+
+        env.as_contract(&contract_id, || {
+            crate::storage::add_accumulated_fee(&env, &token_id, 200).unwrap();
+            crate::storage::add_accumulated_fee(&env, &token_id, 300).unwrap();
+        });
+
+        assert_eq!(client.get_accumulated_fees(&token_id), 500);
+        assert_eq!(
+            client.try_claim_accumulated_fees(&outsider, &token_id),
+            Err(Ok(ContractError::NotAuthorized))
+        );
+
+        let claimed = client.claim_accumulated_fees(&fee_collector, &token_id);
+        assert_eq!(claimed, 500);
+        assert_eq!(client.get_accumulated_fees(&token_id), 0);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&fee_collector), 500);
+        assert_eq!(
+            client.try_claim_accumulated_fees(&fee_collector, &token_id),
+            Err(Ok(ContractError::InsufficientBalance))
+        );
     }
 }
