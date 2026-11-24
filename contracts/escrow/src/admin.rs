@@ -24,11 +24,61 @@ pub const MIN_TIMELOCK_DELAY_SECONDS: u64 = 12 * 60 * 60; // 12 hours
 pub const MAX_TIMELOCK_DELAY_SECONDS: u64 = 30 * 24 * 60 * 60; // 30 days
 const MAX_TIMELOCK_PARAMS: u32 = 5;
 
+/// Returns the currently configured admin timelock delay in seconds
+/// (`DataKey::AdminTimelockDelay`, defaulting to
+/// `ADMIN_TIMELOCK_DELAY_SECONDS`).
+fn read_timelock_delay(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::AdminTimelockDelay)
+        .unwrap_or(ADMIN_TIMELOCK_DELAY_SECONDS)
+}
+
+/// Computes the domain-separated hash that binds a timelock proposal to its
+/// parameters **and** to the context it was queued in (#1236).
+///
+/// Preimage: `params.to_xdr() || current_contract_address.to_xdr() ||
+/// (operation as u32).to_xdr()`, hashed with SHA-256.
+///
+/// Including the contract address means a proposal record copied into, or
+/// replayed against, another escrow instance never verifies there; including
+/// the operation discriminant means two operations queued with an identical
+/// parameter vector (e.g. `SetPlatformFee(50)` and `SetArbitrationFee(50)`)
+/// still produce distinct hashes. Both `queue_timelock_op` and
+/// `execute_timelock_op` must go through this helper so the two sides can
+/// never drift apart.
+pub(crate) fn compute_proposal_hash(
+    env: &Env,
+    operation: TimelockOperation,
+    params: &Vec<Val>,
+) -> BytesN<32> {
+    let mut payload = params.clone().to_xdr(env);
+    payload.append(&env.current_contract_address().to_xdr(env));
+    payload.append(&(operation as u32).to_xdr(env));
+    env.crypto().sha256(&payload).into()
+}
+
 fn queue_timelock_op(
     env: &Env,
     caller: &Address,
     operation_id: u32,
     params: Vec<Val>,
+) -> Result<(), ContractError> {
+    queue_timelock_op_with_min_delay(env, caller, operation_id, params, 0)
+}
+
+/// Queues a timelock proposal whose countdown is at least `min_delay`
+/// seconds, or the configured admin timelock delay if that is longer.
+///
+/// Only `queue_set_timelock_delay` passes a non-zero `min_delay` (#1238):
+/// a delay change must wait `max(current_delay, new_delay)`, so the delay
+/// currently in force can never be shortened faster than it allows.
+fn queue_timelock_op_with_min_delay(
+    env: &Env,
+    caller: &Address,
+    operation_id: u32,
+    params: Vec<Val>,
+    min_delay: u64,
 ) -> Result<(), ContractError> {
     let op_val: Val = operation_id.into_val(env);
     let operation = TimelockOperation::try_from_val(env, &op_val)
@@ -41,14 +91,10 @@ fn queue_timelock_op(
     }
 
     let now = env.ledger().timestamp();
-    let delay: u64 = env
-        .storage()
-        .instance()
-        .get(&DataKey::AdminTimelockDelay)
-        .unwrap_or(ADMIN_TIMELOCK_DELAY_SECONDS);
+    let delay = read_timelock_delay(env).max(min_delay);
     let ready_at = now + delay;
 
-    let params_hash: BytesN<32> = env.crypto().sha256(&params.to_xdr(env)).into();
+    let params_hash = compute_proposal_hash(env, operation, &params);
     let proposal = TimelockProposal {
         operation,
         proposer: caller.clone(),
@@ -64,45 +110,51 @@ fn queue_timelock_op(
 
 /// Finalizes a queued timelock proposal once its delay has elapsed.
 ///
-/// **Execution is permissionless by design**: unlike `cancel_timelock_op`
-/// (which calls `caller.require_auth()` and checks `caller == admin`), this
-/// function never calls `require_auth()` on `caller`. It only checks that the
-/// `caller` *value* supplied matches `proposal.proposer` — a plain equality
-/// check on an unauthenticated parameter, not a signature/authorization
-/// check. `proposer` and `ready_at` are both public (readable via storage and
-/// the `TimelockQueued` event), so any third party — a keeper, a cron job, a
-/// bot — can submit the `execute_<operation>` transaction on the original
-/// proposer's behalf after `ready_at`, without that proposer's involvement or
-/// signature. This is intentional: it guarantees a queued change can always
-/// be finalized even if the proposer goes offline, while still preventing a
-/// *different* admin's own unrelated proposal from being executed under this
-/// one's slot. Do not add a `require_auth()` here — that would break keeper
-/// execution, which is the point of this design.
+/// **Execution is permissionless (keeper execution, #1235).** Any address may
+/// execute a mature proposal — the admin who queued it, a keeper bot, a cron
+/// job — as long as:
+///
+/// 1. a proposal is queued for `operation` (else `InvalidState`);
+/// 2. `now >= proposal.ready_at` (else `TimelockNotElapsed`);
+/// 3. `proposal.proposer` is still the **current** admin (else
+///    `NotAuthorized`). A proposal queued by an admin who has since been
+///    rotated out is orphaned and can never execute; the new admin must
+///    cancel it and queue their own;
+/// 4. the supplied parameters hash to `proposal.params_hash` under
+///    [`compute_proposal_hash`] (else `InvalidProposalHash`).
+///
+/// The admin's authorization was captured when the proposal was queued, so
+/// execution needs no admin signature. `caller` is the *executor*: it must
+/// authorize the call (`require_auth`) so the `executor` recorded in the
+/// `TimelockExecuted` event is authenticated rather than an arbitrary value.
+/// Audit consumers can tell admin-driven from keeper-driven executions by
+/// comparing the event's `executor` with its `proposer`.
 fn execute_timelock_op(
     env: &Env,
     caller: &Address,
     operation: TimelockOperation,
     params: Vec<Val>,
 ) -> Result<TimelockProposal, ContractError> {
+    caller.require_auth();
+
     let proposal = storage::read_timelock_proposal(env, operation as u32)
         .ok_or(ContractError::InvalidState)?;
 
     let now = env.ledger().timestamp();
     if now < proposal.ready_at {
-        return Err(ContractError::InvalidState); // Not ready yet
+        return Err(ContractError::TimelockNotElapsed);
     }
 
-    // Verify that the supplied `caller` value matches the original proposer
-    // (#975). This is a value check, not an auth check — see the doc comment
-    // above. It prevents a stale proposal from being executed under the
-    // wrong operation slot after an admin rotation; it does not require the
-    // proposer to be the one submitting the transaction.
-    if *caller != proposal.proposer {
+    // The proposal must have been queued by the admin currently in office.
+    // This replaces the old `caller == proposer` value check (#975): who
+    // submits the transaction no longer matters, but a proposal from a
+    // rotated-out admin must not execute.
+    let admin = require_admin(env)?;
+    if proposal.proposer != admin {
         return Err(ContractError::NotAuthorized);
     }
 
-    let supplied_hash: BytesN<32> = env.crypto().sha256(&params.clone().to_xdr(env)).into();
-    if supplied_hash != proposal.params_hash {
+    if compute_proposal_hash(env, operation, &params) != proposal.params_hash {
         return Err(ContractError::InvalidProposalHash);
     }
 
@@ -219,7 +271,17 @@ mod tests {
         });
         assert!(res.is_ok());
 
-        // Fast forward 24h
+        // Raising the delay waits the *new* (longer) delay (#1238): 24h is
+        // not enough to apply a 48h delay.
+        env.ledger().with_mut(|li| {
+            li.timestamp += ADMIN_TIMELOCK_DELAY_SECONDS;
+        });
+        let res_exec_early = env.as_contract(&contract_id, || {
+            Escrow::execute_set_timelock_delay(env.clone(), admin.clone(), new_delay)
+        });
+        assert_eq!(res_exec_early, Err(ContractError::TimelockNotElapsed));
+
+        // Fast forward the remaining 24h (48h total).
         env.ledger().with_mut(|li| {
             li.timestamp += ADMIN_TIMELOCK_DELAY_SECONDS;
         });
@@ -244,7 +306,7 @@ mod tests {
         let res_exec2_early = env.as_contract(&contract_id, || {
             Escrow::execute_pause_contract(env.clone(), admin.clone())
         });
-        assert_eq!(res_exec2_early, Err(ContractError::InvalidState));
+        assert_eq!(res_exec2_early, Err(ContractError::TimelockNotElapsed));
 
         // Fast forward remaining 24h (total 48h)
         env.ledger().with_mut(|li| {
@@ -633,7 +695,6 @@ impl Escrow {
         caller: Address,
         fee_bps: u32,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
         let mut params = Vec::new(&env);
         params.push_back(fee_bps.into_val(&env));
         let _proposal =
@@ -690,13 +751,18 @@ impl Escrow {
     /// Buyer reclaims escrowed funds while recovery mode is enabled (issue
     /// #914). Deliberately bypasses the contract pause flag and the standard
     /// state machine: any escrow holding buyer funds (`Funded`, `Shipped`,
-    /// `Disputed`, `PendingFinalization`, or `RefundRequested`) transitions to
-    /// `Refunded` and pays the principal plus any basket tokens to the buyer.
+    /// `Disputed`, or `RefundRequested`) transitions to `Refunded` and pays
+    /// the principal plus any basket tokens to the buyer.
+    ///
+    /// `PendingFinalization` is explicitly excluded (issue #1204): a resolver
+    /// has already ruled and the appeal window is open, so the dispute must
+    /// run through `finalize_dispute` / `appeal_dispute`.
     ///
     /// Reverts with `NotInRecoveryMode` unless the admin has called
     /// `enable_recovery_mode`, with `NotAuthorizedBuyer` if `caller` is not
-    /// the escrow's buyer, or with `InvalidState` for escrows holding no buyer
-    /// funds (`Pending`, `Completed`, `Refunded`, `Canceled`, `Expired`).
+    /// the escrow's buyer, or with `InvalidState` for `PendingFinalization`
+    /// and for escrows holding no buyer funds (`Pending`, `Completed`,
+    /// `Refunded`, `Canceled`, `Expired`).
     /// Emits `recovery_withdraw`.
     pub fn recovery_withdraw(
         env: Env,
@@ -710,12 +776,18 @@ impl Escrow {
 
         let mut escrow = load_escrow(&env, escrow_id)?;
 
+        // A `PendingFinalization` escrow already has a ruling and an open
+        // appeal window; draining it would bypass `finalize_dispute` /
+        // `appeal_dispute` (issue #1204).
+        if escrow.state == EscrowState::PendingFinalization {
+            return Err(ContractError::InvalidState);
+        }
+
         let is_recoverable = matches!(
             escrow.state,
             EscrowState::Funded
                 | EscrowState::Shipped
                 | EscrowState::Disputed
-                | EscrowState::PendingFinalization
                 | EscrowState::RefundRequested
         );
         if !is_recoverable {
@@ -743,7 +815,7 @@ impl Escrow {
         // ── INTERACTIONS (external token transfers) ──
         let amount = escrow.amount;
         payout(&env, &escrow.token, &buyer, amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_recovery_withdraw(&env, escrow_id, buyer, amount);
         Ok(())
@@ -915,6 +987,7 @@ impl Escrow {
         caller: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
+        ensure_admin_action_not_paused(&env, "queue_upgrade")?;
         let mut params = Vec::new(&env);
         params.push_back(new_wasm_hash.into_val(&env));
         queue_timelock_op(&env, &caller, TimelockOperation::Upgrade as u32, params)
@@ -925,6 +998,7 @@ impl Escrow {
         caller: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
+        ensure_admin_action_not_paused(&env, "execute_upgrade")?;
         let mut params = Vec::new(&env);
         params.push_back(new_wasm_hash.into_val(&env));
         let _proposal = execute_timelock_op(&env, &caller, TimelockOperation::Upgrade, params)?;
@@ -950,6 +1024,7 @@ impl Escrow {
         caller: Address,
         fee_bps: u32,
     ) -> Result<(), ContractError> {
+        ensure_admin_action_not_paused(&env, "queue_set_arbitration_fee")?;
         let mut params = Vec::new(&env);
         params.push_back(fee_bps.into_val(&env));
         queue_timelock_op(
@@ -965,13 +1040,13 @@ impl Escrow {
         caller: Address,
         fee_bps: u32,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
+        ensure_admin_action_not_paused(&env, "execute_set_arbitration_fee")?;
         let mut params = Vec::new(&env);
         params.push_back(fee_bps.into_val(&env));
-        let _proposal =
+        let proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetArbitrationFee, params)?;
 
-        let old_fee_bps = update_arbitration_fee(&env, &caller, fee_bps)?;
+        let old_fee_bps = update_arbitration_fee(&env, &proposal.proposer, fee_bps)?;
         emit_arbitration_fee_updated(&env, old_fee_bps, fee_bps);
         Ok(())
     }
@@ -982,6 +1057,7 @@ impl Escrow {
         caller: Address,
         fee_bps: u32,
     ) -> Result<(), ContractError> {
+        ensure_admin_action_not_paused(&env, "queue_set_platform_fee")?;
         let mut params = Vec::new(&env);
         params.push_back(fee_bps.into_val(&env));
         queue_timelock_op(
@@ -997,6 +1073,7 @@ impl Escrow {
         caller: Address,
         fee_bps: u32,
     ) -> Result<(), ContractError> {
+        ensure_admin_action_not_paused(&env, "execute_set_platform_fee")?;
         let mut params = Vec::new(&env);
         params.push_back(fee_bps.into_val(&env));
         let _proposal =
@@ -1103,7 +1180,7 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(ledgers.into_val(&env));
-        let _proposal =
+        let proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetTtlExtension, params)?;
 
         if !(MIN_TTL_EXTENSION..=MAX_TTL_EXTENSION).contains(&ledgers) {
@@ -1112,7 +1189,7 @@ impl Escrow {
 
         let old_ledgers = storage::get_ttl_extension(&env);
         storage::update_global_config(&env, |c| c.ttl_extension_ledgers = ledgers);
-        emit_ttl_extension_updated(&env, old_ledgers, ledgers, caller);
+        emit_ttl_extension_updated(&env, old_ledgers, ledgers, proposal.proposer);
         Ok(())
     }
 
@@ -1143,7 +1220,7 @@ impl Escrow {
         let mut params = Vec::new(&env);
         params.push_back(min_amount.into_val(&env));
         params.push_back(max_amount.into_val(&env));
-        let _proposal =
+        let proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetAmountLimits, params)?;
 
         if min_amount <= 0 || max_amount <= min_amount {
@@ -1166,7 +1243,7 @@ impl Escrow {
             min_amount,
             old_max_amount,
             max_amount,
-            caller,
+            proposal.proposer,
         );
         Ok(())
     }
@@ -1194,7 +1271,7 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(resolver.into_val(&env));
-        let _proposal = execute_timelock_op(
+        let proposal = execute_timelock_op(
             &env,
             &caller,
             TimelockOperation::AddApprovedResolver,
@@ -1213,7 +1290,7 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::ApprovedResolvers, &approved);
-        emit_resolver_approved(&env, resolver, caller);
+        emit_resolver_approved(&env, resolver, proposal.proposer);
         Ok(())
     }
 
@@ -1240,7 +1317,7 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(resolver.into_val(&env));
-        let _proposal = execute_timelock_op(
+        let proposal = execute_timelock_op(
             &env,
             &caller,
             TimelockOperation::RemoveApprovedResolver,
@@ -1264,7 +1341,7 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::ApprovedResolvers, &new_approved);
-        emit_resolver_removed(&env, resolver, caller);
+        emit_resolver_removed(&env, resolver, proposal.proposer);
         Ok(())
     }
 
@@ -1291,7 +1368,7 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(strict.into_val(&env));
-        let _proposal =
+        let proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetResolverStrict, params)?;
 
         let old_strict = storage::read_global_config(&env).state_flags
@@ -1304,7 +1381,7 @@ impl Escrow {
                 c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
             }
         });
-        emit_resolver_strict_updated(&env, old_strict, strict, caller);
+        emit_resolver_strict_updated(&env, old_strict, strict, proposal.proposer);
         Ok(())
     }
 
@@ -1608,12 +1685,18 @@ impl Escrow {
 
         let mut escrow = load_escrow(&env, escrow_id)?;
 
+        // Issue #1204: a `PendingFinalization` escrow already has a resolver
+        // ruling and an open appeal window. Draining it would bypass
+        // `finalize_dispute` / `appeal_dispute`, so reject it and emit a
+        // diagnostic event.
+        if escrow.state == EscrowState::PendingFinalization {
+            crate::events::emit_emergency_drain_blocked(&env, escrow_id);
+            return Err(ContractError::InvalidState);
+        }
+
         let is_drainable = matches!(
             escrow.state,
-            EscrowState::Funded
-                | EscrowState::Shipped
-                | EscrowState::Disputed
-                | EscrowState::PendingFinalization
+            EscrowState::Funded | EscrowState::Shipped | EscrowState::Disputed
         );
         if !is_drainable {
             return Err(terminal_state_error(
@@ -1655,7 +1738,7 @@ impl Escrow {
 
         // ── INTERACTIONS (external token transfers) ──
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         crate::events::emit_emergency_drain(&env, escrow_id, escrow.token.clone(), escrow.amount);
         Ok(())
@@ -1683,6 +1766,7 @@ impl Escrow {
     /// (`validate_combined_fees`).
     #[cfg(any(test, feature = "testutils"))]
     pub fn set_fee(env: Env, caller: Address, fee: u32) -> Result<(), ContractError> {
+        ensure_admin_action_not_paused(&env, "set_fee")?;
         let admin = require_admin(&env)?;
         caller.require_auth();
         if caller != admin {
@@ -1912,6 +1996,93 @@ impl Escrow {
         Ok(())
     }
 
+    /// Admin-only sanction: forcibly replaces the resolver set of a live
+    /// escrow with `replacement_resolver`, which must be on the approved
+    /// resolver list. Unlike `remove_approved_resolver` (which only edits the
+    /// global registry), this frees parties of an already-assigned resolver
+    /// who turned malicious, was compromised, or went unresponsive.
+    ///
+    /// The escrow's resolver set becomes `Single(replacement_resolver)` and
+    /// any votes recorded so far are discarded, so the sanctioned resolver's
+    /// stale votes cannot count toward the new set's threshold. The escrow
+    /// state is untouched. Reverts with `EscrowAlreadyCompleted` /
+    /// `EscrowAlreadyRefunded` for those terminal states (`InvalidState` for
+    /// `Canceled` / `Expired`), `UnauthorizedResolver` when the replacement is
+    /// not on the approved list, `SameAddress` when it already is the sole
+    /// resolver, and `InvalidAddress` when it is the buyer or a payee.
+    /// Emits `resolver_sanctioned`.
+    pub fn sanction_resolver(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        replacement_resolver: Address,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin_caller(&env, &caller)?;
+
+        let mut escrow = load_escrow(&env, escrow_id)?;
+
+        if matches!(
+            escrow.state,
+            EscrowState::Completed
+                | EscrowState::Refunded
+                | EscrowState::Canceled
+                | EscrowState::Expired
+        ) {
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
+        }
+
+        let approved: soroban_sdk::Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::ApprovedResolvers)
+            .unwrap_or(soroban_sdk::Vec::new(&env));
+        if !crate::internal::contains(&approved, &replacement_resolver) {
+            return Err(ContractError::UnauthorizedResolver);
+        }
+
+        // The resolver being sanctioned: the sole resolver, the fallback
+        // primary, or the first member of a multi-resolver set.
+        let old_resolver = match &escrow.resolvers {
+            ResolverSet::Single(resolver) => resolver.clone(),
+            ResolverSet::Fallback(f) => f.primary.clone(),
+            ResolverSet::Multi(m) => m
+                .resolvers
+                .get(0)
+                .ok_or(ContractError::InvalidResolverThreshold)?,
+        };
+        if escrow.resolvers == ResolverSet::Single(replacement_resolver.clone()) {
+            return Err(ContractError::SameAddress);
+        }
+
+        // The replacement must not hold a conflicting role on this escrow.
+        for i in 0..escrow.payees.inner.len() {
+            let payee = escrow
+                .payees
+                .inner
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            if replacement_resolver == payee.address {
+                return Err(ContractError::InvalidAddress);
+            }
+        }
+        if escrow.buyer.as_ref() == Some(&replacement_resolver) {
+            return Err(ContractError::InvalidAddress);
+        }
+
+        escrow.resolvers = ResolverSet::Single(replacement_resolver.clone());
+        save_escrow(&env, escrow_id, &escrow, Some(&escrow.state));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::ResolverVotes(escrow_id));
+
+        emit_resolver_sanctioned(&env, escrow_id, old_resolver, replacement_resolver, caller);
+        Ok(())
+    }
+
     #[cfg(any(test, feature = "testutils"))]
     pub fn get_approved_resolvers(env: Env) -> soroban_sdk::Vec<Address> {
         env.storage()
@@ -1977,6 +2148,7 @@ impl Escrow {
     }
 
     pub fn set_platform_fee(env: Env, caller: Address, fee: u32) -> Result<(), ContractError> {
+        ensure_admin_action_not_paused(&env, "set_platform_fee")?;
         let admin = require_admin(&env)?;
         caller.require_auth();
         if caller != admin {
@@ -2005,11 +2177,19 @@ impl Escrow {
         }
         let mut params = Vec::new(&env);
         params.push_back(delay_seconds.into_val(&env));
-        queue_timelock_op(
+        // Two-step delay transition (#1238): the change itself waits
+        // `max(current_delay, delay_seconds)`. Shortening the delay therefore
+        // still costs the full *current* delay, so a briefly compromised admin
+        // key cannot collapse the timelock and then rush a malicious upgrade
+        // through it; lengthening it waits the new, longer delay.
+        // Proposals already queued keep the `ready_at` fixed at queue time,
+        // so a reduction never shortens an in-flight countdown either.
+        queue_timelock_op_with_min_delay(
             &env,
             &caller,
             TimelockOperation::SetTimelockDelay as u32,
             params,
+            delay_seconds,
         )
     }
 
@@ -2020,7 +2200,7 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         let mut params = Vec::new(&env);
         params.push_back(delay_seconds.into_val(&env));
-        let _proposal =
+        let proposal =
             execute_timelock_op(&env, &caller, TimelockOperation::SetTimelockDelay, params)?;
 
         if !(MIN_TIMELOCK_DELAY_SECONDS..=MAX_TIMELOCK_DELAY_SECONDS).contains(&delay_seconds) {
@@ -2035,7 +2215,12 @@ impl Escrow {
         env.storage()
             .instance()
             .set(&DataKey::AdminTimelockDelay, &delay_seconds);
-        crate::events::emit_timelock_delay_updated(&env, old_delay, delay_seconds, caller);
+        crate::events::emit_timelock_delay_updated(
+            &env,
+            old_delay,
+            delay_seconds,
+            proposal.proposer,
+        );
         Ok(())
     }
 }

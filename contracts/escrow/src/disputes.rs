@@ -63,7 +63,8 @@ impl Escrow {
     /// so no length check is needed here; the contract cannot verify the
     /// *content*, so consumers must re-hash the evidence and compare it against
     /// the stored digest before treating it as proof. The all-zero digest is
-    /// accepted and conventionally means "no evidence attached".
+    /// rejected with `InvalidEvidenceHash`: a dispute must carry a non-zero
+    /// evidence commitment.
     ///
     /// `reason` must be one of [`DISPUTE_REASONS`]; any other symbol reverts
     /// with `InvalidDisputeReason`.
@@ -101,6 +102,12 @@ impl Escrow {
             return Err(ContractError::DisputeWindowStillOpen);
         }
 
+        // An all-zero digest is the "no evidence" placeholder; reject it so a
+        // dispute is always backed by a real evidence commitment (issue #1206).
+        if evidence_hash.to_array() == [0u8; 32] {
+            return Err(ContractError::InvalidEvidenceHash);
+        }
+
         if !is_valid_dispute_reason(&env, &reason) {
             return Err(ContractError::InvalidDisputeReason);
         }
@@ -127,6 +134,7 @@ impl Escrow {
             arbitration_fee: 0,
             resolver_fee: 0,
             fees_charged: false,
+            compensated_resolvers: Vec::new(&env),
         };
 
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
@@ -144,6 +152,83 @@ impl Escrow {
             crate::EscrowState::Disputed,
         );
         Ok(())
+    }
+
+    /// Appends additional evidence to a dispute's on-chain evidence log, so a
+    /// seller/payee can submit rebuttal proof (and a resolver or the buyer can
+    /// add further material) before voting occurs. `evidence_hash` is a
+    /// commitment to off-chain evidence, as in `raise_dispute`.
+    ///
+    /// `caller` must be the buyer, a payee, or an assigned resolver of the
+    /// escrow, otherwise `NotAuthorized`. The escrow must be `Disputed`
+    /// (`InvalidState` otherwise). `description` longer than
+    /// `MAX_DESCRIPTION_LEN` reverts with `InputTooLong`, and a log already
+    /// holding `MAX_EVIDENCE_ENTRIES` entries reverts with
+    /// `EvidenceLimitReached`. Emits `dispute_evidence_submitted`.
+    pub fn submit_dispute_evidence(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        evidence_hash: BytesN<32>,
+        description: Bytes,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        ensure_action_not_paused(&env, Symbol::new(&env, "submit_dispute_evidence"))?;
+        let escrow = load_escrow(&env, escrow_id)?;
+
+        let is_buyer = escrow.buyer.as_ref() == Some(&caller);
+        let mut is_payee = false;
+        for i in 0..escrow.payees.inner.len() {
+            let payee = escrow
+                .payees
+                .inner
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            if payee.address == caller {
+                is_payee = true;
+                break;
+            }
+        }
+        if !is_buyer && !is_payee && !escrow.resolvers.contains(&caller) {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        if escrow.state != EscrowState::Disputed {
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
+        }
+
+        if description.len() > MAX_DESCRIPTION_LEN {
+            return Err(ContractError::InputTooLong);
+        }
+
+        let entry = EvidenceEntry {
+            submitter: caller.clone(),
+            timestamp: env.ledger().timestamp(),
+            evidence_hash: evidence_hash.clone(),
+            description: description.clone(),
+        };
+        let entry_count =
+            crate::storage::append_evidence(&env, escrow_id, &entry, MAX_EVIDENCE_ENTRIES)?;
+
+        emit_dispute_evidence_submitted(
+            &env,
+            escrow_id,
+            caller,
+            evidence_hash,
+            description,
+            entry_count,
+        );
+        Ok(())
+    }
+
+    /// Returns the additional evidence entries submitted for `escrow_id` via
+    /// `submit_dispute_evidence`, oldest first. The buyer's initial evidence
+    /// from `raise_dispute` lives on the dispute record (`get_dispute`).
+    pub fn get_dispute_evidence(env: Env, escrow_id: u64) -> Vec<EvidenceEntry> {
+        crate::storage::read_evidence_log(&env, escrow_id)
     }
 
     /// Casts `caller`'s vote for `resolution` on a disputed escrow. An alias
@@ -312,7 +397,7 @@ impl Escrow {
         }
         payout(&env, &escrow.token, &recipient, payout_amount);
         payout(&env, &escrow.token, &fee_collector, protocol_fee);
-        payout_basket_tokens(&env, escrow_id, &recipient)?;
+        payout_basket_tokens(&env, escrow_id, &recipient, Some(escrow.fee_bps))?;
 
         emit_dispute_resolved(
             &env,
@@ -349,6 +434,12 @@ impl Escrow {
     /// fee collector on every appeal, so spamming appeals up to `MAX_APPEALS`
     /// always costs the griefer. A zero fee (the default) preserves the
     /// historical free-appeal behavior.
+    ///
+    /// # Fee escalation (issue #1205)
+    ///
+    /// The fee escalates linearly with the appeal round: round `n` (1-based)
+    /// charges `n * appeal_fee_bps`, capped at `BASIS_POINTS` (100%). The
+    /// exact amount deducted and the round are logged in `dispute_appealed`.
     pub fn appeal_dispute(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         caller.require_auth();
         ensure_action_not_paused(&env, Symbol::new(&env, "appeal_dispute"))?;
@@ -392,7 +483,19 @@ impl Escrow {
         // Resolve the out-of-pocket appeal fee before mutating state. The
         // lookup is a plain storage read (a Check, not an Interaction); the
         // transfer itself happens after the state mutations below, per CEI.
-        let appeal_fee_bps = read_appeal_fee_bps(&env);
+        // Escalation (issue #1205): round `n` charges `n * appeal_fee_bps`
+        // (1x, 2x, 3x, ...), so repeated appeals cost progressively more. The
+        // multiplier and the escalated rate are bounded by
+        // `MAX_APPEAL_FEE_MULTIPLIER` and `BASIS_POINTS` respectively.
+        let appeal_round = dispute_data
+            .appeal_count
+            .checked_add(1)
+            .ok_or(ContractError::MaxAppealsReached)?;
+        let multiplier = appeal_round.min(crate::MAX_APPEAL_FEE_MULTIPLIER);
+        let appeal_fee_bps = read_appeal_fee_bps(&env)
+            .checked_mul(multiplier)
+            .ok_or(ContractError::ArithmeticError)?
+            .min(crate::BASIS_POINTS);
         let appeal_fee = crate::helpers::payout::calculate_fee(escrow.amount, appeal_fee_bps)?;
         let fee_collector: Option<Address> = if appeal_fee > 0 {
             Some(
@@ -421,7 +524,13 @@ impl Escrow {
             .checked_add(1)
             .ok_or(ContractError::MaxAppealsReached)?;
 
-        // Clear votes so a fresh round begins
+        // Clear votes so a fresh round begins. `ResolverVotes(escrow_id)` holds
+        // the whole tally as one entry, so a single `remove` drops every voter
+        // for `Multi` and `Fallback` sets alike (and `Single`). Together with
+        // `clear_resolution()` above (resolution = 0, resolved_by = None,
+        // resolved_at = 0) no round-1 state survives. Resolver eligibility is
+        // never cached — `can_resolve_now` is recomputed on every call — so the
+        // resolver who ruled in round 1 (primary or backup) may rule again.
         env.storage()
             .persistent()
             .remove(&DataKey::ResolverVotes(escrow_id));
@@ -439,7 +548,7 @@ impl Escrow {
             token::Client::new(&env, &escrow.token).transfer(&caller, &fee_collector, &appeal_fee);
         }
 
-        emit_dispute_appealed(&env, escrow_id, caller);
+        emit_dispute_appealed(&env, escrow_id, caller, appeal_fee, appeal_round);
         Ok(())
     }
 
@@ -507,10 +616,18 @@ impl Escrow {
     /// a perfect tie resolves to `Refund`. The resolver fee (if any) is paid
     /// to a resolver who backed the winning side.
     ///
-    /// Reverts with `InvalidState` if the escrow is not `Disputed`,
-    /// `DisputeNotDeadlocked` if the window has not elapsed or the votes
-    /// already meet the threshold, or `NoResolverVotes` when no resolver voted
-    /// (that resolver-inaction case is handled by `claim_dispute_timeout`).
+    /// Reverts with `InvalidState` if the escrow is not `Disputed` (including
+    /// when a prior call already moved it to `PendingFinalization`) or the
+    /// dispute is not `Active`, `DisputeNotDeadlocked` if the window has not
+    /// strictly elapsed or the votes already meet the threshold, or
+    /// `NoResolverVotes` when no resolver voted (that resolver-inaction case is
+    /// handled by `claim_dispute_timeout`).
+    ///
+    /// Idempotency / CEI: every guard below runs before any tallying or event
+    /// emission, and `execute_resolution_transition` persists the
+    /// `PendingFinalization` state before any token transfer or event. A
+    /// second (or re-entrant) call therefore fails immediately on the state
+    /// check and cannot transition the escrow twice.
     pub fn resolve_deadlocked_dispute(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_action_not_paused(&env, Symbol::new(&env, "resolve_deadlocked_dispute"))?;
         let escrow = load_escrow(&env, escrow_id)?;
@@ -520,11 +637,16 @@ impl Escrow {
         }
 
         let dispute_data = load_dispute(&env, escrow_id)?;
+        if dispute_data.status != DisputeStatus::Active {
+            return Err(ContractError::InvalidState);
+        }
+
         let deadline = dispute_data
             .disputed_at
             .checked_add(crate::DISPUTE_DEADLOCK_WINDOW)
             .ok_or(ContractError::ArithmeticOverflow)?;
-        if env.ledger().timestamp() < deadline {
+        // The window must have strictly elapsed: `now == deadline` is rejected.
+        if env.ledger().timestamp() <= deadline {
             return Err(ContractError::DisputeNotDeadlocked);
         }
 
@@ -584,7 +706,7 @@ impl Escrow {
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
 
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         let first_payee_addr = escrow
             .payees

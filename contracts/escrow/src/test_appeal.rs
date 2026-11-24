@@ -19,6 +19,9 @@ const AMOUNT: i128 = 1_000;
 
 struct Setup {
     env: Env,
+    admin: Address,
+    fee_collector: Address,
+    token: Address,
     contract_id: Address,
     buyer: Address,
     seller: Address,
@@ -69,6 +72,9 @@ fn setup_funded_escrow() -> Setup {
 
     Setup {
         env,
+        admin,
+        fee_collector,
+        token: token_address,
         contract_id,
         buyer,
         seller,
@@ -260,4 +266,102 @@ fn appeal_succeeds_by_seller_and_reopens_dispute() {
     assert_eq!(dispute.appeal_count, 1);
     assert_eq!(dispute.status, DisputeStatus::Active);
     assert_eq!(dispute.resolution, 0);
+}
+
+// ── Issue #1205: appeal fee escalation ──────────────────────────────────────
+
+/// Event helper: true if a `DisputeAppealed` event with the given fee/round
+/// was emitted by the most recent invocation.
+fn appealed_event_matches(setup: &Setup, fee: i128, round: u32) -> bool {
+    use soroban_sdk::{testutils::Events as _, TryFromVal, Val};
+    let expected_topic = Symbol::new(&setup.env, "Dispute");
+    setup
+        .env
+        .events()
+        .all()
+        .filter_by_contract(&setup.contract_id)
+        .events()
+        .iter()
+        .any(|event| match &event.body {
+            soroban_sdk::xdr::ContractEventBody::V0(v0) => {
+                let Some(topic) = v0.topics.iter().next() else {
+                    return false;
+                };
+                if Symbol::try_from_val(&setup.env, topic).ok() != Some(expected_topic.clone()) {
+                    return false;
+                }
+                let Ok(data) = Val::try_from_val(&setup.env, &v0.data) else {
+                    return false;
+                };
+                crate::events::DisputeAppealed::try_from_val(&setup.env, &data)
+                    .map(|ev| ev.appeal_fee_charged == fee && ev.appeal_round == round)
+                    .unwrap_or(false)
+            }
+        })
+}
+
+#[test]
+fn appeal_fee_escalates_linearly_per_round() {
+    let setup = setup_funded_escrow();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let token_client = token::Client::new(&setup.env, &setup.token);
+    token::StellarAssetClient::new(&setup.env, &setup.token).mint(&setup.buyer, &10_000);
+
+    const BASE_BPS: u32 = 100;
+    client.set_appeal_fee(&setup.admin, &BASE_BPS);
+
+    raise_and_resolve(&setup);
+
+    let mut previous_fee = 0_i128;
+    for round in 1..=crate::MAX_APPEALS {
+        let amount = client.get_escrow(&setup.escrow_id).amount;
+        let expected = crate::helpers::payout::calculate_fee(amount, BASE_BPS * round).unwrap();
+        let collector_before = token_client.balance(&setup.fee_collector);
+        let buyer_before = token_client.balance(&setup.buyer);
+
+        client.appeal_dispute(&setup.buyer, &setup.escrow_id);
+        // Must run before any further contract call, which resets the buffer.
+        assert!(appealed_event_matches(&setup, expected, round));
+
+        let charged = token_client.balance(&setup.fee_collector) - collector_before;
+        assert_eq!(charged, expected, "round {round} fee");
+        assert_eq!(buyer_before - token_client.balance(&setup.buyer), expected);
+        assert!(charged > previous_fee, "fee must ascend each round");
+        previous_fee = charged;
+
+        client.resolve_dispute(&setup.resolver, &setup.escrow_id, &ResolutionType::Release);
+    }
+}
+
+#[test]
+fn appeal_fails_when_balance_covers_only_the_base_fee() {
+    let setup = setup_funded_escrow();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let token_client = token::Client::new(&setup.env, &setup.token);
+
+    const BASE_BPS: u32 = 500;
+    client.set_appeal_fee(&setup.admin, &BASE_BPS);
+    raise_and_resolve(&setup);
+
+    let amount = client.get_escrow(&setup.escrow_id).amount;
+    let round1 = crate::helpers::payout::calculate_fee(amount, BASE_BPS).unwrap();
+    let round2 = crate::helpers::payout::calculate_fee(amount, BASE_BPS * 2).unwrap();
+    assert!(round2 > round1);
+
+    // Enough for round 1 (and one stroop short of round 2 afterwards).
+    token::StellarAssetClient::new(&setup.env, &setup.token)
+        .mint(&setup.buyer, &(round1 + round2 - 1));
+    assert_eq!(token_client.balance(&setup.buyer), round1 + round2 - 1);
+
+    client.appeal_dispute(&setup.buyer, &setup.escrow_id);
+    client.resolve_dispute(&setup.resolver, &setup.escrow_id, &ResolutionType::Release);
+
+    // Round 2 charges 2x, which the remaining balance cannot cover.
+    assert_eq!(token_client.balance(&setup.buyer), round2 - 1);
+    let res = client.try_appeal_dispute(&setup.buyer, &setup.escrow_id);
+    assert!(res.is_err());
+    assert_eq!(
+        client.get_escrow(&setup.escrow_id).state,
+        EscrowState::PendingFinalization
+    );
 }

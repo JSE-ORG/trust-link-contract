@@ -73,7 +73,7 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     // Initial total arbitration fees should be 0
@@ -144,7 +144,7 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     client.resolve_dispute(&resolver, &id, &ResolutionType::Refund);
@@ -210,7 +210,7 @@ fn test_arbitration_fee_charged_once_across_appeal() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     // First resolution: arbitration fee of 50 is deducted and forwarded.
@@ -283,7 +283,7 @@ fn test_zero_fee_dispute_not_charged_on_appeal_after_fee_increase() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
     assert!(!client.get_dispute(&id).unwrap().fees_charged);
 
@@ -383,7 +383,7 @@ fn test_resolution_transition_min_amount_max_fees_does_not_underflow() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     // Must not panic or underflow when resolving at min amount + max fees.
@@ -448,7 +448,7 @@ fn test_execute_resolution_transition_min_amount_max_combined_fees_pins_outcome(
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     // Resolution must complete without an underflow/ArithmeticError.
@@ -531,7 +531,7 @@ fn test_execute_resolution_transition_rejects_fees_exceeding_amount() {
         &id,
         &Symbol::new(&env, "OTHER"),
         &soroban_sdk::Bytes::from_slice(&env, b"desc"),
-        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
     // Bypass every public validation path to force resolver_fee_bps = 100%.

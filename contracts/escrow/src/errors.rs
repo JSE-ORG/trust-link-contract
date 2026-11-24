@@ -25,10 +25,10 @@ pub enum ContractError {
     EscrowHasNoBuyer = 8,
     /// Returned when auto-release is attempted before the configured shipping window has elapsed.
     ShippingWindowNotElapsed = 9,
-    /// Reserved. The `evidence_hash` parameter is typed `BytesN<32>`, so a
-    /// wrong-length digest is rejected by the host before `raise_dispute` runs
-    /// and this code is never returned today. Kept for future use if content
-    /// validation is added.
+    /// Returned by `raise_dispute` when `evidence_hash` is the all-zero digest
+    /// (`[0u8; 32]`). A dispute must carry a non-zero evidence commitment (for
+    /// example a SHA-256 digest). Wrong-length digests are still rejected by
+    /// the host before the call runs, because the parameter is `BytesN<32>`.
     InvalidEvidenceHash = 10,
     /// Returned when a dispute record is missing for the requested escrow.
     DisputeNotFound = 11,
@@ -94,7 +94,10 @@ pub enum ContractError {
     GracePeriodNotElapsed = 40,
     /// Returned when the maximum number of dispute appeals has been reached.
     MaxAppealsReached = 41,
-    /// Returned when `create_basket_escrow` is called with mismatched or empty `tokens`/`amounts`.
+    /// Returned when `create_basket_escrow` is called with mismatched or empty
+    /// `tokens`/`amounts`, a basket exceeding `MAX_BASKET_SIZE`, or a duplicate
+    /// token address (including the primary token repeated as a secondary
+    /// entry).
     BasketTokenMismatch = 42,
     /// Returned when a `multicall` call argument is missing or fails to decode into the expected type.
     InvalidMulticallArg = 43,
@@ -193,4 +196,7 @@ pub enum ContractError {
     /// [`ContractError::ConflictingRoles`] so telemetry can tell a duplicate
     /// resolver apart from a resolver colliding with the seller or buyer.
     DuplicateResolver = 80,
+    /// Returned by `submit_dispute_evidence` when the escrow's evidence log
+    /// already holds `MAX_EVIDENCE_ENTRIES` entries.
+    EvidenceLimitReached = 81,
 }

@@ -392,7 +392,7 @@ impl Escrow {
         // during the refund finds a terminal state and is rejected instead of
         // draining the same escrow twice.
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_escrow_expired(
             &env,
@@ -964,7 +964,7 @@ impl Escrow {
 
         if should_refund {
             payout(&env, &escrow.token, &caller, escrow.amount);
-            payout_basket_tokens(&env, escrow_id, &caller)?;
+            payout_basket_tokens(&env, escrow_id, &caller, None)?;
         }
         let first_payee_addr = escrow
             .payees
@@ -1027,7 +1027,7 @@ impl Escrow {
 
         payout(&env, &escrow.token, &buyer, escrow.amount);
 
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_escrow_canceled(
             &env,
@@ -1416,7 +1416,12 @@ impl Escrow {
             updated.amount,
             fee_config.protocol_fee_bps,
         )?;
-        payout_basket_tokens(&env, escrow_id, &first_payee)?;
+        payout_basket_tokens(
+            &env,
+            escrow_id,
+            &first_payee,
+            Some(fee_config.protocol_fee_bps),
+        )?;
         emit_escrow_completed(
             &env,
             escrow_id,
@@ -1487,7 +1492,11 @@ impl Escrow {
     /// `expires_at` and permits reclaim after the grace period. Emits
     /// `basket_escrow_created`.
     /// token must pass the allowlist check (if enabled). Every amount is
-    /// validated: must be > 0 and within `[MinAmount, MaxAmount]`. The primary
+    /// validated: it must be > 0 and within the stored global config bounds
+    /// (`GlobalConfig::min_amount`/`max_amount`, the canonical limits; the
+    /// `MIN_ESCROW_AMOUNT`/`MAX_ESCROW_AMOUNT` constants are only their
+    /// defaults), returning `InvalidAmount`, `AmountBelowMinimum`, or
+    /// `AmountExceedsMaximum`. The primary
     /// `Escrow` record tracks `tokens[0]`/`amounts[0]`; the full basket
     /// is stored separately and readable via `get_basket_tokens`. `notes` is
     /// capped at `MAX_NOTES_LEN`, same as `create_escrow`. When `expires_at` is
@@ -1518,8 +1527,12 @@ impl Escrow {
         auth!(seller);
         ensure_action_not_paused(&env, Symbol::new(&env, "create_basket_escrow"))?;
 
+        // `MAX_BASKET_SIZE` is the hard ceiling; the admin-configured value
+        // lets governance tighten it further without a contract upgrade.
+        let max_basket_size = crate::read_max_basket_size(&env);
         if tokens.len() != amounts.len()
             || tokens.is_empty()
+            || tokens.len() > max_basket_size
             || tokens.len() > crate::MAX_BASKET_SIZE
         {
             return Err(ContractError::BasketTokenMismatch);
@@ -1537,21 +1550,24 @@ impl Escrow {
             }
         }
 
+        // Canonical amount bounds come from the stored global config. The
+        // MIN_ESCROW_AMOUNT/MAX_ESCROW_AMOUNT constants only seed the defaults
+        // (see storage::default_global_config); an admin can change the bounds
+        // with set_amount_limits, so validation must read the config. Every
+        // entry — primary and secondary — goes through this single pass.
         let global_config = read_global_config(&env);
         for amount in amounts.iter() {
-            if amount < 0 {
+            // ERROR_CODES.md: a basket entry with amount <= 0 is an amount
+            // error (InvalidAmount), never a structural BasketTokenMismatch.
+            if amount <= 0 {
                 return Err(ContractError::InvalidAmount);
             }
             if amount > global_config.max_amount {
                 return Err(ContractError::AmountExceedsMaximum);
             }
-            if amount > 0 && amount < global_config.min_amount {
+            if amount < global_config.min_amount {
                 return Err(ContractError::AmountBelowMinimum);
             }
-        }
-        let primary_amount = amounts.get(0).ok_or(ContractError::InvalidAmount)?;
-        if primary_amount == 0 {
-            return Err(ContractError::AmountBelowMinimum);
         }
 
         validate_escrow_fee_bps(fee_bps)?;
@@ -1565,25 +1581,6 @@ impl Escrow {
         if let Some(expiry) = expires_at {
             if expiry <= env.ledger().timestamp() {
                 return Err(ContractError::InvalidExpiration);
-            }
-        }
-
-        // Validate every basket amount against the configured or default limits.
-        // Mirrors the three-step check in create_escrow_internal so secondary
-        // tokens are subject to the same arithmetic-safety guarantees as the
-        // primary token.
-        let max_amount: i128 = crate::storage::read_global_config(&env).max_amount;
-        let min_amount: i128 = crate::storage::read_global_config(&env).min_amount;
-
-        for amount in amounts.iter() {
-            if amount <= 0 {
-                return Err(ContractError::InvalidAmount);
-            }
-            if amount > max_amount {
-                return Err(ContractError::AmountExceedsMaximum);
-            }
-            if amount < min_amount {
-                return Err(ContractError::AmountBelowMinimum);
             }
         }
 
@@ -1873,8 +1870,8 @@ impl Escrow {
     /// Notes for integrators:
     /// - The primary token (`tokens[0]`) is transferred as part of the basket
     ///   loop, so a basket of size `N` issues exactly `N` transfers.
-    /// - Entries with `amount == 0` are skipped and do not incur a transfer,
-    ///   but they still contribute to the loop's iteration overhead.
+    /// - Every stored entry must carry a positive amount; zero or negative
+    ///   amounts are rejected with `InvalidAmount` instead of being skipped.
     /// - The cost is dominated by the token contracts' own `transfer`
     ///   implementations; the figures above assume a standard SEP-41 token.
     /// - Re-measure with `env.budget()` when upgrading Soroban or the token
@@ -1884,8 +1881,11 @@ impl Escrow {
     /// Reverts with `EscrowExpired` if the `PendingExpiry` schedule or the
     /// blanket `PENDING_EXPIRY_WINDOW` has elapsed, `ConflictingRoles` if the
     /// buyer matches a payee or resolver, `NotAuthorizedBuyer` if a designated
-    /// buyer does not match, and `BasketTokenMismatch` if no basket tokens are
-    /// stored for the escrow.
+    /// buyer does not match, `BasketTokenMismatch` if no basket tokens are
+    /// stored for the escrow, and `InsufficientBalance` if the contract does
+    /// not receive the full pledged amount for any token (e.g. a
+    /// fee-on-transfer token).
+    #[allow(clippy::too_many_lines)]
     pub fn fund_basket_escrow(
         env: Env,
         escrow_id: u64,
@@ -1948,19 +1948,62 @@ impl Escrow {
             return Err(ContractError::BasketTokenMismatch);
         }
 
+        let contract_addr = env.current_contract_address();
+
+        // ── PRE-TRANSFER BALANCE SNAPSHOT (Issue #1221) ──
+        // Record what the contract already holds for each basket token before
+        // pulling funds in. The post-transfer check below uses these snapshots
+        // to prove the contract's balance grew by at least the pledged amount
+        // for every token, not just that `transfer` returned successfully. A
+        // non-standard token can report success while crediting less (e.g. a
+        // fee-on-transfer token), which would otherwise under-fund the basket
+        // while the escrow still flips to `Funded`.
+        let mut starting_balances = soroban_sdk::Vec::new(&env);
+        for i in 0..basket_tokens.len() {
+            let entry = basket_tokens
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            let balance =
+                soroban_sdk::token::Client::new(&env, &entry.token).balance(&contract_addr);
+            starting_balances.push_back(balance);
+        }
+
         for i in 0..basket_tokens.len() {
             let entry = basket_tokens
                 .get(i)
                 .ok_or(ContractError::IndexOutOfBounds)?;
             if entry.amount > 0 {
-                transfer_helper(
-                    &env,
-                    &entry.token,
-                    &buyer,
-                    &env.current_contract_address(),
-                    entry.amount,
-                );
+                transfer_helper(&env, &entry.token, &buyer, &contract_addr, entry.amount);
             }
+        }
+
+        // ── POST-TRANSFER INFLOW INVARIANT (Issue #1221) ──
+        // Every basket token's contract balance must have increased by at
+        // least its pledged amount. Returning `InsufficientBalance` here
+        // aborts the whole Soroban invocation, so a shortfall from any single
+        // token rolls back every transfer in the basket atomically.
+        for i in 0..basket_tokens.len() {
+            let entry = basket_tokens
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            let starting = starting_balances
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            let expected = starting
+                .checked_add(entry.amount)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+            let current =
+                soroban_sdk::token::Client::new(&env, &entry.token).balance(&contract_addr);
+            if current < expected {
+                return Err(ContractError::InsufficientBalance);
+            }
+            transfer_helper(
+                &env,
+                &entry.token,
+                &buyer,
+                &env.current_contract_address(),
+                entry.amount,
+            );
         }
 
         let prev_state = escrow.state.clone();
@@ -2188,7 +2231,7 @@ impl Escrow {
 
         // ── INTERACTIONS (external token transfers) ──
         payout(&env, &escrow.token, &buyer, escrow.amount);
-        payout_basket_tokens(&env, escrow_id, &buyer)?;
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
 
         emit_refund_approved(
             &env,
