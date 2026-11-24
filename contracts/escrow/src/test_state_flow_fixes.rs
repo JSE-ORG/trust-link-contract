@@ -445,7 +445,7 @@ fn matrix_dispute(env: &Env, client: &EscrowClient, buyer: &Address, id: u64) {
         &id,
         &Symbol::new(env, "DEFECTIVE"),
         &Bytes::from_slice(env, b"state matrix"),
-        &BytesN::from_array(env, &[0u8; 32]),
+        &BytesN::from_array(env, &[1u8; 32]),
     );
 }
 
@@ -540,7 +540,7 @@ fn attempt_action(
             &id,
             &Symbol::new(env, "DEFECTIVE"),
             &Bytes::from_slice(env, b"state matrix"),
-            &BytesN::from_array(env, &[0u8; 32]),
+            &BytesN::from_array(env, &[1u8; 32]),
         ),
         LifecycleAction::Resolve => {
             client.try_resolve_dispute(resolver, &id, &ResolutionType::Release)

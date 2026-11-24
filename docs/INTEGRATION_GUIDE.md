@@ -150,7 +150,21 @@ default is `MAX_BASKET_SIZE`; governance can queue and execute a timelocked
 lower value (down to 1) without an upgrade. Baskets with an empty token list or
 more entries than the configured limit are rejected with
 `BasketTokenMismatch`, so clients should read `get_max_basket_size()` rather
-than hard-code 20.
+than hard-code 20. Internally the basket is stored as a `BoundedBasket` with a
+hard capacity of `MAX_BASKET_SIZE`; the public `get_basket_tokens` ABI still
+returns `Vec<TokenEntry>`. Deployments holding the legacy unbounded-vector
+layout are migrated transparently on first read.
+
+### Basket amount limits
+
+Every entry passed to `create_basket_escrow` — primary **and** secondary — is
+validated against the admin-configured `[min_amount, max_amount]` bounds read
+from `GlobalConfig` at creation time. A secondary token below the minimum
+returns `AmountBelowMinimum`; above the maximum returns `AmountExceedsMaximum`;
+a non-positive amount returns `InvalidAmount`. Changing the limits with
+`set_amount_limits` applies to basket creation immediately. The canonical
+source for these bounds is the stored `GlobalConfig` (`MinAmount` / `MaxAmount`);
+the `MIN_ESCROW_AMOUNT` / `MAX_ESCROW_AMOUNT` constants are only their defaults.
 
 ### Reading basket balances
 

@@ -109,8 +109,10 @@ pub enum ContractError {
     InvalidTtlExtension = 46,
     /// Returned when multi-resolver threshold is invalid (zero, exceeds resolver count, or resolver list is empty).
     InvalidResolverThreshold = 47,
-    /// Returned when a fallback resolver's `dispute_deadline` is later than
-    /// `MAX_FALLBACK_DEADLINE_OFFSET` past the current ledger timestamp.
+    /// Returned when a fallback resolver's `dispute_deadline` is earlier than
+    /// `MIN_FALLBACK_DEADLINE_OFFSET` (1 day) or later than
+    /// `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past the current ledger
+    /// timestamp.
     InvalidFallbackDeadline = 48,
     /// Returned when `claim_dispute_timeout` is called before the dispute has
     /// remained unresolved for the configured maximum dispute duration.
@@ -196,6 +198,13 @@ pub enum ContractError {
     /// [`ContractError::ConflictingRoles`] so telemetry can tell a duplicate
     /// resolver apart from a resolver colliding with the seller or buyer.
     DuplicateResolver = 80,
+    /// Returned when `unpause_contract` is called directly while
+    /// `GLOBAL_CONFIG_FLAG_TIMELOCKED_UNPAUSE_ONLY` is set. The caller must
+    /// use `queue_unpause_contract` → `execute_unpause_contract` instead.
+    DirectUnpauseBlocked = 81,
+    /// Returned when a `ResolutionType::Split(bps)` resolution carries a
+    /// payee share greater than `BASIS_POINTS` (`10_000`).
+    InvalidSplitBps = 81,
     /// Returned by `submit_dispute_evidence` when the escrow's evidence log
     /// already holds `MAX_EVIDENCE_ENTRIES` entries.
     EvidenceLimitReached = 81,

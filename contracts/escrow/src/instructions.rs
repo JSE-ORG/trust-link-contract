@@ -16,6 +16,165 @@ macro_rules! auth {
     };
 }
 
+/// Validates a single basket amount against the configured min/max limits.
+/// Mirrors the per-entry checks in `create_basket_escrow` so the multi and
+/// fallback basket entry points enforce identical rules.
+fn validate_basket_amount(
+    amount: i128,
+    min_amount: i128,
+    max_amount: i128,
+) -> Result<(), ContractError> {
+    if amount <= 0 {
+        return Err(ContractError::InvalidAmount);
+    }
+    if amount > max_amount {
+        return Err(ContractError::AmountExceedsMaximum);
+    }
+    if amount < min_amount {
+        return Err(ContractError::AmountBelowMinimum);
+    }
+    Ok(())
+}
+
+/// Builds the persisted basket entry list for a resolver-configurable basket
+/// escrow: the explicit primary token/amount first, followed by every
+/// additional `tokens[i]`/`amounts[i]` pair.
+///
+/// Validates that `tokens` and `amounts` have equal length, that the resulting
+/// basket (primary included) fits within the configured maximum size, that no
+/// token address is repeated (including once as the primary), and that every
+/// amount satisfies the global MinAmount/MaxAmount limits.
+fn build_basket_entries(
+    env: &Env,
+    primary_token: &Address,
+    primary_amount: i128,
+    tokens: &Vec<Address>,
+    amounts: &Vec<i128>,
+) -> Result<Vec<TokenEntry>, ContractError> {
+    if tokens.len() != amounts.len() {
+        return Err(ContractError::BasketTokenMismatch);
+    }
+
+    let total_len = tokens
+        .len()
+        .checked_add(1)
+        .ok_or(ContractError::ArithmeticOverflow)?;
+    if total_len > read_max_basket_size(env) {
+        return Err(ContractError::BasketTokenMismatch);
+    }
+
+    let config = read_global_config(env);
+    validate_basket_amount(primary_amount, config.min_amount, config.max_amount)?;
+    for amount in amounts.iter() {
+        validate_basket_amount(amount, config.min_amount, config.max_amount)?;
+    }
+
+    let mut entries = Vec::new(env);
+    entries.push_back(TokenEntry {
+        token: primary_token.clone(),
+        amount: primary_amount,
+    });
+
+    for i in 0..tokens.len() {
+        let token = tokens.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+        // The primary token is already entry 0; a repeat would make the
+        // funding/payout loops transfer the same token twice.
+        for j in 0..=i {
+            let existing = entries.get(j).ok_or(ContractError::IndexOutOfBounds)?;
+            if existing.token == token {
+                return Err(ContractError::BasketTokenMismatch);
+            }
+        }
+        let amount = amounts.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+        entries.push_back(TokenEntry { token, amount });
+    }
+
+    Ok(entries)
+}
+
+/// Rejects `resolver` when strict resolver mode is enabled and the address is
+/// not on the approved list. A no-op when strict mode is disabled, so
+/// contracts that never opted in pay only one config read per resolver.
+fn ensure_resolver_approved(env: &Env, resolver: &Address) -> Result<(), ContractError> {
+    if crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
+        == 0
+    {
+        return Ok(());
+    }
+    let approved: Vec<Address> = env
+        .storage()
+        .instance()
+        .get(&DataKey::ApprovedResolvers)
+        .unwrap_or_else(|| Vec::new(env));
+    if contains(&approved, resolver) {
+        Ok(())
+    } else {
+        Err(ContractError::UnauthorizedResolver)
+    }
+}
+
+/// Persists a validated basket escrow with an arbitrary [`ResolverSet`].
+/// Shared by `create_basket_escrow_multi` and
+/// `create_basket_escrow_fallback`; both authenticate `seller`, validate
+/// the basket entries and the resolver set, and check the token allowlist
+/// before delegating here.
+#[allow(clippy::too_many_arguments)]
+fn persist_basket_escrow(
+    env: &Env,
+    seller: Address,
+    buyer: Option<Address>,
+    resolvers: ResolverSet,
+    entries: Vec<TokenEntry>,
+    fee_bps: u32,
+    resolver_fee_bps: u32,
+    shipping_window: u64,
+    notes: Option<String>,
+) -> Result<u64, ContractError> {
+    let primary = entries.get(0).ok_or(ContractError::BasketTokenMismatch)?;
+    let token_count = entries.len();
+
+    let notes = notes.unwrap_or_else(|| String::from_str(env, ""));
+    if notes.len() > MAX_NOTES_LEN {
+        return Err(ContractError::InputTooLong);
+    }
+
+    let escrow_id = crate::next_escrow_id(env)?;
+
+    let mut payees = Vec::new(env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let escrow = EscrowData {
+        payees: BoundedPayees { inner: payees },
+        buyer,
+        resolvers,
+        token: primary.token.clone(),
+        amount: primary.amount,
+        fee_bps,
+        resolver_fee_bps,
+        shipping_window,
+        packed_timestamps: 0,
+        state: EscrowState::Pending,
+        shipped_at: 0,
+        delivered_at: None,
+        tracking_id: None,
+        notes,
+        expires_at: None,
+        grace_period: 0,
+    };
+
+    save_escrow(env, escrow_id, &escrow, None);
+    save_basket_tokens(env, escrow_id, &entries);
+
+    storage::append_vendor_escrow_index(env, &seller, escrow_id);
+    increment_sharded_counter(env, COUNTER_KIND_CREATED, escrow_id)?;
+    emit_basket_escrow_created(env, escrow_id, seller, token_count);
+
+    Ok(escrow_id)
+}
+
 #[contractimpl]
 impl Escrow {
     /// Modern 9-argument production interface accepting either Address or Payee array variants.
@@ -441,22 +600,24 @@ impl Escrow {
         // adds no overhead for contracts that have not enabled the allowlist.
         is_token_allowed(&env, &token)?;
 
-        // Validate multi-resolver configuration
-        let resolver_set = ResolverSet::Multi(crate::types::MultiResolver {
-            resolvers,
-            threshold,
-        });
-        validate_resolvers(&resolver_set, &seller, buyer.as_ref())?;
-
-        let escrow_id = crate::next_escrow_id(&env)?;
-
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
             address: seller.clone(),
             bps: 10_000,
         });
+        let payees = BoundedPayees { inner: payees };
+
+        // Validate multi-resolver configuration
+        let resolver_set = ResolverSet::Multi(crate::types::MultiResolver {
+            resolvers,
+            threshold,
+        });
+        validate_resolvers(&resolver_set, &payees, buyer.as_ref())?;
+
+        let escrow_id = crate::next_escrow_id(&env)?;
+
         let escrow = EscrowData {
-            payees: BoundedPayees { inner: payees },
+            payees,
             buyer,
             resolvers: resolver_set.clone(),
             token,
@@ -574,7 +735,7 @@ impl Escrow {
     /// * `ContractError::ResolverRoleConflict` - `primary_resolver` or `backup_resolver` matches `seller` or `buyer`.
     /// * `ContractError::DuplicateResolver` - `primary_resolver` equals `backup_resolver`.
     /// * `ContractError::ResolverNotApproved` - Strict resolver mode is enabled and a resolver is not on the approved list.
-    /// * `ContractError::InvalidFallbackDeadline` - `dispute_deadline` is more than `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past the current ledger timestamp.
+    /// * `ContractError::InvalidFallbackDeadline` - `dispute_deadline` is less than `MIN_FALLBACK_DEADLINE_OFFSET` (1 day) or more than `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past the current ledger timestamp.
     ///
     /// # Example
     /// ```rust,ignore
@@ -613,11 +774,13 @@ impl Escrow {
     /// - `dispute_deadline` — **absolute ledger timestamp in Unix seconds** at
     ///   which `backup_resolver` becomes authorized. This is unrelated to
     ///   `Escrow::dispute_deadline` (the buyer's dispute window, computed at
-    ///   funding). It must be at most `MAX_FALLBACK_DEADLINE_OFFSET` (39
-    ///   days) past the current ledger timestamp (`InvalidFallbackDeadline`),
-    ///   so the backup can always step in eventually. A past value (or `0`)
-    ///   simply co-authorizes the backup from the start; callers normally
-    ///   pass `env.ledger().timestamp() + grace_seconds`.
+    ///   funding). It must be at least `MIN_FALLBACK_DEADLINE_OFFSET` (1 day)
+    ///   and at most `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past the current
+    ///   ledger timestamp (`InvalidFallbackDeadline`), guaranteeing the
+    ///   primary at least 24 hours of exclusive authority while ensuring the
+    ///   backup can always step in eventually. Past values (including `0`)
+    ///   are rejected; callers pass `env.ledger().timestamp() + grace_seconds`
+    ///   with `grace_seconds >= 86_400`.
     /// - `token`, `amount`, `fee_bps`, `shipping_window` — as for
     ///   `create_escrow` (`amount` within `[MIN_ESCROW_AMOUNT,
     ///   MAX_ESCROW_AMOUNT]`, `fee_bps <= MAX_ESCROW_FEE_BPS`).
@@ -686,7 +849,13 @@ impl Escrow {
             backup: backup_resolver,
             dispute_deadline,
         });
-        validate_resolvers(&resolver_set, &seller, buyer.as_ref())?;
+        let mut payees = Vec::new(&env);
+        payees.push_back(Payee {
+            address: seller.clone(),
+            bps: 10_000,
+        });
+        let payees = BoundedPayees { inner: payees };
+        validate_resolvers(&resolver_set, &payees, buyer.as_ref())?;
 
         // Issue #813: Use centralized next_escrow_id helper instead of duplicating
         // counter logic. This ensures TTL extension is always applied and the counter
@@ -695,13 +864,8 @@ impl Escrow {
         // implementation was identical but spread across multiple functions.
         let escrow_id = crate::next_escrow_id(&env)?;
 
-        let mut payees = Vec::new(&env);
-        payees.push_back(Payee {
-            address: seller.clone(),
-            bps: 10_000,
-        });
         let escrow = EscrowData {
-            payees: BoundedPayees { inner: payees },
+            payees,
             buyer,
             resolvers: resolver_set,
             token,
@@ -1510,7 +1674,7 @@ impl Escrow {
             let amount = amounts.get(i).ok_or(ContractError::IndexOutOfBounds)?;
             basket_entries.push_back(TokenEntry { token, amount });
         }
-        save_basket_tokens(&env, escrow_id, &basket_entries);
+        save_basket_tokens(&env, escrow_id, &BoundedBasket::try_new(basket_entries)?);
 
         if let Some(expires_at) = expires_at {
             let schedule = crate::ExpirySchedule {
@@ -1532,6 +1696,152 @@ impl Escrow {
         emit_basket_escrow_created(&env, escrow_id, seller, tokens.len());
 
         Ok(escrow_id)
+    }
+
+    /// Creates a multi-token ("basket") escrow whose dispute resolver is an
+    /// M-of-N committee ([`ResolverSet::Multi`]), for high-value commercial
+    /// escrows that need both multi-asset settlement and multi-resolver
+    /// governance.
+    ///
+    /// `primary_token`/`primary_amount` become the escrow's primary token and
+    /// amount; `tokens`/`amounts` list the *additional* basket assets (they
+    /// must not repeat the primary). The full basket is persisted and paid out
+    /// by the same `payout_basket_tokens` path used by `create_basket_escrow`,
+    /// so dispute resolution, appeals, cancellation and auto-release all settle
+    /// every token.
+    ///
+    /// Validation matches `create_basket_escrow` (equal-length additional
+    /// token/amount lists, which may be empty when the basket is just the
+    /// primary, no duplicate tokens, configured basket-size cap, per-token
+    /// MinAmount/MaxAmount, token allowlist) plus `validate_resolvers` for the
+    /// committee (non-empty, unique, `1 <= threshold <= resolvers.len()`, no
+    /// seller/buyer overlap) and the strict-resolver registry check when
+    /// enabled.
+    ///
+    /// Must be funded with `fund_basket_escrow`. Emits
+    /// `basket_escrow_created`, whose `token_count` includes the primary.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_basket_escrow_multi(
+        env: Env,
+        seller: Address,
+        buyer: Option<Address>,
+        resolvers: Vec<Address>,
+        threshold: u32,
+        primary_token: Address,
+        primary_amount: i128,
+        tokens: Vec<Address>,
+        amounts: Vec<i128>,
+        fee_bps: u32,
+        resolver_fee_bps: u32,
+        shipping_window: u64,
+        notes: Option<String>,
+    ) -> Result<u64, ContractError> {
+        auth!(seller);
+        ensure_action_not_paused(&env, Symbol::new(&env, "create_basket_escrow_multi"))?;
+
+        validate_escrow_fee_bps(fee_bps)?;
+        validate_resolver_fee_bps(resolver_fee_bps)?;
+        validate_shipping_window(shipping_window)?;
+
+        let entries =
+            build_basket_entries(&env, &primary_token, primary_amount, &tokens, &amounts)?;
+        for entry in entries.iter() {
+            is_token_allowed(&env, &entry.token)?;
+        }
+
+        for resolver in resolvers.iter() {
+            ensure_resolver_approved(&env, &resolver)?;
+        }
+
+        let resolver_set = ResolverSet::Multi(crate::types::MultiResolver {
+            resolvers,
+            threshold,
+        });
+        validate_resolvers(&resolver_set, &seller, buyer.as_ref())?;
+
+        persist_basket_escrow(
+            &env,
+            seller,
+            buyer,
+            resolver_set,
+            entries,
+            fee_bps,
+            resolver_fee_bps,
+            shipping_window,
+            notes,
+        )
+    }
+
+    /// Creates a multi-token ("basket") escrow with a primary/backup resolver
+    /// pair ([`ResolverSet::Fallback`]): `primary_resolver` may resolve a
+    /// dispute at any time, while `backup_resolver` becomes authorized once
+    /// `dispute_deadline` (an absolute ledger timestamp) is reached.
+    ///
+    /// `primary_token`/`primary_amount` become the primary token and amount;
+    /// `tokens`/`amounts` list the additional basket assets. Basket validation,
+    /// allowlist checks, seller/buyer role separation and the strict-resolver
+    /// registry check are identical to `create_basket_escrow_multi`; the
+    /// resolver pair is validated with `validate_resolvers` (distinct
+    /// addresses, no seller/buyer overlap, deadline within
+    /// `MAX_FALLBACK_DEADLINE_OFFSET`).
+    ///
+    /// Must be funded with `fund_basket_escrow`. Emits
+    /// `basket_escrow_created`, whose `token_count` includes the primary.
+    #[allow(clippy::too_many_arguments)]
+    ///
+    /// Named `create_basket_escrow_fallback` rather than the longer
+    /// `..._with_fallback` because Soroban caps contract function names at 32
+    /// characters.
+    pub fn create_basket_escrow_fallback(
+        env: Env,
+        seller: Address,
+        buyer: Option<Address>,
+        primary_resolver: Address,
+        backup_resolver: Address,
+        dispute_deadline: u64,
+        primary_token: Address,
+        primary_amount: i128,
+        tokens: Vec<Address>,
+        amounts: Vec<i128>,
+        fee_bps: u32,
+        resolver_fee_bps: u32,
+        shipping_window: u64,
+        notes: Option<String>,
+    ) -> Result<u64, ContractError> {
+        auth!(seller);
+        ensure_action_not_paused(&env, Symbol::new(&env, "create_basket_escrow_fallback"))?;
+
+        validate_escrow_fee_bps(fee_bps)?;
+        validate_resolver_fee_bps(resolver_fee_bps)?;
+        validate_shipping_window(shipping_window)?;
+
+        let entries =
+            build_basket_entries(&env, &primary_token, primary_amount, &tokens, &amounts)?;
+        for entry in entries.iter() {
+            is_token_allowed(&env, &entry.token)?;
+        }
+
+        ensure_resolver_approved(&env, &primary_resolver)?;
+        ensure_resolver_approved(&env, &backup_resolver)?;
+
+        let resolver_set = ResolverSet::Fallback(crate::types::FallbackResolver {
+            primary: primary_resolver,
+            backup: backup_resolver,
+            dispute_deadline,
+        });
+        validate_resolvers(&resolver_set, &seller, buyer.as_ref())?;
+
+        persist_basket_escrow(
+            &env,
+            seller,
+            buyer,
+            resolver_set,
+            entries,
+            fee_bps,
+            resolver_fee_bps,
+            shipping_window,
+            notes,
+        )
     }
 
     /// Fund a basket escrow by transferring all tokens from the buyer.
@@ -1643,6 +1953,37 @@ impl Escrow {
             return Err(ContractError::BasketTokenMismatch);
         }
 
+        // ── EFFECTS: commit the Funded state BEFORE any external call (CEI) ──
+        // Issue #1231: a malicious token in the basket can re-enter this
+        // contract from inside `transfer`. State must therefore already read
+        // `Funded` (and be persisted) by the time we call out to any token,
+        // otherwise a re-entrant `fund_basket_escrow` / `cancel_escrow` sees
+        // a still-`Pending` escrow and can double-fund or race the transition.
+        // Soroban aborts and rolls the whole invocation back on transfer
+        // failure, so this early write is safe: no observer ever sees a Funded
+        // escrow whose transfers did not land.
+        let prev_state = escrow.state.clone();
+        escrow.buyer = Some(buyer.clone());
+        escrow.state = EscrowState::Funded;
+        let dispute_deadline_basket = now
+            .checked_add(DISPUTE_WINDOW)
+            .ok_or(ContractError::ArithmeticError)?;
+        // Pack: high 32 bits = funded_at, low 32 bits = dispute_deadline
+        escrow.packed_timestamps = (now << 32) | (dispute_deadline_basket & 0xFFFF_FFFF);
+
+        // Index the buyer for lookup (paged, bounded per storage entry).
+        storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+
+        // Issue #811: Clear PendingExpiry on funding so `ensure_not_expired`
+        // does not block operations on Funded escrows once the pending window
+        // has passed (same ordering as `fund_escrow`).
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingExpiry(escrow_id));
+        emit_pending_expiry_cleared(&env, escrow_id);
+
+        // ── INTERACTIONS: external token transfers ──
         let contract_addr = env.current_contract_address();
 
         // ── PRE-TRANSFER BALANCE SNAPSHOT (Issue #1221) ──
@@ -1663,6 +2004,9 @@ impl Escrow {
             starting_balances.push_back(balance);
         }
 
+        // Exactly one pull per token. A second `transfer_helper` here would
+        // double-charge the buyer (and left `InsufficientBalance` unreachable
+        // for honestly minted buyers).
         for i in 0..basket_tokens.len() {
             let entry = basket_tokens
                 .get(i)
@@ -1692,36 +2036,7 @@ impl Escrow {
             if current < expected {
                 return Err(ContractError::InsufficientBalance);
             }
-            transfer_helper(
-                &env,
-                &entry.token,
-                &buyer,
-                &env.current_contract_address(),
-                entry.amount,
-            );
         }
-
-        let prev_state = escrow.state.clone();
-        escrow.buyer = Some(buyer.clone());
-        escrow.state = EscrowState::Funded;
-        let dispute_deadline_basket = now
-            .checked_add(DISPUTE_WINDOW)
-            .ok_or(ContractError::ArithmeticError)?;
-        // Pack: high 32 bits = funded_at, low 32 bits = dispute_deadline
-        escrow.packed_timestamps = (now << 32) | (dispute_deadline_basket & 0xFFFF_FFFF);
-
-        // Index the buyer for lookup (paged, bounded per storage entry).
-        storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
-
-        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
-
-        // Issue #811: Clear PendingExpiry after successful funding. Mirrors fix in
-        // fund_escrow to prevent ensure_not_expired from incorrectly blocking operations
-        // on Funded escrows when the Pending timeout window has passed.
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PendingExpiry(escrow_id));
-        emit_pending_expiry_cleared(&env, escrow_id);
 
         // Build basket_tokens event data (always Some for basket escrows)
         let mut basket_event_tuples = soroban_sdk::Vec::new(&env);

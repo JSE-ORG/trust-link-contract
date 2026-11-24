@@ -64,8 +64,10 @@ impl Escrow {
         if load_escrow(&env, escrow_id).is_err() {
             return None;
         }
-        // Return Some(Vec) - empty for single-token, populated for basket
-        Some(load_basket_tokens(&env, escrow_id))
+        // Return Some(Vec) - empty for single-token, populated for basket.
+        // The query ABI stays `Vec<TokenEntry>`; the bounded wrapper is an
+        // internal storage representation only.
+        Some(load_basket_tokens(&env, escrow_id).into_inner())
     }
 
     /// Returns pledged versus custodied balances for every token in a basket
@@ -250,6 +252,12 @@ impl Escrow {
     /// `increment_sharded_counter`) to avoid a single contended instance key;
     /// this view re-aggregates them, including any value written by a
     /// pre-sharding deployment.
+    ///
+    /// Dispute accounting: `total_disputed` counts **unique escrows** that
+    /// were ever disputed (an appeal does not re-increment it), while
+    /// `total_appeals` counts every appeal cycle across the contract. An
+    /// escrow disputed once and appealed twice contributes `1` to
+    /// `total_disputed` and `2` to `total_appeals`.
     pub fn get_stats(env: Env) -> ContractStats {
         ContractStats {
             total_created: read_counter_total(&env, COUNTER_KIND_CREATED, &DataKey::TotalCreated),
@@ -268,6 +276,8 @@ impl Escrow {
                 COUNTER_KIND_REFUNDED,
                 &DataKey::TotalRefunded,
             ),
+            // Appeals have no pre-sharding history, so only the shards count.
+            total_appeals: read_sharded_counter_total(&env, COUNTER_KIND_APPEALS),
         }
     }
 
@@ -343,5 +353,17 @@ impl Escrow {
             fee_collector,
             escrow_count,
         })
+    }
+
+    /// Returns the complete chronological list of on-chain upgrade records.
+    ///
+    /// Each entry is an [`UpgradeRecord`] appended by `execute_upgrade` and
+    /// is immutable after insertion — the list forms a tamper-evident audit
+    /// ledger. Returns an empty `Vec` if the contract has never been upgraded.
+    pub fn get_upgrade_history(env: Env) -> soroban_sdk::Vec<crate::types::UpgradeRecord> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::UpgradeHistory)
+            .unwrap_or_else(|| soroban_sdk::Vec::new(&env))
     }
 }
