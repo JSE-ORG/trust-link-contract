@@ -209,6 +209,102 @@ fn test_recovery_withdraw_blocked_on_pending_finalization() {
     assert_eq!(client.get_escrow(&disputed_id).state, EscrowState::Refunded);
 }
 
+#[test]
+fn rotation_invalidates_old_timelocks_and_new_admin_can_requeue() {
+    use crate::{DataKey, TimelockOperation};
+    use soroban_sdk::{testutils::Ledger as _, BytesN};
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, old_admin, _) = setup_contract(&env);
+    let new_admin = Address::generate(&env);
+    let hash = BytesN::from_array(&env, &[1; 32]);
+    client.queue_upgrade(&old_admin, &hash);
+    client.queue_set_platform_fee(&old_admin, &100);
+    client.queue_set_admin(&old_admin, &new_admin);
+    env.ledger()
+        .with_mut(|li| li.timestamp += crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS);
+    client.execute_set_admin(&old_admin, &new_admin);
+
+    env.as_contract(&contract_id, || {
+        for operation in [
+            TimelockOperation::Upgrade,
+            TimelockOperation::SetPlatformFee,
+        ] {
+            assert!(crate::storage::read_timelock_proposal(&env, operation as u32).is_none());
+            assert!(env
+                .storage()
+                .instance()
+                .has(&DataKey::InvalidatedTimelockOp(operation as u32)));
+        }
+    });
+    assert_eq!(
+        client.try_execute_upgrade(&old_admin, &hash),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+    assert_eq!(
+        client.try_execute_set_platform_fee(&old_admin, &100),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+
+    // An admin returning later must not revive an earlier proposal.
+    client.queue_set_admin(&new_admin, &old_admin);
+    env.ledger()
+        .with_mut(|li| li.timestamp += crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS);
+    client.execute_set_admin(&new_admin, &old_admin);
+    assert_eq!(
+        client.try_execute_upgrade(&old_admin, &hash),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+
+    // A fresh proposal replaces the invalidation and remains keeper-executable.
+    client.queue_set_platform_fee(&old_admin, &100);
+    env.ledger()
+        .with_mut(|li| li.timestamp += crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS);
+    let keeper = Address::generate(&env);
+    client.execute_set_platform_fee(&keeper, &100);
+}
+
+#[test]
+fn stale_proposal_from_before_upgrade_is_rejected_even_if_ready() {
+    use soroban_sdk::{testutils::Ledger as _, BytesN};
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, old_admin, _) = setup_contract(&env);
+    let new_admin = Address::generate(&env);
+    let hash = BytesN::from_array(&env, &[2; 32]);
+    client.queue_upgrade(&old_admin, &hash);
+    // Model a legacy proposal left in storage by a rotation before this fix.
+    env.as_contract(&contract_id, || {
+        crate::storage::write_admin_address(&env, &new_admin)
+    });
+    env.ledger()
+        .with_mut(|li| li.timestamp += crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS);
+    assert_eq!(
+        client.try_execute_upgrade(&old_admin, &hash),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+    // The active admin can explicitly clean up a legacy stale proposal.
+    client.cancel_timelock_op(&new_admin, &(crate::TimelockOperation::Upgrade as u32));
+}
+
+#[test]
+fn timelock_execution_without_admin_returns_not_initialized() {
+    use soroban_sdk::BytesN;
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, admin, _) = setup_contract(&env);
+    let hash = BytesN::from_array(&env, &[3; 32]);
+    client.queue_upgrade(&admin, &hash);
+    env.as_contract(&contract_id, || {
+        env.storage().instance().remove(&crate::DataKey::Admin)
+    });
+    assert_eq!(
+        client.try_execute_upgrade(&admin, &hash),
+        Err(Ok(ContractError::NotInitialized))
+    );
+}
+
 // ── Timelock hardening (#1235, #1236, #1238) ────────────────────────────────
 
 mod timelock {

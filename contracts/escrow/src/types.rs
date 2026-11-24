@@ -118,6 +118,13 @@ pub enum DataKey {
     /// unbounded `Vec<TokenEntry>` layout and is read/migrated on first load,
     /// so deploying this change does not require an explicit storage migration.
     BasketTokensV2(u64),
+    /// Persistent on-chain log of contract upgrades. Each entry is an
+    /// [`UpgradeRecord`] appended by `execute_upgrade`. Stored as a
+    /// bounded `Vec` under a single persistent key; callers read it via
+    /// `get_upgrade_history`.
+    UpgradeHistory,
+    /// Marks a proposal invalidated by an admin rotation until its slot is requeued.
+    InvalidatedTimelockOp(u32),
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -328,12 +335,13 @@ pub struct FallbackResolver {
     /// This field is chosen by the caller of `create_escrow_with_fallback`
     /// and only controls *which resolver* may act.
     ///
-    /// Must be no later than `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past
-    /// the creation timestamp, or creation fails with
-    /// `InvalidFallbackDeadline`; otherwise an unresponsive primary could
-    /// lock disputed funds indefinitely. A value in the past (including `0`)
-    /// is allowed and simply means the backup is co-authorized with the
-    /// primary from the start.
+    /// Must be at least `MIN_FALLBACK_DEADLINE_OFFSET` (1 day, `86_400`
+    /// seconds) past the creation timestamp so the primary is guaranteed a
+    /// minimum exclusive resolution window, and no later than
+    /// `MAX_FALLBACK_DEADLINE_OFFSET` (39 days) past it so an unresponsive
+    /// primary cannot lock disputed funds indefinitely. Otherwise creation
+    /// fails with `InvalidFallbackDeadline`. Past values (including `0`) are
+    /// rejected.
     pub dispute_deadline: u64,
 }
 
@@ -442,7 +450,9 @@ pub struct DisputeData {
     pub status: DisputeStatus,
     pub disputed_at: u64,
     pub tracking_id: Option<String>,
-    /// Resolution code: 0 = not resolved, 1 = Release, 2 = Refund
+    /// Resolution code: 0 = not resolved, 1 = Release, 2 = Refund,
+    /// `3 + bps` = `Split(bps)` (payee share in basis points, so the valid
+    /// range is `3..=10_003`). See [`ResolutionType::to_code`].
     pub resolution: u32,
     /// Which address made the resolution (the resolver who triggered finalization)
     pub resolved_by: Option<Address>,
@@ -450,56 +460,130 @@ pub struct DisputeData {
     pub appeal_count: u32,
     /// Timestamp when the resolution was made
     pub resolved_at: u64,
-    /// Arbitration fee deducted when the resolution transition executed
+    /// Provisional arbitration fee recorded by the resolution transition.
+    /// Not transferred until `finalize_dispute`; cleared on appeal.
     pub arbitration_fee: i128,
-    /// Resolver fee paid out when the resolution transition executed
+    /// Provisional resolver fee recorded by the resolution transition.
+    /// Not transferred until `finalize_dispute`; cleared on appeal.
     pub resolver_fee: i128,
-    /// Whether the arbitration and resolver fees have been charged for this
-    /// dispute. Set on the first resolution transition and never cleared, so
-    /// appeal rounds cannot charge again — even when the recorded fees were
-    /// zero and the global fee config has since been raised.
+    /// Whether the arbitration and resolver fees have been settled (paid out)
+    /// for this dispute. Only set to `true` by `finalize_dispute`.
     pub fees_charged: bool,
-    /// Resolvers compensated from `resolver_fee` (the voters who backed the
-    /// winning resolution); empty until fees are charged.
+    /// Resolvers to be compensated from `resolver_fee` (the voters who backed
+    /// the winning resolution); provisional until finalization, cleared on
+    /// appeal.
     pub compensated_resolvers: Vec<Address>,
+    /// Standardized reason the resolver gave for the current resolution
+    /// (e.g. `NON_DELIVERY`, `DAMAGED`, `MUTUAL`), or `None` when none was
+    /// supplied. Cleared by `clear_resolution` on appeal.
+    ///
+    /// Entries written before this field existed lack the key in storage;
+    /// `load_dispute` back-fills it as `None` (see `decode_dispute`).
+    pub resolution_reason: Option<Symbol>,
+    /// Optional free-form resolver memo (raw bytes, UTF-8 expected, at most
+    /// `MAX_DESCRIPTION_LEN`). Empty when none was supplied. Cleared by
+    /// `clear_resolution` on appeal. Back-filled as empty for legacy entries.
+    pub resolution_memo: Bytes,
 }
 
 impl DisputeData {
-    pub fn set_resolution(&mut self, r: ResolutionType) {
-        self.resolution = match r {
-            ResolutionType::Release => 1,
-            ResolutionType::Refund => 2,
-        };
+    /// Reason recorded with the current resolution, if any.
+    pub fn get_resolution_reason(&self) -> Option<Symbol> {
+        self.resolution_reason.clone()
     }
 
+    /// Memo recorded with the current resolution (empty when none).
+    pub fn get_resolution_memo(&self) -> Bytes {
+        self.resolution_memo.clone()
+    }
+
+    /// Records the reason and memo supplied alongside the current resolution.
+    pub fn set_resolution_note(&mut self, reason: Option<Symbol>, memo: Bytes) {
+        self.resolution_reason = reason;
+        self.resolution_memo = memo;
+    }
+
+    /// Records `r` in the packed `resolution` code (see
+    /// [`ResolutionType::to_code`]).
+    pub fn set_resolution(&mut self, r: ResolutionType) {
+        self.resolution = r.to_code();
+    }
+
+    /// Decodes the packed `resolution` code; `None` when unresolved or the
+    /// code is not a valid resolution.
     pub fn get_resolution(&self) -> Option<ResolutionType> {
-        match self.resolution {
-            1 => Some(ResolutionType::Release),
-            2 => Some(ResolutionType::Refund),
-            _ => None,
-        }
+        ResolutionType::from_code(self.resolution)
     }
 
     /// Clears the recorded resolution so a fresh round of voting can begin
-    /// after an appeal.
-    ///
-    /// `fees_charged`, `arbitration_fee` and `resolver_fee` are intentionally
-    /// left in place: they record that (and how much) was already deducted
-    /// from the escrow for this dispute. The resolution transition reads them
-    /// to charge those fees **once per dispute** rather than again for every
-    /// appeal round (see `execute_resolution_transition`).
+    /// after an appeal, together with the provisional fee allocations
+    /// (`arbitration_fee`, `resolver_fee`, `compensated_resolvers`). No fee has
+    /// been transferred at this point, so nothing needs to be reclaimed; the
+    /// next resolution round records fresh allocations for the final resolver.
+    /// `fees_charged` stays `false` until `finalize_dispute` settles the fees.
     pub fn clear_resolution(&mut self) {
+        self.resolution_reason = None;
+        self.resolution_memo = Bytes::new(self.resolution_memo.env());
         self.resolution = 0;
         self.resolved_by = None;
         self.resolved_at = 0;
+        self.arbitration_fee = 0;
+        self.resolver_fee = 0;
+        self.compensated_resolvers = Vec::new(self.compensated_resolvers.env());
     }
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResolutionType {
+    /// 100% of the net principal goes to the primary payee.
     Release,
+    /// 100% of the net principal goes to the buyer.
     Refund,
+    /// Partial settlement: the payee receives `bps / 10_000` of the net
+    /// principal and the buyer receives the remainder. `bps` must be
+    /// `<= 10_000` (enforced by [`ResolutionType::validate`]).
+    Split(u32),
+}
+
+/// First `DisputeData::resolution` code used by `Split(bps)`; the code for a
+/// split is `SPLIT_CODE_BASE + bps`.
+const SPLIT_CODE_BASE: u32 = 3;
+
+impl ResolutionType {
+    /// Rejects a `Split` whose payee share exceeds `BASIS_POINTS`.
+    pub fn validate(&self) -> Result<(), crate::ContractError> {
+        match self {
+            ResolutionType::Split(bps) if *bps > crate::BASIS_POINTS => {
+                Err(crate::ContractError::InvalidSplitBps)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Packs the resolution into the `DisputeData::resolution` code:
+    /// `1` = Release, `2` = Refund, `3 + bps` = `Split(bps)`.
+    /// (`0` is reserved for "not resolved".)
+    pub fn to_code(&self) -> u32 {
+        match self {
+            ResolutionType::Release => 1,
+            ResolutionType::Refund => 2,
+            ResolutionType::Split(bps) => SPLIT_CODE_BASE.saturating_add(*bps),
+        }
+    }
+
+    /// Inverse of [`ResolutionType::to_code`]; `None` for `0` or any code
+    /// that does not decode to a valid resolution.
+    pub fn from_code(code: u32) -> Option<ResolutionType> {
+        match code {
+            1 => Some(ResolutionType::Release),
+            2 => Some(ResolutionType::Refund),
+            c if (SPLIT_CODE_BASE..=SPLIT_CODE_BASE + crate::BASIS_POINTS).contains(&c) => {
+                Some(ResolutionType::Split(c - SPLIT_CODE_BASE))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Configuration for protocol and arbitration fee rates in basis points.
@@ -514,6 +598,12 @@ pub const GLOBAL_CONFIG_FLAG_PAUSED: u32 = 1 << 0;
 pub const GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED: u32 = 1 << 1;
 pub const GLOBAL_CONFIG_FLAG_RESOLVER_STRICT: u32 = 1 << 2;
 pub const GLOBAL_CONFIG_FLAG_RECOVERY_MODE: u32 = 1 << 3;
+/// When set, direct calls to `unpause_contract` are rejected with
+/// `ContractError::NotAuthorized`. Unpausing must go through the
+/// timelocked `queue_unpause_contract` → `execute_unpause_contract` path.
+/// This enforces the security asymmetry: immediate pause for threat
+/// containment, mandatory timelock delay before resuming operations.
+pub const GLOBAL_CONFIG_FLAG_TIMELOCKED_UNPAUSE_ONLY: u32 = 1 << 4;
 
 /// Admin-tunable global configuration, stored under [`DataKey::GlobalConfig`].
 ///
@@ -648,8 +738,13 @@ pub struct Message {
 pub struct ContractStats {
     pub total_created: u64,
     pub total_completed: u64,
+    /// Number of **unique escrows** that have ever been disputed. Incremented
+    /// once by `raise_dispute`; appeals do not inflate it.
     pub total_disputed: u64,
     pub total_refunded: u64,
+    /// Total appeal cycles across all escrows: incremented by every
+    /// successful `appeal_dispute` (so one escrow appealed twice adds 2).
+    pub total_appeals: u64,
 }
 
 /// Payee with address and basis points share.
@@ -660,7 +755,21 @@ pub struct Payee {
     pub bps: u32,
 }
 
-/// Maximum number of payees per escrow. Enforced by [`BoundedPayees`] so
+/// A single on-chain record written every time `execute_upgrade` runs.
+/// Records are appended to `DataKey::UpgradeHistory` and are immutable
+/// after insertion — the full list forms a tamper-evident audit ledger.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeRecord {
+    /// The new WASM hash installed by this upgrade.
+    pub wasm_hash: BytesN<32>,
+    /// Ledger timestamp when the upgrade was executed.
+    pub upgraded_at: u64,
+    /// Admin address that triggered the upgrade.
+    pub upgraded_by: Address,
+    /// Contract version counter after the upgrade (monotonically increasing).
+    pub version: u32,
+}/// Maximum number of payees per escrow. Enforced by [`BoundedPayees`] so
 /// storage cost is bounded at creation time and the length-prefix overhead of
 /// an unbounded `Vec` is eliminated.
 pub const MAX_PAYEES: u32 = 10;

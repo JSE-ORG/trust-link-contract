@@ -35,6 +35,39 @@
 
 ---
 
+## Emergency Pause Model — Asymmetric Governance (#1243)
+
+TrustLink deliberately implements **asymmetric governance** for the pause circuit-breaker:
+
+| Operation | Path | Delay |
+|---|---|---|
+| `pause_contract` | Immediate — admin calls directly | **None** |
+| `unpause_contract` (default) | Immediate — admin calls directly | None |
+| `unpause_contract` (strict mode) | Must use `queue_unpause_contract` → `execute_unpause_contract` | 24 h timelock |
+
+### Rationale
+
+A contract pause is a defensive action taken under time pressure during an active incident. Any delay between detecting a vulnerability and pausing the contract increases the attack surface. `pause_contract` is therefore an **immediate circuit-breaker** that takes effect in the same transaction with no queue/execute step.
+
+Resuming operations after a pause is a different risk profile: it should only happen after the root cause has been identified and fixed. The timelocked unpause policy enforces that review window.
+
+### Enabling Strict Mode
+
+```rust
+// Admin enables strict governance — unpause now requires the timelock.
+client.set_timelocked_unpause_only(&admin, &true);
+
+// Direct unpause now returns ContractError::DirectUnpauseBlocked.
+// Use the timelocked path instead:
+client.queue_unpause_contract(&admin);
+// ... wait for the configured timelock delay (default 24 h) ...
+client.execute_unpause_contract(&admin);
+```
+
+Strict mode is **disabled by default** to preserve backward compatibility. Operators who require stronger governance guarantees should enable it immediately after deployment.
+
+---
+
 ## For Deployers / Operators
 
 ### Pre-Deployment

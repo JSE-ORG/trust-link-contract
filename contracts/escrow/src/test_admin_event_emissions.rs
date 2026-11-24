@@ -309,3 +309,34 @@ fn set_resolver_strict_emits_event_with_caller_and_new_value() {
         |ev| ev.new_strict && ev.caller == admin,
     ));
 }
+
+#[test]
+fn admin_rotation_emits_cancellation_and_mismatch_reason() {
+    use crate::{TimelockCancellationReason, TimelockCancelled};
+    let (env, client, contract_id, old_admin) = setup();
+    let new_admin = Address::generate(&env);
+    client.queue_set_platform_fee(&old_admin, &100);
+    client.queue_set_admin(&old_admin, &new_admin);
+    env.ledger()
+        .with_mut(|li| li.timestamp += crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS);
+    client.execute_set_admin(&old_admin, &new_admin);
+    let op = TimelockOperation::SetPlatformFee as u32;
+    assert!(event_emitted::<TimelockCancelled, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Timelock"),
+        symbol_short!("Cancelled"),
+        |event| event.operation == op
+            && event.proposer == old_admin
+            && event.canceller == contract_id,
+    ));
+    assert!(event_emitted::<TimelockCancellationReason, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Timelock"),
+        symbol_short!("CancelWhy"),
+        |event| event.operation == op
+            && event.proposer == old_admin
+            && event.reason == symbol_short!("AdmChange"),
+    ));
+}

@@ -6,11 +6,17 @@
 # Pull the RustSec advisory DB from the default source. A known *vulnerability*
 # fails `cargo deny check advisories` (and therefore CI). Add RUSTSEC ids here,
 # with a justification, only to temporarily accept an unavoidable advisory.
-# Temporary exception: soroban-env-host's elliptic-curve 0.13 dependency
-# requires crypto-bigint 0.5; a compatible patched version is not available.
-# Remove when the Soroban dependency chain supports a fixed release.
-# https://rustsec.org/advisories/RUSTSEC-2026-0387
-ignore = ["RUSTSEC-2026-0387"]
+ignore = [
+  # RUSTSEC-2026-0387 (crypto-bigint 0.5.5, constant-time timing variability).
+  # The patched release (>=0.7.6) cannot be adopted: crypto-bigint is only
+  # reached through k256/p256/elliptic-curve 0.13 -> soroban-env-host, and even
+  # the latest soroban-env-host (30.x) still requires elliptic-curve ^0.13,
+  # which needs crypto-bigint ^0.5. It exists only in the host-side test/
+  # simulation tree (soroban-sdk `testutils`) and is NOT compiled into the
+  # deployed wasm contract, which handles no secret integers. Remove this
+  # entry once soroban-env-host moves to elliptic-curve 0.14 (crypto-bigint 0.7).
+  { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.7.6 blocked by soroban-env-host's elliptic-curve 0.13 pin; host-side testutils only, not in wasm" },
+]
 yanked = "deny"
 # Only fail on unmaintained crates we actually own (workspace deps). Deep,
 # unavoidable transitive crates (e.g. `paste`, pulled in via soroban-sdk) would

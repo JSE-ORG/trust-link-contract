@@ -841,3 +841,314 @@ fn test_raise_dispute_rejects_all_zero_evidence_hash() {
     );
     assert_eq!(client.get_escrow(&id).state, crate::EscrowState::Disputed);
 }
+
+/// Creates a funded, disputed escrow with `amount` and a 1% protocol fee.
+fn disputed_escrow_for_split(
+    env: &Env,
+    client: &EscrowClient,
+    seller: &Address,
+    buyer: &Address,
+    resolver: &Address,
+    token: &Address,
+    amount: i128,
+) -> u64 {
+    let seller_val = seller.clone().into_val(env);
+    let id = client.create_escrow_8(
+        &seller_val,
+        &Some(buyer.clone()),
+        resolver,
+        token,
+        &amount,
+        &100_u32,
+        &3600_u64,
+    );
+    token::StellarAssetClient::new(env, token).mint(buyer, &amount);
+    client.fund_escrow(&id, buyer);
+    client.raise_dispute(
+        buyer,
+        &id,
+        &Symbol::new(env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(env, b"desc"),
+        &BytesN::from_array(env, &[0xab; 32]),
+    );
+    id
+}
+
+#[test]
+fn test_split_resolution_50_50_pays_both_sides_with_no_stranded_funds() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    // Odd amount so the 1% fee and the 50/50 split both hit rounding.
+    let amount = 10_001_i128;
+    let id = disputed_escrow_for_split(&env, &client, &seller, &buyer, &resolver, &token, amount);
+
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Split(5_000));
+    assert_eq!(
+        client.get_escrow(&id).state,
+        crate::EscrowState::PendingFinalization
+    );
+    assert_eq!(
+        client.get_dispute(&id).unwrap().get_resolution(),
+        Some(crate::ResolutionType::Split(5_000))
+    );
+
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+    client.finalize_dispute(&resolver, &id);
+
+    assert_eq!(client.get_escrow(&id).state, crate::EscrowState::Completed);
+
+    let tc = token::Client::new(&env, &token);
+    let seller_bal = tc.balance(&seller);
+    let buyer_bal = tc.balance(&buyer);
+    let fee_bal = tc.balance(&fee_collector);
+    let contract_bal = tc.balance(&contract_id);
+
+    // Net principal = everything that is not a fee.
+    let net = amount - fee_bal;
+    assert_eq!(seller_bal, net * 5_000 / 10_000, "payee gets 50% of net");
+    assert_eq!(buyer_bal, net - seller_bal, "buyer gets the remainder");
+
+    // Invariants: payee_net + buyer_net == net, and zero stroops stranded.
+    assert_eq!(seller_bal + buyer_bal, net);
+    assert_eq!(seller_bal + buyer_bal + fee_bal, amount);
+    assert_eq!(contract_bal, 0);
+}
+
+#[test]
+fn test_split_resolution_extremes_match_release_and_refund() {
+    for (bps, payee_gets_all) in [(10_000_u32, true), (0_u32, false)] {
+        let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+        let contract_id = env.register(Escrow, ());
+        let client = EscrowClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0_u32);
+
+        let id =
+            disputed_escrow_for_split(&env, &client, &seller, &buyer, &resolver, &token, 10_001);
+        client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Split(bps));
+        env.ledger()
+            .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+        client.finalize_dispute(&resolver, &id);
+
+        let tc = token::Client::new(&env, &token);
+        if payee_gets_all {
+            assert_eq!(tc.balance(&buyer), 0);
+            assert!(tc.balance(&seller) > 0);
+        } else {
+            assert_eq!(tc.balance(&seller), 0);
+            assert!(tc.balance(&buyer) > 0);
+        }
+        assert_eq!(tc.balance(&contract_id), 0);
+    }
+}
+
+#[test]
+fn test_split_resolution_rejects_bps_above_10000() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let id = disputed_escrow_for_split(&env, &client, &seller, &buyer, &resolver, &token, 10_001);
+
+    assert_eq!(
+        client.try_resolve_dispute(&resolver, &id, &crate::ResolutionType::Split(10_001)),
+        Err(Ok(crate::ContractError::InvalidSplitBps))
+    );
+    assert_eq!(
+        client.try_vote(&resolver, &id, &crate::ResolutionType::Split(u32::MAX)),
+        Err(Ok(crate::ContractError::InvalidSplitBps))
+    );
+    assert_eq!(client.get_escrow(&id).state, crate::EscrowState::Disputed);
+}
+
+#[test]
+fn test_resolution_code_roundtrip_including_split() {
+    use crate::ResolutionType;
+
+    assert_eq!(ResolutionType::from_code(0), None);
+    assert_eq!(ResolutionType::from_code(1), Some(ResolutionType::Release));
+    assert_eq!(ResolutionType::from_code(2), Some(ResolutionType::Refund));
+    for bps in [0_u32, 1, 5_000, 9_999, 10_000] {
+        let r = ResolutionType::Split(bps);
+        assert_eq!(ResolutionType::from_code(r.to_code()), Some(r));
+    }
+    assert_eq!(ResolutionType::from_code(10_004), None);
+}
+
+// ── Resolution reason & memo ────────────────────────────────────────────────
+
+/// Funded + disputed escrow (zero protocol fee) ready to be resolved.
+fn disputed_escrow_for_reason(
+    env: &Env,
+    client: &EscrowClient,
+    seller: &Address,
+    buyer: &Address,
+    resolver: &Address,
+    token: &Address,
+) -> u64 {
+    let seller_val = seller.clone().into_val(env);
+    let id = client.create_escrow_8(
+        &seller_val,
+        &Some(buyer.clone()),
+        resolver,
+        token,
+        &1000_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    token::StellarAssetClient::new(env, token).mint(buyer, &1000_i128);
+    client.fund_escrow(&id, buyer);
+    client.raise_dispute(
+        buyer,
+        &id,
+        &Symbol::new(env, "OTHER"),
+        &soroban_sdk::Bytes::from_slice(env, b"desc"),
+        &BytesN::from_array(env, &[0xab; 32]),
+    );
+    id
+}
+
+#[test]
+fn test_resolve_with_reason_persists_reason_and_memo() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+    let id = disputed_escrow_for_reason(&env, &client, &seller, &buyer, &resolver, &token);
+
+    // Before resolution: nothing recorded.
+    let before = client.get_dispute(&id).unwrap();
+    assert_eq!(before.get_resolution_reason(), None);
+    assert_eq!(before.get_resolution_memo().len(), 0);
+
+    let reason = Symbol::new(&env, "NON_DELIVERY");
+    let memo = soroban_sdk::Bytes::from_slice(&env, b"Tracking shows package never left depot");
+    client.resolve_dispute_with_reason(
+        &resolver,
+        &id,
+        &crate::ResolutionType::Refund,
+        &Some(reason.clone()),
+        &memo,
+    );
+
+    let dispute = client.get_dispute(&id).unwrap();
+    assert_eq!(
+        dispute.get_resolution(),
+        Some(crate::ResolutionType::Refund)
+    );
+    assert_eq!(dispute.get_resolution_reason(), Some(reason.clone()));
+    assert_eq!(dispute.get_resolution_memo(), memo);
+    assert_eq!(dispute.resolution_reason, Some(reason));
+    assert_eq!(dispute.resolution_memo, memo);
+
+    // An appeal clears the reason and memo along with the resolution.
+    client.appeal_dispute(&buyer, &id);
+    let appealed = client.get_dispute(&id).unwrap();
+    assert_eq!(appealed.get_resolution_reason(), None);
+    assert_eq!(appealed.get_resolution_memo().len(), 0);
+}
+
+#[test]
+fn test_resolve_dispute_wrapper_defaults_reason_to_none() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+    let id = disputed_escrow_for_reason(&env, &client, &seller, &buyer, &resolver, &token);
+
+    client.resolve_dispute(&resolver, &id, &crate::ResolutionType::Release);
+
+    let dispute = client.get_dispute(&id).unwrap();
+    assert_eq!(
+        dispute.get_resolution(),
+        Some(crate::ResolutionType::Release)
+    );
+    assert_eq!(dispute.get_resolution_reason(), None);
+    assert_eq!(dispute.get_resolution_memo().len(), 0);
+}
+
+#[test]
+fn test_resolve_with_reason_accepts_reason_without_memo_and_max_len_memo() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+    let id = disputed_escrow_for_reason(&env, &client, &seller, &buyer, &resolver, &token);
+
+    // A memo of exactly MAX_DESCRIPTION_LEN bytes is accepted.
+    let memo = soroban_sdk::Bytes::from_slice(&env, &[b'a'; crate::MAX_DESCRIPTION_LEN as usize]);
+    client.resolve_dispute_with_reason(
+        &resolver,
+        &id,
+        &crate::ResolutionType::Release,
+        &None,
+        &memo,
+    );
+    let dispute = client.get_dispute(&id).unwrap();
+    assert_eq!(dispute.get_resolution_reason(), None);
+    assert_eq!(dispute.get_resolution_memo().len(), crate::MAX_DESCRIPTION_LEN);
+}
+
+#[test]
+fn test_resolve_with_reason_rejects_oversized_memo() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+    let id = disputed_escrow_for_reason(&env, &client, &seller, &buyer, &resolver, &token);
+
+    let memo =
+        soroban_sdk::Bytes::from_slice(&env, &[b'a'; crate::MAX_DESCRIPTION_LEN as usize + 1]);
+    let result = client.try_resolve_dispute_with_reason(
+        &resolver,
+        &id,
+        &crate::ResolutionType::Release,
+        &Some(Symbol::new(&env, "DAMAGED")),
+        &memo,
+    );
+    assert_eq!(result, Err(Ok(crate::ContractError::InputTooLong)));
+    assert_eq!(client.get_escrow(&id).state, crate::EscrowState::Disputed);
+}
+
+#[test]
+fn test_legacy_dispute_entry_without_reason_fields_still_loads() {
+    use soroban_sdk::{Map, Val};
+
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+    let id = disputed_escrow_for_reason(&env, &client, &seller, &buyer, &resolver, &token);
+
+    // Rewrite the stored dispute in its pre-upgrade shape: no
+    // `resolution_reason` / `resolution_memo` keys.
+    env.as_contract(&contract_id, || {
+        let key = crate::DataKey::Dispute(id);
+        let mut raw: Map<Symbol, Val> = env.storage().persistent().get(&key).unwrap();
+        raw.remove(Symbol::new(&env, "resolution_reason"));
+        raw.remove(Symbol::new(&env, "resolution_memo"));
+        env.storage().persistent().set(&key, &raw);
+    });
+
+    let dispute = client.get_dispute(&id).expect("legacy entry must decode");
+    assert_eq!(dispute.status, DisputeStatus::Active);
+    assert_eq!(dispute.get_resolution_reason(), None);
+    assert_eq!(dispute.get_resolution_memo().len(), 0);
+
+    // And it can still be resolved and re-saved in the new shape.
+    client.resolve_dispute_with_reason(
+        &resolver,
+        &id,
+        &crate::ResolutionType::Release,
+        &Some(Symbol::new(&env, "MUTUAL")),
+        &soroban_sdk::Bytes::new(&env),
+    );
+    assert_eq!(
+        client.get_dispute(&id).unwrap().get_resolution_reason(),
+        Some(Symbol::new(&env, "MUTUAL"))
+    );
+}

@@ -164,8 +164,9 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
 }
 
 /// A dispute that is resolved, appealed, and resolved again must be charged
-/// the arbitration fee only once — the appeal round reuses the fee already
-/// deducted instead of taking a second cut out of the escrow.
+/// the arbitration fee only once — the fee is only provisional while the
+/// dispute is pending, is dropped by the appeal, and is settled a single time
+/// at finalization.
 #[test]
 fn test_arbitration_fee_charged_once_across_appeal() {
     let env = Env::default();
@@ -213,19 +214,25 @@ fn test_arbitration_fee_charged_once_across_appeal() {
         &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
     );
 
-    // First resolution: arbitration fee of 50 is deducted and forwarded.
+    // First resolution: the arbitration fee of 50 is only recorded; nothing
+    // leaves the contract until finalization.
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
-    assert_eq!(client.get_total_arbitration_fees(&token), 50);
-    assert_eq!(balance(&env, &token, &fee_collector), 50);
+    assert_eq!(client.get_total_arbitration_fees(&token), 0);
+    assert_eq!(balance(&env, &token, &fee_collector), 0);
+    assert_eq!(balance(&env, &token, &contract_id), amount);
     assert_eq!(client.get_dispute(&id).unwrap().arbitration_fee, 50);
+    assert!(!client.get_dispute(&id).unwrap().fees_charged);
 
-    // Appeal within the appeal window, then resolve again.
+    // Appeal within the appeal window: provisional allocations are cleared.
     client.appeal_dispute(&buyer, &id);
+    assert_eq!(client.get_dispute(&id).unwrap().arbitration_fee, 0);
+    assert_eq!(client.get_escrow(&id).amount, amount);
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
 
-    // No second arbitration fee: totals and the fee collector are unchanged.
-    assert_eq!(client.get_total_arbitration_fees(&token), 50);
-    assert_eq!(balance(&env, &token, &fee_collector), 50);
+    // No second arbitration fee: still a single provisional allocation.
+    assert_eq!(client.get_total_arbitration_fees(&token), 0);
+    assert_eq!(balance(&env, &token, &fee_collector), 0);
+    assert_eq!(balance(&env, &token, &contract_id), amount);
     assert_eq!(client.get_dispute(&id).unwrap().arbitration_fee, 50);
 
     // Finalize once the appeal window has elapsed.
@@ -237,11 +244,13 @@ fn test_arbitration_fee_charged_once_across_appeal() {
     assert_eq!(balance(&env, &token, &fee_collector), 50);
     assert_eq!(balance(&env, &token, &contract_id), 0);
     assert_eq!(client.get_total_arbitration_fees(&token), 50);
+    assert!(client.get_dispute(&id).unwrap().fees_charged);
 }
 
-/// A dispute first resolved while every fee is configured to 0 has still had
-/// its fees "charged" (as zero). Raising the global arbitration fee before an
-/// appeal must not let the appeal round charge the new, higher fee.
+/// Fees are only provisional while a dispute is `PendingFinalization`, so an
+/// appeal drops them and the final resolution round records the fee schedule
+/// in force at that time. A first round resolved with zero fees therefore
+/// leaves nothing behind, and the fee is settled once, at finalization.
 #[test]
 fn test_zero_fee_dispute_not_charged_on_appeal_after_fee_increase() {
     let env = Env::default();
@@ -287,10 +296,11 @@ fn test_zero_fee_dispute_not_charged_on_appeal_after_fee_increase() {
     );
     assert!(!client.get_dispute(&id).unwrap().fees_charged);
 
-    // First resolution with zero fees still marks the dispute as charged.
+    // First resolution with zero fees records zero provisional fees and does
+    // not mark the dispute as charged (that only happens at finalization).
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
     let dispute = client.get_dispute(&id).unwrap();
-    assert!(dispute.fees_charged);
+    assert!(!dispute.fees_charged);
     assert_eq!(dispute.arbitration_fee, 0);
     assert_eq!(dispute.resolver_fee, 0);
 
@@ -300,19 +310,24 @@ fn test_zero_fee_dispute_not_charged_on_appeal_after_fee_increase() {
     client.appeal_dispute(&buyer, &id);
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
 
-    // The appeal round did not pick up the new fee.
+    // The re-resolution records the fee now in force (5% of 1000), but still
+    // transfers nothing while the dispute is pending.
     let dispute = client.get_dispute(&id).unwrap();
-    assert!(dispute.fees_charged);
-    assert_eq!(dispute.arbitration_fee, 0);
+    assert!(!dispute.fees_charged);
+    assert_eq!(dispute.arbitration_fee, 50);
     assert_eq!(client.get_total_arbitration_fees(&token), 0);
     assert_eq!(balance(&env, &token, &fee_collector), 0);
+    assert_eq!(balance(&env, &token, &contract_id), amount);
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id);
 
-    assert_eq!(balance(&env, &token, &seller), amount);
-    assert_eq!(balance(&env, &token, &fee_collector), 0);
+    // The fee is charged exactly once, at finalization.
+    assert!(client.get_dispute(&id).unwrap().fees_charged);
+    assert_eq!(balance(&env, &token, &seller), amount - 50);
+    assert_eq!(balance(&env, &token, &fee_collector), 50);
     assert_eq!(balance(&env, &token, &contract_id), 0);
+    assert_eq!(client.get_total_arbitration_fees(&token), 50);
 }
 
 #[test]
@@ -459,12 +474,13 @@ fn test_execute_resolution_transition_min_amount_max_combined_fees_pins_outcome(
     assert_eq!(pending.state, crate::EscrowState::PendingFinalization);
 
     let dispute = client.get_dispute(&id).unwrap();
-    assert!(dispute.fees_charged);
+    assert!(!dispute.fees_charged);
     assert_eq!(dispute.arbitration_fee, 0);
     assert_eq!(dispute.resolver_fee, 0);
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id);
+    assert!(client.get_dispute(&id).unwrap().fees_charged);
 
     // The winner receives the full remainder: there is nothing left in the
     // contract and no fee was charged.

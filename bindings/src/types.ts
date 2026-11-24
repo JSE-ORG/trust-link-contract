@@ -203,8 +203,11 @@ export interface EscrowInput {
 export interface ContractStats {
   total_created: bigint;
   total_completed: bigint;
+  /** Unique escrows ever disputed (appeals do not inflate this). */
   total_disputed: bigint;
   total_refunded: bigint;
+  /** Total appeal cycles across all escrows. */
+  total_appeals: bigint;
 }
 
 /** Public, read-only contract configuration from `get_public_config`. */
