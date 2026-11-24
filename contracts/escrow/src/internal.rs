@@ -1293,7 +1293,7 @@ pub(crate) fn settle_escrow_to_payees(
     escrow_id: u64,
     fee_bps: u32,
 ) -> Result<(EscrowState, Address), ContractError> {
-    let fee_collector: Address = crate::storage::read_global_config(env)
+    let _fee_collector: Address = crate::storage::read_global_config(env)
         .fee_collector
         .ok_or(ContractError::NotInitialized)?;
 
@@ -1325,7 +1325,7 @@ pub(crate) fn settle_escrow_to_payees(
     // into `cancel_escrow`, `raise_dispute`, or `auto_release` therefore sees a
     // terminal `Completed` escrow and is rejected.
     if protocol_fee > 0 {
-        payout(env, &escrow.token, &fee_collector, protocol_fee);
+        crate::storage::add_accumulated_fee(env, &escrow.token, protocol_fee)?;
     }
     distribute_to_payees(env, &escrow.token, &escrow.payees, net_amount)?;
     payout_basket_tokens(env, escrow_id, &first_payee_addr, Some(fee_bps))?;

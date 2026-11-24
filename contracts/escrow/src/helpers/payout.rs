@@ -127,7 +127,7 @@ pub(crate) fn transfer_basket_with_fees(
     amount: i128,
     fee_bps: u32,
     platform_fee_bps: u32,
-    fee_collector: &Address,
+    _fee_collector: &Address,
     treasury: Option<&Address>,
 ) -> Result<(i128, i128), ContractError> {
     let protocol_fee = calculate_fee(amount, fee_bps)?;
@@ -145,7 +145,7 @@ pub(crate) fn transfer_basket_with_fees(
         .ok_or(ContractError::AmountCalculationOverflow)?;
 
     payout(env, token_addr, recipient, net_amount);
-    payout(env, token_addr, fee_collector, protocol_fee);
+    crate::storage::add_accumulated_fee(env, token_addr, protocol_fee)?;
     if let Some(treasury_addr) = treasury {
         payout(env, token_addr, treasury_addr, platform_fee);
     }
@@ -193,7 +193,7 @@ pub(crate) fn transfer_basket_split_with_fees(
     split_bps: u32,
     fee_bps: u32,
     platform_fee_bps: u32,
-    fee_collector: &Address,
+    _fee_collector: &Address,
     treasury: Option<&Address>,
 ) -> Result<(), ContractError> {
     let protocol_fee = calculate_fee(amount, fee_bps)?;
@@ -210,7 +210,7 @@ pub(crate) fn transfer_basket_split_with_fees(
 
     payout(env, token_addr, payee, payee_net);
     payout(env, token_addr, buyer, buyer_net);
-    payout(env, token_addr, fee_collector, protocol_fee);
+    crate::storage::add_accumulated_fee(env, token_addr, protocol_fee)?;
     if let Some(treasury_addr) = treasury {
         payout(env, token_addr, treasury_addr, platform_fee);
     }

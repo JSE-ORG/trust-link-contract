@@ -458,6 +458,10 @@ impl Escrow {
             );
         }
 
+        if protocol_fee > 0 {
+            crate::storage::add_accumulated_fee(&env, &escrow.token, protocol_fee)?;
+        }
+
         match resolution {
             ResolutionType::Release | ResolutionType::Split(_) => {
                 record_escrow_completed(&env, escrow_id)?;
@@ -508,7 +512,6 @@ impl Escrow {
                     crate::helpers::payout::split_net(payout_amount, *split_bps)?;
                 payout(&env, &escrow.token, &recipient, payee_net);
                 payout(&env, &escrow.token, buyer, buyer_net);
-                payout(&env, &escrow.token, &fee_collector, protocol_fee);
                 crate::internal::payout_basket_tokens_split(
                     &env,
                     escrow_id,
@@ -520,7 +523,6 @@ impl Escrow {
             }
             _ => {
                 payout(&env, &escrow.token, &recipient, payout_amount);
-                payout(&env, &escrow.token, &fee_collector, protocol_fee);
                 payout_basket_tokens(&env, escrow_id, &recipient, Some(escrow.fee_bps))?;
             }
         }
@@ -802,13 +804,14 @@ impl Escrow {
         save_dispute(&env, escrow_id, &dispute_data);
         record_escrow_refunded(&env, escrow_id)?;
 
+        if protocol_fee > 0 {
+            crate::storage::add_accumulated_fee(&env, &escrow.token, protocol_fee)?;
+        }
+
         if let Some(treasury) = treasury {
             payout(&env, &escrow.token, &treasury, platform_fee);
         }
         payout(&env, &escrow.token, &buyer, payout_amount);
-        if let Some(fee_collector) = fee_collector {
-            payout(&env, &escrow.token, &fee_collector, protocol_fee);
-        }
         // Secondary basket tokens are refunded gross, matching the existing
         // refund paths and ensuring no dormant resolver receives them.
         payout_basket_tokens(&env, escrow_id, &buyer, None)?;

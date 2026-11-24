@@ -1840,3 +1840,37 @@ pub fn emit_recovery_mode_updated(env: &Env, enabled: bool, caller: Address) {
         },
     );
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccumulatedFeesClaimed {
+    pub schema_version: u32,
+    pub collector: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Fees"), symbol_short!("Claimed"), collector.clone(), token.clone())`, data: `AccumulatedFeesClaimed`.
+pub fn emit_accumulated_fees_claimed(
+    env: &Env,
+    collector: Address,
+    token: Address,
+    amount: i128,
+) {
+    env.events().publish(
+        (
+            symbol_short!("Fees"),
+            symbol_short!("Claimed"),
+            collector.clone(),
+            token.clone(),
+        ),
+        AccumulatedFeesClaimed {
+            schema_version: EVENT_SCHEMA_VERSION,
+            collector,
+            token,
+            amount,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}

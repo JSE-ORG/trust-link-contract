@@ -2357,4 +2357,84 @@ impl Escrow {
         );
         Ok(())
     }
+
+    /// Returns the accumulated unclaimed protocol fees for `token`.
+    pub fn get_accumulated_fees(env: Env, token: Address) -> i128 {
+        storage::read_accumulated_fees(&env, &token)
+    }
+
+    /// Pull-based withdrawal of accumulated protocol fees for `token`.
+    ///
+    /// Only callable by the configured `fee_collector`. Clears
+    /// `DataKey::AccumulatedFees(token)` before transferring tokens (CEI).
+    pub fn claim_accumulated_fees(
+        env: Env,
+        caller: Address,
+        token: Address,
+    ) -> Result<i128, ContractError> {
+        caller.require_auth();
+        let fee_collector = storage::read_global_config(&env)
+            .fee_collector
+            .ok_or(ContractError::NotInitialized)?;
+        if caller != fee_collector {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        let amount = storage::take_accumulated_fees(&env, &token);
+        if amount <= 0 {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        payout(&env, &token, &fee_collector, amount);
+        crate::events::emit_accumulated_fees_claimed(&env, fee_collector, token, amount);
+        Ok(amount)
+    }
+}
+
+#[cfg(test)]
+mod accumulated_fee_tests {
+    use crate::{ContractError, Escrow, EscrowClient};
+    use soroban_sdk::{
+        testutils::Address as _,
+        token::{Client as TokenClient, StellarAssetClient},
+        Address, Env,
+    };
+
+    #[test]
+    fn claim_accumulated_fees_pulls_accumulated_balance_and_resets_to_zero() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(Escrow, ());
+        let client = EscrowClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let outsider = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token_id = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+
+        client.initialize(&admin, &fee_collector, &0_u32);
+        StellarAssetClient::new(&env, &token_id).mint(&contract_id, &500);
+
+        env.as_contract(&contract_id, || {
+            crate::storage::add_accumulated_fee(&env, &token_id, 200).unwrap();
+            crate::storage::add_accumulated_fee(&env, &token_id, 300).unwrap();
+        });
+
+        assert_eq!(client.get_accumulated_fees(&token_id), 500);
+        assert_eq!(
+            client.try_claim_accumulated_fees(&outsider, &token_id),
+            Err(Ok(ContractError::NotAuthorized))
+        );
+
+        let claimed = client.claim_accumulated_fees(&fee_collector, &token_id);
+        assert_eq!(claimed, 500);
+        assert_eq!(client.get_accumulated_fees(&token_id), 0);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&fee_collector), 500);
+        assert_eq!(
+            client.try_claim_accumulated_fees(&fee_collector, &token_id),
+            Err(Ok(ContractError::InsufficientBalance))
+        );
+    }
 }
