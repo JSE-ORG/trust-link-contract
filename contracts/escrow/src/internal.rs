@@ -972,6 +972,12 @@ pub(crate) use crate::helpers::payout::{payout, transfer_with_protocol_fee};
 /// address, since it also serves the "collect from caller" direction used by
 /// `fund_escrow`/`fund_basket_escrow`. Callers paying *out* of the contract
 /// should prefer [`payout`], which wraps this with that zero-skip behavior.
+///
+/// SEP-41 `transfer` returns no contract-level result. If the token rejects the
+/// transfer (for example, because `from` lacks balance or authorization), the
+/// host aborts the invocation. Soroban rolls back storage, events, and earlier
+/// token-contract changes from that invocation atomically; do not catch or
+/// suppress this failure.
 pub(crate) fn transfer_helper(
     env: &Env,
     token_addr: &Address,

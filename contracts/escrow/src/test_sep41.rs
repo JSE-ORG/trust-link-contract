@@ -82,6 +82,79 @@ fn test_sep41_fund_and_confirm_delivery() {
 }
 
 #[test]
+fn test_sep41_insufficient_funding_balance_rolls_back_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_sep41_token(&env);
+    let (contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let payees = Vec::from_array(
+        &env,
+        [Payee {
+            address: seller,
+            bps: 10_000,
+        }],
+    );
+    let id = client.create_escrow_8(
+        &payees.into_val(&env),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &500_i128,
+        &0_u32,
+        &3600_u64,
+    );
+
+    // The Stellar Asset token rejects the pull because the buyer has no funds.
+    let result = client.try_fund_escrow(&id, &buyer);
+    assert!(result.is_err());
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Pending);
+    assert_eq!(balance(&env, &token, &buyer), 0);
+    assert_eq!(balance(&env, &token, &contract_id), 0);
+}
+
+#[test]
+fn test_sep41_funding_requires_buyer_authorization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_sep41_token(&env);
+    let (contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    mint(&env, &token, &buyer, 500);
+
+    let payees = Vec::from_array(
+        &env,
+        [Payee {
+            address: seller,
+            bps: 10_000,
+        }],
+    );
+    let id = client.create_escrow_8(
+        &payees.into_val(&env),
+        &None::<Address>,
+        &resolver,
+        &token,
+        &500_i128,
+        &0_u32,
+        &3600_u64,
+    );
+
+    env.mock_auths(&[]);
+    let result = client.try_fund_escrow(&id, &buyer);
+    assert!(result.is_err());
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Pending);
+    assert_eq!(balance(&env, &token, &buyer), 500);
+    assert_eq!(balance(&env, &token, &contract_id), 0);
+}
+
+#[test]
 fn test_sep41_auto_release() {
     let env = Env::default();
     env.mock_all_auths();

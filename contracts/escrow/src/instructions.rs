@@ -487,35 +487,13 @@ impl Escrow {
             }
         }
 
-        transfer_helper(
-            &env,
-            &escrow.token,
-            &buyer,
-            &env.current_contract_address(),
-            escrow.amount,
-        );
-
-        // Transfer additional basket tokens if this is a basket escrow.
+        // Load additional basket tokens before committing the state transition.
         // `is_transferable_basket_entry` is the same predicate
         // `payout_basket_tokens` uses to skip the primary token, so the funding
         // and payout legs can never drift apart (Issue #1053).
         let basket_tokens = load_basket_tokens(&env, escrow_id);
-        for i in 0..basket_tokens.len() {
-            let entry = basket_tokens
-                .get(i)
-                .ok_or(ContractError::IndexOutOfBounds)?;
-            if is_transferable_basket_entry(&entry, &escrow.token) {
-                transfer_helper(
-                    &env,
-                    &entry.token,
-                    &buyer,
-                    &env.current_contract_address(),
-                    entry.amount,
-                );
-            }
-        }
 
-        let now = env.ledger().timestamp();
+        // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
         escrow.buyer = Some(buyer.clone());
         escrow.state = EscrowState::Funded;
@@ -542,6 +520,22 @@ impl Escrow {
         env.storage()
             .persistent()
             .remove(&DataKey::PendingExpiry(escrow_id));
+
+        // ── INTERACTIONS (external token transfers) ──
+        // A token failure aborts the invocation and rolls back these effects
+        // together with any earlier token transfers.
+        let contract_addr = env.current_contract_address();
+        transfer_helper(&env, &escrow.token, &buyer, &contract_addr, escrow.amount);
+
+        for i in 0..basket_tokens.len() {
+            let entry = basket_tokens
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            if is_transferable_basket_entry(&entry, &escrow.token) {
+                transfer_helper(&env, &entry.token, &buyer, &contract_addr, entry.amount);
+            }
+        }
+
         emit_pending_expiry_cleared(&env, escrow_id);
 
         // Build basket_tokens event data if this is a basket escrow

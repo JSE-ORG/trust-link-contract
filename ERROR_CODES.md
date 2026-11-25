@@ -7,7 +7,7 @@ This document provides a comprehensive reference of all `ContractError` variants
 | Code | Name | Meaning | Resolution |
 |:---:|---|---|---|
 | **1** | `InvalidAmount` | The supplied amount is zero, negative, or otherwise invalid for the operation. | Ensure the amount is positive and satisfies `MIN_ESCROW_AMOUNT`. Triggers are **amount-related only** (escrow/basket-entry/payout amounts, amount limits, fee-calculation inputs). A TTL-extension value outside `MIN_TTL_EXTENSION..=MAX_TTL_EXTENSION` (`set_ttl_extension` and its timelocked `execute_set_ttl_extension`) is **not** reported as `InvalidAmount`; it returns `InvalidTtlExtension` (46). Indexers should map TTL-extension failures to code 46, not code 1. |
-| **2** | `InsufficientBalance` | The contract vault does not hold enough tokens to complete the transfer or fee withdrawal. | Verify the contract holds sufficient tokens for the requested payout. |
+| **2** | `InsufficientBalance` | A contract-side balance invariant or explicit balance check failed (including fee withdrawal and basket funding shortfalls). This is not a general mapping for SEP-41 token transfer failures. | For basket funding, verify the contract received the full pledged amount for every token. A token transfer rejected by its token contract is a host-level invocation failure; see [Token transfer failures and rollback](#token-transfer-failures-and-rollback). |
 | **3** | `EscrowNotFound` | The requested Escrow ID does not exist in persistent storage. | Re-verify the Escrow ID; it may have been mistyped or never created. |
 | **4** | `InvalidState` | The escrow is in a lifecycle state that does not permit the requested action. A `Completed` or `Refunded` escrow returns `EscrowAlreadyCompleted` (63) / `EscrowAlreadyRefunded` (64) instead where the check specifically distinguishes those two terminal states. | Consult the state machine diagram to ensure the action is valid for the current state. |
 | **5** | `NotAuthorized` | The caller's address does not have the required permissions for this function. | Ensure you are calling from the correct account (Seller, Buyer, Resolver, or Admin). Not returned for missing configuration (unset treasury / fee collector): that is `NotInitialized` (35). |
@@ -87,3 +87,30 @@ This document provides a comprehensive reference of all `ContractError` variants
 | **79** | `NoPendingTreasury` | `accept_treasury` was called but no pending treasury is set. | The admin must call `set_treasury` first to register a pending treasury. |
 | **80** | `DuplicateResolver` | The same address appears more than once in a resolver configuration. Two triggers share this code (both in `validate_resolvers`, `contracts/escrow/src/internal.rs`): (1) **duplicate multi-resolver** — an address is repeated in a `ResolverSet::Multi` list; (2) **fallback equality** — `primary_resolver == backup_resolver` in a `ResolverSet::Fallback`. Kept distinct from `ConflictingRoles` (23), which means a resolver also holds the Seller or Buyer role. | Ensure every multi-resolver address is unique and that a fallback escrow's primary and backup resolvers are different accounts. |
 | **81** | `EvidenceLimitReached` | `submit_dispute_evidence` was called but the escrow's evidence log already holds `MAX_EVIDENCE_ENTRIES` (5) entries. | No further evidence can be added; rely on the entries already logged. |
+
+## Token transfer failures and rollback
+
+SEP-41 `transfer` has no `Result` value for the escrow to inspect. If a token
+rejects a transfer (for example, because the sending account lacks balance or
+has not authorized it), the token call fails at the Soroban host level; the
+escrow does not translate that failure into `InsufficientBalance` (2) or
+`ArithmeticError` (12). `InsufficientBalance` is returned only for the
+contract's explicit accounting/balance checks, while `ArithmeticError` is
+reserved for checked arithmetic failures. SDKs should preserve and report the
+host/token invocation error rather than interpreting it as one of those
+contract error codes.
+
+Soroban invocation execution is atomic: a failed token call aborts the
+invocation and rolls back its escrow storage changes, emitted events, and any
+token transfers that succeeded earlier in the same invocation. The contract
+therefore persists lifecycle/accounting effects before calling external token
+contracts (checks-effects-interactions); failed later transfers cannot leave a
+partially committed escrow or partial basket transfer.
+
+Before funding, each sending account must hold at least the required amount of
+the primary token and, for basket escrows, each additional token. The sending
+account must also authorize the transfer. Appeals similarly require the
+appellant to hold and authorize the appeal fee. Receiving accounts do not need
+to authorize a standard SEP-41 transfer. A token may impose additional rules
+(such as freezes or transfer restrictions); those failures also abort the
+whole invocation and are reported by the host/token layer.
