@@ -1943,3 +1943,35 @@ pub fn emit_accumulated_fees_claimed(env: &Env, collector: Address, token: Addre
         },
     );
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DailyVolumeLimitUpdated {
+    pub schema_version: u32,
+    pub token: Address,
+    pub old_limit: Option<i128>,
+    pub new_limit: i128,
+    pub caller: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("DayVol"), symbol_short!("Updated"))`, data: `DailyVolumeLimitUpdated`.
+pub fn emit_daily_volume_limit_updated(
+    env: &Env,
+    token: Address,
+    old_limit: Option<i128>,
+    new_limit: i128,
+    caller: Address,
+) {
+    env.events().publish(
+        (symbol_short!("DayVol"), symbol_short!("Updated")),
+        DailyVolumeLimitUpdated {
+            schema_version: EVENT_SCHEMA_VERSION,
+            token,
+            old_limit,
+            new_limit,
+            caller,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}

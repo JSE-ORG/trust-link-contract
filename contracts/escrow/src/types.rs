@@ -127,6 +127,14 @@ pub enum DataKey {
     InvalidatedTimelockOp(u32),
     /// Per-merchant protocol fee discount (basis points subtracted at escrow creation).
     MerchantFeeTier(Address),
+    /// Rolling 24-hour volume accumulator for a given token, keyed by token address.
+    /// Stores a [`DailyVolumeRecord`] in instance storage. Reset whenever
+    /// `now >= window_start + 86_400` to implement the rolling window.
+    DailyVolume(Address),
+    /// Admin-configured daily volume ceiling per token address.
+    /// When set, `fund_escrow` rejects deposits that would push the rolling
+    /// 24-hour total above this limit. Absent means no limit for that token.
+    DailyVolumeLimit(Address),
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -199,6 +207,21 @@ impl BoundedBasket {
     pub fn into_inner(self) -> Vec<TokenEntry> {
         self.inner
     }
+}
+
+/// Rolling 24-hour volume record for a single token.
+///
+/// Stored under `DataKey::DailyVolume(token)` in instance storage.
+/// `window_start` is the Unix timestamp (seconds) of when the current
+/// accumulation window began.  When `now >= window_start + 86_400` the
+/// window is reset: `window_start = now` and `accumulated_volume = 0`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DailyVolumeRecord {
+    /// Unix timestamp (seconds) of the start of the current 24-hour window.
+    pub window_start: u64,
+    /// Cumulative escrow amount funded within the current window for this token.
+    pub accumulated_volume: i128,
 }
 
 /// Pledged versus custodied balance for one basket token.

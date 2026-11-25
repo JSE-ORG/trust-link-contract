@@ -487,6 +487,12 @@ impl Escrow {
             }
         }
 
+        // Circuit breaker: check and update the rolling 24-hour volume for
+        // this token before moving any funds.  `check_and_update_daily_volume`
+        // is a no-op when no limit is configured for the token, so existing
+        // deployments without a configured limit are unaffected.
+        crate::storage::check_and_update_daily_volume(&env, &escrow.token, escrow.amount)?;
+
         transfer_helper(
             &env,
             &escrow.token,

@@ -2070,6 +2070,34 @@ impl Escrow {
         Ok(())
     }
 
+    /// Sets the rolling 24-hour volume ceiling for `token`.
+    ///
+    /// Once set, `fund_escrow` rejects any deposit that would push the
+    /// cumulative 24-hour volume for that token above `limit`.  Set `limit` to
+    /// `i128::MAX` to effectively disable the ceiling for a token (or omit the
+    /// call entirely — the absence of a configured limit means no enforcement).
+    ///
+    /// Only the current admin may call this.
+    pub fn set_daily_volume_limit(
+        env: Env,
+        caller: Address,
+        token: Address,
+        limit: i128,
+    ) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        if limit <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+        let old_limit = storage::read_daily_volume_limit(&env, &token);
+        storage::write_daily_volume_limit(&env, &token, limit);
+        emit_daily_volume_limit_updated(&env, token, old_limit, limit, caller);
+        Ok(())
+    }
+
     #[cfg(any(test, feature = "testutils"))]
     pub fn set_resolver_strict(
         env: Env,
