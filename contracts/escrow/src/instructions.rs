@@ -1108,6 +1108,18 @@ impl Escrow {
         if tracking_id.len() > MAX_TRACKING_ID_LEN {
             return Err(ContractError::InputTooLong);
         }
+        let mut has_printable_ascii = false;
+        for byte in tracking_id.to_bytes().iter() {
+            if byte < 0x20 || byte == 0x7f {
+                return Err(ContractError::InvalidTrackingId);
+            }
+            if byte > 0x20 && byte <= 0x7e {
+                has_printable_ascii = true;
+            }
+        }
+        if !has_printable_ascii {
+            return Err(ContractError::InvalidTrackingId);
+        }
 
         let shipped_at = env.ledger().timestamp();
         let prev_state = escrow.state.clone();
