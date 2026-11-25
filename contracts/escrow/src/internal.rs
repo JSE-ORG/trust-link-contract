@@ -523,6 +523,8 @@ pub(crate) fn validate_total_fee_bps(
 /// collector, so the immediate (`set_fee_collector`) and timelocked
 /// (`execute_set_fee_collector`) update paths cannot drift from them:
 /// - it may not be the all-zero address (`InvalidAddress`);
+/// - it may not be the contract's own address (`InvalidAddress`) — fees sent
+///   to the contract are stranded there and cannot be swept by an operator;
 /// - it may not equal the current admin (`InvalidAddress`) — the admin and
 ///   fee-collector roles are kept separate so a single compromised key
 ///   cannot both govern the contract and sweep its fees;
@@ -535,6 +537,10 @@ pub(crate) fn validate_fee_collector_change(
     new_collector: &Address,
 ) -> Result<Address, ContractError> {
     if *new_collector == crate::zero_address(env) {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    if *new_collector == env.current_contract_address() {
         return Err(ContractError::InvalidAddress);
     }
 
@@ -560,11 +566,18 @@ pub(crate) fn validate_fee_collector_change(
 /// receives platform fees and therefore must not be changed by a typo or an
 /// accidental admin input. The active treasury is kept unchanged until the new
 /// address explicitly calls `accept_treasury`.
+///
+/// Rejects the all-zero address, the contract's own address, and the current
+/// admin, all with `InvalidAddress`; a no-op change is `SameAddress`.
 pub(crate) fn validate_treasury_change(
     env: &Env,
     new_treasury: &Address,
 ) -> Result<Address, ContractError> {
     if *new_treasury == crate::zero_address(env) {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    if *new_treasury == env.current_contract_address() {
         return Err(ContractError::InvalidAddress);
     }
 

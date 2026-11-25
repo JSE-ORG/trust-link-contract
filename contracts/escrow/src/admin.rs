@@ -1204,6 +1204,10 @@ impl Escrow {
         caller: Address,
         treasury: Address,
     ) -> Result<(), ContractError> {
+        // Validate before hashing so an unusable treasury can never enter the
+        // timelock queue and only fail once the proposal is already executable.
+        validate_treasury_change(&env, &treasury)?;
+
         let mut params = Vec::new(&env);
         params.push_back(treasury.into_val(&env));
         queue_timelock_op(&env, &caller, TimelockOperation::SetTreasury as u32, params)
@@ -1238,6 +1242,10 @@ impl Escrow {
         caller: Address,
         new_collector: Address,
     ) -> Result<(), ContractError> {
+        // Validate before hashing so an unusable collector can never enter the
+        // timelock queue and only fail once the proposal is already executable.
+        validate_fee_collector_change(&env, &new_collector)?;
+
         let mut params = Vec::new(&env);
         params.push_back(new_collector.into_val(&env));
         queue_timelock_op(

@@ -715,3 +715,77 @@ mod timelock {
         assert_eq!(client.get_platform_fee_bps(), 25);
     }
 }
+
+/// Issue #1242: a fee collector that is the zero address, the contract itself,
+/// or the admin would route fees to a black hole or collapse the role split.
+/// The queue path must reject it before the address is hashed into a proposal.
+#[test]
+fn queue_set_fee_collector_rejects_zero_contract_and_admin_addresses() {
+    use crate::TimelockOperation;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    for target in [
+        crate::zero_address(&env),
+        contract_id.clone(),
+        admin.clone(),
+    ] {
+        assert_eq!(
+            client.try_queue_set_fee_collector(&admin, &target),
+            Err(Ok(ContractError::InvalidAddress)),
+        );
+    }
+
+    // A rejected proposal must never be written to timelock storage.
+    env.as_contract(&contract_id, || {
+        assert!(crate::storage::read_timelock_proposal(
+            &env,
+            TimelockOperation::SetFeeCollector as u32
+        )
+        .is_none());
+    });
+
+    // The execute path re-verifies through the same invariant helper.
+    env.as_contract(&contract_id, || {
+        assert_eq!(
+            crate::internal::validate_fee_collector_change(&env, &contract_id),
+            Err(ContractError::InvalidAddress),
+        );
+    });
+}
+
+/// Issue #1242: the treasury receives platform fees, so the same invariants
+/// apply to the queued treasury update.
+#[test]
+fn queue_set_treasury_rejects_zero_contract_and_admin_addresses() {
+    use crate::TimelockOperation;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    for target in [
+        crate::zero_address(&env),
+        contract_id.clone(),
+        admin.clone(),
+    ] {
+        assert_eq!(
+            client.try_queue_set_treasury(&admin, &target),
+            Err(Ok(ContractError::InvalidAddress)),
+        );
+    }
+
+    env.as_contract(&contract_id, || {
+        assert!(crate::storage::read_timelock_proposal(
+            &env,
+            TimelockOperation::SetTreasury as u32
+        )
+        .is_none());
+        assert_eq!(
+            crate::internal::validate_treasury_change(&env, &contract_id),
+            Err(ContractError::InvalidAddress),
+        );
+    });
+}
