@@ -862,6 +862,12 @@ Whether clients use this function depends on the deployment; the contract also p
   - persists `DisputeData` with `BytesN<32>` evidence hash and metadata
   - emits `DisputeRaised`.
 
+#### `reject_delivery_proposal(escrow_id)` and `reject_delivery_proposal_with_dispute(escrow_id, raise_dispute, reason, evidence_hash)`
+
+- **Auth:** buyer require auth.
+- **Guards:** a delivery proposal must be pending. When `raise_dispute` is true, `reason` and `evidence_hash` are required and validated using the same allowed reason set and non-zero evidence digest rules as `raise_dispute`; the dispute window must still be open.
+- **Effects:** both entry points delete the proposal and emit `DeliveryProposalCancelled`. The original `reject_delivery_proposal` remains available for clients that only want to cancel the proposal. The enhanced entry point, when `raise_dispute` is true, also transitions the escrow to `Disputed`, records an active dispute with an empty description, and emits `DisputeRaised` in the same transaction. Invalid input leaves the proposal and escrow unchanged.
+
 ### 8.4 Resolution & auto-release
 
 #### `resolve_dispute(escrow_id, resolution)`
