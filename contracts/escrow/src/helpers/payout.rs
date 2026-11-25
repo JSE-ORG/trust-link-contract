@@ -202,35 +202,12 @@ pub(crate) fn transfer_basket_with_fees(
         .checked_add(platform_fee)
         .ok_or(ContractError::AmountCalculationOverflow)?;
 
-    payout(env, token_addr, recipient, net_amount);
     crate::storage::add_accumulated_fee(env, token_addr, protocol_fee)?;
+    payout(env, token_addr, recipient, net_amount);
     if let Some(treasury_addr) = treasury {
         payout_platform_fee(env, escrow_id, token_addr, treasury_addr, platform_fee);
     }
     Ok((net_amount, total_fee))
-}
-
-/// Transfers a platform fee to `treasury` and publishes the matching
-/// `PlatformFeeCollected` telemetry event. A fee that rounds down to zero is
-/// not disbursed and therefore produces no event.
-pub(crate) fn payout_platform_fee(
-    env: &Env,
-    escrow_id: u64,
-    token_addr: &Address,
-    treasury: &Address,
-    fee_amount: i128,
-) {
-    if fee_amount <= 0 {
-        return;
-    }
-    payout(env, token_addr, treasury, fee_amount);
-    crate::events::emit_platform_fee_collected(
-        env,
-        escrow_id,
-        token_addr.clone(),
-        treasury.clone(),
-        fee_amount,
-    );
 }
 
 /// Transfers a platform fee to `treasury` and publishes the matching
@@ -312,9 +289,9 @@ pub(crate) fn transfer_basket_split_with_fees(
         .ok_or(ContractError::AmountCalculationOverflow)?;
     let (payee_net, buyer_net) = split_net(net_amount, split_bps)?;
 
+    crate::storage::add_accumulated_fee(env, token_addr, protocol_fee)?;
     payout(env, token_addr, payee, payee_net);
     payout(env, token_addr, buyer, buyer_net);
-    crate::storage::add_accumulated_fee(env, token_addr, protocol_fee)?;
     if let Some(treasury_addr) = treasury {
         payout(env, token_addr, treasury_addr, platform_fee);
     }
