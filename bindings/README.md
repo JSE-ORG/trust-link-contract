@@ -133,6 +133,8 @@ on `EscrowClient` (hover in your editor).
 | `cancel_escrow(caller, escrowId)` / `mutual_cancel(escrowId)` | Cancel an escrow |
 | `request_refund(caller, escrowId)` / `approve_refund(caller, escrowId)` | Buyer/seller refund handshake |
 | `raise_dispute(caller, escrowId, reason, description, evidenceHash)` | Buyer opens a dispute |
+| `reject_delivery_proposal(caller, escrowId)` | Buyer cancels a pending delivery proposal without opening a dispute (backward-compatible entry point) |
+| `reject_delivery_proposal_with_dispute(caller, escrowId, raiseDispute, reason, evidenceHash)` | Buyer cancels a pending delivery proposal and optionally opens a dispute atomically |
 | `resolve_dispute(caller, escrowId, resolution)` | Resolver settles the dispute |
 | `rotate_resolver(caller, escrowId, newResolver)` | Swap an escrow's resolver |
 | `post_message(escrowId, sender, content)` / `get_messages(escrowId, start, limit)` | Escrow message thread |

@@ -889,6 +889,92 @@ fn raise_dispute_clears_delivery_proposal() {
 }
 
 #[test]
+fn reject_delivery_proposal_with_dispute_is_atomic() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let (id, _seller, buyer) = shipped_with_proposal(&env, &client, &admin);
+    let reason = Symbol::new(&env, "ITEM_NOT_RECEIVED");
+    let evidence_hash = soroban_sdk::BytesN::from_array(&env, &[0x42; 32]);
+
+    client.reject_delivery_proposal_with_dispute(
+        &buyer,
+        &id,
+        &true,
+        &Some(reason.clone()),
+        &Some(evidence_hash.clone()),
+    );
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Disputed);
+    assert!(!has_delivery_proposal(&env, &client, id));
+    let dispute = client.get_dispute(&id).unwrap();
+    assert_eq!(dispute.reason, reason);
+    assert_eq!(dispute.evidence_hash, evidence_hash);
+    assert!(dispute.description.is_empty());
+    assert!(has_event::<crate::DeliveryProposalCancelled, _>(
+        &env,
+        &contract_id,
+        "Delivery",
+        |event| event.escrow_id == id
+    ));
+    assert!(has_event::<crate::DisputeRaised, _>(
+        &env,
+        &contract_id,
+        "Dispute",
+        |event| event.escrow_id == id
+            && event.buyer == buyer
+            && event.prev_state == EscrowState::Shipped
+            && event.new_state == EscrowState::Disputed
+    ));
+}
+
+#[test]
+fn reject_delivery_proposal_without_dispute_preserves_legacy_behavior() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let (id, _seller, buyer) = shipped_with_proposal(&env, &client, &admin);
+
+    client.reject_delivery_proposal(&buyer, &id);
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
+    assert!(!has_delivery_proposal(&env, &client, id));
+    assert!(client.get_dispute(&id).is_none());
+}
+
+#[test]
+fn reject_delivery_proposal_with_invalid_dispute_leaves_proposal_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let (id, _seller, buyer) = shipped_with_proposal(&env, &client, &admin);
+    let res = client.try_reject_delivery_proposal_with_dispute(
+        &buyer,
+        &id,
+        &true,
+        &Some(Symbol::new(&env, "NOT_A_REASON")),
+        &Some(soroban_sdk::BytesN::from_array(&env, &[0x42; 32])),
+    );
+
+    assert!(matches!(res, Err(Ok(ContractError::InvalidDisputeReason))));
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
+    assert!(has_delivery_proposal(&env, &client, id));
+    assert!(client.get_dispute(&id).is_none());
+
+    let res = client.try_reject_delivery_proposal_with_dispute(
+        &buyer,
+        &id,
+        &true,
+        &Some(Symbol::new(&env, "OTHER")),
+        &Some(soroban_sdk::BytesN::from_array(&env, &[0; 32])),
+    );
+    assert!(matches!(res, Err(Ok(ContractError::InvalidEvidenceHash))));
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
+    assert!(has_delivery_proposal(&env, &client, id));
+    assert!(client.get_dispute(&id).is_none());
+}
+
+#[test]
 fn co_signed_release_clears_delivery_proposal() {
     let env = Env::default();
     env.mock_all_auths();

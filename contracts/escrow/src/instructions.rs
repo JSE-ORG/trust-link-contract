@@ -178,6 +178,99 @@ fn persist_basket_escrow(
     Ok(escrow_id)
 }
 
+fn reject_delivery_proposal_impl(
+    env: &Env,
+    caller: Address,
+    escrow_id: u64,
+    raise_dispute: bool,
+    reason: Option<Symbol>,
+    evidence_hash: Option<BytesN<32>>,
+) -> Result<(), ContractError> {
+    auth!(caller);
+    let mut escrow = load_escrow(env, escrow_id)?;
+
+    let buyer = escrow
+        .buyer
+        .clone()
+        .ok_or(ContractError::EscrowHasNoBuyer)?;
+    if caller != buyer {
+        return Err(ContractError::NotAuthorizedBuyer);
+    }
+
+    let key = DataKey::DeliveryProposal(escrow_id);
+    if !env.storage().persistent().has(&key) {
+        return Err(ContractError::DeliveryNotProposed);
+    }
+
+    if raise_dispute {
+        ensure_action_not_paused(env, Symbol::new(env, "raise_dispute"))?;
+        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
+        }
+        if env.ledger().timestamp() >= (escrow.packed_timestamps & 0xFFFF_FFFF) {
+            return Err(ContractError::DisputeWindowStillOpen);
+        }
+
+        let reason = reason.ok_or(ContractError::InvalidDisputeReason)?;
+        if !crate::DISPUTE_REASONS
+            .iter()
+            .any(|allowed| Symbol::new(env, allowed) == reason)
+        {
+            return Err(ContractError::InvalidDisputeReason);
+        }
+
+        let evidence_hash = evidence_hash.ok_or(ContractError::InvalidEvidenceHash)?;
+        if evidence_hash.to_array() == [0u8; 32] {
+            return Err(ContractError::InvalidEvidenceHash);
+        }
+
+        let prev_state = escrow.state.clone();
+        escrow.state = EscrowState::Disputed;
+        let description = Bytes::new(env);
+        let dispute_data = DisputeData {
+            escrow_id,
+            reason: reason.clone(),
+            description: description.clone(),
+            evidence_hash: evidence_hash.clone(),
+            status: DisputeStatus::Active,
+            disputed_at: env.ledger().timestamp(),
+            tracking_id: escrow.tracking_id.clone(),
+            resolution: 0,
+            resolved_by: None,
+            appeal_count: 0,
+            resolved_at: 0,
+            arbitration_fee: 0,
+            resolver_fee: 0,
+            fees_charged: false,
+            compensated_resolvers: Vec::new(env),
+            resolution_reason: None,
+            resolution_memo: Bytes::new(env),
+        };
+
+        save_escrow(env, escrow_id, &escrow, Some(&prev_state));
+        save_dispute(env, escrow_id, &dispute_data);
+        clear_delivery_proposal(env, escrow_id);
+        increment_sharded_counter(env, COUNTER_KIND_DISPUTED, escrow_id)?;
+        emit_dispute_raised(
+            env,
+            escrow_id,
+            buyer,
+            reason,
+            description,
+            evidence_hash,
+            prev_state,
+            EscrowState::Disputed,
+        );
+    } else {
+        env.storage().persistent().remove(&key);
+        emit_delivery_proposal_cancelled(env, escrow_id);
+    }
+    Ok(())
+}
+
 #[contractimpl]
 impl Escrow {
     /// Modern 9-argument production interface accepting either Address or Payee array variants.
@@ -1207,35 +1300,41 @@ impl Escrow {
         Ok(())
     }
 
-    /// Buyer rejects a pending delivery proposal (issue #912). Explicit,
-    /// buyer-only counterpart to `cancel_delivery_proposal` for the case where
-    /// the buyer — not the admin — determines the proposed delivery should not
-    /// be formalized. Reverts with `NotAuthorizedBuyer` if `caller` is not the
-    /// escrow's buyer, or `DeliveryNotProposed` if no proposal is pending.
+    /// Buyer rejects a pending delivery proposal (issue #912). The escrow
+    /// remains in its current state; use
+    /// `reject_delivery_proposal_with_dispute` to atomically open a dispute.
     pub fn reject_delivery_proposal(
         env: Env,
         caller: Address,
         escrow_id: u64,
     ) -> Result<(), ContractError> {
-        auth!(caller);
-        let escrow = load_escrow(&env, escrow_id)?;
+        reject_delivery_proposal_impl(&env, caller, escrow_id, false, None, None)
+    }
 
-        let buyer = escrow
-            .buyer
-            .clone()
-            .ok_or(ContractError::EscrowHasNoBuyer)?;
-        if caller != buyer {
-            return Err(ContractError::NotAuthorizedBuyer);
-        }
-
-        let key = DataKey::DeliveryProposal(escrow_id);
-        if !env.storage().persistent().has(&key) {
-            return Err(ContractError::DeliveryNotProposed);
-        }
-
-        env.storage().persistent().remove(&key);
-        emit_delivery_proposal_cancelled(&env, escrow_id);
-        Ok(())
+    /// Buyer rejects a pending delivery proposal and optionally raises a
+    /// dispute in the same transaction. When `raise_dispute` is true, both
+    /// `reason` and `evidence_hash` are required and validated as in
+    /// `raise_dispute`; the dispute description is initialized as empty.
+    /// Missing or invalid values return `InvalidDisputeReason` or
+    /// `InvalidEvidenceHash`. The escrow must still be within its dispute
+    /// window. On success, the proposal is deleted and both
+    /// `DeliveryProposalCancelled` and `DisputeRaised` are emitted.
+    pub fn reject_delivery_proposal_with_dispute(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        raise_dispute: bool,
+        reason: Option<Symbol>,
+        evidence_hash: Option<BytesN<32>>,
+    ) -> Result<(), ContractError> {
+        reject_delivery_proposal_impl(
+            &env,
+            caller,
+            escrow_id,
+            raise_dispute,
+            reason,
+            evidence_hash,
+        )
     }
 
     /// Records the delivery of an escrow after the 24-hour timelock has elapsed. Callable by admin.
