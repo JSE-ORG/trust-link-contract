@@ -690,6 +690,12 @@ fn decode_escrow(env: &Env, mut raw: soroban_sdk::Map<Symbol, soroban_sdk::Val>)
         };
         raw.set(arbitration_key, default_arbitration.into_val(env));
     }
+    // `inspection_window` was added after entries were written; `0` keeps the
+    // legacy DELIVERY_RELEASE_WINDOW behaviour for those escrows.
+    let inspection_key = Symbol::new(env, "inspection_window");
+    if !raw.contains_key(inspection_key.clone()) {
+        raw.set(inspection_key, 0_u64.into_val(env));
+    }
     let val: soroban_sdk::Val = raw.into_val(env);
     EscrowData::try_from_val(env, &val)
         .unwrap_or_else(|_| soroban_sdk::panic_with_error!(env, ContractError::EscrowNotFound))
@@ -1299,8 +1305,10 @@ pub(crate) fn distribute_basket_tokens(
 /// - the escrow is `Funded` or `Shipped` (`InvalidState` otherwise);
 /// - no dispute has been raised (`InvalidState`);
 /// - the applicable no-dispute window has fully elapsed:
-///   - delivery recorded: `now >= delivered_at + DELIVERY_RELEASE_WINDOW`,
-///     else `ShippingWindowNotElapsed`;
+///   - delivery recorded: `now >= delivered_at + inspection_window`, where
+///     `inspection_window` is the escrow's own value or
+///     `DELIVERY_RELEASE_WINDOW` when that value is `0`; else
+///     `ShippingWindowNotElapsed`;
 ///   - `Shipped` but no recorded delivery: `DeliveryNotRecorded` (delivery must
 ///     be recorded first);
 ///   - otherwise the buyer's dispute window must have opened
@@ -1326,8 +1334,13 @@ pub(crate) fn ensure_auto_release_eligible(
     let now = env.ledger().timestamp();
 
     if let Some(delivered_at) = escrow.delivered_at {
+        let inspection_window = if escrow.inspection_window == 0 {
+            DELIVERY_RELEASE_WINDOW
+        } else {
+            escrow.inspection_window
+        };
         let eligible_at = delivered_at
-            .checked_add(DELIVERY_RELEASE_WINDOW)
+            .checked_add(inspection_window)
             .ok_or(ContractError::ArithmeticOverflow)?;
         if now < eligible_at {
             return Err(ContractError::ShippingWindowNotElapsed);
@@ -1657,6 +1670,7 @@ pub(crate) fn create_escrow_internal(
     notes: String,
     expires_at: Option<u64>,
     grace_period: u64,
+    inspection_window: u64,
 ) -> Result<u64, ContractError> {
     // Does not call `payees[0].require_auth()` — every caller (`create_escrow`,
     // `create_escrow_with_expiration`, `batch_create_escrow`) authenticates
@@ -1691,6 +1705,13 @@ pub(crate) fn create_escrow_internal(
     }
 
     validate_shipping_window(shipping_window)?;
+
+    // `0` selects the legacy delivery window; anything larger must stay within
+    // the same upper bound as shipping windows so the eligibility timestamp
+    // cannot be pushed out indefinitely.
+    if inspection_window > MAX_SHIPPING_WINDOW {
+        return Err(ContractError::InvalidShippingWindow);
+    }
 
     if grace_period > crate::MAX_GRACE_PERIOD {
         return Err(ContractError::GracePeriodTooLong);
@@ -1778,6 +1799,7 @@ pub(crate) fn create_escrow_internal(
         platform_fee_bps: 0,
         arbitration_fee_bps: 0,
         shipping_window,
+        inspection_window,
         packed_timestamps: 0,
         state: EscrowState::Pending,
         shipped_at: 0,

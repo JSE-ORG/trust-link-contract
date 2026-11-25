@@ -503,6 +503,7 @@ mod tests {
             platform_fee_bps: 0,
             arbitration_fee_bps: 0,
             shipping_window: 100,
+            inspection_window: 0,
             packed_timestamps: 0,
             shipped_at: 0,
             delivered_at: None,
