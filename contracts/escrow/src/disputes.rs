@@ -481,6 +481,7 @@ impl Escrow {
             }
         }
 
+
         if let Some(ref treasury_addr) = treasury {
             crate::helpers::payout::payout_platform_fee(
                 &env,
@@ -510,6 +511,7 @@ impl Escrow {
                 payout(&env, &escrow.token, &recipient, payout_amount);
                 payout_basket_tokens(&env, escrow_id, &recipient, Some(escrow.fee_bps))?;
             }
+
         }
 
         emit_dispute_resolved(

@@ -233,6 +233,29 @@ pub(crate) fn payout_platform_fee(
     );
 }
 
+/// Transfers a platform fee to `treasury` and publishes the matching
+/// `PlatformFeeCollected` telemetry event. A fee that rounds down to zero is
+/// not disbursed and therefore produces no event.
+pub(crate) fn payout_platform_fee(
+    env: &Env,
+    escrow_id: u64,
+    token_addr: &Address,
+    treasury: &Address,
+    fee_amount: i128,
+) {
+    if fee_amount <= 0 {
+        return;
+    }
+    payout(env, token_addr, treasury, fee_amount);
+    crate::events::emit_platform_fee_collected(
+        env,
+        escrow_id,
+        token_addr.clone(),
+        treasury.clone(),
+        fee_amount,
+    );
+}
+
 /// Transfers `amount` of `token_addr` from this contract to `recipient`.
 ///
 /// This is the single choke point every payout path shares — protocol and
