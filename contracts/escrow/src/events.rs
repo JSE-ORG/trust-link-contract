@@ -9,7 +9,7 @@ use crate::ResolutionType;
 /// Increment this constant whenever a field is added, removed, or renamed in
 /// any event struct.  Consumers can use it to guard against decoding stale
 /// snapshots with the wrong XDR shape.
-pub const EVENT_SCHEMA_VERSION: u32 = 4;
+pub const EVENT_SCHEMA_VERSION: u32 = 5;
 
 /// Event topic/data schemas used by the escrow contract.
 ///
@@ -325,6 +325,9 @@ pub struct EscrowCompleted {
     pub amount: i128,
     /// Protocol fee rate, in basis points, that was applied to `amount`.
     pub fee_bps: u32,
+    /// Number of payees that co-signed this release. `0` for completions that
+    /// were not driven by `co_signed_release` (e.g. `confirm_delivery`).
+    pub co_signed_payees: u32,
     pub timestamp: u64,
     pub prev_state: crate::EscrowState,
     pub new_state: crate::EscrowState,
@@ -337,6 +340,7 @@ pub fn emit_escrow_completed(
     recipient: Address,
     amount: i128,
     fee_bps: u32,
+    co_signed_payees: u32,
     prev_state: crate::EscrowState,
     new_state: crate::EscrowState,
 ) {
@@ -352,6 +356,7 @@ pub fn emit_escrow_completed(
             recipient,
             amount,
             fee_bps,
+            co_signed_payees,
             timestamp: env.ledger().timestamp(),
             prev_state,
             new_state,
@@ -1887,12 +1892,7 @@ pub struct AccumulatedFeesClaimed {
 }
 
 /// Topic: `(symbol_short!("Fees"), symbol_short!("Claimed"), collector.clone(), token.clone())`, data: `AccumulatedFeesClaimed`.
-pub fn emit_accumulated_fees_claimed(
-    env: &Env,
-    collector: Address,
-    token: Address,
-    amount: i128,
-) {
+pub fn emit_accumulated_fees_claimed(env: &Env, collector: Address, token: Address, amount: i128) {
     env.events().publish(
         (
             symbol_short!("Fees"),

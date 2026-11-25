@@ -1352,17 +1352,20 @@ impl Escrow {
             first_payee_addr,
             escrow.amount,
             escrow.fee_bps,
+            0,
             prev_state,
             crate::EscrowState::Completed,
         );
         Ok(())
     }
 
-    /// Releases funds early via mutual consent: requires auth from both the
-    /// primary payee and the buyer in the same call. Only valid from
-    /// `Funded` or `Shipped` state, and only if no dispute has been raised.
-    /// Reverts with `InvalidState` otherwise. Transfers funds (minus
-    /// protocol fee) and emits `escrow_completed`.
+    /// Releases funds early via mutual consent: requires auth from the buyer
+    /// and from **every** payee in the same call. Single-payee escrows
+    /// therefore still need one buyer and one seller signature. Only valid
+    /// from `Funded` or `Shipped` state, and only if no dispute has been
+    /// raised. Reverts with `InvalidState` otherwise. Transfers funds (minus
+    /// protocol fee) and emits `escrow_completed` with the number of
+    /// co-signing payees.
     pub fn co_signed_release(
         env: Env,
         caller: Address,
@@ -1373,6 +1376,25 @@ impl Escrow {
         ensure_action_not_paused(&env, Symbol::new(&env, "co_signed_release"))?;
         let escrow = load_escrow(&env, escrow_id)?;
 
+        let buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
+        auth!(buyer);
+
+        // Every payee must co-sign, not just the primary one: otherwise a buyer
+        // and one vendor could release a multi-payee escrow against the other
+        // vendors' wishes. `validate_payees` rejects zero-share payees, so all
+        // entries are real recipients, and `MAX_PAYEES` (10) bounds the loop.
+        for i in 0..escrow.payees.inner.len() {
+            let payee = escrow
+                .payees
+                .inner
+                .get(i)
+                .ok_or(ContractError::IndexOutOfBounds)?;
+            auth!(payee.address);
+        }
+
         let first_payee = escrow
             .payees
             .inner
@@ -1380,12 +1402,6 @@ impl Escrow {
             .ok_or(ContractError::IndexOutOfBounds)?
             .address
             .clone();
-        auth!(first_payee);
-        let buyer = escrow
-            .buyer
-            .clone()
-            .ok_or(ContractError::EscrowHasNoBuyer)?;
-        auth!(buyer);
 
         // Allow early release from Funded or Shipped states, but not if disputed.
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
@@ -1428,12 +1444,14 @@ impl Escrow {
             &first_payee,
             Some(fee_config.protocol_fee_bps),
         )?;
+        let co_signed_payees = updated.payees.len();
         emit_escrow_completed(
             &env,
             escrow_id,
             first_payee,
             updated.amount,
             fee_config.protocol_fee_bps,
+            co_signed_payees,
             prev_state,
             crate::EscrowState::Completed,
         );

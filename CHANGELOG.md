@@ -33,6 +33,12 @@ non-user-facing repository maintenance.
 
 ### Changed
 
+- Bumped `EVENT_SCHEMA_VERSION` to `5`: `EscrowCompleted` now carries
+  `co_signed_payees`, the number of payees that authorized a
+  `co_signed_release` (`0` for other completion paths).
+- `co_signed_release` now requires authorization from the buyer and **every**
+  payee, not only the primary payee. Single-payee escrows are unchanged
+  (1 buyer + 1 seller signature).
 - Rewrote `CONTRIBUTING.md`: corrected the project structure, build/test
   commands, and wasm target (`wasm32v1-none`) to match the current workspace
   layout, and added a Quick Start section so new contributors can set up in

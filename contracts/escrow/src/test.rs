@@ -54,7 +54,7 @@ fn register_alt_token(env: &Env) -> (Address, Address) {
     (token_address, admin)
 }
 
-fn has_event<T, F>(env: &Env, contract_id: &Address, topic: &str, predicate: F) -> bool
+pub(crate) fn has_event<T, F>(env: &Env, contract_id: &Address, topic: &str, predicate: F) -> bool
 where
     T: TryFromVal<Env, Val>,
     F: Fn(&T) -> bool,
