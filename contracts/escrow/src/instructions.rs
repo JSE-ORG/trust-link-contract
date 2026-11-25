@@ -131,8 +131,9 @@ fn persist_basket_escrow(
     shipping_window: u64,
     notes: Option<String>,
 ) -> Result<u64, ContractError> {
-    let primary = entries.get(0).ok_or(ContractError::BasketTokenMismatch)?;
-    let token_count = entries.len();
+    let basket = BoundedBasket::try_new(entries)?;
+    let primary = basket.get(0).ok_or(ContractError::BasketTokenMismatch)?;
+    let token_count = basket.len();
 
     let notes = notes.unwrap_or_else(|| String::from_str(env, ""));
     if notes.len() > MAX_NOTES_LEN {
@@ -154,6 +155,8 @@ fn persist_basket_escrow(
         amount: primary.amount,
         fee_bps,
         resolver_fee_bps,
+        platform_fee_bps: 0,
+        arbitration_fee_bps: 0,
         shipping_window,
         packed_timestamps: 0,
         state: EscrowState::Pending,
@@ -166,7 +169,7 @@ fn persist_basket_escrow(
     };
 
     save_escrow(env, escrow_id, &escrow, None);
-    save_basket_tokens(env, escrow_id, &BoundedBasket::try_new(entries)?);
+    save_basket_tokens(env, escrow_id, &basket);
 
     storage::append_vendor_escrow_index(env, &seller, escrow_id);
     increment_sharded_counter(env, COUNTER_KIND_CREATED, escrow_id)?;
@@ -516,6 +519,9 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.buyer = Some(buyer.clone());
         escrow.state = EscrowState::Funded;
+        let fee_config = crate::storage::read_global_config(&env);
+        escrow.platform_fee_bps = fee_config.platform_fee_bps;
+        escrow.arbitration_fee_bps = fee_config.arbitration_fee_bps;
         let dispute_deadline = now
             .checked_add(DISPUTE_WINDOW)
             .ok_or(ContractError::ArithmeticOverflow)?;
@@ -625,6 +631,8 @@ impl Escrow {
             amount,
             fee_bps,
             resolver_fee_bps: 0,
+            platform_fee_bps: 0,
+            arbitration_fee_bps: 0,
             shipping_window,
             packed_timestamps: 0,
             state: EscrowState::Pending,
@@ -873,6 +881,8 @@ impl Escrow {
             amount,
             fee_bps,
             resolver_fee_bps: 0,
+            platform_fee_bps: 0,
+            arbitration_fee_bps: 0,
             shipping_window,
             packed_timestamps: 0,
             state: EscrowState::Pending,
@@ -1416,9 +1426,7 @@ impl Escrow {
         }
 
         let fee_config = read_fee_config(&env);
-        let fee_collector: Address = crate::storage::read_global_config(&env)
-            .fee_collector
-            .ok_or(ContractError::NotInitialized)?;
+        let fee_collector = crate::storage::require_fee_collector(&env)?;
 
         let prev_state = escrow.state.clone();
         let mut updated = escrow;
@@ -1666,6 +1674,8 @@ impl Escrow {
             amount: primary_amount,
             fee_bps,
             resolver_fee_bps: 0,
+            platform_fee_bps: 0,
+            arbitration_fee_bps: 0,
             shipping_window,
             packed_timestamps: 0,
             state: EscrowState::Pending,
@@ -1781,8 +1791,11 @@ impl Escrow {
             address: seller.clone(),
             bps: 10_000,
         });
-        let payees = BoundedPayees { inner: payees };
-        validate_resolvers(&resolver_set, &payees, buyer.as_ref())?;
+        validate_resolvers(
+            &resolver_set,
+            &BoundedPayees { inner: payees },
+            buyer.as_ref(),
+        )?;
 
         persist_basket_escrow(
             &env,
@@ -1859,8 +1872,11 @@ impl Escrow {
             address: seller.clone(),
             bps: 10_000,
         });
-        let payees = BoundedPayees { inner: payees };
-        validate_resolvers(&resolver_set, &payees, buyer.as_ref())?;
+        validate_resolvers(
+            &resolver_set,
+            &BoundedPayees { inner: payees },
+            buyer.as_ref(),
+        )?;
 
         persist_basket_escrow(
             &env,
@@ -1996,6 +2012,9 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.buyer = Some(buyer.clone());
         escrow.state = EscrowState::Funded;
+        let fee_config = crate::storage::read_global_config(&env);
+        escrow.platform_fee_bps = fee_config.platform_fee_bps;
+        escrow.arbitration_fee_bps = fee_config.arbitration_fee_bps;
         let dispute_deadline_basket = now
             .checked_add(DISPUTE_WINDOW)
             .ok_or(ContractError::ArithmeticError)?;

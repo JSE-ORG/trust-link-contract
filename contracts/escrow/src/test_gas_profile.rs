@@ -25,8 +25,12 @@ fn take_budget_snapshot(env: &Env) -> GasSample {
     }
 }
 
-fn diff(env: &Env, _before: &GasSample) -> GasSample {
-    read_gas_meter(env)
+fn diff(env: &Env, before: &GasSample) -> GasSample {
+    let after = read_gas_meter(env);
+    GasSample {
+        cpu_insns: after.cpu_insns.saturating_sub(before.cpu_insns),
+        mem_bytes: after.mem_bytes.saturating_sub(before.mem_bytes),
+    }
 }
 
 // Soroban resets the budget for each top-level invocation.

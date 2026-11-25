@@ -124,6 +124,12 @@ By placing relevant addresses in the topics, indexers can filter directly for ev
 - **escrow_completed**: 
   - Topics: `["Escrow", "Completed", recipient]`
   - Payload: `EscrowCompleted` `{ schema_version, escrow_id, recipient, amount, fee_bps, co_signed_payees, timestamp }`
+  - Notes: `recipient` is the primary payee (`payees[0]`). Multi-payee net splits are not itemised in this payload; use `calculate_multi_payee_allocations` or per-payee token transfer events. Secondary payees whose floored share is zero receive no transfer.
+  - `co_signed_payees` is the number of payees that co-signed a `co_signed_release` (`0` for other completion paths such as `confirm_delivery`).
+- **payee_share_skipped** (diagnostic):
+  - Topics: `["Payee", "Skip", payee]`
+  - Payload: `PayeeShareSkipped` `{ schema_version, escrow_id, payee, bps, net_pool, timestamp }`
+  - Emitted when a secondary payee's share rounds to zero stroops during settlement; dust stays with the primary payee.
 - **auto_released**: 
   - Topics: `["Escrow", "Released", seller]`
   - Payload: `AutoReleased` `{ schema_version, escrow_id, seller, amount, fee_bps, timestamp }`

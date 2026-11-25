@@ -125,6 +125,8 @@ pub enum DataKey {
     UpgradeHistory,
     /// Marks a proposal invalidated by an admin rotation until its slot is requeued.
     InvalidatedTimelockOp(u32),
+    /// Per-merchant protocol fee discount (basis points subtracted at escrow creation).
+    MerchantFeeTier(Address),
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -662,6 +664,10 @@ pub struct Escrow {
     pub amount: i128,
     pub fee_bps: u32,
     pub resolver_fee_bps: u32,
+    /// Platform fee rate snapshotted at funding; immutable for in-flight escrows.
+    pub platform_fee_bps: u32,
+    /// Arbitration fee rate snapshotted at funding; immutable for in-flight escrows.
+    pub arbitration_fee_bps: u32,
     pub shipping_window: u64,
     /// Packed timestamp field: high 32 bits = `funded_at`, low 32 bits = `dispute_deadline`.
     ///

@@ -689,6 +689,8 @@ When a payout is split across multiple payees, the contract calculates floor-rou
 
 **Dust-to-first-payee policy.** Payees `1..N` (every payee except `payees[0]`) receive `floor(net * bps / 10000)`; `payees[0]` receives `net` minus the sum of those floored amounts. Dust is therefore always credited to the first payee, never to the others, so for multi-payee splits the first payee is systematically favoured by strictly less than `N - 1` stroops (at most `N - 1`) per payout. For a single payee there is no dust. Order the payees list accordingly if this bias matters to you. No stroop is lost or created: the payouts always sum exactly to `net`.
 
+**Zero-share payouts.** When `floor(net * bps / 10000)` is `0` for a secondary payee, the contract does not issue a token transfer to that address; the skipped stroops stay in the primary payee's remainder. Indexers should use `calculate_multi_payee_allocations` (or listen for the diagnostic `PayeeShareSkipped` event) rather than assuming every listed payee receives a transfer. As a rule of thumb, a secondary payee needs `net * bps >= 10_000` for a 1-stroop payout (e.g. `1 bps` requires `net >= 10_000` stroops).
+
 ---
 
 ## 6. Fee model

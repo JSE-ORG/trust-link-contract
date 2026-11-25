@@ -451,6 +451,8 @@ fn test_dispute_allocations_include_protocol_fee() {
         amount: 1_000_000_i128,
         fee_bps: 100_u32,        // 1%
         resolver_fee_bps: 0_u32, // Added missing field
+        platform_fee_bps: 0_u32,
+        arbitration_fee_bps: 0_u32,
         state: EscrowState::Disputed,
         shipping_window: 3600,
         packed_timestamps: 0,
@@ -530,6 +532,8 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
         amount: 1_000_000_i128,
         fee_bps: 0_u32,          // 0% fee
         resolver_fee_bps: 0_u32, // Added missing field
+        platform_fee_bps: 0_u32,
+        arbitration_fee_bps: 0_u32,
         state: EscrowState::Disputed,
         shipping_window: 3600,
         packed_timestamps: 0,
@@ -646,4 +650,54 @@ fn test_fee_calculation_odd_amounts_sub_stroop_rounding_3bps() {
             "incorrect fee floor for amount={amount} @ 3 bps: {fee}"
         );
     }
+}
+
+/// Secondary payee with `1 bps` on a small net rounds to zero stroops; settlement
+/// must succeed without zero-value token transfers and award dust to the primary payee.
+#[test]
+fn test_multi_payee_zero_share_rounded_down() {
+    use crate::helpers::payout::calculate_multi_payee_allocations;
+    use crate::Escrow;
+    use soroban_sdk::{testutils::Address as _, token, Address, Env, Vec};
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let primary = Address::generate(&env);
+    let micro_share = Address::generate(&env);
+
+    let mut payees_inner = Vec::new(&env);
+    payees_inner.push_back(Payee {
+        address: primary.clone(),
+        bps: 9_999,
+    });
+    payees_inner.push_back(Payee {
+        address: micro_share.clone(),
+        bps: 1,
+    });
+    let payees = BoundedPayees {
+        inner: payees_inner.clone(),
+    };
+
+    let net = 500_i128;
+    let allocations = calculate_multi_payee_allocations(&env, &payees, net).unwrap();
+    assert_eq!(allocations.len(), 1);
+    let only = allocations.get(0).unwrap();
+    assert_eq!(only.recipient, primary);
+    assert_eq!(only.amount, net);
+
+    let contract_id = env.register(Escrow, ());
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    token::StellarAssetClient::new(&env, &token).mint(&contract_id, &net);
+
+    env.as_contract(&contract_id, || {
+        crate::internal::distribute_to_payees(&env, &token, &payees, net, Some(1)).unwrap();
+    });
+
+    let token_client = token::Client::new(&env, &token);
+    assert_eq!(token_client.balance(&micro_share), 0);
+    assert_eq!(token_client.balance(&primary), net);
+    assert_eq!(token_client.balance(&contract_id), 0);
 }

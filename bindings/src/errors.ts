@@ -88,9 +88,9 @@ export const enum ErrorCode {
   InvalidWasmHash = 78,
   NoPendingTreasury = 79,
   DuplicateResolver = 80,
-  EvidenceLimitReached = 81,
-  DirectUnpauseBlocked = 82,
-  InvalidSplitBps = 83,
+  DirectUnpauseBlocked = 81,
+  InvalidSplitBps = 82,
+  EvidenceLimitReached = 83,
 }
 
 /** Human-readable message for every contract error code. */

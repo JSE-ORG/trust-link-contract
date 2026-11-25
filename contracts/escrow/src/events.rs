@@ -1559,6 +1559,41 @@ pub struct EmergencyDrainBlocked {
     pub timestamp: u64,
 }
 
+/// Diagnostic: a non-primary payee's floored share rounded to zero stroops.
+/// Published during settlement when [`crate::internal::distribute_to_payees`]
+/// skips the token transfer; the unallocated dust stays with the primary payee.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PayeeShareSkipped {
+    pub schema_version: u32,
+    pub escrow_id: u64,
+    pub payee: Address,
+    pub bps: u32,
+    pub net_pool: i128,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Payee"), symbol_short!("Skip"), payee.clone())`, data: `PayeeShareSkipped`.
+pub fn emit_payee_share_skipped(
+    env: &Env,
+    escrow_id: u64,
+    payee: Address,
+    bps: u32,
+    net_pool: i128,
+) {
+    env.events().publish(
+        (symbol_short!("Payee"), symbol_short!("Skip"), payee.clone()),
+        PayeeShareSkipped {
+            schema_version: EVENT_SCHEMA_VERSION,
+            escrow_id,
+            payee,
+            bps,
+            net_pool,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
 /// Diagnostic. Topic: `(symbol_short!("Emergency"), symbol_short!("Blocked"),)`, data: `EmergencyDrainBlocked`.
 pub fn emit_emergency_drain_blocked(env: &Env, escrow_id: u64) {
     env.events().publish(

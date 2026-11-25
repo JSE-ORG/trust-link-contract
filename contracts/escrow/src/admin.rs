@@ -177,30 +177,12 @@ fn clear_all_timelock_proposals(env: &Env, canceller: &Address) {
     for operation in 1..=(TimelockOperation::SetTimelockDelay as u32) {
         if let Some(proposal) = storage::read_timelock_proposal(env, operation) {
             storage::remove_timelock_proposal(env, operation);
-            emit_timelock_cancelled(env, operation, proposal.proposer, canceller.clone());
-        }
-    }
-}
-
-/// Cancel all outstanding proposals when the admin changes. A rejected
-/// execution cannot do this itself: Soroban rolls back state and events on error.
-fn invalidate_timelocks_on_rotation(env: &Env) {
-    // TimelockOperation discriminants are append-only; update the upper bound
-    // when a new operation is added.
-    for operation in 1..=(TimelockOperation::SetTimelockDelay as u32) {
-        if let Some(proposal) = storage::read_timelock_proposal(env, operation) {
-            storage::remove_timelock_proposal(env, operation);
             env.storage()
                 .instance()
                 .set(&DataKey::InvalidatedTimelockOp(operation), &true);
-            // Cancellation is automatic, not an action signed by the new admin.
-            emit_timelock_cancelled(
-                env,
-                operation,
-                proposal.proposer.clone(),
-                env.current_contract_address(),
-            );
-            emit_timelock_admin_mismatch(env, operation, proposal.proposer);
+            let proposer = proposal.proposer.clone();
+            emit_timelock_cancelled(env, operation, proposer.clone(), canceller.clone());
+            emit_timelock_admin_mismatch(env, operation, proposer);
         }
     }
 }
@@ -895,6 +877,30 @@ impl Escrow {
         read_platform_fee_bps(&env)
     }
 
+    /// Register a protocol fee discount for a high-volume merchant (primary payee).
+    pub fn set_merchant_tier(
+        env: Env,
+        caller: Address,
+        merchant: Address,
+        discount_bps: u32,
+    ) -> Result<(), ContractError> {
+        ensure_admin_action_not_paused(&env, "set_merchant_tier")?;
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        if discount_bps > crate::MAX_ESCROW_FEE_BPS {
+            return Err(ContractError::FeeExceedsMax);
+        }
+        storage::write_merchant_fee_tier(&env, &merchant, discount_bps);
+        Ok(())
+    }
+
+    pub fn get_merchant_fee_discount(env: Env, merchant: Address) -> u32 {
+        storage::merchant_fee_discount_bps(&env, &merchant)
+    }
+
     /// Adds `token` to the allowlist. Only callable by admin. A no-op
     /// (returns `Ok`) if the token is already present. Emits
     /// `token_allowlist_updated` with `allowed = true`.
@@ -1017,7 +1023,6 @@ impl Escrow {
         if new_admin == old_admin {
             return Err(ContractError::SameAddress);
         }
-        invalidate_timelocks_on_rotation(&env);
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         // #1234: the incoming admin must not inherit any queued changes from
         // the predecessor (fee changes, upgrades, allowlist edits, …).
@@ -1831,7 +1836,6 @@ impl Escrow {
         if new_admin == old_admin {
             return Err(ContractError::SameAddress);
         }
-        invalidate_timelocks_on_rotation(&env);
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         // Same invariant as the timelocked `execute_set_admin` path (#1234).
         clear_all_timelock_proposals(&env, &new_admin);

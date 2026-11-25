@@ -93,6 +93,7 @@ fn distribute_to_payees_rounds_dust_to_primary_payee_for_equal_shares() {
                 inner: payees.clone(),
             },
             amount,
+            None,
         )
         .unwrap();
     });

@@ -3,7 +3,7 @@
 use crate::{Escrow, EscrowClient, Payee, ResolutionType};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    token, Address, Env, IntoVal, String as SorobanString, Symbol, Vec,
+    token, Address, Bytes, Env, IntoVal, String as SorobanString, Symbol, Vec,
 };
 
 fn setup(env: &Env) -> (Address, Address, Address, Address, Address, Address) {
@@ -92,9 +92,10 @@ fn test_arbitration_fee_deduction_on_resolve_release() {
 
     assert_eq!(balance(&env, &token, &seller), 930);
 
-    // arbitration fee (50) and protocol fee (20) go to fee_collector
-    assert_eq!(balance(&env, &token, &contract_id), 0);
-    assert_eq!(balance(&env, &token, &fee_collector), 70);
+    // Arbitration fee is paid to fee_collector at finalization; protocol fee accrues for pull-claim.
+    assert_eq!(balance(&env, &token, &fee_collector), 50);
+    assert_eq!(client.get_accumulated_fees(&token), 20);
+    assert_eq!(balance(&env, &token, &contract_id), 20);
 
     // Dedicated tracking variable should be updated
     assert_eq!(client.get_total_arbitration_fees(&token), 50);
@@ -158,8 +159,9 @@ fn test_arbitration_fee_deduction_on_resolve_refund() {
     // 4. buyer refund = 1000 - 50 - 30 = 920
 
     assert_eq!(balance(&env, &token, &buyer), 920);
-    assert_eq!(balance(&env, &token, &contract_id), 0);
-    assert_eq!(balance(&env, &token, &fee_collector), 80);
+    assert_eq!(balance(&env, &token, &fee_collector), 50);
+    assert_eq!(client.get_accumulated_fees(&token), 30);
+    assert_eq!(balance(&env, &token, &contract_id), 30);
     assert_eq!(client.get_total_arbitration_fees(&token), 50);
 }
 
@@ -304,17 +306,16 @@ fn test_zero_fee_dispute_not_charged_on_appeal_after_fee_increase() {
     assert_eq!(dispute.arbitration_fee, 0);
     assert_eq!(dispute.resolver_fee, 0);
 
-    // Admin raises the arbitration fee to 5% before the appeal round.
+    // Admin raises the arbitration fee to 5% before the appeal round — the
+    // escrow still uses the 0 bps rate snapshotted at funding (#1255).
     client.set_arbitration_fee(&admin, &500_u32);
 
     client.appeal_dispute(&buyer, &id);
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
 
-    // The re-resolution records the fee now in force (5% of 1000), but still
-    // transfers nothing while the dispute is pending.
     let dispute = client.get_dispute(&id).unwrap();
     assert!(!dispute.fees_charged);
-    assert_eq!(dispute.arbitration_fee, 50);
+    assert_eq!(dispute.arbitration_fee, 0);
     assert_eq!(client.get_total_arbitration_fees(&token), 0);
     assert_eq!(balance(&env, &token, &fee_collector), 0);
     assert_eq!(balance(&env, &token, &contract_id), amount);
@@ -322,12 +323,11 @@ fn test_zero_fee_dispute_not_charged_on_appeal_after_fee_increase() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id);
 
-    // The fee is charged exactly once, at finalization.
     assert!(client.get_dispute(&id).unwrap().fees_charged);
-    assert_eq!(balance(&env, &token, &seller), amount - 50);
-    assert_eq!(balance(&env, &token, &fee_collector), 50);
+    assert_eq!(balance(&env, &token, &seller), amount);
+    assert_eq!(balance(&env, &token, &fee_collector), 0);
     assert_eq!(balance(&env, &token, &contract_id), 0);
-    assert_eq!(client.get_total_arbitration_fees(&token), 50);
+    assert_eq!(client.get_total_arbitration_fees(&token), 0);
 }
 
 #[test]
@@ -570,7 +570,7 @@ fn test_execute_resolution_transition_rejects_fees_exceeding_amount() {
             votes,
             true,
             None,
-            soroban_sdk::Bytes::new(&env),
+            Bytes::new(&env),
         );
 
         let escrow_after = crate::internal::load_escrow(&env, id).unwrap();

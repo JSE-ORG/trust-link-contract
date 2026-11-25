@@ -74,6 +74,35 @@ pub fn update_global_config(env: &Env, f: impl FnOnce(&mut GlobalConfig)) {
     write_global_config(env, &config);
 }
 
+/// Registered merchant discount in basis points (0 when unset).
+pub fn merchant_fee_discount_bps(env: &Env, merchant: &Address) -> u32 {
+    env.storage()
+        .instance()
+        .get(&crate::DataKey::MerchantFeeTier(merchant.clone()))
+        .unwrap_or(0)
+}
+
+pub fn write_merchant_fee_tier(env: &Env, merchant: &Address, discount_bps: u32) {
+    let key = crate::DataKey::MerchantFeeTier(merchant.clone());
+    if discount_bps == 0 {
+        env.storage().instance().remove(&key);
+    } else {
+        env.storage().instance().set(&key, &discount_bps);
+    }
+}
+
+/// Fee collector required for settlement paths that accrue or move protocol fees.
+pub fn require_fee_collector(env: &Env) -> Result<Address, ContractError> {
+    read_global_config(env)
+        .fee_collector
+        .ok_or(ContractError::NotInitialized)
+}
+
+/// Treasury is optional; platform fees are skipped when unset.
+pub fn get_treasury_address(env: &Env) -> Option<Address> {
+    read_global_config(env).treasury
+}
+
 // ── Accumulated protocol fees (pull pattern) ────────────────────────────────
 
 /// Returns the accumulated unclaimed protocol fees for `token`.
