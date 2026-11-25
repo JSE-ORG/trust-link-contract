@@ -125,17 +125,16 @@ pub(crate) fn execute_resolution_transition(
     } else if !charge_fees {
         (0, 0)
     } else {
-        let arbitration_fee =
-            crate::helpers::payout::calculate_fee(escrow.amount, escrow.arbitration_fee_bps)?;
-        let resolver_fee =
-            crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?;
-        let combined_fee = arbitration_fee
-            .checked_add(resolver_fee)
-            .ok_or(ContractError::ArithmeticError)?;
-        if combined_fee > escrow.amount {
-            return Err(ContractError::FeeExceedsMax);
-        }
-        (arbitration_fee, resolver_fee)
+        // Issue #1260: each fee applies a 1-stroop minimum for a non-zero
+        // rate, so on a micro principal the two minimums can exceed the
+        // amount. `calculate_dispute_fees` caps the resolver fee at the
+        // remainder after arbitration, keeping the combined fee within the
+        // principal and the `checked_sub` deductions below non-negative.
+        crate::helpers::payout::calculate_dispute_fees(
+            escrow.amount,
+            escrow.arbitration_fee_bps,
+            escrow.resolver_fee_bps,
+        )?
     };
 
     let fee_collector = if fees_already_charged {

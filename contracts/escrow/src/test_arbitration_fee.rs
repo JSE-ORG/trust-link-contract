@@ -347,12 +347,13 @@ fn test_set_and_get_arbitration_fee() {
 
 #[test]
 fn test_resolution_transition_min_amount_max_fees_does_not_underflow() {
-    // Issue #819: at the minimum escrow amount with arbitration_fee_bps and
-    // resolver_fee_bps both at their individually validated maximums
-    // (MAX_ARBITRATION_FEE_BPS=500, MAX_ESCROW_FEE_BPS=300 for resolver fee),
-    // execute_resolution_transition must resolve cleanly rather than
-    // underflowing. Floor rounding means both fees round to 0 at amount=1,
-    // so the seller receives the full amount and no fees are charged.
+    // Issue #819 / #1260: at the minimum escrow amount with
+    // arbitration_fee_bps and resolver_fee_bps both at their individually
+    // validated maximums (MAX_ARBITRATION_FEE_BPS=500,
+    // MAX_ESCROW_FEE_BPS=300 for resolver fee), execute_resolution_transition
+    // must resolve cleanly rather than underflowing. Both rates are non-zero,
+    // so each would collect the 1-stroop minimum; the arbitration fee takes
+    // priority and the resolver fee is capped at the remaining balance (zero).
     let env = Env::default();
     let (admin, seller, buyer, resolver, fee_collector, token) = setup(&env);
 
@@ -406,17 +407,19 @@ fn test_resolution_transition_min_amount_max_fees_does_not_underflow() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id);
 
-    assert_eq!(balance(&env, &token, &seller), 1);
+    assert_eq!(balance(&env, &token, &seller), 0);
     assert_eq!(balance(&env, &token, &contract_id), 0);
-    assert_eq!(balance(&env, &token, &fee_collector), 0);
-    assert_eq!(client.get_total_arbitration_fees(&token), 0);
+    // The arbitration fee is paid to the fee collector at resolution time.
+    assert_eq!(balance(&env, &token, &fee_collector), 1);
+    assert_eq!(client.get_total_arbitration_fees(&token), 1);
 }
 
-/// Issue #1065: pin the `MIN_ESCROW_AMOUNT` + maximum combined fee schedule
-/// path. The arbitration and resolver rates are both at their individually
-/// validated maximums; because fees floor to zero at one stroop, both fee
-/// components stay zero, the two `checked_sub` deductions cannot underflow, and
-/// the winner receives the remaining principal in full.
+/// Issue #1065 / #1260: pin the `MIN_ESCROW_AMOUNT` + maximum combined fee
+/// schedule path. The arbitration and resolver rates are both at their
+/// individually validated maximums; both collect the 1-stroop minimum, with
+/// the arbitration fee taking priority and the resolver fee capped at the
+/// remaining balance (zero). The two `checked_sub` deductions therefore cannot
+/// underflow.
 #[test]
 fn test_execute_resolution_transition_min_amount_max_combined_fees_pins_outcome() {
     let env = Env::default();
@@ -470,24 +473,25 @@ fn test_execute_resolution_transition_min_amount_max_combined_fees_pins_outcome(
     client.resolve_dispute(&resolver, &id, &ResolutionType::Release);
 
     let pending = client.get_escrow(&id);
-    assert_eq!(pending.amount, amount);
+    assert_eq!(pending.amount, 0);
     assert_eq!(pending.state, crate::EscrowState::PendingFinalization);
 
     let dispute = client.get_dispute(&id).unwrap();
     assert!(!dispute.fees_charged);
-    assert_eq!(dispute.arbitration_fee, 0);
+    assert_eq!(dispute.arbitration_fee, 1);
     assert_eq!(dispute.resolver_fee, 0);
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id);
     assert!(client.get_dispute(&id).unwrap().fees_charged);
 
-    // The winner receives the full remainder: there is nothing left in the
-    // contract and no fee was charged.
-    assert_eq!(balance(&env, &token, &seller), amount);
+    // The arbitration fee consumed the 1-stroop principal; the seller receives
+    // nothing further and the contract holds nothing after finalization.
+    assert_eq!(balance(&env, &token, &seller), 0);
     assert_eq!(balance(&env, &token, &contract_id), 0);
-    assert_eq!(balance(&env, &token, &fee_collector), 0);
-    assert_eq!(client.get_total_arbitration_fees(&token), 0);
+    // The arbitration fee is paid to the fee collector at resolution time.
+    assert_eq!(balance(&env, &token, &fee_collector), 1);
+    assert_eq!(client.get_total_arbitration_fees(&token), 1);
 }
 
 #[test]

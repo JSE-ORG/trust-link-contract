@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use crate::helpers::payout::{calculate_fee, calculate_protocol_fee};
 use crate::{Escrow, EscrowClient, Payee, ResolutionType};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
@@ -27,10 +28,59 @@ fn balance(env: &Env, token: &Address, who: &Address) -> i128 {
     token::Client::new(env, token).balance(who)
 }
 
-/// With amount = 1 stroop and any non-zero fee_bps, integer division yields
-/// fee = 1 * fee_bps / 10_000 = 0, so the full 1 stroop reaches the recipient.
+/// Issue #1260: for every non-zero principal amount from 1 through 10_000
+/// stroops, a non-zero fee rate must collect at least 1 stroop and the
+/// proportional fee must be floored otherwise. The conservation invariant
+/// `net + fee == amount` must hold exactly for every case.
 #[test]
-fn test_fee_rounds_to_zero_on_one_stroop_confirm_delivery() {
+fn test_calculate_fee_collects_minimum_one_stroop() {
+    for fee_bps in [1_u32, 50, 100, 300] {
+        for amount in 1_i128..=10_000 {
+            let fee = calculate_fee(amount, fee_bps)
+                .unwrap_or_else(|e| panic!("calculate_fee({amount}, {fee_bps}) failed: {e:?}"));
+            let expected = core::cmp::max(1, amount * fee_bps as i128 / 10_000);
+
+            assert_eq!(
+                fee, expected,
+                "fee mismatch for amount={amount}, fee_bps={fee_bps}"
+            );
+            assert!(
+                fee >= 1,
+                "a non-zero rate on a non-zero amount must not waive the fee: \
+                 amount={amount}, fee_bps={fee_bps}"
+            );
+
+            let (protocol_fee, net) = calculate_protocol_fee(amount, fee_bps).unwrap_or_else(|e| {
+                panic!("calculate_protocol_fee({amount}, {fee_bps}) failed: {e:?}")
+            });
+            assert_eq!(protocol_fee, fee);
+            assert_eq!(
+                net + fee,
+                amount,
+                "net + fee must equal amount: amount={amount}, fee_bps={fee_bps}, \
+                 fee={fee}, net={net}"
+            );
+            assert!(net >= 0, "net must be non-negative");
+        }
+    }
+}
+
+/// A zero rate and a zero principal both legitimately produce a zero fee.
+#[test]
+fn test_calculate_fee_zero_rate_or_zero_principal() {
+    for amount in [0_i128, 1, 10_000] {
+        assert_eq!(calculate_fee(amount, 0).unwrap(), 0);
+    }
+    for fee_bps in [1_u32, 50, 300, 10_000] {
+        assert_eq!(calculate_fee(0, fee_bps).unwrap(), 0);
+    }
+}
+
+/// With amount = 1 stroop and any non-zero fee_bps the proportional fee would
+/// truncate to 0; the minimum-fee rule now collects exactly 1 stroop and the
+/// recipient receives 0.
+#[test]
+fn test_fee_minimum_on_one_stroop_confirm_delivery() {
     let env = Env::default();
     let (admin, seller, buyer, resolver, fee_collector, token) = setup(&env);
 
@@ -41,13 +91,12 @@ fn test_fee_rounds_to_zero_on_one_stroop_confirm_delivery() {
 
     mint(&env, &token, &buyer, 1);
 
-    // MAX_FEE_BPS = 300 (3%) — still rounds to 0 on 1 stroop
-    let mut payees_45 = Vec::new(&env);
-    payees_45.push_back(Payee {
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
         address: seller.clone(),
         bps: 10_000,
     });
-    let payees_val = payees_45.into_val(&env);
+    let payees_val = payees.into_val(&env);
     let id = client.create_escrow_8(
         &payees_val,
         &None::<Address>,
@@ -68,30 +117,37 @@ fn test_fee_rounds_to_zero_on_one_stroop_confirm_delivery() {
     env.ledger().set_timestamp(escrow.dispute_deadline() + 1);
     client.confirm_delivery(&buyer, &id, &false);
 
-    let _escrow = client.get_escrow(&id);
-    // fee = 1 * 300 / 10_000 = 0  →  net = 1
-    assert_eq!(balance(&env, &token, &seller), 1);
-    assert_eq!(balance(&env, &token, &fee_collector), 0);
+    // fee = max(1, 1 * 300 / 10_000) = 1  →  net = 0. The fee is accumulated
+    // for the fee collector rather than transferred immediately.
+    assert_eq!(balance(&env, &token, &seller), 0);
+    assert_eq!(client.get_accumulated_fees(&token), 1);
+    assert_eq!(balance(&env, &token, &contract_id), 1);
+
+    // The collector can pull the 1-stroop fee out of the contract.
+    client.claim_accumulated_fees(&fee_collector, &token);
+    assert_eq!(balance(&env, &token, &fee_collector), 1);
     assert_eq!(balance(&env, &token, &contract_id), 0);
 }
 
 #[test]
-fn test_fee_rounds_to_zero_on_one_stroop_auto_release() {
+fn test_fee_minimum_on_one_stroop_auto_release() {
     let env = Env::default();
     let (admin, seller, buyer, resolver, fee_collector, token) = setup(&env);
 
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
+    // `auto_release` settles at the current global protocol rate.
+    client.set_protocol_fee(&admin, &300_u32);
 
     mint(&env, &token, &buyer, 1);
 
-    let mut payees_44 = Vec::new(&env);
-    payees_44.push_back(Payee {
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
         address: seller.clone(),
         bps: 10_000,
     });
-    let payees_val = payees_44.into_val(&env);
+    let payees_val = payees.into_val(&env);
     let id = client.create_escrow_8(
         &payees_val,
         &None::<Address>,
@@ -116,12 +172,17 @@ fn test_fee_rounds_to_zero_on_one_stroop_auto_release() {
         .set_timestamp(escrow.delivered_at.unwrap() + 172_801);
     client.auto_release(&id);
 
-    assert_eq!(balance(&env, &token, &seller), 1);
+    assert_eq!(balance(&env, &token, &seller), 0);
+    assert_eq!(client.get_accumulated_fees(&token), 1);
+    assert_eq!(balance(&env, &token, &contract_id), 1);
+
+    client.claim_accumulated_fees(&fee_collector, &token);
+    assert_eq!(balance(&env, &token, &fee_collector), 1);
     assert_eq!(balance(&env, &token, &contract_id), 0);
 }
 
 #[test]
-fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_release() {
+fn test_fee_minimum_on_one_stroop_resolve_dispute_release() {
     let env = Env::default();
     let (admin, seller, buyer, resolver, fee_collector, token) = setup(&env);
 
@@ -131,12 +192,12 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_release() {
 
     mint(&env, &token, &buyer, 1);
 
-    let mut payees_43 = Vec::new(&env);
-    payees_43.push_back(Payee {
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
         address: seller.clone(),
         bps: 10_000,
     });
-    let payees_val = payees_43.into_val(&env);
+    let payees_val = payees.into_val(&env);
     let id = client.create_escrow_8(
         &payees_val,
         &None::<Address>,
@@ -163,12 +224,17 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_release() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id);
 
-    assert_eq!(balance(&env, &token, &seller), 1);
+    assert_eq!(balance(&env, &token, &seller), 0);
+    assert_eq!(client.get_accumulated_fees(&token), 1);
+    assert_eq!(balance(&env, &token, &contract_id), 1);
+
+    client.claim_accumulated_fees(&fee_collector, &token);
+    assert_eq!(balance(&env, &token, &fee_collector), 1);
     assert_eq!(balance(&env, &token, &contract_id), 0);
 }
 
 #[test]
-fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_refund() {
+fn test_fee_minimum_on_one_stroop_resolve_dispute_refund() {
     let env = Env::default();
     let (admin, seller, buyer, resolver, fee_collector, token) = setup(&env);
 
@@ -178,12 +244,12 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_refund() {
 
     mint(&env, &token, &buyer, 1);
 
-    let mut payees_42 = Vec::new(&env);
-    payees_42.push_back(Payee {
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
         address: seller.clone(),
         bps: 10_000,
     });
-    let payees_val = payees_42.into_val(&env);
+    let payees_val = payees.into_val(&env);
     let id = client.create_escrow_8(
         &payees_val,
         &None::<Address>,
@@ -210,7 +276,12 @@ fn test_fee_rounds_to_zero_on_one_stroop_resolve_dispute_refund() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id);
 
-    // Buyer gets back the full 1 stroop; no fee retained
-    assert_eq!(balance(&env, &token, &buyer), 1);
+    // The protocol fee applies on refunds too: 1 stroop fee, 0 back to buyer.
+    assert_eq!(balance(&env, &token, &buyer), 0);
+    assert_eq!(client.get_accumulated_fees(&token), 1);
+    assert_eq!(balance(&env, &token, &contract_id), 1);
+
+    client.claim_accumulated_fees(&fee_collector, &token);
+    assert_eq!(balance(&env, &token, &fee_collector), 1);
     assert_eq!(balance(&env, &token, &contract_id), 0);
 }

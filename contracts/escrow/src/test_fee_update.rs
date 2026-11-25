@@ -233,11 +233,14 @@ fn test_calculate_fee_large_amount() {
     assert!(fee > 0);
 }
 
-/// Test: calculate_fee with 1 stroop and 300 bps rounds to 0
+/// Test: a non-zero rate on a non-zero amount collects at least 1 stroop.
 #[test]
-fn test_calculate_fee_one_stroop_rounds_zero() {
+fn test_calculate_fee_one_stroop_minimum_one() {
     let fee = crate::helpers::payout::calculate_fee(1, 300).expect("calculate_fee(1, 300)");
-    assert_eq!(fee, 0, "1 stroop at 300 bps should round down to 0");
+    assert_eq!(
+        fee, 1,
+        "1 stroop at 300 bps must collect the 1-stroop minimum"
+    );
 }
 
 /// Test: fee calculation is integer-based, no floating point
