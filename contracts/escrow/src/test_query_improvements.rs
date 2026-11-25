@@ -4,7 +4,7 @@
 
 use crate::test_helpers::{create_funded_escrow, setup_contract};
 use crate::{Payee, ResolutionType};
-use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, IntoVal, Symbol, Vec};
+use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, IntoVal, String, Symbol, Vec};
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
@@ -15,6 +15,81 @@ fn register_token(env: &Env) -> Address {
 fn mint_tokens(env: &Env, token: &Address, to: &Address, amount: i128) {
     let sac = soroban_sdk::token::StellarAssetClient::new(env, token);
     sac.mint(to, &amount);
+}
+
+fn private_query_fixture(
+    env: &Env,
+) -> (
+    crate::EscrowClient<'_>,
+    u64,
+    Address,
+    Address,
+    Address,
+    Address,
+) {
+    let token = register_token(env);
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(env);
+    let seller = Address::generate(env);
+    let buyer = Address::generate(env);
+    let resolver = Address::generate(env);
+    let id = create_funded_escrow(
+        env, &client, &seller, &buyer, &resolver, &token, 1_000, 100, 3_600,
+    );
+
+    let mut escrow = crate::internal::load_escrow(env, id).unwrap();
+    escrow.notes = String::from_str(env, "private escrow notes");
+    crate::storage::write_escrow_data(env, id, &escrow);
+
+    (client, id, admin, seller, buyer, resolver)
+}
+
+#[test]
+fn private_escrow_query_returns_full_notes_to_privileged_roles() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, id, admin, seller, buyer, resolver) = private_query_fixture(&env);
+    let expected = client.get_escrow(&id);
+
+    for caller in [&admin, &seller, &buyer, &resolver] {
+        assert_eq!(client.get_escrow_private(caller, &id), expected);
+    }
+}
+
+#[test]
+fn private_escrow_query_masks_only_notes_for_authenticated_random_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, id, _admin, _seller, _buyer, _resolver) = private_query_fixture(&env);
+    let caller = Address::generate(&env);
+    let original = client.get_escrow(&id);
+    let mut expected = original.clone();
+    expected.notes = String::from_str(&env, "");
+
+    assert_eq!(client.get_escrow_private(&caller, &id), expected);
+    assert_eq!(client.get_escrow(&id), original);
+}
+
+#[test]
+fn private_escrow_query_requires_caller_authentication() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, id, _admin, _seller, _buyer, _resolver) = private_query_fixture(&env);
+    let caller = Address::generate(&env);
+    env.mock_auths(&[]);
+
+    assert!(client.try_get_escrow_private(&caller, &id).is_err());
+}
+
+#[test]
+fn public_escrow_query_keeps_returning_original_notes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, id, _admin, _seller, _buyer, _resolver) = private_query_fixture(&env);
+
+    assert_eq!(
+        client.get_escrow(&id).notes,
+        String::from_str(&env, "private escrow notes")
+    );
 }
 
 // ── Issue #823: get_escrows_by_buyer fallback scan without TTL extension ─────

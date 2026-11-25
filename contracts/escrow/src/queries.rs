@@ -109,6 +109,33 @@ impl Escrow {
         load_escrow(&env, escrow_id)
     }
 
+    /// Returns an escrow record after authenticating `caller`. Buyers,
+    /// payees, resolvers, and the contract admin receive the original notes;
+    /// other authenticated callers receive the same record with notes masked.
+    pub fn get_escrow_private(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+    ) -> Result<EscrowData, ContractError> {
+        caller.require_auth();
+
+        let mut escrow = load_escrow(&env, escrow_id)?;
+        let is_buyer = escrow.buyer.as_ref() == Some(&caller);
+        let is_payee = escrow
+            .payees
+            .inner
+            .iter()
+            .any(|payee| payee.address == caller);
+        let is_resolver = escrow.resolvers.contains(&caller);
+        let is_admin = require_admin(&env).is_ok_and(|admin| admin == caller);
+
+        if !(is_buyer || is_payee || is_resolver || is_admin) {
+            escrow.notes = soroban_sdk::String::from_str(&env, "");
+        }
+
+        Ok(escrow)
+    }
+
     /// Returns the full state transition history for an escrow as
     /// `(state, ledger_timestamp)` pairs, oldest first.
     ///
