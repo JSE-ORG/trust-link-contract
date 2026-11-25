@@ -900,6 +900,30 @@ impl Escrow {
         read_platform_fee_bps(&env)
     }
 
+    /// Register a protocol fee discount for a high-volume merchant (primary payee).
+    pub fn set_merchant_tier(
+        env: Env,
+        caller: Address,
+        merchant: Address,
+        discount_bps: u32,
+    ) -> Result<(), ContractError> {
+        ensure_admin_action_not_paused(&env, "set_merchant_tier")?;
+        let admin = require_admin(&env)?;
+        caller.require_auth();
+        if caller != admin {
+            return Err(ContractError::NotAuthorized);
+        }
+        if discount_bps > crate::MAX_ESCROW_FEE_BPS {
+            return Err(ContractError::FeeExceedsMax);
+        }
+        storage::write_merchant_fee_tier(&env, &merchant, discount_bps);
+        Ok(())
+    }
+
+    pub fn get_merchant_fee_discount(env: Env, merchant: Address) -> u32 {
+        storage::merchant_fee_discount_bps(&env, &merchant)
+    }
+
     /// Adds `token` to the allowlist. Only callable by admin. A no-op
     /// (returns `Ok`) if the token is already present. Emits
     /// `token_allowlist_updated` with `allowed = true`.

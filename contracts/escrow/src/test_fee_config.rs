@@ -1,8 +1,8 @@
 #![cfg(test)]
 
 use crate::internal::validate_combined_fees;
-use crate::{test_helpers::setup_contract, ContractError, EscrowClient, FeeConfig};
-use soroban_sdk::Env;
+use crate::{test_helpers::setup_contract, ContractError, EscrowClient, FeeConfig, Payee};
+use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal, Vec};
 
 #[test]
 fn test_fee_updates_are_independent() {
@@ -175,4 +175,57 @@ fn test_combined_fee_overflow_safety() {
         validate_combined_fees(u32::MAX / 2 + 1, u32::MAX / 2 + 1),
         Err(ContractError::ArithmeticError)
     );
+}
+
+/// Issue #1257: tiered merchant discount applied at escrow creation.
+#[test]
+fn test_merchant_fee_tier_reduces_escrow_fee_bps() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let merchant = Address::generate(&env);
+    let other_vendor = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+
+    client.set_merchant_tier(&admin, &merchant, &50_u32);
+    assert_eq!(client.get_merchant_fee_discount(&merchant), 50);
+    assert_eq!(client.get_merchant_fee_discount(&other_vendor), 0);
+
+    let base_fee = 100_u32;
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: merchant.clone(),
+        bps: 10_000,
+    });
+    let tiered_id = client.create_escrow_8(
+        &payees.into_val(&env),
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &1_000_i128,
+        &base_fee,
+        &604_800_u64,
+    );
+    assert_eq!(client.get_escrow(&tiered_id).fee_bps, 50);
+
+    payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: other_vendor.clone(),
+        bps: 10_000,
+    });
+    let standard_id = client.create_escrow_8(
+        &payees.into_val(&env),
+        &Some(buyer),
+        &resolver,
+        &token,
+        &1_000_i128,
+        &base_fee,
+        &604_800_u64,
+    );
+    assert_eq!(client.get_escrow(&standard_id).fee_bps, base_fee);
 }

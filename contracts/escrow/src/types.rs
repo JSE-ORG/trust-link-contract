@@ -125,6 +125,8 @@ pub enum DataKey {
     UpgradeHistory,
     /// Marks a proposal invalidated by an admin rotation until its slot is requeued.
     InvalidatedTimelockOp(u32),
+    /// Per-merchant protocol fee discount (basis points subtracted at escrow creation).
+    MerchantFeeTier(Address),
 }
 
 /// A token-amount pair for multi-token basket escrows.

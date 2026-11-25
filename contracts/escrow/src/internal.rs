@@ -1679,6 +1679,14 @@ pub(crate) fn create_escrow_internal(
         return Err(ContractError::GracePeriodTooLong);
     }
 
+    let vendor = payees
+        .inner
+        .get(0)
+        .ok_or(ContractError::PayeeIndexOutOfBounds)?
+        .address
+        .clone();
+    let fee_bps = fee_bps.saturating_sub(crate::storage::merchant_fee_discount_bps(env, &vendor));
+
     validate_escrow_fee_bps(fee_bps)?;
     validate_resolver_fee_bps(resolver_fee_bps)?;
     validate_total_fee_bps(
