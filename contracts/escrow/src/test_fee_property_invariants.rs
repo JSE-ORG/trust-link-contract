@@ -16,7 +16,7 @@
 //!
 //! It exercises the boundary amounts called out in issue #822
 //! (`MAX_ESCROW_AMOUNT`, `0`, `1`) plus a deterministic pseudo-random sweep
-//! standing in for a proptest generator, without adding a new dev-dependency.
+//! and a proptest generator covering the full non-negative `i128` domain.
 //!
 //! A separate group of tests feeds `fee_bps` values outside that domain
 //! (up to `u32::MAX`, i.e. "fees" over 100%) — nothing in the crate ever
@@ -28,6 +28,10 @@
 
 use crate::helpers::payout::{calculate_fee, calculate_protocol_fee};
 use crate::{BASIS_POINTS, MAX_ESCROW_AMOUNT};
+
+fn calculate_net(amount: i128, fee_bps: u32) -> Result<i128, crate::ContractError> {
+    calculate_protocol_fee(amount, fee_bps).map(|(_, net)| net)
+}
 
 fn assert_invariants(amount: i128, fee_bps: u32) {
     assert!(
@@ -129,7 +133,7 @@ fn fee_bps_beyond_basis_points_is_rejected() {
 }
 
 /// Small deterministic LCG so the sweep below is reproducible across runs
-/// (a fixed seed with no external randomness/proptest dependency).
+/// (a fixed seed; the `prop` module below adds full-range proptest coverage).
 struct Lcg(u64);
 
 impl Lcg {
@@ -172,16 +176,37 @@ mod prop {
     use super::*;
     use proptest::prelude::*;
 
-    proptest! {
-        #![proptest_config(ProptestConfig::with_cases(2_000))]
+    fn amount_strategy() -> impl Strategy<Value = i128> {
+        0_i128..=i128::MAX
+    }
 
-        /// fee + net == amount, fee == floor(amount * bps / 10000), 0 <= fee <= amount.
+    fn fee_bps_strategy() -> impl Strategy<Value = u32> {
+        0_u32..=BASIS_POINTS
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50_000))]
+
         #[test]
         fn fee_plus_net_equals_amount(
-            amount in 0..=MAX_ESCROW_AMOUNT,
-            fee_bps in 0..=BASIS_POINTS,
+            amount in amount_strategy(),
+            fee_bps in fee_bps_strategy(),
         ) {
-            assert_invariants(amount, fee_bps);
+            let fee = calculate_fee(amount, fee_bps).expect("calculate_fee must not overflow");
+            let net = calculate_net(amount, fee_bps).expect("calculate_net must not overflow");
+            prop_assert_eq!(fee + net, amount);
+            prop_assert!(fee >= 0 && fee <= amount);
+            prop_assert!(net >= 0);
+        }
+
+        #[test]
+        fn fee_is_bounded_by_amount(
+            amount in amount_strategy(),
+            fee_bps in fee_bps_strategy(),
+        ) {
+            let fee = calculate_fee(amount, fee_bps).expect("calculate_fee must not overflow");
+            prop_assert!(fee >= 0);
+            prop_assert!(fee <= amount);
         }
 
         /// Floor bound: the exact (non-truncated) fee exceeds the floored fee
@@ -190,15 +215,16 @@ mod prop {
         /// Computed via the split representation so it cannot overflow.
         #[test]
         fn floor_remainder_is_below_one_stroop(
-            amount in 0..=MAX_ESCROW_AMOUNT,
-            fee_bps in 0..=BASIS_POINTS,
+            amount in amount_strategy(),
+            fee_bps in fee_bps_strategy(),
         ) {
-            let fee = calculate_fee(amount, fee_bps).unwrap();
+            let fee = calculate_fee(amount, fee_bps).expect("calculate_fee must not overflow");
             let q = amount / (BASIS_POINTS as i128);
             let r = amount % (BASIS_POINTS as i128);
-            // amount * bps = (q*10000 + r) * bps  =>  remainder of the exact
-            // fee beyond `fee` is (r * bps) % 10000, which must be < 10000.
-            prop_assert_eq!(fee, q * (fee_bps as i128) + r * (fee_bps as i128) / (BASIS_POINTS as i128));
+            prop_assert_eq!(
+                fee,
+                q * (fee_bps as i128) + r * (fee_bps as i128) / (BASIS_POINTS as i128)
+            );
             prop_assert!((r * (fee_bps as i128)) % (BASIS_POINTS as i128) < BASIS_POINTS as i128);
         }
 
@@ -207,14 +233,43 @@ mod prop {
         #[test]
         fn no_overflow_near_i128_max(
             offset in 0..=1_000_000_i128,
-            fee_bps in 0..=BASIS_POINTS,
+            fee_bps in fee_bps_strategy(),
         ) {
             let amount = i128::MAX - offset;
             let fee = calculate_fee(amount, fee_bps).expect("must not overflow at MAX");
             prop_assert!(fee >= 0 && fee <= amount);
-            let (fee2, net) = calculate_protocol_fee(amount, fee_bps).expect("must not overflow at MAX");
+            let (fee2, net) =
+                calculate_protocol_fee(amount, fee_bps).expect("must not overflow at MAX");
             prop_assert_eq!(fee, fee2);
             prop_assert_eq!(fee + net, amount);
+        }
+
+        #[test]
+        fn fee_is_monotonic_in_amount(
+            a in amount_strategy(),
+            b in amount_strategy(),
+            fee_bps in fee_bps_strategy(),
+        ) {
+            let (low, high) = if a <= b { (a, b) } else { (b, a) };
+            let low_fee = calculate_fee(low, fee_bps).expect("calculate_fee must not overflow");
+            let high_fee = calculate_fee(high, fee_bps).expect("calculate_fee must not overflow");
+            prop_assert!(low_fee <= high_fee);
+        }
+
+        #[test]
+        fn fee_is_monotonic_in_bps(
+            amount in amount_strategy(),
+            bps_a in fee_bps_strategy(),
+            bps_b in fee_bps_strategy(),
+        ) {
+            let (low, high) = if bps_a <= bps_b {
+                (bps_a, bps_b)
+            } else {
+                (bps_b, bps_a)
+            };
+            let low_fee = calculate_fee(amount, low).expect("calculate_fee must not overflow");
+            let high_fee = calculate_fee(amount, high).expect("calculate_fee must not overflow");
+            prop_assert!(low_fee <= high_fee);
         }
     }
 }
