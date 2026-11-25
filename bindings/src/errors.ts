@@ -89,6 +89,7 @@ export const enum ErrorCode {
   NoPendingTreasury = 79,
   DuplicateResolver = 80,
   EvidenceLimitReached = 81,
+  TimelockProposalExpired = 84,
 }
 
 /** Human-readable message for every contract error code. */
@@ -239,6 +240,8 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "The same address appears more than once in the resolver configuration.",
   [ErrorCode.EvidenceLimitReached]:
     "The escrow's dispute evidence log has reached its maximum number of entries.",
+  [ErrorCode.TimelockProposalExpired]:
+    "The timelock proposal has expired after its execution grace period.",
 };
 
 /**

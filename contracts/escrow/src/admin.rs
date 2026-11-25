@@ -23,6 +23,9 @@ use soroban_sdk::{
 pub const ADMIN_TIMELOCK_DELAY_SECONDS: u64 = 24 * 60 * 60;
 pub const MIN_TIMELOCK_DELAY_SECONDS: u64 = 12 * 60 * 60; // 12 hours
 pub const MAX_TIMELOCK_DELAY_SECONDS: u64 = 30 * 24 * 60 * 60; // 30 days
+pub const ADMIN_TIMELOCK_GRACE_PERIOD_SECONDS: u64 = 7 * 24 * 60 * 60;
+pub const ADMIN_TIMELOCK_EXPIRY_SECONDS: u64 = ADMIN_TIMELOCK_GRACE_PERIOD_SECONDS;
+pub const TIMELOCK_PROPOSAL_GRACE_PERIOD_SECONDS: u64 = ADMIN_TIMELOCK_GRACE_PERIOD_SECONDS;
 const MAX_TIMELOCK_PARAMS: u32 = 5;
 
 /// Returns the currently configured admin timelock delay in seconds
@@ -93,7 +96,12 @@ fn queue_timelock_op_with_min_delay(
 
     let now = env.ledger().timestamp();
     let delay = read_timelock_delay(env).max(min_delay);
-    let ready_at = now + delay;
+    let ready_at = now
+        .checked_add(delay)
+        .ok_or(ContractError::ArithmeticOverflow)?;
+    let expires_at = ready_at
+        .checked_add(ADMIN_TIMELOCK_GRACE_PERIOD_SECONDS)
+        .ok_or(ContractError::ArithmeticOverflow)?;
 
     let params_hash = compute_proposal_hash(env, operation, &params);
     let proposal = TimelockProposal {
@@ -102,6 +110,7 @@ fn queue_timelock_op_with_min_delay(
         params_hash,
         queued_at: now,
         ready_at,
+        expires_at,
     };
 
     // A newly authorized proposal replaces any prior rotation invalidation.
@@ -143,6 +152,9 @@ fn execute_timelock_op(
     let now = env.ledger().timestamp();
     if now < proposal.ready_at {
         return Err(ContractError::TimelockNotElapsed);
+    }
+    if now >= proposal.expires_at {
+        return Err(ContractError::TimelockProposalExpired);
     }
 
     if compute_proposal_hash(env, operation, &params) != proposal.params_hash {
@@ -358,6 +370,67 @@ mod tests {
             Escrow::execute_pause_contract(env.clone(), admin.clone())
         });
         assert!(res_exec2.is_ok());
+    }
+
+    #[test]
+    fn timelock_proposal_expires_after_grace_period() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let contract_id = env.register(Escrow, ());
+        let client = crate::EscrowClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0_u32);
+
+        let result = env.as_contract(&contract_id, || {
+            Escrow::queue_set_platform_fee(env.clone(), admin.clone(), 50)
+        });
+        assert!(result.is_ok());
+
+        let proposal = env.as_contract(&contract_id, || {
+            storage::read_timelock_proposal(&env, TimelockOperation::SetPlatformFee as u32)
+        })
+        .unwrap();
+        assert_eq!(
+            proposal.expires_at,
+            proposal.ready_at + TIMELOCK_PROPOSAL_GRACE_PERIOD_SECONDS
+        );
+
+        env.ledger().set_timestamp(proposal.ready_at);
+        let at_ready = env.as_contract(&contract_id, || {
+            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 50)
+        });
+        assert_eq!(at_ready, Ok(()));
+
+        let result = env.as_contract(&contract_id, || {
+            Escrow::queue_set_platform_fee(env.clone(), admin.clone(), 60)
+        });
+        assert!(result.is_ok());
+        let proposal = env.as_contract(&contract_id, || {
+            storage::read_timelock_proposal(&env, TimelockOperation::SetPlatformFee as u32)
+        })
+        .unwrap();
+
+        env.ledger().set_timestamp(proposal.expires_at - 1);
+        let before_expiry = env.as_contract(&contract_id, || {
+            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 60)
+        });
+        assert_eq!(before_expiry, Ok(()));
+
+        let result = env.as_contract(&contract_id, || {
+            Escrow::queue_set_platform_fee(env.clone(), admin.clone(), 70)
+        });
+        assert!(result.is_ok());
+        let proposal = env.as_contract(&contract_id, || {
+            storage::read_timelock_proposal(&env, TimelockOperation::SetPlatformFee as u32)
+        })
+        .unwrap();
+
+        env.ledger().set_timestamp(proposal.expires_at);
+        let at_expiry = env.as_contract(&contract_id, || {
+            Escrow::execute_set_platform_fee(env.clone(), admin.clone(), 70)
+        });
+        assert_eq!(at_expiry, Err(ContractError::TimelockProposalExpired));
     }
 
     #[test]
