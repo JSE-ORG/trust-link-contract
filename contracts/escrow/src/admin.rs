@@ -527,6 +527,71 @@ impl Escrow {
         Ok(())
     }
 
+    /// One-time strict contract setup: atomically initializes the contract with
+    /// the token allowlist **enabled** from genesis and populated with
+    /// `allowed_tokens` (issue #1293).
+    ///
+    /// Eliminates the deployment window between [`Escrow::initialize`] and
+    /// [`Escrow::set_token_allowlist_enabled`] during which untrusted SEP-41
+    /// tokens could otherwise be used to create escrows. Duplicate entries in
+    /// `allowed_tokens` are deduplicated while preserving order; passing the
+    /// zero address for `admin`, `fee_collector`, or any token reverts with
+    /// `InvalidAddress`. Emits `ContractInitialized` and `AllowlistToggled`.
+    pub fn initialize_with_allowlist(
+        env: Env,
+        admin: Address,
+        fee_collector: Address,
+        fee_bps: u32,
+        allowed_tokens: Vec<Address>,
+    ) -> Result<(), ContractError> {
+        if env.storage().instance().has(&DataKey::Admin) {
+            return Err(ContractError::AlreadyInitialized);
+        }
+        if admin == fee_collector {
+            return Err(ContractError::InvalidAddress);
+        }
+        validate_arbitration_fee_bps(fee_bps)?;
+
+        let zero = crate::zero_address(&env);
+        if admin == zero || fee_collector == zero {
+            return Err(ContractError::InvalidAddress);
+        }
+
+        let mut deduped_tokens = Vec::new(&env);
+        for token in allowed_tokens.iter() {
+            if token == zero {
+                return Err(ContractError::InvalidAddress);
+            }
+            if !crate::internal::contains(&deduped_tokens, &token) {
+                deduped_tokens.push_back(token);
+            }
+        }
+
+        let defaults = storage::default_global_config();
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        storage::write_global_config(
+            &env,
+            &GlobalConfig {
+                fee_collector: Some(fee_collector.clone()),
+                arbitration_fee_bps: fee_bps,
+                state_flags: defaults.state_flags
+                    | crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED,
+                ..defaults
+            },
+        );
+        env.storage()
+            .instance()
+            .set(&DataKey::TokenAllowlist, &deduped_tokens);
+        env.storage().instance().set(&DataKey::EscrowCounter, &1u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &STORAGE_VERSION);
+
+        emit_contract_initialized(&env, admin, fee_collector, fee_bps);
+        emit_allowlist_toggled(&env, true);
+        Ok(())
+    }
+
     pub fn get_storage_version(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -800,10 +865,12 @@ impl Escrow {
     /// run through `finalize_dispute` / `appeal_dispute`.
     ///
     /// Reverts with `NotInRecoveryMode` unless the admin has called
-    /// `enable_recovery_mode`, with `NotAuthorizedBuyer` if `caller` is not
-    /// the escrow's buyer, or with `InvalidState` for `PendingFinalization`
-    /// and for escrows holding no buyer funds (`Pending`, `Completed`,
-    /// `Refunded`, `Canceled`, `Expired`).
+    /// `enable_recovery_mode`, with `EscrowHasNoBuyer` if the escrow has no
+    /// assigned buyer (`buyer: None`, issue #1298), with `NotAuthorizedBuyer`
+    /// if `caller` is not the assigned buyer, or with `InvalidState` (or the
+    /// matching terminal-state error) for `PendingFinalization` and for escrows
+    /// holding no buyer funds (`Pending`, `Completed`, `Refunded`, `Canceled`,
+    /// `Expired`).
     /// Emits `recovery_withdraw`.
     pub fn recovery_withdraw(
         env: Env,
@@ -824,6 +891,30 @@ impl Escrow {
             return Err(ContractError::InvalidState);
         }
 
+        if matches!(
+            escrow.state,
+            EscrowState::Completed
+                | EscrowState::Refunded
+                | EscrowState::Canceled
+                | EscrowState::Expired
+        ) {
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
+        }
+
+        // Guard unassigned escrows (`buyer: None`) before checking recoverable
+        // funding states so unauthorized callers can never claim buyerless
+        // escrows and always receive `EscrowHasNoBuyer` (issue #1298).
+        let assigned_buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
+        if caller != assigned_buyer {
+            return Err(ContractError::NotAuthorizedBuyer);
+        }
+
         let is_recoverable = matches!(
             escrow.state,
             EscrowState::Funded
@@ -838,14 +929,6 @@ impl Escrow {
             ));
         }
 
-        let buyer = escrow
-            .buyer
-            .clone()
-            .ok_or(ContractError::EscrowHasNoBuyer)?;
-        if caller != buyer {
-            return Err(ContractError::NotAuthorizedBuyer);
-        }
-
         // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Refunded;
@@ -855,10 +938,10 @@ impl Escrow {
 
         // ── INTERACTIONS (external token transfers) ──
         let amount = escrow.amount;
-        payout(&env, &escrow.token, &buyer, amount);
-        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
+        payout(&env, &escrow.token, &assigned_buyer, amount);
+        payout_basket_tokens(&env, escrow_id, &assigned_buyer, None)?;
 
-        emit_recovery_withdraw(&env, escrow_id, buyer, amount);
+        emit_recovery_withdraw(&env, escrow_id, assigned_buyer, amount);
         Ok(())
     }
 

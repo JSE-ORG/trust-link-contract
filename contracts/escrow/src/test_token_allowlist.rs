@@ -239,3 +239,83 @@ fn allowlist_disabled_accepts_any_token() {
         )
         .is_ok());
 }
+
+/// `initialize_with_allowlist` locks down both single-token and basket creation
+/// paths from block 0, including an empty genesis allowlist (#1293).
+#[test]
+fn initialize_with_allowlist_gates_from_block_zero() {
+    use crate::{Escrow, EscrowClient};
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let allowed = register_token(&env);
+    let disallowed = register_token(&env);
+
+    // Empty allowlist at genesis rejects every token until admin adds one.
+    let empty_cid = env.register(Escrow, ());
+    let empty_client = EscrowClient::new(&env, &empty_cid);
+    empty_client.initialize_with_allowlist(&admin, &fee_collector, &100_u32, &Vec::new(&env));
+    assert_eq!(
+        empty_client.try_create_escrow(
+            &payees_val(&env, &seller),
+            &None::<Address>,
+            &resolver,
+            &allowed,
+            &1_000_i128,
+            &0_u32,
+            &0_u32,
+            &3_600_u64,
+            &None::<String>,
+        ),
+        Err(Ok(ContractError::TokenNotAllowed))
+    );
+
+    // Populated genesis allowlist accepts listed tokens and rejects unlisted ones immediately.
+    let cid = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &cid);
+    let mut initial = Vec::new(&env);
+    initial.push_back(allowed.clone());
+    client.initialize_with_allowlist(&admin, &fee_collector, &100_u32, &initial);
+
+    let mut bad_basket = Vec::new(&env);
+    bad_basket.push_back(disallowed);
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(500_i128);
+    assert_eq!(
+        client.try_create_basket_escrow(
+            &seller,
+            &None::<Address>,
+            &resolver,
+            &bad_basket,
+            &amounts,
+            &0_u32,
+            &3_600_u64,
+            &None::<String>,
+            &None::<u64>,
+            &0_u64,
+        ),
+        Err(Ok(ContractError::TokenNotAllowed))
+    );
+
+    let mut ok_basket = Vec::new(&env);
+    ok_basket.push_back(allowed);
+    assert!(client
+        .try_create_basket_escrow(
+            &seller,
+            &None::<Address>,
+            &resolver,
+            &ok_basket,
+            &amounts,
+            &0_u32,
+            &3_600_u64,
+            &None::<String>,
+            &None::<u64>,
+            &0_u64,
+        )
+        .is_ok());
+}

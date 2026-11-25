@@ -99,6 +99,15 @@ describe("initialize", () => {
     assert.equal(calls[0].method, "initialize");
     assert.deepEqual(calls[0].args, [ADMIN, FEE_COLLECTOR, 200]);
   });
+
+  it("invokes 'initialize_with_allowlist' with strict genesis token list", () => {
+    const { transport, calls } = makeMockTransport();
+    const client = new EscrowClient(transport);
+    client.initialize_with_allowlist(ADMIN, FEE_COLLECTOR, 200, [TOKEN]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "initialize_with_allowlist");
+    assert.deepEqual(calls[0].args, [ADMIN, FEE_COLLECTOR, 200, [TOKEN]]);
+  });
 });
 
 describe("pause_contract", () => {

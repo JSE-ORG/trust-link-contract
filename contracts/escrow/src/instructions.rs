@@ -920,13 +920,22 @@ impl Escrow {
     /// A `Pending` (unfunded) escrow simply transitions to `Canceled`. A
     /// `Funded` escrow may only be cancelled by the buyer, which refunds the
     /// full amount (and any basket tokens) and transitions to `Refunded`.
+    ///
+    /// In recovery mode (`is_recovery_mode == true`), a payee may cancel an
+    /// unassigned (`buyer: None`) escrow even while the contract is paused,
+    /// reclaiming custody of any held tokens back to the primary payee (issue
+    /// #1298).
+    ///
     /// Reverts with `NotAuthorized` if `caller` is neither a payee nor the
     /// buyer, or `InvalidState` for any other escrow state. Emits
     /// `escrow_canceled`.
     pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
         auth!(caller);
-        ensure_action_not_paused(&env, Symbol::new(&env, "cancel_escrow"))?;
-        crate::internal::ensure_not_expired(&env, escrow_id)?;
+        let in_recovery_mode = crate::internal::is_recovery_mode(&env);
+        if !in_recovery_mode {
+            ensure_action_not_paused(&env, Symbol::new(&env, "cancel_escrow"))?;
+            crate::internal::ensure_not_expired(&env, escrow_id)?;
+        }
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         let buyer = escrow.buyer.clone();
@@ -948,19 +957,46 @@ impl Escrow {
             found
         };
 
+        let is_seller_recovery_fallback = in_recovery_mode && buyer.is_none() && is_payee;
+        if in_recovery_mode && !is_seller_recovery_fallback {
+            ensure_action_not_paused(&env, Symbol::new(&env, "cancel_escrow"))?;
+            crate::internal::ensure_not_expired(&env, escrow_id)?;
+        }
+
         if !is_payee && buyer.as_ref() != Some(&caller) {
             return Err(ContractError::NotAuthorized);
         }
 
+        let first_payee_addr = escrow
+            .payees
+            .inner
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .clone();
+
         // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
         let prev_state = escrow.state.clone();
-        let should_refund = if escrow.state == EscrowState::Pending {
+        let refund_recipient: Option<Address> = if escrow.state == EscrowState::Pending {
             escrow.state = EscrowState::Canceled;
-            false
+            None
         } else if escrow.state == EscrowState::Funded && buyer.as_ref() == Some(&caller) {
             escrow.state = EscrowState::Refunded;
             record_escrow_refunded(&env, escrow_id)?;
-            true
+            Some(caller.clone())
+        } else if is_seller_recovery_fallback
+            && matches!(
+                escrow.state,
+                EscrowState::Funded
+                    | EscrowState::Shipped
+                    | EscrowState::Disputed
+                    | EscrowState::RefundRequested
+            )
+        {
+            escrow.state = EscrowState::Refunded;
+            crate::internal::clear_delivery_proposal(&env, escrow_id);
+            record_escrow_refunded(&env, escrow_id)?;
+            Some(first_payee_addr.clone())
         } else {
             return Err(terminal_state_error(
                 &escrow.state,
@@ -977,17 +1013,10 @@ impl Escrow {
             .remove(&DataKey::PendingExpiry(escrow_id));
         emit_pending_expiry_cleared(&env, escrow_id);
 
-        if should_refund {
-            payout(&env, &escrow.token, &caller, escrow.amount);
-            payout_basket_tokens(&env, escrow_id, &caller, None)?;
+        if let Some(ref recipient) = refund_recipient {
+            payout(&env, &escrow.token, recipient, escrow.amount);
+            payout_basket_tokens(&env, escrow_id, recipient, None)?;
         }
-        let first_payee_addr = escrow
-            .payees
-            .inner
-            .get(0)
-            .ok_or(ContractError::IndexOutOfBounds)?
-            .address
-            .clone();
         emit_escrow_canceled(
             &env,
             escrow_id,

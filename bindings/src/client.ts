@@ -84,6 +84,24 @@ export class EscrowClient {
   }
 
   /**
+   * One-time strict bootstrap (#1293). Atomically initializes the contract with
+   * the token allowlist enabled from genesis and populated with `allowedTokens`.
+   */
+  initialize_with_allowlist(
+    admin: AddressLike,
+    feeCollector: AddressLike,
+    feeBps: number,
+    allowedTokens: readonly AddressLike[],
+  ): Call<void> {
+    return this.transport.invoke("initialize_with_allowlist", [
+      admin,
+      feeCollector,
+      feeBps,
+      allowedTokens,
+    ]);
+  }
+
+  /**
    * Transfers the admin role to `newAdmin`. Admin-only. Takes effect
    * immediately — there is no acceptance step, so double-check the address.
    */
