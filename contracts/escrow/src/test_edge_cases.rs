@@ -2,7 +2,7 @@
 
 use crate::helpers::payout::calculate_protocol_fee;
 use crate::test_helpers::{advance_time, create_funded_escrow, setup_contract};
-use crate::{ContractError, Escrow, EscrowClient, Payee};
+use crate::{ContractError, Escrow, EscrowClient, EscrowInput, Payee};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     Address, BytesN, Env, IntoVal, String as SorobanString, Symbol, Vec,
@@ -12,6 +12,37 @@ use soroban_sdk::{
 /// `DISPUTE_WINDOW` constant in `lib.rs`). `confirm_delivery` is only permitted
 /// once the ledger clock is at or past this point.
 const DISPUTE_WINDOW_SECS: u64 = 172_800;
+
+#[test]
+fn test_batch_create_escrow_rejects_ten_duplicate_notes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let notes = SorobanString::from_str(&env, "duplicate");
+    let mut inputs = Vec::new(&env);
+    for _ in 0..10 {
+        inputs.push_back(EscrowInput {
+            buyer: None,
+            resolver: resolver.clone(),
+            token: token.clone(),
+            amount: 1,
+            fee_bps: 0,
+            resolver_fee_bps: 0,
+            shipping_window: 3600,
+            notes: notes.clone(),
+        });
+    }
+
+    assert_eq!(
+        client.try_batch_create_escrow(&seller, &inputs),
+        Err(Ok(ContractError::DuplicateNotes))
+    );
+}
 
 /// BUG-020 (#165): initialize must reject admin == fee_collector so the two
 /// roles are always backed by separate keys.

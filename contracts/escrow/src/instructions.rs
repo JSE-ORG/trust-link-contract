@@ -2299,8 +2299,17 @@ impl Escrow {
         auth!(seller);
         ensure_action_not_paused(&env, Symbol::new(&env, "batch_create_escrow"))?;
 
+        // Validate the complete batch before creating any entries. Besides
+        // keeping failures atomic, checked addition prevents an oversized
+        // aggregate from wrapping when inputs share a funding source.
+        let config = read_global_config(&env);
+        let mut total_amount = 0_i128;
         let mut seen_notes: Vec<String> = Vec::new(&env);
         for input in escrows.iter() {
+            validate_basket_amount(input.amount, config.min_amount, config.max_amount)?;
+            total_amount = total_amount
+                .checked_add(input.amount)
+                .ok_or(ContractError::ArithmeticOverflow)?;
             if input.notes.is_empty() {
                 continue;
             }
@@ -2313,6 +2322,7 @@ impl Escrow {
             }
             seen_notes.push_back(input.notes.clone());
         }
+        let _ = total_amount;
 
         let mut escrow_ids = Vec::new(&env);
         for input in escrows {
