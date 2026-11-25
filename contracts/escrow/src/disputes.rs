@@ -367,9 +367,7 @@ impl Escrow {
             None
         };
 
-        let fee_collector: Address = crate::storage::read_global_config(&env)
-            .fee_collector
-            .ok_or(ContractError::NotInitialized)?;
+        let fee_collector = crate::storage::require_fee_collector(&env)?;
 
         // Arbitration and resolver fees were only recorded provisionally by
         // `execute_resolution_transition`; they are paid here, atomically with
@@ -389,16 +387,11 @@ impl Escrow {
             .checked_add(dispute_data.resolver_fee)
             .ok_or(ContractError::ArithmeticError)?;
 
-        let platform_fee = if platform_fee_bps > 0 {
+        let treasury = crate::storage::get_treasury_address(&env);
+        let platform_fee = if platform_fee_bps > 0 && treasury.is_some() {
             crate::helpers::payout::calculate_fee(fee_basis, platform_fee_bps)?
         } else {
             0
-        };
-
-        let treasury = if platform_fee > 0 {
-            Some(read_treasury(&env)?)
-        } else {
-            None
         };
 
         // The protocol fee is a flat percentage of the same principal and is
@@ -770,13 +763,8 @@ impl Escrow {
             .amount
             .checked_sub(total_fees)
             .ok_or(ContractError::InsufficientBalance)?;
-        let fee_collector = if protocol_fee > 0 {
-            fee_config.fee_collector.clone()
-        } else {
-            None
-        };
-        if protocol_fee > 0 && fee_collector.is_none() {
-            return Err(ContractError::NotInitialized);
+        if protocol_fee > 0 {
+            crate::storage::require_fee_collector(&env)?;
         }
 
         let prev_state = escrow.state.clone();

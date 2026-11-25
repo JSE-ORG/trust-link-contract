@@ -1127,7 +1127,7 @@ pub(crate) fn payout_basket_tokens(
     // means every entry is paid gross (refund path).
     let fee_context = if let Some(fee_bps) = fee_bps {
         let config = crate::storage::read_global_config(env);
-        let fee_collector = config.fee_collector.ok_or(ContractError::NotInitialized)?;
+        let fee_collector = crate::storage::require_fee_collector(env)?;
         Some((
             fee_bps,
             escrow.platform_fee_bps,
@@ -1195,7 +1195,7 @@ pub(crate) fn payout_basket_tokens_split(
     let basket_tokens = load_basket_tokens(env, escrow_id);
 
     let config = crate::storage::read_global_config(env);
-    let fee_collector = config.fee_collector.ok_or(ContractError::NotInitialized)?;
+    let fee_collector = crate::storage::require_fee_collector(env)?;
 
     for i in 0..basket_tokens.len() {
         let entry = basket_tokens
@@ -1367,10 +1367,6 @@ pub(crate) fn settle_escrow_to_payees(
     escrow_id: u64,
     fee_bps: u32,
 ) -> Result<(EscrowState, Address), ContractError> {
-    let _fee_collector: Address = crate::storage::read_global_config(env)
-        .fee_collector
-        .ok_or(ContractError::NotInitialized)?;
-
     let first_payee_addr = escrow
         .payees
         .inner
@@ -1399,6 +1395,7 @@ pub(crate) fn settle_escrow_to_payees(
     // into `cancel_escrow`, `raise_dispute`, or `auto_release` therefore sees a
     // terminal `Completed` escrow and is rejected.
     if protocol_fee > 0 {
+        crate::storage::require_fee_collector(env)?;
         crate::storage::add_accumulated_fee(env, &escrow.token, protocol_fee)?;
     }
     distribute_to_payees(env, &escrow.token, &escrow.payees, net_amount)?;
