@@ -1854,6 +1854,61 @@ impl Escrow {
         Ok(())
     }
 
+    /// Begins a two-step admin transfer (#1239). Records `new_admin` as
+    /// `PendingAdmin` without changing ownership; the active admin keeps full
+    /// control until the proposed address calls `accept_admin`, which proves it
+    /// holds a working key. Only callable by the current admin. Reverts with
+    /// `InvalidAddress` for the zero address or `SameAddress` for the current
+    /// admin. Emits `AdminPending`.
+    pub fn set_pending_admin(
+        env: Env,
+        caller: Address,
+        new_admin: Address,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        let old_admin = require_admin_caller(&env, &caller)?;
+        if new_admin == crate::zero_address(&env) {
+            return Err(ContractError::InvalidAddress);
+        }
+        if new_admin == old_admin {
+            return Err(ContractError::SameAddress);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
+        emit_admin_pending(&env, old_admin, new_admin);
+        Ok(())
+    }
+
+    /// Finalizes a pending admin transfer (#1239). Must be called by the address
+    /// registered via `set_pending_admin`; the active admin stays unchanged
+    /// until then. Reverts with `NotAuthorized` if no transfer is pending or the
+    /// caller is not the pending admin. Purges every queued timelock proposal
+    /// (same invariant as `execute_set_admin`, #1234) and emits `AdminAccepted`
+    /// then `AdminRotated`.
+    pub fn accept_admin(env: Env, caller: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(ContractError::NotAuthorized)?;
+
+        if caller != pending {
+            return Err(ContractError::NotAuthorized);
+        }
+
+        let old_admin = require_admin(&env)?;
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        clear_all_timelock_proposals(&env, &pending);
+        emit_admin_accepted(&env, old_admin.clone(), pending.clone());
+        emit_admin_rotated(&env, old_admin, pending);
+        Ok(())
+    }
+
     #[cfg(any(test, feature = "testutils"))]
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
         let old_admin = require_admin(&env)?;

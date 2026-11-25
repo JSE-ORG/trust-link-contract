@@ -127,6 +127,10 @@ pub enum DataKey {
     InvalidatedTimelockOp(u32),
     /// Per-merchant protocol fee discount (basis points subtracted at escrow creation).
     MerchantFeeTier(Address),
+    /// Admin address awaiting acceptance via `accept_admin`. Set by
+    /// `set_pending_admin`, which leaves `DataKey::Admin` unchanged until the
+    /// proposed address proves key ownership by accepting.
+    PendingAdmin,
 }
 
 /// A token-amount pair for multi-token basket escrows.

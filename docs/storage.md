@@ -105,6 +105,7 @@ throughout the contract.
 | Key | Value type | Description |
 |---|---|---|
 | `Admin` | `Address` | Contract administrator (set once in `initialize`; rotatable via admin rotation). |
+| `PendingAdmin` | `Address` | Address proposed by `set_pending_admin`, awaiting acceptance via `accept_admin`. Absent when no transfer is in progress; cleared on acceptance. |
 | `FeeCollector` | `Address` | Address that receives swept protocol/arbitration fees. |
 | `FeeConfig` | `FeeConfig { protocol_fee_bps: u32, arbitration_fee_bps: u32 }` | Active fee rates in basis points. |
 | `Paused` | `bool` | Global pause flag; defaults to `false` when unset. |

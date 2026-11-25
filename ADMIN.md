@@ -40,6 +40,22 @@ Consequences:
 Because reversible host calls roll back on error, a failed rotation leaves the
 existing proposals untouched.
 
+### Two-step acceptance (`set_pending_admin` → `accept_admin`)
+
+Ownership can also be transferred with an explicit acceptance step, which
+guarantees the recipient holds a working key before the old admin loses
+control (issue #1239):
+
+| Step | Who | Effect |
+|---|---|---|
+| `set_pending_admin(caller, new_admin)` | Current admin | Stores `DataKey::PendingAdmin`; `DataKey::Admin` is unchanged. Reverts with `InvalidAddress` for the zero address or `SameAddress` for the current admin. Emits `AdminPending`. |
+| `accept_admin(caller)` | The pending address only | Rejects any other caller with `NotAuthorized`. Writes `DataKey::Admin`, clears `DataKey::PendingAdmin`, purges all queued timelock proposals (same invariant as `execute_set_admin`), and emits `AdminAccepted` then `AdminRotated`. |
+
+Until `accept_admin` succeeds the outgoing admin retains full control and can
+replace the pending address with another `set_pending_admin` call. The
+timelocked `queue_set_admin` → `execute_set_admin` flow above is unchanged; the
+`set_admin` helper remains test-only.
+
 ### Running a keeper
 
 Once a proposal's `ready_at` (from the `TimelockQueued` event) has passed, a

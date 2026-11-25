@@ -52,6 +52,14 @@ By placing relevant addresses in the topics, indexers can filter directly for ev
 - **admin_rotated**: 
   - Topics: `["Admin", "Rotated"]`
   - Payload: `AdminRotated` `{ schema_version, old_admin, new_admin, timestamp }`
+- **admin_pending**:
+  - Topics: `["Admin", "Pending"]`
+  - Payload: `AdminPending` `{ schema_version, old_admin, pending_admin, timestamp }`
+  - Emitted by `set_pending_admin`; ownership does not change until the pending address accepts.
+- **admin_accepted**:
+  - Topics: `["Admin", "Accepted"]`
+  - Payload: `AdminAccepted` `{ schema_version, old_admin, new_admin, timestamp }`
+  - Emitted by `accept_admin`, immediately before `admin_rotated`.
 - **contract_paused**: 
   - Topics: `["Contract", "Paused", admin]`
   - Payload: `ContractPausedEvent` `{ schema_version, admin, timestamp }`
