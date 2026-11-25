@@ -715,3 +715,317 @@ mod timelock {
         assert_eq!(client.get_platform_fee_bps(), 25);
     }
 }
+
+/// Issue #1293: `initialize_with_allowlist` activates strict token enforcement
+/// atomically at genesis, deduplicates initial tokens, emits
+/// `ContractInitialized` + `AllowlistToggled`, and blocks unlisted tokens from
+/// the very first escrow creation.
+#[test]
+fn test_initialize_with_allowlist_enforces_from_genesis() {
+    use crate::{AllowlistToggled, ContractInitialized, Escrow, EscrowClient, Payee};
+    use soroban_sdk::{
+        symbol_short, testutils::Events as _, IntoVal, String, Symbol, TryFromVal, Val, Vec,
+    };
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let allowed_token = register_token(&env);
+    let unlisted_token = register_token(&env);
+
+    // Zero address inside `allowed_tokens` must be rejected before mutating storage.
+    let bad_cid = env.register(Escrow, ());
+    let bad_client = EscrowClient::new(&env, &bad_cid);
+    let mut bad_tokens = Vec::new(&env);
+    bad_tokens.push_back(crate::zero_address(&env));
+    assert_eq!(
+        bad_client.try_initialize_with_allowlist(&admin, &fee_collector, &150_u32, &bad_tokens),
+        Err(Ok(ContractError::InvalidAddress))
+    );
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    // Pass duplicate entries to verify deterministic deduplication.
+    let mut initial_tokens = Vec::new(&env);
+    initial_tokens.push_back(allowed_token.clone());
+    initial_tokens.push_back(allowed_token.clone());
+
+    client.initialize_with_allowlist(&admin, &fee_collector, &150_u32, &initial_tokens);
+
+    // Verify `ContractInitialized` and `AllowlistToggled(true)` events were emitted.
+    let contract_events = env.events().all().filter_by_contract(&contract_id);
+    let mut saw_init = false;
+    let mut saw_toggled = false;
+    for event in contract_events.events() {
+        let soroban_sdk::xdr::ContractEventBody::V0(v0) = &event.body;
+        if v0.topics.len() >= 2 {
+            let t0 = Symbol::try_from_val(&env, &v0.topics[0]);
+            let t1 = Symbol::try_from_val(&env, &v0.topics[1]);
+            let data = Val::try_from_val(&env, &v0.data).unwrap();
+            if t0 == Ok(symbol_short!("Contract")) && t1 == Ok(symbol_short!("Init")) {
+                let payload = ContractInitialized::try_from_val(&env, &data).unwrap();
+                assert_eq!(payload.admin, admin);
+                assert_eq!(payload.fee_collector, fee_collector);
+                assert_eq!(payload.arbitration_fee_bps, 150);
+                saw_init = true;
+            }
+            if t0 == Ok(symbol_short!("Allowlist")) && t1 == Ok(symbol_short!("Toggled")) {
+                let payload = AllowlistToggled::try_from_val(&env, &data).unwrap();
+                assert!(payload.enabled);
+                saw_toggled = true;
+            }
+        }
+    }
+    assert!(saw_init, "ContractInitialized event must be emitted");
+    assert!(saw_toggled, "AllowlistToggled(true) event must be emitted");
+
+    // Verify on-chain allowlist state & re-init guard.
+    assert_eq!(client.get_allowed_tokens().len(), 1);
+    assert_eq!(
+        client.get_allowed_tokens().get(0),
+        Some(allowed_token.clone())
+    );
+    env.as_contract(&contract_id, || {
+        assert!(crate::internal::is_token_allowlist_enabled(&env));
+    });
+    assert_eq!(
+        client.try_initialize(&admin, &fee_collector, &150_u32),
+        Err(Ok(ContractError::AlreadyInitialized))
+    );
+    assert_eq!(
+        client.try_initialize_with_allowlist(&admin, &fee_collector, &150_u32, &initial_tokens),
+        Err(Ok(ContractError::AlreadyInitialized))
+    );
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller,
+        bps: 10_000,
+    });
+    let payees_val: Val = payees.into_val(&env);
+
+    // Unlisted token is rejected on the very first escrow creation (zero-day window closed).
+    assert_eq!(
+        client.try_create_escrow(
+            &payees_val,
+            &None::<Address>,
+            &resolver,
+            &unlisted_token,
+            &1_000_i128,
+            &0_u32,
+            &0_u32,
+            &3_600_u64,
+            &None::<String>,
+        ),
+        Err(Ok(ContractError::TokenNotAllowed))
+    );
+
+    // Allowlisted token succeeds immediately.
+    let escrow_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &allowed_token,
+        &1_000_i128,
+        &0_u32,
+        &0_u32,
+        &3_600_u64,
+        &None::<String>,
+    );
+    assert_eq!(escrow_id, 1);
+}
+
+/// Issue #1298: `recovery_withdraw` must reject escrows with `buyer: None` with
+/// `ContractError::EscrowHasNoBuyer` and reject non-buyer callers on assigned
+/// escrows with `ContractError::NotAuthorizedBuyer`.
+#[test]
+fn test_recovery_withdraw_rejects_unassigned_buyer_and_unauthorized_caller() {
+    use crate::test_helpers::create_funded_escrow;
+    use crate::{DataKey, EscrowData, EscrowState, Payee};
+    use soroban_sdk::{token, IntoVal, String, Val, Vec};
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token_addr = register_token(&env);
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let assigned_buyer = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val: Val = payees.into_val(&env);
+
+    // 1. Open/unassigned escrow (`buyer: None`, `Pending`).
+    let unassigned_pending_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &1_000_i128,
+        &0_u32,
+        &0_u32,
+        &3_600_u64,
+        &None::<String>,
+    );
+
+    // 2. Unassigned escrow holding custodied balance in `Funded` state (`buyer: None`).
+    let unassigned_funded_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &1_000_i128,
+        &0_u32,
+        &0_u32,
+        &3_600_u64,
+        &None::<String>,
+    );
+    token::StellarAssetClient::new(&env, &token_addr).mint(&contract_id, &1_000_i128);
+    env.as_contract(&contract_id, || {
+        let mut esc: EscrowData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(unassigned_funded_id))
+            .unwrap();
+        esc.state = EscrowState::Funded;
+        esc.buyer = None;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(unassigned_funded_id), &esc);
+    });
+
+    // 3. Assigned & funded escrow (`buyer: Some(assigned_buyer)`).
+    let assigned_funded_id = create_funded_escrow(
+        &env,
+        &client,
+        &seller,
+        &assigned_buyer,
+        &resolver,
+        &token_addr,
+        1_000,
+        0,
+        3_600,
+    );
+
+    client.enable_recovery_mode(&admin);
+
+    // Both unassigned escrows reject arbitrary callers (and even seller) with `EscrowHasNoBuyer`.
+    assert_eq!(
+        client.try_recovery_withdraw(&attacker, &unassigned_pending_id),
+        Err(Ok(ContractError::EscrowHasNoBuyer))
+    );
+    assert_eq!(
+        client.try_recovery_withdraw(&attacker, &unassigned_funded_id),
+        Err(Ok(ContractError::EscrowHasNoBuyer))
+    );
+    assert_eq!(
+        client.try_recovery_withdraw(&seller, &unassigned_funded_id),
+        Err(Ok(ContractError::EscrowHasNoBuyer))
+    );
+    assert_eq!(token::Client::new(&env, &token_addr).balance(&attacker), 0);
+
+    // Assigned escrow rejects `attacker` with `NotAuthorizedBuyer`, then lets `assigned_buyer` exit.
+    assert_eq!(
+        client.try_recovery_withdraw(&attacker, &assigned_funded_id),
+        Err(Ok(ContractError::NotAuthorizedBuyer))
+    );
+    client.recovery_withdraw(&assigned_buyer, &assigned_funded_id);
+    assert_eq!(
+        client.get_escrow(&assigned_funded_id).state,
+        EscrowState::Refunded
+    );
+}
+
+/// Issue #1298 (Part B): In recovery mode, the seller can cancel unassigned
+/// (`buyer: None`) escrows — even while the contract is paused — reclaiming
+/// custody of any held tokens.
+#[test]
+fn test_seller_recovery_fallback_cancels_unassigned_escrow_while_paused() {
+    use crate::{DataKey, EscrowData, EscrowState, Payee};
+    use soroban_sdk::{token, IntoVal, String, Val, Vec};
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token_addr = register_token(&env);
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let intruder = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val: Val = payees.into_val(&env);
+
+    let pending_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &500_i128,
+        &0_u32,
+        &0_u32,
+        &3_600_u64,
+        &None::<String>,
+    );
+    let custodied_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &750_i128,
+        &0_u32,
+        &0_u32,
+        &3_600_u64,
+        &None::<String>,
+    );
+    token::StellarAssetClient::new(&env, &token_addr).mint(&contract_id, &750_i128);
+    env.as_contract(&contract_id, || {
+        let mut esc: EscrowData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(custodied_id))
+            .unwrap();
+        esc.state = EscrowState::Funded;
+        esc.buyer = None;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(custodied_id), &esc);
+    });
+
+    // Pause contract AND activate recovery mode.
+    client.pause_contract(&admin);
+    client.enable_recovery_mode(&admin);
+
+    // Intruder cannot cancel while paused (`ContractPaused`).
+    assert_eq!(
+        client.try_cancel_escrow(&intruder, &pending_id),
+        Err(Ok(ContractError::ContractPaused))
+    );
+
+    // Seller cancels open `Pending` unassigned escrow even while paused.
+    client.cancel_escrow(&seller, &pending_id);
+    assert_eq!(client.get_escrow(&pending_id).state, EscrowState::Canceled);
+
+    // Seller cancels custodied `buyer: None` escrow and reclaims full custody.
+    client.cancel_escrow(&seller, &custodied_id);
+    assert_eq!(
+        client.get_escrow(&custodied_id).state,
+        EscrowState::Refunded
+    );
+    assert_eq!(token::Client::new(&env, &token_addr).balance(&seller), 750);
+}

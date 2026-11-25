@@ -33,6 +33,11 @@ export const contractAbi = {
       inputs: ["admin", "fee_collector", "arbitration_fee_bps"],
       output: "void",
     },
+    {
+      name: "initialize_with_allowlist",
+      inputs: ["admin", "fee_collector", "fee_bps", "allowed_tokens"],
+      output: "void",
+    },
     { name: "set_admin", inputs: ["new_admin"], output: "void" },
     { name: "upgrade", inputs: ["caller", "new_wasm_hash"], output: "void" },
 

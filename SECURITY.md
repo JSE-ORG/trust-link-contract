@@ -85,19 +85,20 @@ Strict mode is **disabled by default** to preserve backward compatibility. Opera
    - Set fees BEFORE opening to users
 
 3. **Contract Initialization**
-   - Call `initialize()` once after deployment
-   - Set correct admin address
-   - Set fee_collector address (can be multi-sig)
-   - Verify initialization via get_fee_config query
-   - NEVER call initialize twice
+   - Prefer `initialize_with_allowlist(admin, fee_collector, fee_bps, allowed_tokens)` for production and permissioned deployments so token allowlisting is enforced atomically from genesis (#1293)
+   - Use standard `initialize(admin, fee_collector, arbitration_fee_bps)` only when backward-compatible open token mode is explicitly intended
+   - Set correct admin address and distinct non-zero `fee_collector` address (can be multi-sig)
+   - Verify initialization via `get_fee_config` and `get_allowed_tokens` queries
+   - NEVER call `initialize` or `initialize_with_allowlist` twice (`AlreadyInitialized`)
 
 4. **Token Allowlisting — REQUIRED before mainnet** ⚠️
-   - The on-chain allowlist (`DataKey::TokenAllowlistEnabled`) defaults to
+   - Calling `initialize_with_allowlist` activates strict token enforcement at block 0 (`GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED`), eliminating the zero-day window between deployment and post-init configuration (#1293).
+   - If standard `initialize()` was used instead, the on-chain allowlist defaults to
      **disabled**, so *any* SEP-41 token can be used until you enable it. Every
      payout is an external call into the token contract, so a hostile token can
      re-enter the escrow while settlement is in flight. Do not expose real value
      to a contract that has not been locked down.
-   - Immediately after `initialize()`, call `set_token_allowlist_enabled(true)`
+   - Immediately after standard `initialize()`, call `set_token_allowlist_enabled(true)`
      (or queue/execute the timelocked `SetTokenAllowlistEnabled` operation)
    - Register each audited token with `add_allowed_token` and verify via
      `get_allowed_tokens`; creation with any other token then fails with
@@ -105,6 +106,22 @@ Strict mode is **disabled by default** to preserve backward compatibility. Opera
    - Audit all tokens before use
    - Reject malicious tokens with false transfer callbacks / reentrancy hooks
    - Document token audit results
+
+---
+
+## Emergency Recovery Mode (#914, #1298)
+
+When an unpatchable issue or protocol sunset requires graceful user exit without standard state-machine progression, the admin can activate **Recovery Mode** via `enable_recovery_mode(admin)` (and pair it with `pause_contract(admin)` to halt new escrow creation):
+
+1. **Assigned-Buyer Escape Hatch (`recovery_withdraw`)**
+   - Only escrows with an assigned buyer (`escrow.buyer == Some(assigned_buyer)`) holding buyer funds (`Funded`, `Shipped`, `Disputed`, `RefundRequested`) can be withdrawn via `recovery_withdraw(caller, escrow_id)`.
+   - `caller` must authenticate (`require_auth`) and match `assigned_buyer`; any other caller reverts with `ContractError::NotAuthorizedBuyer`.
+   - Escrows in `PendingFinalization` are excluded (`ContractError::InvalidState`, #1204) so active dispute rulings and appeal windows cannot be bypassed.
+2. **Unassigned Escrow Protection (`buyer: None`, #1298)**
+   - Calling `recovery_withdraw` on any unassigned escrow (`escrow.buyer == None`) immediately reverts with `ContractError::EscrowHasNoBuyer`, preventing arbitrary callers from claiming unassigned balances.
+3. **Seller Recovery Fallback (`cancel_escrow`)**
+   - While recovery mode is active, any payee (seller) on an unassigned escrow (`buyer: None`) may call `cancel_escrow(seller, escrow_id)` even if the contract is globally or action-paused.
+   - Open `Pending` escrows transition cleanly to `Canceled`, and any custodied principal or basket tokens on an unassigned escrow are returned to the primary payee (`Refunded`).
 
 ### Post-Deployment
 
