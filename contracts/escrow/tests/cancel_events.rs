@@ -120,7 +120,7 @@ fn buyer_funded_cancel_emits_event() {
         .expect("escrow exists");
     escrow.buyer = Some(buyer.clone());
     escrow.packed_timestamps =
-        EscrowData::pack_timestamps(env.ledger().timestamp(), env.ledger().timestamp());
+        EscrowData::pack_timestamps(env.ledger().timestamp(), env.ledger().timestamp()).unwrap();
     escrow.state = EscrowState::Funded;
     env.as_contract(&contract_id, || {
         env.storage()

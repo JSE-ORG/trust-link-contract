@@ -519,8 +519,9 @@ impl Escrow {
         let dispute_deadline = now
             .checked_add(DISPUTE_WINDOW)
             .ok_or(ContractError::ArithmeticOverflow)?;
-        // Pack: high 32 bits = funded_at, low 32 bits = dispute_deadline
-        escrow.packed_timestamps = (now << 32) | (dispute_deadline & 0xFFFF_FFFF);
+        // Pack: high 32 bits = funded_at, low 32 bits = dispute_deadline.
+        // Rejects timestamps that do not fit in 32 bits instead of truncating.
+        escrow.packed_timestamps = EscrowData::pack_timestamps(now, dispute_deadline)?;
 
         // Index the buyer for lookup (paged, bounded per storage entry).
         storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
@@ -1980,8 +1981,9 @@ impl Escrow {
         let dispute_deadline_basket = now
             .checked_add(DISPUTE_WINDOW)
             .ok_or(ContractError::ArithmeticError)?;
-        // Pack: high 32 bits = funded_at, low 32 bits = dispute_deadline
-        escrow.packed_timestamps = (now << 32) | (dispute_deadline_basket & 0xFFFF_FFFF);
+        // Pack: high 32 bits = funded_at, low 32 bits = dispute_deadline.
+        // Rejects timestamps that do not fit in 32 bits instead of truncating.
+        escrow.packed_timestamps = EscrowData::pack_timestamps(now, dispute_deadline_basket)?;
 
         // Index the buyer for lookup (paged, bounded per storage entry).
         storage::append_buyer_escrow_index(&env, &buyer, escrow_id);
