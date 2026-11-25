@@ -696,8 +696,20 @@ impl Escrow {
         self.packed_timestamps & 0xFFFF_FFFF
     }
 
-    pub fn pack_timestamps(funded_at: u64, dispute_deadline: u64) -> u64 {
-        (funded_at << 32) | (dispute_deadline & 0xFFFF_FFFF)
+    /// Packs both timestamps into [`Escrow::packed_timestamps`].
+    ///
+    /// The layout reserves 32 bits per value, so each must fit in a `u32`
+    /// (Unix timestamps do until 2106-02-07). A value above `u32::MAX` is
+    /// rejected with [`crate::ContractError::ArithmeticOverflow`] rather than
+    /// silently truncated, which would corrupt both unpacked timestamps.
+    pub fn pack_timestamps(
+        funded_at: u64,
+        dispute_deadline: u64,
+    ) -> Result<u64, crate::ContractError> {
+        if funded_at > u64::from(u32::MAX) || dispute_deadline > u64::from(u32::MAX) {
+            return Err(crate::ContractError::ArithmeticOverflow);
+        }
+        Ok((funded_at << 32) | (dispute_deadline & 0xFFFF_FFFF))
     }
 }
 

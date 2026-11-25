@@ -258,7 +258,6 @@
     [],
     [],
     [],
-    [],
     []
   ],
   "ledger": {
@@ -619,20 +618,6 @@
                   },
                   {
                     "key": {
-                      "symbol": "resolution_memo"
-                    },
-                    "val": {
-                      "bytes": ""
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "resolution_reason"
-                    },
-                    "val": "void"
-                  },
-                  {
-                    "key": {
                       "symbol": "resolved_at"
                     },
                     "val": {
@@ -709,14 +694,6 @@
                     },
                     "val": {
                       "i128": "950"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "arbitration_fee_bps"
-                    },
-                    "val": {
-                      "u32": 500
                     }
                   },
                   {
@@ -807,14 +784,6 @@
                           }
                         }
                       ]
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "platform_fee_bps"
-                    },
-                    "val": {
-                      "u32": 0
                     }
                   },
                   {
@@ -1168,21 +1137,6 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "AccumulatedFees"
-                          },
-                          {
-                            "address": "CDS3FDGQ4JA2V3F26Y4BMWWJEC5TT26RJBN7KIQKUMVO2MAOCMDTSZ7A"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "i128": "30"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
                             "symbol": "Admin"
                           }
                         ]
@@ -1415,7 +1369,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "50"
+                      "i128": "80"
                     }
                   },
                   {
@@ -1467,7 +1421,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "30"
+                      "i128": "0"
                     }
                   },
                   {

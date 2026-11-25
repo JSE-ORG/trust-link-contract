@@ -1241,6 +1241,10 @@ pub(crate) fn payout_basket_tokens_split(
 /// paths (`confirm_delivery`, `auto_release`, `co_signed_release`, and a
 /// `Release` dispute resolution); refund paths keep the single-recipient
 /// behaviour.
+// shortcut: no release path calls this yet (they still use
+// payout_basket_tokens); add the call sites when multi-payee basket payouts
+// land. Kept rather than deleted because upstream added it for that migration.
+#[allow(dead_code)]
 pub(crate) fn distribute_basket_tokens(
     env: &Env,
     escrow_id: u64,

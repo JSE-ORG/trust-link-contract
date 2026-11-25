@@ -54,7 +54,7 @@ fn register_alt_token(env: &Env) -> (Address, Address) {
     (token_address, admin)
 }
 
-fn has_event<T, F>(env: &Env, contract_id: &Address, topic: &str, predicate: F) -> bool
+pub(crate) fn has_event<T, F>(env: &Env, contract_id: &Address, topic: &str, predicate: F) -> bool
 where
     T: TryFromVal<Env, Val>,
     F: Fn(&T) -> bool,
@@ -821,7 +821,7 @@ fn test_sequential_escrows_same_non_usdc_token() {
             &None::<Address>,
             &resolver,
             &alt_token,
-            &amount,
+            amount,
             &0_u32,
             &0_u32,
             &3600_u64,
@@ -1136,7 +1136,7 @@ fn test_event_integrity_escrow_created() {
     );
 
     assert!(has_event::<EscrowCreated, _>(&env, &cid, "Escrow", |ev| {
-        ev.escrow_id == escrow_id as u64
+        ev.escrow_id == escrow_id
             && ev.seller == seller
             && ev.resolver == resolver
             && ev.token == token
@@ -1174,7 +1174,7 @@ fn test_event_integrity_escrow_funded() {
     client.fund_escrow(&escrow_id, &buyer);
 
     assert!(has_event::<EscrowFunded, _>(&env, &cid, "Escrow", |ev| {
-        ev.escrow_id == escrow_id as u64 && ev.buyer == buyer && ev.amount == 500
+        ev.escrow_id == escrow_id && ev.buyer == buyer && ev.amount == 500
     }));
 }
 
@@ -1219,7 +1219,7 @@ fn test_event_integrity_escrow_completed_via_confirm_delivery() {
         &cid,
         "Escrow",
         |ev| {
-            ev.escrow_id == escrow_id as u64
+            ev.escrow_id == escrow_id
                 && ev.recipient == seller
                 && ev.amount > 0
                 && ev.fee_bps == 200
@@ -1275,7 +1275,7 @@ fn test_escrow_completed_event_amount_is_gross_of_protocol_fee() {
         |ev| {
             // `amount` remains the gross principal; `fee_bps` lets consumers
             // derive the same net that was actually transferred.
-            ev.escrow_id == escrow_id as u64
+            ev.escrow_id == escrow_id
                 && ev.amount == 1_000
                 && ev.fee_bps == 300
                 && crate::helpers::payout::calculate_protocol_fee(ev.amount, ev.fee_bps).unwrap()
@@ -1338,7 +1338,7 @@ fn test_dispute_resolved_event_amount_is_gross_of_final_fees() {
         &cid,
         "Dispute",
         |ev| {
-            ev.escrow_id == escrow_id as u64
+            ev.escrow_id == escrow_id
                 // 1_000 - 50 arbitration fee = 950, before platform/protocol fees.
                 && ev.amount == 950
                 && ev.arbitration_fee == 50
@@ -1395,7 +1395,7 @@ fn test_event_integrity_dispute_raised() {
     );
 
     assert!(has_event::<DisputeRaised, _>(&env, &cid, "Dispute", |ev| {
-        ev.escrow_id == escrow_id as u64 && ev.buyer == buyer && ev.evidence_hash == evidence
+        ev.escrow_id == escrow_id && ev.buyer == buyer && ev.evidence_hash == evidence
     }));
 }
 
@@ -1448,7 +1448,7 @@ fn test_event_integrity_dispute_resolved_release_to_seller() {
         &cid,
         "Dispute",
         |ev| {
-            ev.escrow_id == escrow_id as u64
+            ev.escrow_id == escrow_id
                 && ev.resolution == ResolutionType::Release
                 && ev.arbitration_fee == 50
                 && ev.resolver_fee == 30
@@ -1505,7 +1505,7 @@ fn test_event_integrity_dispute_resolved_refund_buyer() {
         &cid,
         "Dispute",
         |ev| {
-            ev.escrow_id == escrow_id as u64
+            ev.escrow_id == escrow_id
                 && ev.resolution == ResolutionType::Refund
                 && ev.arbitration_fee == 50
                 && ev.resolver_fee == 30
@@ -1553,10 +1553,7 @@ fn test_event_integrity_auto_released() {
     client.auto_release(&escrow_id);
 
     assert!(has_event::<AutoReleased, _>(&env, &cid, "Escrow", |ev| {
-        ev.escrow_id == escrow_id as u64
-            && ev.seller == seller
-            && ev.amount == 1000
-            && ev.fee_bps == 200
+        ev.escrow_id == escrow_id && ev.seller == seller && ev.amount == 1000 && ev.fee_bps == 200
     }));
 }
 
@@ -1586,7 +1583,7 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
         &None::<SorobanString>,
     );
     assert!(has_event::<EscrowCreated, _>(&env, &cid, "Escrow", |ev| {
-        ev.escrow_id == id1 as u64 && ev.seller == seller
+        ev.escrow_id == id1 && ev.seller == seller
     }));
 
     let mut payees_89 = Vec::new(&env);
@@ -1607,12 +1604,12 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
         &None::<SorobanString>,
     );
     assert!(has_event::<EscrowCreated, _>(&env, &cid, "Escrow", |ev| {
-        ev.escrow_id == id2 as u64
+        ev.escrow_id == id2
     }));
 
     client.fund_escrow(&id1, &buyer);
     assert!(has_event::<EscrowFunded, _>(&env, &cid, "Escrow", |ev| {
-        ev.escrow_id == id1 as u64 && ev.buyer == buyer
+        ev.escrow_id == id1 && ev.buyer == buyer
     }));
 
     client.mark_shipped(
@@ -1627,12 +1624,12 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
         &env,
         &cid,
         "Escrow",
-        |ev| { ev.escrow_id == id1 as u64 }
+        |ev| { ev.escrow_id == id1 }
     ));
 
     client.fund_escrow(&id2, &buyer);
     assert!(has_event::<EscrowFunded, _>(&env, &cid, "Escrow", |ev| {
-        ev.escrow_id == id2 as u64
+        ev.escrow_id == id2
     }));
 
     client.mark_shipped(
@@ -1648,7 +1645,7 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
         &BytesN::from_array(&env, &[1u8; 32]),
     );
     assert!(has_event::<DisputeRaised, _>(&env, &cid, "Dispute", |ev| {
-        ev.escrow_id == id2 as u64
+        ev.escrow_id == id2
     }));
 
     client.resolve_dispute(&resolver, &id2, &ResolutionType::Refund);
@@ -1656,7 +1653,7 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
         &env,
         &cid,
         "Dispute",
-        |ev| { ev.escrow_id == id2 as u64 }
+        |ev| { ev.escrow_id == id2 }
     ));
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &id2);
@@ -1664,7 +1661,7 @@ fn test_event_integrity_full_lifecycle_all_events_decoded() {
         &env,
         &cid,
         "Dispute",
-        |ev| { ev.escrow_id == id2 as u64 && ev.resolution == ResolutionType::Refund }
+        |ev| { ev.escrow_id == id2 && ev.resolution == ResolutionType::Refund }
     ));
 }
 

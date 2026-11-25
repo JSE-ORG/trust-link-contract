@@ -381,14 +381,6 @@
                   },
                   {
                     "key": {
-                      "symbol": "arbitration_fee_bps"
-                    },
-                    "val": {
-                      "u32": 0
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "buyer"
                     },
                     "val": {
@@ -477,14 +469,6 @@
                           }
                         }
                       ]
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "platform_fee_bps"
-                    },
-                    "val": {
-                      "u32": 0
                     }
                   },
                   {

@@ -28,12 +28,11 @@ fn same_vendor_can_create_multiple_escrows_without_collision() {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     // Test 1: Same Vendor Creates Multiple Escrows Sequentially
-    let num_escrows = 10_usize;
     let mut ids = [0_u64; 10];
 
     // We do not advance the ledger sequence here to simulate "concurrent" creation
     // within the same block.
-    for i in 0..num_escrows {
+    for (i, slot) in ids.iter_mut().enumerate() {
         // Vary the amount slightly for each escrow to ensure isolated data
         let amount = 100_i128 + ((i + 1) as i128);
         let mut payees_13 = Vec::new(&env);
@@ -54,18 +53,18 @@ fn same_vendor_can_create_multiple_escrows_without_collision() {
 
         // IDs should be strictly monotonic
         assert_eq!(id, (i + 1) as u64);
-        ids[i] = id;
+        *slot = id;
     }
 
     // Ensure IDs do not skip and are unique
-    for i in 0..ids.len() {
-        for j in (i + 1)..ids.len() {
-            assert_ne!(ids[i], ids[j]);
+    for (i, id) in ids.iter().enumerate() {
+        for other in ids.iter().skip(i + 1) {
+            assert_ne!(id, other);
         }
     }
 
     // Verify storage for each ID exists and contains correct item data
-    for i in 1..=num_escrows {
+    for i in 1..=ids.len() {
         let escrow = client.get_escrow(&(i as u64));
         let expected_amount = 100_i128 + (i as i128);
 
@@ -77,7 +76,7 @@ fn same_vendor_can_create_multiple_escrows_without_collision() {
     // Test 4: Counter Persistence
     // If counter begins at 1 and 10 escrows created, next is 11
     let stats = client.get_contract_config();
-    assert_eq!(stats.escrow_count, num_escrows as u64);
+    assert_eq!(stats.escrow_count, ids.len() as u64);
 }
 
 #[test]

@@ -199,6 +199,29 @@ const escrow = await client.get_escrow(escrowId);
 console.log(escrow.state); // e.g. "Completed"
 ```
 
+### Co-signed early release
+
+`co_signed_release(caller, escrowId)` releases escrow funds before the
+shipping/dispute windows elapse, but only from `Funded` or `Shipped` state and
+only when no dispute is open. Every party must sign in the same transaction:
+
+- the buyer, and
+- **every** payee in `escrow.payees` (all 1–10 entries, in order).
+
+With a single-payee escrow this is exactly the original 1-buyer + 1-seller
+signature pair. With multiple payees, one vendor can no longer release the
+whole escrow alongside the buyer. Because `create_escrow` rejects zero-share
+payees, every listed payee is a real recipient and must authorize.
+
+```ts
+// Multi-payee escrow: buyer + every payee sign the same transaction.
+await client.co_signed_release(buyer, escrowId);
+```
+
+The resulting `EscrowCompleted` event carries `co_signed_payees` (the number of
+authorizing payees; `0` on non-co-signed completion paths), so indexers can
+distinguish the two.
+
 ## Reading message pages
 
 `get_messages(escrowId, start, limit)` uses a zero-based `start` offset and

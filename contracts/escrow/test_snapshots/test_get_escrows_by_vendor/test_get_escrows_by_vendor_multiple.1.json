@@ -283,14 +283,6 @@
                   },
                   {
                     "key": {
-                      "symbol": "arbitration_fee_bps"
-                    },
-                    "val": {
-                      "u32": 0
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "buyer"
                     },
                     "val": "void"
@@ -375,14 +367,6 @@
                           }
                         }
                       ]
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "platform_fee_bps"
-                    },
-                    "val": {
-                      "u32": 0
                     }
                   },
                   {
@@ -488,14 +472,6 @@
                   },
                   {
                     "key": {
-                      "symbol": "arbitration_fee_bps"
-                    },
-                    "val": {
-                      "u32": 0
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "buyer"
                     },
                     "val": "void"
@@ -580,14 +556,6 @@
                           }
                         }
                       ]
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "platform_fee_bps"
-                    },
-                    "val": {
-                      "u32": 0
                     }
                   },
                   {
@@ -693,14 +661,6 @@
                   },
                   {
                     "key": {
-                      "symbol": "arbitration_fee_bps"
-                    },
-                    "val": {
-                      "u32": 0
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "buyer"
                     },
                     "val": "void"
@@ -785,14 +745,6 @@
                           }
                         }
                       ]
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "platform_fee_bps"
-                    },
-                    "val": {
-                      "u32": 0
                     }
                   },
                   {

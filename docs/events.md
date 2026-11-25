@@ -7,7 +7,7 @@ This document details the events emitted by the Soroban TrustLink Escrow contrac
 Every event payload carries a `schema_version: u32` field whose value is the
 `EVENT_SCHEMA_VERSION` constant defined in `contracts/escrow/src/events.rs`.
 
-**Current version: `1`**
+**Current version: `5`**
 
 Indexers and consumers **must** read `schema_version` before decoding the rest
 of the payload.  A version mismatch means the XDR field layout has changed and
@@ -18,6 +18,8 @@ the consumer needs to be updated before it can safely decode the event.
 | Version | Change summary |
 |---------|---------------|
 | 1 | Initial versioned schema — `schema_version` field added to all event structs. |
+| 2–4 | Historical increments not individually recorded in this table. |
+| 5 | `EscrowCompleted` gains `co_signed_payees` (number of payees that co-signed a `co_signed_release`; `0` for other completion paths). |
 
 **Rules for contributors:**
 
@@ -121,8 +123,9 @@ By placing relevant addresses in the topics, indexers can filter directly for ev
   - Payload: `DeliveryRecorded` `{ schema_version, escrow_id, delivered_at }`
 - **escrow_completed**: 
   - Topics: `["Escrow", "Completed", recipient]`
-  - Payload: `EscrowCompleted` `{ schema_version, escrow_id, recipient, amount, fee_bps, timestamp }`
+  - Payload: `EscrowCompleted` `{ schema_version, escrow_id, recipient, amount, fee_bps, co_signed_payees, timestamp }`
   - Notes: `recipient` is the primary payee (`payees[0]`). Multi-payee net splits are not itemised in this payload; use `calculate_multi_payee_allocations` or per-payee token transfer events. Secondary payees whose floored share is zero receive no transfer.
+  - `co_signed_payees` is the number of payees that co-signed a `co_signed_release` (`0` for other completion paths such as `confirm_delivery`).
 - **payee_share_skipped** (diagnostic):
   - Topics: `["Payee", "Skip", payee]`
   - Payload: `PayeeShareSkipped` `{ schema_version, escrow_id, payee, bps, net_pool, timestamp }`

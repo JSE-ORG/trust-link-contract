@@ -138,7 +138,7 @@ fn test_get_state_history_new_escrow() {
 
     let history = client.get_state_history(&id);
     // New escrow should have history with at least Pending and Funded states
-    assert!(history.len() >= 1);
+    assert!(!history.is_empty());
 }
 
 // ── Issue #825: get_basket_tokens distinguishes missing vs single-token ──────

@@ -88,7 +88,9 @@ export const enum ErrorCode {
   InvalidWasmHash = 78,
   NoPendingTreasury = 79,
   DuplicateResolver = 80,
-  EvidenceLimitReached = 81,
+  DirectUnpauseBlocked = 81,
+  InvalidSplitBps = 82,
+  EvidenceLimitReached = 83,
 }
 
 /** Human-readable message for every contract error code. */
@@ -239,6 +241,10 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "The same address appears more than once in the resolver configuration.",
   [ErrorCode.EvidenceLimitReached]:
     "The escrow's dispute evidence log has reached its maximum number of entries.",
+  [ErrorCode.DirectUnpauseBlocked]:
+    "Direct unpause is disabled; use the timelocked unpause flow.",
+  [ErrorCode.InvalidSplitBps]:
+    "The split resolution's payee share exceeds 10,000 basis points.",
 };
 
 /**
