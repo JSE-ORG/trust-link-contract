@@ -1064,8 +1064,14 @@ impl Escrow {
     ) -> Result<(), ContractError> {
         auth!(caller);
         ensure_action_not_paused(&env, Symbol::new(&env, "mark_shipped"))?;
-        crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
+        let now = env.ledger().timestamp();
+        if let Some(expires_at) = escrow.expires_at {
+            if now >= expires_at {
+                return Err(ContractError::EscrowExpired);
+            }
+        }
+        crate::internal::ensure_pending_expiry_not_elapsed(&env, escrow_id)?;
 
         let first_payee = escrow
             .payees
@@ -1109,7 +1115,7 @@ impl Escrow {
             return Err(ContractError::InputTooLong);
         }
 
-        let shipped_at = env.ledger().timestamp();
+        let shipped_at = now;
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Shipped;
         escrow.shipped_at = shipped_at;

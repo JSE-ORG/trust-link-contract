@@ -1438,7 +1438,15 @@ pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), Contra
         }
     }
 
-    // Also check the automatic pending timeout (for unfunded escrows)
+    ensure_pending_expiry_not_elapsed(env, escrow_id)
+}
+
+/// Check a persisted expiry schedule, including legacy records where the
+/// schedule remains after funding.
+pub(crate) fn ensure_pending_expiry_not_elapsed(
+    env: &Env,
+    escrow_id: u64,
+) -> Result<(), ContractError> {
     if let Some(schedule) = env
         .storage()
         .persistent()

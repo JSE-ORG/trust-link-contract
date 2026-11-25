@@ -114,10 +114,79 @@ fn test_cannot_ship_expired_escrow() {
     mint_tokens(&env, &token, &buyer, 1000);
     client.fund_escrow(&id, &buyer);
 
-    // Advance time past expiration (to timestamp 10)
+    // At the deadline, shipping must be rejected.
     env.ledger().set_timestamp(10);
 
     // Shipping should fail with EscrowExpired.
+    let res = client.try_mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK001"),
+    );
+    assert!(matches!(res, Err(Ok(ContractError::EscrowExpired))));
+}
+
+#[test]
+fn test_can_ship_before_expiration_deadline() {
+    let (env, _admin, seller, buyer, resolver, token, contract_id) = setup_env();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let expires_at = 10_u64;
+    let id = client.create_escrow_with_expiration(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &0_u32,
+        &3600_u64,
+        &Some(expires_at),
+        &5_u64,
+    );
+
+    mint_tokens(&env, &token, &buyer, 1000);
+    client.fund_escrow(&id, &buyer);
+    env.ledger().set_timestamp(expires_at - 1);
+
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK001"),
+    );
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Shipped);
+}
+
+#[test]
+fn test_cannot_ship_with_expired_legacy_pending_schedule() {
+    let (env, _admin, seller, buyer, resolver, token, contract_id) = setup_env();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let id = client.create_escrow(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1000_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<soroban_sdk::String>,
+    );
+
+    mint_tokens(&env, &token, &buyer, 1000);
+    client.fund_escrow(&id, &buyer);
+
+    // Simulate a legacy record whose pending schedule remained after funding.
+    env.storage().persistent().set(
+        &crate::types::DataKey::PendingExpiry(id),
+        &crate::types::ExpirySchedule {
+            expires_at: 10,
+            grace_period: 5,
+        },
+    );
+    env.ledger().set_timestamp(10);
+
     let res = client.try_mark_shipped(
         &seller,
         &id,
