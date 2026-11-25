@@ -127,7 +127,6 @@ mod tests {
 
         let tc = soroban_sdk::token::Client::new(&env, &token_id);
         let seller_balance = tc.balance(&seller);
-        let fee_collector_balance = tc.balance(&fee_collector);
 
         // Expected: 1% fee (snapshotted), NOT 3% (live).
         let expected_fee = amount * 100 / 10_000; // 100 bps = 1%
@@ -138,8 +137,9 @@ mod tests {
             "seller should receive amount minus snapshotted 1% fee, not live 3% fee"
         );
         assert_eq!(
-            fee_collector_balance, expected_fee,
-            "fee collector should receive snapshotted 1% fee"
+            client.get_accumulated_fees(&token_id),
+            expected_fee,
+            "protocol fee accrues at the snapshotted 1% rate, not live 3%"
         );
     }
 
@@ -201,7 +201,6 @@ mod tests {
 
         let tc = soroban_sdk::token::Client::new(&env, &token_id);
         let seller_balance = tc.balance(&seller);
-        let fee_collector_balance = tc.balance(&fee_collector);
 
         // auto_release uses the live protocol_fee_bps (300 = 3%), not the escrow's snapshotted fee_bps.
         let expected_fee = amount * 300 / 10_000;
@@ -212,8 +211,151 @@ mod tests {
             "auto_release should use live protocol fee"
         );
         assert_eq!(
-            fee_collector_balance, expected_fee,
-            "fee collector should receive live protocol fee on auto_release"
+            client.get_accumulated_fees(&token_id),
+            expected_fee,
+            "auto_release accrues live protocol fee for later claim"
+        );
+    }
+
+    /// Arbitration fee snapshotted at funding must not change when the admin
+    /// raises the global arbitration fee before finalization (issue #1255).
+    #[test]
+    fn test_arbitration_fee_change_does_not_affect_funded_escrow() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let resolver = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+
+        let token_admin = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
+        let token_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+        token_client.mint(&buyer, &1_000_000_000_i128);
+
+        let contract_id = env.register(Escrow, ());
+        let client = EscrowClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &100_u32);
+
+        let amount = 1_000_000_i128;
+        let payees_val = single_payee(&env, &seller).into_val(&env);
+        let escrow_id = client.create_escrow_8(
+            &payees_val,
+            &Some(buyer.clone()),
+            &resolver,
+            &token_id,
+            &amount,
+            &0_u32,
+            &604_800_u64,
+        );
+
+        client.fund_escrow(&escrow_id, &buyer);
+        client.set_arbitration_fee(&admin, &500_u32);
+
+        client.mark_shipped(
+            &seller,
+            &escrow_id,
+            &soroban_sdk::String::from_str(&env, "TRACK-ARB-FEE"),
+        );
+        client.raise_dispute(
+            &buyer,
+            &escrow_id,
+            &Symbol::new(&env, "OTHER"),
+            &Bytes::from_slice(&env, b"desc"),
+            &BytesN::from_array(&env, &[3u8; 32]),
+        );
+        client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Release);
+        env.ledger()
+            .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+        client.finalize_dispute(&resolver, &escrow_id);
+
+        let expected_arb_fee = amount * 100 / 10_000;
+        let tc = soroban_sdk::token::Client::new(&env, &token_id);
+        assert_eq!(
+            tc.balance(&fee_collector),
+            expected_arb_fee,
+            "fee collector should receive snapshotted 1% arbitration fee, not live 5%"
+        );
+        assert_eq!(
+            tc.balance(&seller),
+            amount - expected_arb_fee,
+            "seller payout uses snapshotted arbitration rate"
+        );
+    }
+
+    /// Platform fee snapshotted at funding must not change when the admin
+    /// raises the global platform fee before finalization (issue #1255).
+    #[test]
+    fn test_platform_fee_change_does_not_affect_funded_escrow() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let resolver = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        let token_admin = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
+        let token_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+        token_client.mint(&buyer, &1_000_000_000_i128);
+
+        let contract_id = env.register(Escrow, ());
+        let client = EscrowClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0_u32);
+        client.set_platform_fee(&admin, &100_u32);
+        env.as_contract(&contract_id, || {
+            crate::internal::write_treasury(&env, &treasury);
+        });
+
+        let amount = 1_000_000_i128;
+        let payees_val = single_payee(&env, &seller).into_val(&env);
+        let escrow_id = client.create_escrow_8(
+            &payees_val,
+            &Some(buyer.clone()),
+            &resolver,
+            &token_id,
+            &amount,
+            &100_u32,
+            &604_800_u64,
+        );
+
+        client.fund_escrow(&escrow_id, &buyer);
+
+        // Admin raises platform fee to the cap after funding (300 bps exceeds `MAX_PLATFORM_FEE_BPS`).
+        client.set_platform_fee(&admin, &200_u32);
+
+        client.mark_shipped(
+            &seller,
+            &escrow_id,
+            &soroban_sdk::String::from_str(&env, "TRACK-PLATFORM-FEE"),
+        );
+        client.raise_dispute(
+            &buyer,
+            &escrow_id,
+            &Symbol::new(&env, "OTHER"),
+            &Bytes::from_slice(&env, b"desc"),
+            &BytesN::from_array(&env, &[2u8; 32]),
+        );
+        client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Release);
+        env.ledger()
+            .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
+        client.finalize_dispute(&resolver, &escrow_id);
+
+        let expected_platform_fee = amount * 100 / 10_000;
+        let tc = soroban_sdk::token::Client::new(&env, &token_id);
+        assert_eq!(
+            tc.balance(&treasury),
+            expected_platform_fee,
+            "treasury should receive snapshotted 1% platform fee, not live 2%"
         );
     }
 

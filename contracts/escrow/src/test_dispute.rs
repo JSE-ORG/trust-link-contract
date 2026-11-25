@@ -1090,7 +1090,10 @@ fn test_resolve_with_reason_accepts_reason_without_memo_and_max_len_memo() {
     );
     let dispute = client.get_dispute(&id).unwrap();
     assert_eq!(dispute.get_resolution_reason(), None);
-    assert_eq!(dispute.get_resolution_memo().len(), crate::MAX_DESCRIPTION_LEN);
+    assert_eq!(
+        dispute.get_resolution_memo().len(),
+        crate::MAX_DESCRIPTION_LEN
+    );
 }
 
 #[test]

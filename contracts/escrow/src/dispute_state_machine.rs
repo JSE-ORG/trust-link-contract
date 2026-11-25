@@ -59,6 +59,7 @@ pub(crate) fn tally_votes(
                         .checked_add(1)
                         .ok_or(ContractError::ArithmeticError)?;
                 }
+                ResolutionType::Split(_) => {}
             }
         }
     }
@@ -79,6 +80,7 @@ pub(crate) fn tally_votes_majority(votes: &Vec<ResolverVote>) -> ResolutionType 
             match vote.resolution {
                 ResolutionType::Release => release_count = release_count.saturating_add(1),
                 ResolutionType::Refund => refund_count = refund_count.saturating_add(1),
+                ResolutionType::Split(_) => {}
             }
         }
     }
@@ -123,10 +125,8 @@ pub(crate) fn execute_resolution_transition(
     } else if !charge_fees {
         (0, 0)
     } else {
-        let arbitration_fee = crate::helpers::payout::calculate_fee(
-            escrow.amount,
-            crate::internal::read_fee_config(env).arbitration_fee_bps,
-        )?;
+        let arbitration_fee =
+            crate::helpers::payout::calculate_fee(escrow.amount, escrow.arbitration_fee_bps)?;
         let resolver_fee =
             crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?;
         let combined_fee = arbitration_fee
@@ -213,6 +213,7 @@ pub(crate) fn execute_resolution_transition(
         final_resolution,
         updated_escrow.amount,
         appeal_deadline,
+        None,
     );
     Ok(())
 }

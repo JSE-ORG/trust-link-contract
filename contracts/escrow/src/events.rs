@@ -1887,12 +1887,7 @@ pub struct AccumulatedFeesClaimed {
 }
 
 /// Topic: `(symbol_short!("Fees"), symbol_short!("Claimed"), collector.clone(), token.clone())`, data: `AccumulatedFeesClaimed`.
-pub fn emit_accumulated_fees_claimed(
-    env: &Env,
-    collector: Address,
-    token: Address,
-    amount: i128,
-) {
+pub fn emit_accumulated_fees_claimed(env: &Env, collector: Address, token: Address, amount: i128) {
     env.events().publish(
         (
             symbol_short!("Fees"),

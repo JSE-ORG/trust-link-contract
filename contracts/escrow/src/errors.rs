@@ -204,8 +204,8 @@ pub enum ContractError {
     DirectUnpauseBlocked = 81,
     /// Returned when a `ResolutionType::Split(bps)` resolution carries a
     /// payee share greater than `BASIS_POINTS` (`10_000`).
-    InvalidSplitBps = 81,
+    InvalidSplitBps = 82,
     /// Returned by `submit_dispute_evidence` when the escrow's evidence log
     /// already holds `MAX_EVIDENCE_ENTRIES` entries.
-    EvidenceLimitReached = 81,
+    EvidenceLimitReached = 83,
 }

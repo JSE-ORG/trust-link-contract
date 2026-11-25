@@ -662,6 +662,10 @@ pub struct Escrow {
     pub amount: i128,
     pub fee_bps: u32,
     pub resolver_fee_bps: u32,
+    /// Platform fee rate snapshotted at funding; immutable for in-flight escrows.
+    pub platform_fee_bps: u32,
+    /// Arbitration fee rate snapshotted at funding; immutable for in-flight escrows.
+    pub arbitration_fee_bps: u32,
     pub shipping_window: u64,
     /// Packed timestamp field: high 32 bits = `funded_at`, low 32 bits = `dispute_deadline`.
     ///
@@ -769,7 +773,8 @@ pub struct UpgradeRecord {
     pub upgraded_by: Address,
     /// Contract version counter after the upgrade (monotonically increasing).
     pub version: u32,
-}/// Maximum number of payees per escrow. Enforced by [`BoundedPayees`] so
+}
+/// Maximum number of payees per escrow. Enforced by [`BoundedPayees`] so
 /// storage cost is bounded at creation time and the length-prefix overhead of
 /// an unbounded `Vec` is eliminated.
 pub const MAX_PAYEES: u32 = 10;

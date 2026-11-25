@@ -605,6 +605,20 @@
                   },
                   {
                     "key": {
+                      "symbol": "resolution_memo"
+                    },
+                    "val": {
+                      "bytes": ""
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "resolution_reason"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "resolved_at"
                     },
                     "val": {
@@ -679,6 +693,14 @@
                     },
                     "val": {
                       "i128": "1000"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "arbitration_fee_bps"
+                    },
+                    "val": {
+                      "u32": 0
                     }
                   },
                   {
@@ -771,6 +793,14 @@
                           }
                         }
                       ]
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "platform_fee_bps"
+                    },
+                    "val": {
+                      "u32": 0
                     }
                   },
                   {

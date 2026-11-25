@@ -163,10 +163,6 @@ pub(crate) fn tally_votes_majority(votes: &Vec<ResolverVote>) -> ResolutionType 
         leader
     }
 }
-pub(crate) use crate::dispute_state_machine::{
-    add_or_update_vote, tally_votes, tally_votes_majority,
-};
-
 #[allow(dead_code)]
 pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
     let paused = crate::storage::read_global_config(env).state_flags
@@ -665,13 +661,48 @@ pub(crate) fn save_escrow(
     }
 }
 
+/// Decodes a stored escrow, back-filling fee snapshot fields added after the
+/// entry was written. Legacy funded escrows default to the current global
+/// rates so behavior matches pre-snapshot deployments until they are rewritten.
+fn decode_escrow(env: &Env, mut raw: soroban_sdk::Map<Symbol, soroban_sdk::Val>) -> EscrowData {
+    use soroban_sdk::{IntoVal, TryFromVal};
+
+    let config = crate::storage::read_global_config(env);
+    let platform_key = Symbol::new(env, "platform_fee_bps");
+    if !raw.contains_key(platform_key.clone()) {
+        let funded = raw
+            .get(Symbol::new(env, "packed_timestamps"))
+            .and_then(|v| u64::try_from_val(env, &v).ok())
+            .is_some_and(|ts| ts != 0);
+        let default_platform = if funded { config.platform_fee_bps } else { 0 };
+        raw.set(platform_key, default_platform.into_val(env));
+    }
+    let arbitration_key = Symbol::new(env, "arbitration_fee_bps");
+    if !raw.contains_key(arbitration_key.clone()) {
+        let funded = raw
+            .get(Symbol::new(env, "packed_timestamps"))
+            .and_then(|v| u64::try_from_val(env, &v).ok())
+            .is_some_and(|ts| ts != 0);
+        let default_arbitration = if funded {
+            config.arbitration_fee_bps
+        } else {
+            0
+        };
+        raw.set(arbitration_key, default_arbitration.into_val(env));
+    }
+    let val: soroban_sdk::Val = raw.into_val(env);
+    EscrowData::try_from_val(env, &val)
+        .unwrap_or_else(|_| soroban_sdk::panic_with_error!(env, ContractError::EscrowNotFound))
+}
+
 pub(crate) fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractError> {
     let key = DataKey::Escrow(id);
-    let escrow: EscrowData = env
+    let raw: soroban_sdk::Map<Symbol, soroban_sdk::Val> = env
         .storage()
         .persistent()
         .get(&key)
         .ok_or(ContractError::EscrowNotFound)?;
+    let escrow = decode_escrow(env, raw);
     let ext = get_ttl_extension(env);
     env.storage()
         .persistent()
@@ -783,9 +814,8 @@ fn decode_dispute(env: &Env, mut raw: soroban_sdk::Map<Symbol, soroban_sdk::Val>
         raw.set(memo_key, soroban_sdk::Bytes::new(env).into_val(env));
     }
     let val: soroban_sdk::Val = raw.into_val(env);
-    DisputeData::try_from_val(env, &val).unwrap_or_else(|_| {
-        soroban_sdk::panic_with_error!(env, ContractError::DisputeNotFound)
-    })
+    DisputeData::try_from_val(env, &val)
+        .unwrap_or_else(|_| soroban_sdk::panic_with_error!(env, ContractError::DisputeNotFound))
 }
 
 pub(crate) fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
@@ -1100,7 +1130,7 @@ pub(crate) fn payout_basket_tokens(
         let fee_collector = config.fee_collector.ok_or(ContractError::NotInitialized)?;
         Some((
             fee_bps,
-            config.platform_fee_bps,
+            escrow.platform_fee_bps,
             fee_collector,
             config.treasury,
         ))
@@ -1159,20 +1189,6 @@ pub(crate) fn payout_basket_tokens_split(
     buyer: &Address,
     split_bps: u32,
     fee_bps: u32,
-/// Distributes every non-primary basket token across `payees` in proportion to
-/// their basis points.
-///
-/// This is the multi-payee counterpart to [`payout_basket_tokens`]: instead of
-/// sending 100% of each secondary token to one address, it reuses
-/// [`distribute_to_payees`] so every payee receives its configured share and
-/// any rounding dust is awarded to the primary payee. Used by the release
-/// paths (`confirm_delivery`, `auto_release`, `co_signed_release`, and a
-/// `Release` dispute resolution); refund paths keep the single-recipient
-/// behaviour.
-pub(crate) fn distribute_basket_tokens(
-    env: &Env,
-    escrow_id: u64,
-    payees: &BoundedPayees,
 ) -> Result<(), ContractError> {
     let escrow = load_escrow(env, escrow_id)?;
     let primary_token = &escrow.token;
@@ -1196,10 +1212,67 @@ pub(crate) fn distribute_basket_tokens(
             entry.amount,
             split_bps,
             fee_bps,
-            config.platform_fee_bps,
+            escrow.platform_fee_bps,
             &fee_collector,
             config.treasury.as_ref(),
         )?;
+    }
+    Ok(())
+}
+
+/// Distributes every non-primary basket token across `payees` in proportion to
+/// their basis points.
+///
+/// This is the multi-payee counterpart to [`payout_basket_tokens`]: instead of
+/// sending 100% of each secondary token to one address, it reuses
+/// [`distribute_to_payees`] so every payee receives its configured share and
+/// any rounding dust is awarded to the primary payee. Used by the release
+/// paths (`confirm_delivery`, `auto_release`, `co_signed_release`, and a
+/// `Release` dispute resolution); refund paths keep the single-recipient
+/// behaviour.
+pub(crate) fn distribute_basket_tokens(
+    env: &Env,
+    escrow_id: u64,
+    payees: &BoundedPayees,
+    fee_bps: u32,
+) -> Result<(), ContractError> {
+    let escrow = load_escrow(env, escrow_id)?;
+    let primary_token = &escrow.token;
+    let basket_tokens = load_basket_tokens(env, escrow_id);
+
+    let config = crate::storage::read_global_config(env);
+
+    for i in 0..basket_tokens.len() {
+        let entry = basket_tokens
+            .get(i)
+            .ok_or(ContractError::BasketIndexOutOfBounds)?;
+        if !is_transferable_basket_entry(&entry, primary_token) {
+            continue;
+        }
+        let protocol_fee = crate::helpers::payout::calculate_fee(entry.amount, fee_bps)?;
+        let platform_fee = match config.treasury.as_ref() {
+            Some(_) => {
+                crate::helpers::payout::calculate_fee(entry.amount, escrow.platform_fee_bps)?
+            }
+            None => 0,
+        };
+        let net_amount = entry
+            .amount
+            .checked_sub(protocol_fee)
+            .ok_or(ContractError::AmountCalculationOverflow)?
+            .checked_sub(platform_fee)
+            .ok_or(ContractError::AmountCalculationOverflow)?;
+        distribute_to_payees(env, &entry.token, payees, net_amount)?;
+        crate::storage::add_accumulated_fee(env, &entry.token, protocol_fee)?;
+        if let Some(treasury_addr) = config.treasury.as_ref() {
+            crate::helpers::payout::payout_platform_fee(
+                env,
+                escrow_id,
+                &entry.token,
+                treasury_addr,
+                platform_fee,
+            );
+        }
     }
     Ok(())
 }
@@ -1680,6 +1753,8 @@ pub(crate) fn create_escrow_internal(
         amount,
         fee_bps,
         resolver_fee_bps,
+        platform_fee_bps: 0,
+        arbitration_fee_bps: 0,
         shipping_window,
         packed_timestamps: 0,
         state: EscrowState::Pending,
@@ -1773,9 +1848,8 @@ pub(crate) fn execute_resolution_transition(
         //    state mutation. This is the semantic guard that keeps the payout
         //    non-negative.
         // 3. Only then deduct both fees with `checked_sub` below.
-        let arbitration_fee_bps = read_fee_config(env).arbitration_fee_bps;
         let arbitration_fee =
-            crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;
+            crate::helpers::payout::calculate_fee(escrow.amount, escrow.arbitration_fee_bps)?;
         let resolver_fee =
             crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?;
 
@@ -1829,10 +1903,8 @@ pub(crate) fn execute_resolution_transition(
     // No INTERACTIONS: fee payouts are deferred to `finalize_dispute`.
 
     emit_dispute_pending_finalization(
-    crate::dispute_state_machine::execute_resolution_transition(
         env,
         escrow_id,
-        escrow,
         caller,
         final_resolution,
         updated_escrow.amount,
@@ -1840,9 +1912,6 @@ pub(crate) fn execute_resolution_transition(
         reason,
     );
     Ok(())
-        votes,
-        charge_fees,
-    )
 }
 
 pub(crate) fn escrow_created_at(env: &Env, escrow_id: u64) -> u64 {
@@ -1914,7 +1983,10 @@ mod tests {
             address: p2,
             bps: 4_000,
         });
-        assert_eq!(validate_payees(&env, &BoundedPayees { inner: list }), Ok(()));
+        assert_eq!(
+            validate_payees(&env, &BoundedPayees { inner: list }),
+            Ok(())
+        );
     }
 
     #[test]

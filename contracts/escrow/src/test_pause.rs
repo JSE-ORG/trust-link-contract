@@ -533,6 +533,8 @@ fn test_direct_unpause_allowed_when_policy_disabled() {
 
     client.unpause_contract(&admin);
     assert!(!client.is_paused());
+}
+
 // ── #1237: granular pausing of administrative functions ─────────────────────
 
 mod admin_action_pausing {

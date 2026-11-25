@@ -1601,6 +1601,8 @@ fn create_basket_escrow_fallback_settles_basket_on_backup_refund() {
     assert_eq!(primary.token.balance(&fx.contract_id), 0);
     assert_eq!(b.token.balance(&fx.contract_id), 0);
     assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Refunded);
+}
+
 // ── Issue #1221 – atomic inflow verification in fund_basket_escrow ──────────
 
 /// A fee-on-transfer token reports a successful `transfer` while crediting

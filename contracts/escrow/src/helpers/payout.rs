@@ -416,6 +416,8 @@ mod tests {
             amount: 100,
             fee_bps: 300,
             resolver_fee_bps: 0,
+            platform_fee_bps: 0,
+            arbitration_fee_bps: 0,
             shipping_window: 100,
             packed_timestamps: 0,
             shipped_at: 0,

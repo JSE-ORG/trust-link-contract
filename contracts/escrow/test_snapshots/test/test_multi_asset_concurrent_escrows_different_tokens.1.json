@@ -997,6 +997,20 @@
                   },
                   {
                     "key": {
+                      "symbol": "resolution_memo"
+                    },
+                    "val": {
+                      "bytes": ""
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "resolution_reason"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "resolved_at"
                     },
                     "val": {
@@ -1073,6 +1087,14 @@
                     },
                     "val": {
                       "i128": "150"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "arbitration_fee_bps"
+                    },
+                    "val": {
+                      "u32": 0
                     }
                   },
                   {
@@ -1163,6 +1185,14 @@
                           }
                         }
                       ]
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "platform_fee_bps"
+                    },
+                    "val": {
+                      "u32": 0
                     }
                   },
                   {
@@ -1268,6 +1298,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "arbitration_fee_bps"
+                    },
+                    "val": {
+                      "u32": 0
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "buyer"
                     },
                     "val": {
@@ -1354,6 +1392,14 @@
                           }
                         }
                       ]
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "platform_fee_bps"
+                    },
+                    "val": {
+                      "u32": 0
                     }
                   },
                   {
@@ -1903,21 +1949,6 @@
                       },
                       "val": {
                         "u32": 2
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "TotalArbitrationFees"
-                          },
-                          {
-                            "address": "CCF7CGAN3G4L2LJV6EB3GZKQSQY6YGJ4XEQYQVA7GXOYRGIQXSIWVBTI"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "i128": "0"
                       }
                     }
                   ]

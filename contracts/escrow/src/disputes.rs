@@ -251,14 +251,7 @@ impl Escrow {
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        crate::resolve_or_vote_internal(
-            &env,
-            caller,
-            escrow_id,
-            resolution,
-            None,
-            Bytes::new(&env),
-        )
+        crate::resolve_or_vote_internal(&env, caller, escrow_id, resolution, None, Bytes::new(&env))
     }
 
     /// Like `resolve_dispute`, but also records *why* the resolver decided as
@@ -297,14 +290,7 @@ impl Escrow {
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        crate::resolve_or_vote_internal(
-            &env,
-            caller,
-            escrow_id,
-            resolution,
-            None,
-            Bytes::new(&env),
-        )
+        crate::resolve_or_vote_internal(&env, caller, escrow_id, resolution, None, Bytes::new(&env))
     }
 
     /// Get the resolver votes for a disputed escrow (for multi-resolver voting tracking)
@@ -388,7 +374,7 @@ impl Escrow {
         // Arbitration and resolver fees were only recorded provisionally by
         // `execute_resolution_transition`; they are paid here, atomically with
         // the principal payout, so an appeal can never leak them.
-        let platform_fee_bps = read_platform_fee_bps(&env);
+        let platform_fee_bps = escrow.platform_fee_bps;
 
         // ── FEE BASIS (original funded principal) ──
         // `execute_resolution_transition` provisionally subtracted the
@@ -764,13 +750,13 @@ impl Escrow {
         let mut dispute_data = dispute_data;
         let fee_config = read_global_config(&env);
         let protocol_fee = crate::helpers::payout::calculate_fee(escrow.amount, escrow.fee_bps)?;
-        let treasury = if fee_config.platform_fee_bps > 0 {
+        let treasury = if escrow.platform_fee_bps > 0 {
             fee_config.treasury.clone()
         } else {
             None
         };
         let platform_fee = if treasury.is_some() {
-            crate::helpers::payout::calculate_fee(escrow.amount, fee_config.platform_fee_bps)?
+            crate::helpers::payout::calculate_fee(escrow.amount, escrow.platform_fee_bps)?
         } else {
             0
         };
@@ -827,11 +813,6 @@ impl Escrow {
             escrow_id,
             timeout_resolver,
             ResolutionType::Refund,
-            votes,
-            false,
-            None,
-            Bytes::new(&env),
-        )
             buyer,
             escrow.amount,
             0,

@@ -328,7 +328,7 @@ fn admin_rotation_emits_cancellation_and_mismatch_reason() {
         symbol_short!("Cancelled"),
         |event| event.operation == op
             && event.proposer == old_admin
-            && event.canceller == contract_id,
+            && event.canceller == new_admin,
     ));
     assert!(event_emitted::<TimelockCancellationReason, _>(
         &env,
