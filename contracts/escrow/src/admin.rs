@@ -178,6 +178,10 @@ fn clear_all_timelock_proposals(env: &Env, canceller: &Address) {
         if let Some(proposal) = storage::read_timelock_proposal(env, operation) {
             storage::remove_timelock_proposal(env, operation);
             emit_timelock_cancelled(env, operation, proposal.proposer, canceller.clone());
+        }
+    }
+}
+
 /// Cancel all outstanding proposals when the admin changes. A rejected
 /// execution cannot do this itself: Soroban rolls back state and events on error.
 fn invalidate_timelocks_on_rotation(env: &Env) {
@@ -1063,9 +1067,7 @@ impl Escrow {
                 .persistent()
                 .get(&DataKey::UpgradeHistory)
                 .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
-            let next_version = u32::try_from(history.len())
-                .unwrap_or(u32::MAX)
-                .saturating_add(1);
+            let next_version = history.len().saturating_add(1);
             history.push_back(crate::types::UpgradeRecord {
                 wasm_hash: new_wasm_hash.clone(),
                 upgraded_at: env.ledger().timestamp(),
@@ -1073,8 +1075,12 @@ impl Escrow {
                 version: next_version,
             });
             let ext = storage::get_ttl_extension(&env);
-            env.storage().persistent().set(&DataKey::UpgradeHistory, &history);
-            env.storage().persistent().extend_ttl(&DataKey::UpgradeHistory, ext / 2, ext);
+            env.storage()
+                .persistent()
+                .set(&DataKey::UpgradeHistory, &history);
+            env.storage()
+                .persistent()
+                .extend_ttl(&DataKey::UpgradeHistory, ext / 2, ext);
             next_version
         };
 
@@ -2412,7 +2418,9 @@ mod accumulated_fee_tests {
         let fee_collector = Address::generate(&env);
         let outsider = Address::generate(&env);
         let token_admin = Address::generate(&env);
-        let token_id = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
 
         client.initialize(&admin, &fee_collector, &0_u32);
         StellarAssetClient::new(&env, &token_id).mint(&contract_id, &500);
@@ -2431,7 +2439,10 @@ mod accumulated_fee_tests {
         let claimed = client.claim_accumulated_fees(&fee_collector, &token_id);
         assert_eq!(claimed, 500);
         assert_eq!(client.get_accumulated_fees(&token_id), 0);
-        assert_eq!(TokenClient::new(&env, &token_id).balance(&fee_collector), 500);
+        assert_eq!(
+            TokenClient::new(&env, &token_id).balance(&fee_collector),
+            500
+        );
         assert_eq!(
             client.try_claim_accumulated_fees(&fee_collector, &token_id),
             Err(Ok(ContractError::InsufficientBalance))

@@ -201,10 +201,10 @@ pub enum ContractError {
     /// Returned when `unpause_contract` is called directly while
     /// `GLOBAL_CONFIG_FLAG_TIMELOCKED_UNPAUSE_ONLY` is set. The caller must
     /// use `queue_unpause_contract` → `execute_unpause_contract` instead.
-    DirectUnpauseBlocked = 81,
+    DirectUnpauseBlocked = 82,
     /// Returned when a `ResolutionType::Split(bps)` resolution carries a
     /// payee share greater than `BASIS_POINTS` (`10_000`).
-    InvalidSplitBps = 81,
+    InvalidSplitBps = 83,
     /// Returned by `submit_dispute_evidence` when the escrow's evidence log
     /// already holds `MAX_EVIDENCE_ENTRIES` entries.
     EvidenceLimitReached = 81,

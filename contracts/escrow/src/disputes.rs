@@ -251,14 +251,7 @@ impl Escrow {
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        crate::resolve_or_vote_internal(
-            &env,
-            caller,
-            escrow_id,
-            resolution,
-            None,
-            Bytes::new(&env),
-        )
+        crate::resolve_or_vote_internal(&env, caller, escrow_id, resolution, None, Bytes::new(&env))
     }
 
     /// Like `resolve_dispute`, but also records *why* the resolver decided as
@@ -297,14 +290,7 @@ impl Escrow {
         resolution: ResolutionType,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        crate::resolve_or_vote_internal(
-            &env,
-            caller,
-            escrow_id,
-            resolution,
-            None,
-            Bytes::new(&env),
-        )
+        crate::resolve_or_vote_internal(&env, caller, escrow_id, resolution, None, Bytes::new(&env))
     }
 
     /// Get the resolver votes for a disputed escrow (for multi-resolver voting tracking)
@@ -827,11 +813,6 @@ impl Escrow {
             escrow_id,
             timeout_resolver,
             ResolutionType::Refund,
-            votes,
-            false,
-            None,
-            Bytes::new(&env),
-        )
             buyer,
             escrow.amount,
             0,

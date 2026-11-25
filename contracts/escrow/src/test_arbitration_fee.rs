@@ -569,6 +569,8 @@ fn test_execute_resolution_transition_rejects_fees_exceeding_amount() {
             ResolutionType::Release,
             votes,
             true,
+            None,
+            soroban_sdk::Bytes::new(&env),
         );
 
         let escrow_after = crate::internal::load_escrow(&env, id).unwrap();

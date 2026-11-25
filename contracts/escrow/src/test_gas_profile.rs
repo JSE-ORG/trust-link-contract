@@ -26,6 +26,9 @@ fn take_budget_snapshot(env: &Env) -> GasSample {
 }
 
 fn diff(env: &Env, _before: &GasSample) -> GasSample {
+    read_gas_meter(env)
+}
+
 // Soroban resets the budget for each top-level invocation.
 fn reset_gas_meter(env: &Env) {
     env.cost_estimate().budget().reset_tracker();

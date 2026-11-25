@@ -1,3 +1,5 @@
+#![allow(clippy::assertions_on_constants)]
+
 use soroban_sdk::Env;
 
 fn setup_test_env() -> Env {

@@ -519,6 +519,8 @@ fn resolve_appeal_reresolve_with_new_resolver_defers_and_pays_final_resolver() {
     assert_eq!(token_client.balance(&setup.seller), 1_000 - 50 - 20);
     assert_eq!(token_client.balance(&setup.contract_id), 0);
     assert!(client.get_dispute(&setup.escrow_id).unwrap().fees_charged);
+}
+
 // ── Dispute / appeal counter invariants ─────────────────────────────────────
 
 #[test]

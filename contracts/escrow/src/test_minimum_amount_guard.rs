@@ -107,7 +107,7 @@ fn test_create_escrow_at_minimum_succeeds() {
         &3600_u64,
         &None::<String>,
     );
-    assert!(matches!(result, Ok(_)));
+    assert!(result.is_ok());
 }
 
 /// Verify that creating an escrow above the minimum succeeds.
@@ -136,5 +136,5 @@ fn test_create_escrow_above_minimum_succeeds() {
         &3600_u64,
         &None::<String>,
     );
-    assert!(matches!(result, Ok(_)));
+    assert!(result.is_ok());
 }

@@ -465,8 +465,14 @@ fn test_dispute_allocations_include_protocol_fee() {
     let arbitration_fee = 50_000_i128; // 5% arbitration fee
     let resolution = ResolutionType::Release;
 
-    let result =
-        calculate_dispute_allocations(&env, &escrow, &resolution, arbitration_fee, 0_i128, &fee_collector);
+    let result = calculate_dispute_allocations(
+        &env,
+        &escrow,
+        &resolution,
+        arbitration_fee,
+        0_i128,
+        &fee_collector,
+    );
 
     assert!(result.is_ok());
     let transfers = result.unwrap();
@@ -489,10 +495,7 @@ fn test_dispute_allocations_include_protocol_fee() {
     assert_eq!(fee_transfer.amount, 10_500);
 
     // Verify invariant: net + protocol_fee == escrow.amount
-    assert_eq!(
-        seller_transfer.amount + fee_transfer.amount,
-        escrow.amount
-    );
+    assert_eq!(seller_transfer.amount + fee_transfer.amount, escrow.amount);
 }
 
 #[test]
@@ -541,8 +544,14 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     let arbitration_fee = 50_000_i128;
     let resolution = ResolutionType::Refund;
 
-    let result =
-        calculate_dispute_allocations(&env, &escrow, &resolution, arbitration_fee, 0_i128, &fee_collector);
+    let result = calculate_dispute_allocations(
+        &env,
+        &escrow,
+        &resolution,
+        arbitration_fee,
+        0_i128,
+        &fee_collector,
+    );
 
     assert!(result.is_ok());
     let transfers = result.unwrap();

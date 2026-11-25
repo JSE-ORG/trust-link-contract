@@ -166,7 +166,7 @@ fn persist_basket_escrow(
     };
 
     save_escrow(env, escrow_id, &escrow, None);
-    save_basket_tokens(env, escrow_id, &entries);
+    save_basket_tokens(env, escrow_id, &BoundedBasket::try_new(entries)?);
 
     storage::append_vendor_escrow_index(env, &seller, escrow_id);
     increment_sharded_counter(env, COUNTER_KIND_CREATED, escrow_id)?;
@@ -1757,7 +1757,13 @@ impl Escrow {
             resolvers,
             threshold,
         });
-        validate_resolvers(&resolver_set, &seller, buyer.as_ref())?;
+        let mut payees = Vec::new(&env);
+        payees.push_back(Payee {
+            address: seller.clone(),
+            bps: 10_000,
+        });
+        let payees = BoundedPayees { inner: payees };
+        validate_resolvers(&resolver_set, &payees, buyer.as_ref())?;
 
         persist_basket_escrow(
             &env,
@@ -1829,7 +1835,13 @@ impl Escrow {
             backup: backup_resolver,
             dispute_deadline,
         });
-        validate_resolvers(&resolver_set, &seller, buyer.as_ref())?;
+        let mut payees = Vec::new(&env);
+        payees.push_back(Payee {
+            address: seller.clone(),
+            bps: 10_000,
+        });
+        let payees = BoundedPayees { inner: payees };
+        validate_resolvers(&resolver_set, &payees, buyer.as_ref())?;
 
         persist_basket_escrow(
             &env,

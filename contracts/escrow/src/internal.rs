@@ -163,10 +163,6 @@ pub(crate) fn tally_votes_majority(votes: &Vec<ResolverVote>) -> ResolutionType 
         leader
     }
 }
-pub(crate) use crate::dispute_state_machine::{
-    add_or_update_vote, tally_votes, tally_votes_majority,
-};
-
 #[allow(dead_code)]
 pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
     let paused = crate::storage::read_global_config(env).state_flags
@@ -783,9 +779,8 @@ fn decode_dispute(env: &Env, mut raw: soroban_sdk::Map<Symbol, soroban_sdk::Val>
         raw.set(memo_key, soroban_sdk::Bytes::new(env).into_val(env));
     }
     let val: soroban_sdk::Val = raw.into_val(env);
-    DisputeData::try_from_val(env, &val).unwrap_or_else(|_| {
-        soroban_sdk::panic_with_error!(env, ContractError::DisputeNotFound)
-    })
+    DisputeData::try_from_val(env, &val)
+        .unwrap_or_else(|_| soroban_sdk::panic_with_error!(env, ContractError::DisputeNotFound))
 }
 
 pub(crate) fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
@@ -1159,20 +1154,6 @@ pub(crate) fn payout_basket_tokens_split(
     buyer: &Address,
     split_bps: u32,
     fee_bps: u32,
-/// Distributes every non-primary basket token across `payees` in proportion to
-/// their basis points.
-///
-/// This is the multi-payee counterpart to [`payout_basket_tokens`]: instead of
-/// sending 100% of each secondary token to one address, it reuses
-/// [`distribute_to_payees`] so every payee receives its configured share and
-/// any rounding dust is awarded to the primary payee. Used by the release
-/// paths (`confirm_delivery`, `auto_release`, `co_signed_release`, and a
-/// `Release` dispute resolution); refund paths keep the single-recipient
-/// behaviour.
-pub(crate) fn distribute_basket_tokens(
-    env: &Env,
-    escrow_id: u64,
-    payees: &BoundedPayees,
 ) -> Result<(), ContractError> {
     let escrow = load_escrow(env, escrow_id)?;
     let primary_token = &escrow.token;
@@ -1829,10 +1810,8 @@ pub(crate) fn execute_resolution_transition(
     // No INTERACTIONS: fee payouts are deferred to `finalize_dispute`.
 
     emit_dispute_pending_finalization(
-    crate::dispute_state_machine::execute_resolution_transition(
         env,
         escrow_id,
-        escrow,
         caller,
         final_resolution,
         updated_escrow.amount,
@@ -1840,9 +1819,6 @@ pub(crate) fn execute_resolution_transition(
         reason,
     );
     Ok(())
-        votes,
-        charge_fees,
-    )
 }
 
 pub(crate) fn escrow_created_at(env: &Env, escrow_id: u64) -> u64 {
@@ -1914,7 +1890,10 @@ mod tests {
             address: p2,
             bps: 4_000,
         });
-        assert_eq!(validate_payees(&env, &BoundedPayees { inner: list }), Ok(()));
+        assert_eq!(
+            validate_payees(&env, &BoundedPayees { inner: list }),
+            Ok(())
+        );
     }
 
     #[test]
