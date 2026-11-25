@@ -1,6 +1,63 @@
-use crate::types::{Escrow, ResolutionType};
+use crate::types::{BoundedPayees, Escrow, ResolutionType};
 use crate::{ContractError, BASIS_POINTS};
 use soroban_sdk::{contracttype, Address, Env, Vec};
+
+/// Floor of `amount * bps / BASIS_POINTS` (matches [`crate::internal::distribute_to_payees`]).
+pub fn floored_payee_share(amount: i128, bps: u32) -> Result<i128, ContractError> {
+    if amount < 0 {
+        return Err(ContractError::InvalidAmount);
+    }
+    amount
+        .checked_mul(i128::from(bps))
+        .ok_or(ContractError::ArithmeticError)?
+        .checked_div(i128::from(BASIS_POINTS))
+        .ok_or(ContractError::ArithmeticError)
+}
+
+/// Settlement simulation for multi-payee escrows: mirrors on-chain distribution
+/// but lists only payees that would receive a strictly positive transfer.
+pub fn calculate_multi_payee_allocations(
+    env: &Env,
+    payees: &BoundedPayees,
+    amount: i128,
+) -> Result<Vec<TransferInstruction>, ContractError> {
+    if amount < 0 {
+        return Err(ContractError::InvalidAmount);
+    }
+
+    let mut remaining = amount;
+    let mut transfers = Vec::new(env);
+
+    for i in 1..payees.inner.len() {
+        let payee = payees
+            .inner
+            .get(i)
+            .ok_or(ContractError::PayeeIndexOutOfBounds)?;
+        let payee_amount = floored_payee_share(amount, payee.bps)?;
+        if payee_amount > 0 {
+            transfers.push_back(TransferInstruction {
+                recipient: payee.address.clone(),
+                amount: payee_amount,
+            });
+        }
+        remaining = remaining
+            .checked_sub(payee_amount)
+            .ok_or(ContractError::ArithmeticError)?;
+    }
+
+    let first_payee = payees
+        .inner
+        .get(0)
+        .ok_or(ContractError::PayeeIndexOutOfBounds)?;
+    if remaining > 0 {
+        transfers.push_back(TransferInstruction {
+            recipient: first_payee.address.clone(),
+            amount: remaining,
+        });
+    }
+
+    Ok(transfers)
+}
 
 /// Computes the protocol fee for `amount` at `fee_bps` basis points.
 ///
@@ -325,14 +382,18 @@ pub fn calculate_dispute_allocations(
                 .buyer
                 .clone()
                 .ok_or(ContractError::EscrowHasNoBuyer)?;
-            transfers.push_back(TransferInstruction {
-                recipient: payee,
-                amount: payee_net,
-            });
-            transfers.push_back(TransferInstruction {
-                recipient: buyer,
-                amount: buyer_net,
-            });
+            if payee_net > 0 {
+                transfers.push_back(TransferInstruction {
+                    recipient: payee,
+                    amount: payee_net,
+                });
+            }
+            if buyer_net > 0 {
+                transfers.push_back(TransferInstruction {
+                    recipient: buyer,
+                    amount: buyer_net,
+                });
+            }
         }
     }
 

@@ -997,6 +997,7 @@ pub(crate) fn distribute_to_payees(
     token_addr: &Address,
     payees: &BoundedPayees,
     amount: i128,
+    escrow_id: Option<u64>,
 ) -> Result<(), ContractError> {
     if amount < 0 {
         return Err(ContractError::InvalidAmount);
@@ -1049,12 +1050,20 @@ pub(crate) fn distribute_to_payees(
             .inner
             .get(i)
             .ok_or(ContractError::PayeeIndexOutOfBounds)?;
-        // Multiply first, then divide: floor(A * b_i / BASIS_POINTS).
-        let payee_amount = amount
-            .checked_mul(i128::from(payee.bps))
-            .ok_or(ContractError::ArithmeticError)?
-            .checked_div(i128::from(BASIS_POINTS))
-            .ok_or(ContractError::ArithmeticError)?;
+        let payee_amount = crate::helpers::payout::floored_payee_share(amount, payee.bps)?;
+
+        if payee_amount == 0 {
+            if let Some(escrow_id) = escrow_id {
+                crate::events::emit_payee_share_skipped(
+                    env,
+                    escrow_id,
+                    payee.address.clone(),
+                    payee.bps,
+                    amount,
+                );
+            }
+            continue;
+        }
 
         crate::helpers::payout::payout(env, token_addr, &payee.address, payee_amount);
 
@@ -1072,7 +1081,9 @@ pub(crate) fn distribute_to_payees(
         .inner
         .get(0)
         .ok_or(ContractError::PayeeIndexOutOfBounds)?;
-    payout(env, token_addr, &first_payee.address, remaining);
+    if remaining > 0 {
+        crate::helpers::payout::payout(env, token_addr, &first_payee.address, remaining);
+    }
 
     Ok(())
 }
@@ -1262,7 +1273,7 @@ pub(crate) fn distribute_basket_tokens(
             .ok_or(ContractError::AmountCalculationOverflow)?
             .checked_sub(platform_fee)
             .ok_or(ContractError::AmountCalculationOverflow)?;
-        distribute_to_payees(env, &entry.token, payees, net_amount)?;
+        distribute_to_payees(env, &entry.token, payees, net_amount, Some(escrow_id))?;
         crate::storage::add_accumulated_fee(env, &entry.token, protocol_fee)?;
         if let Some(treasury_addr) = config.treasury.as_ref() {
             crate::helpers::payout::payout_platform_fee(
@@ -1398,7 +1409,13 @@ pub(crate) fn settle_escrow_to_payees(
         crate::storage::require_fee_collector(env)?;
         crate::storage::add_accumulated_fee(env, &escrow.token, protocol_fee)?;
     }
-    distribute_to_payees(env, &escrow.token, &escrow.payees, net_amount)?;
+    distribute_to_payees(
+        env,
+        &escrow.token,
+        &escrow.payees,
+        net_amount,
+        Some(escrow_id),
+    )?;
     payout_basket_tokens(env, escrow_id, &first_payee_addr, Some(fee_bps))?;
 
     Ok((prev_state, first_payee_addr))
