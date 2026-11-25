@@ -9,10 +9,10 @@
 extern crate std;
 
 use crate::{
-    ActionPausedEvent, ActionUnpausedEvent, AmountLimitsUpdated, ContractPausedEvent,
-    ContractUnpausedEvent, Escrow, EscrowClient, ResolverApproved, ResolverRemoved,
-    ResolverStrictUpdated, TimelockExecuted, TimelockOperation, TimelockQueued,
-    TtlExtensionUpdated,
+    ActionPausedEvent, ActionUnpausedEvent, AmountLimitsUpdated, ContractInitialized,
+    ContractPausedEvent, ContractUnpausedEvent, Escrow, EscrowClient, FeeUpdated, ResolverApproved,
+    ResolverRemoved, ResolverStrictUpdated, TimelockExecuted, TimelockOperation, TimelockQueued,
+    TokenAllowlistUpdated, TtlExtensionUpdated, EVENT_SCHEMA_VERSION,
 };
 use soroban_sdk::{
     symbol_short,
@@ -32,6 +32,43 @@ fn setup() -> (Env, EscrowClient<'static>, Address, Address) {
     client.initialize(&admin, &fee_collector, &0_u32);
 
     (env, client, contract_id, admin)
+}
+
+#[test]
+fn historical_event_emitters_use_the_current_schema_version() {
+    assert_eq!(EVENT_SCHEMA_VERSION, 4);
+    let (env, client, contract_id, admin) = setup();
+
+    assert!(event_emitted::<ContractInitialized, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Contract"),
+        symbol_short!("Init"),
+        |event| event.schema_version == EVENT_SCHEMA_VERSION && event.admin == admin,
+    ));
+
+    let token = Address::generate(&env);
+    client.add_allowed_token(&admin, &token);
+    assert!(event_emitted::<TokenAllowlistUpdated, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Token"),
+        symbol_short!("Allowlist"),
+        |event| event.schema_version == EVENT_SCHEMA_VERSION && event.added,
+    ));
+
+    env.as_contract(&contract_id, || {
+        crate::events::emit_fee_updated(&env, 100, 200)
+    });
+    assert!(event_emitted::<FeeUpdated, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Fee"),
+        symbol_short!("Updated"),
+        |event| event.schema_version == EVENT_SCHEMA_VERSION
+            && event.old_fee_bps == 100
+            && event.new_fee_bps == 200,
+    ));
 }
 
 /// Returns true if a contract event with the given two-symbol topic prefix

@@ -62,7 +62,7 @@ function event(topics: string[], payload: Record<string, unknown>): RawEvent {
     event_index: 0,
     contract_id: "CTRUSTLINK",
     topics,
-    payload: { schema_version: 1, ...payload },
+    payload: { schema_version: 4, ...payload },
   };
 }
 
@@ -340,6 +340,15 @@ test("unknown topics warn instead of being silently dropped", async () => {
   assert.equal(warnings.length, 1);
   assert.match(warnings[0]!, /unhandled event topic "Totally:Unknown"/);
   assert.match(warnings[0]!, /unknown topic/);
+});
+
+test("schema_version 4 from the contract is accepted without a warning", async () => {
+  const { client } = fakeClient();
+  const current = event(["Escrow", "Delivered"], { escrow_id: 1, delivered_at: 1 });
+  const warnings = await captureWarnings(async () => processEvent(client, current));
+
+  assert.equal(current.payload["schema_version"], 4);
+  assert.deepEqual(warnings, []);
 });
 
 test("schema_version newer than the indexer is rejected", async () => {

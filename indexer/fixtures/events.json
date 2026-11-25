@@ -6,7 +6,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Contract", "Init"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "admin":               "GADMIN111111111111111111111111111111111111111111111111111",
       "fee_collector":       "GFEECOL11111111111111111111111111111111111111111111111111",
       "arbitration_fee_bps": 100,
@@ -22,7 +22,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Created", "GSELLER111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version":   1,
+      "schema_version":   4,
       "escrow_id":        1,
       "seller":           "GSELLER111111111111111111111111111111111111111111111111111",
       "resolver":         "GRESOLVR11111111111111111111111111111111111111111111111111",
@@ -43,7 +43,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Funded", "GBUYER1111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "escrow_id":      1,
       "buyer":          "GBUYER1111111111111111111111111111111111111111111111111111",
       "amount":         "1000000000",
@@ -59,7 +59,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Shipped", "GSELLER111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "escrow_id":      1,
       "seller":         "GSELLER111111111111111111111111111111111111111111111111111",
       "tracking_id":    "TRACK-ABC-001",
@@ -75,7 +75,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Delivered"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "escrow_id":      1,
       "delivered_at":   1700004000
     }
@@ -87,7 +87,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Completed", "GBUYER1111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "escrow_id":      1,
       "recipient":      "GBUYER1111111111111111111111111111111111111111111111111111",
       "amount":         "985000000",
@@ -106,7 +106,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Created", "GSELLER111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version":   1,
+      "schema_version":   4,
       "escrow_id":        2,
       "seller":           "GSELLER111111111111111111111111111111111111111111111111111",
       "resolver":         "GRESOLVR11111111111111111111111111111111111111111111111111",
@@ -127,7 +127,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Funded", "GBUYER1111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "escrow_id":      2,
       "buyer":          "GBUYER1111111111111111111111111111111111111111111111111111",
       "amount":         "500000000",
@@ -143,7 +143,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Shipped", "GSELLER111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "escrow_id":      2,
       "seller":         "GSELLER111111111111111111111111111111111111111111111111111",
       "tracking_id":    "TRACK-XYZ-002",
@@ -159,7 +159,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Dispute", "Raised", "GBUYER1111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "escrow_id":      2,
       "buyer":          "GBUYER1111111111111111111111111111111111111111111111111111",
       "reason":         "fraud",
@@ -177,7 +177,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Dispute", "Resolved", "GRESOLVR11111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version":   1,
+      "schema_version":   4,
       "escrow_id":        2,
       "resolver":         "GRESOLVR11111111111111111111111111111111111111111111111111",
       "resolution":       "Refund",
@@ -199,7 +199,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Created", "GSELLER111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version":   1,
+      "schema_version":   4,
       "escrow_id":        3,
       "seller":           "GSELLER111111111111111111111111111111111111111111111111111",
       "resolver":         "GRESOLVR11111111111111111111111111111111111111111111111111",
@@ -220,7 +220,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Canceled", "GSELLER111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "escrow_id":      3,
       "seller":         "GSELLER111111111111111111111111111111111111111111111111111",
       "timestamp":      1700021000,
@@ -237,7 +237,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Created", "GSELLER111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version":   1,
+      "schema_version":   4,
       "escrow_id":        4,
       "seller":           "GSELLER111111111111111111111111111111111111111111111111111",
       "resolver":         "GRESOLVR11111111111111111111111111111111111111111111111111",
@@ -258,7 +258,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Escrow", "Released", "GSELLER111111111111111111111111111111111111111111111111111"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "escrow_id":      4,
       "seller":         "GSELLER111111111111111111111111111111111111111111111111111",
       "amount":         "738750000",
@@ -277,7 +277,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Resolver", "Rotated"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "escrow_id":      1,
       "old_resolver":   "GRESOLVR11111111111111111111111111111111111111111111111111",
       "new_resolver":   "GRESOLVR22222222222222222222222222222222222222222222222222",
@@ -293,7 +293,7 @@
     "contract_id": "CESCROW1111111111111111111111111111111111111111111111111111",
     "topics": ["Fee", "Updated"],
     "payload": {
-      "schema_version": 1,
+      "schema_version": 4,
       "old_fee_bps":    150,
       "new_fee_bps":    175,
       "timestamp":      1700050000

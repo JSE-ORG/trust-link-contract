@@ -48,7 +48,7 @@ import {
   type ContractUpgradedPayload,
 } from "./types.js";
 
-const SUPPORTED_SCHEMA_VERSION = 1;
+const SUPPORTED_SCHEMA_VERSION = 4;
 
 // ---------------------------------------------------------------------------
 // Entry point

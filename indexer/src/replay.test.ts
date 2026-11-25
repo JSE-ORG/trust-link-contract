@@ -27,7 +27,7 @@ function event(ledger: number, tx = 0, index = 0): RawEvent {
     event_index: index,
     contract_id: "CESCROW",
     topics: ["Escrow", "Created"],
-    payload: { schema_version: 1 },
+    payload: { schema_version: 4 },
   };
 }
 

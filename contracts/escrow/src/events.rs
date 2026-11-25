@@ -4,11 +4,11 @@ use soroban_sdk::{contracttype, symbol_short, Address, Bytes, BytesN, Env, Strin
 
 use crate::ResolutionType;
 
-/// Schema version stamped into every event payload.
+/// Authoritative schema version stamped into every event payload.
 ///
-/// Increment this constant whenever a field is added, removed, or renamed in
-/// any event struct.  Consumers can use it to guard against decoding stale
-/// snapshots with the wrong XDR shape.
+/// Every event payload struct and emitter must use this constant; emitters
+/// must never hardcode a schema version. Increment it for any incompatible
+/// event schema change so consumers can reject payloads they cannot decode.
 pub const EVENT_SCHEMA_VERSION: u32 = 4;
 
 /// Event topic/data schemas used by the escrow contract.

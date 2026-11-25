@@ -83,7 +83,7 @@ import {
  * const pool = getPool();
  * const applied = await ingestBatch(pool, [
  *   { ledger_sequence: 101, tx_index: 0, event_index: 0, contract_id: "C...",
- *     topics: ["Escrow", "Created"], payload: { schema_version: 1, escrow_id: 1, ... } },
+ *     topics: ["Escrow", "Created"], payload: { schema_version: 4, escrow_id: 1, ... } },
  * ]);
  * // applied === 1; the cursor now points at (101, 0, 0).
  * ```

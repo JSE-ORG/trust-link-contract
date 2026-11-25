@@ -44,7 +44,7 @@ function fakeEvent(ledger: number, transactionIndex: number, escrowId: number): 
     contractId: new Contract(CONTRACT_ID),
     topic: [symbol("Escrow"), symbol("Created")],
     value: struct({
-      schema_version: nativeToScVal(1, { type: "u32" }),
+      schema_version: nativeToScVal(4, { type: "u32" }),
       escrow_id: nativeToScVal(BigInt(escrowId), { type: "u64" }),
       amount: nativeToScVal(1_000_000_000n, { type: "i128" }),
       evidence_hash: nativeToScVal(Buffer.from("aabbcc", "hex"), { type: "bytes" }),
@@ -90,7 +90,7 @@ test("fetchEvents decodes topics and payload from real XDR ScVals", async () => 
   assert.equal(event!.tx_index, 0);
   assert.equal(event!.event_index, 0);
   assert.deepEqual(event!.payload, {
-    schema_version: 1,
+    schema_version: 4,
     escrow_id: "1",
     amount: "1000000000",
     evidence_hash: "aabbcc",

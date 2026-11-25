@@ -29,7 +29,7 @@ Decode the hex topic and value XDR with the stellar-sdk:
 import { xdr, scValToNative } from '@stellar/stellar-sdk'
 
 const payload = scValToNative(xdr.ScVal.fromXDR(record.value, 'hex'))
-// → { schema_version: 1, escrow_id: 1n, seller: "G...", ... }
+// → { schema_version: 4, escrow_id: 1n, seller: "G...", ... }
 ```
 
 **Query by participant:** `stellar-expert/queries/escrows_by_participant.http`
@@ -210,7 +210,7 @@ DATABASE_URL=postgres://...  \
 
 ## Schema versioning
 
-Every event payload includes `schema_version: 1`.  If this field ever exceeds
+Every event payload includes `schema_version: 4`. If this field ever exceeds
 what your consumer expects, it means the event struct changed.  See
 `docs/events.md` for the version changelog and upgrade policy.
 

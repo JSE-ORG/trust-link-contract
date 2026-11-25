@@ -1,7 +1,7 @@
 # Mercury — Schema version guard
 #
 # Call this query after decoding any event's `data` XDR payload.
-# If schema_version in the decoded struct exceeds 1, the Mercury subscriber
+# If schema_version in the decoded struct exceeds 4, the Mercury subscriber
 # may be reading stale field mappings.  See docs/events.md for the changelog.
 #
 # This is a client-side pattern, not a Mercury feature:

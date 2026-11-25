@@ -7,7 +7,7 @@ This document details the events emitted by the Soroban TrustLink Escrow contrac
 Every event payload carries a `schema_version: u32` field whose value is the
 `EVENT_SCHEMA_VERSION` constant defined in `contracts/escrow/src/events.rs`.
 
-**Current version: `1`**
+**Current version: `4`** (the authoritative value is `EVENT_SCHEMA_VERSION` in `events.rs`)
 
 Indexers and consumers **must** read `schema_version` before decoding the rest
 of the payload.  A version mismatch means the XDR field layout has changed and

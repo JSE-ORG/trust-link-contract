@@ -141,7 +141,7 @@ export function topicKey(topics: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Typed payload interfaces  (schema_version = 1)
+// Typed payload interfaces  (schema_version = 4)
 // ---------------------------------------------------------------------------
 
 export interface EscrowCreatedPayload {

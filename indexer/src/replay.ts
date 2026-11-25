@@ -32,7 +32,7 @@
  *     "event_index": 0,
  *     "contract_id": "CESCROW...",
  *     "topics": ["Contract", "Init"],
- *     "payload": { "schema_version": 1, "admin": "GADMIN...", "timestamp": 1700000000 }
+ *     "payload": { "schema_version": 4, "admin": "GADMIN...", "timestamp": 1700000000 }
  *   }
  * ]
  * ```
