@@ -158,6 +158,7 @@ fn persist_basket_escrow(
         platform_fee_bps: 0,
         arbitration_fee_bps: 0,
         shipping_window,
+        inspection_window: 0,
         packed_timestamps: 0,
         state: EscrowState::Pending,
         shipped_at: 0,
@@ -181,6 +182,9 @@ fn persist_basket_escrow(
 #[contractimpl]
 impl Escrow {
     /// Modern 9-argument production interface accepting either Address or Payee array variants.
+    ///
+    /// Equivalent to `create_escrow_with_inspection_window` with
+    /// `inspection_window = 0`, i.e. the legacy 48-hour post-delivery window.
     pub fn create_escrow(
         env: Env,
         seller_or_payees: Val,
@@ -192,6 +196,40 @@ impl Escrow {
         resolver_fee_bps: u32,
         shipping_window: u64,
         notes: Option<String>,
+    ) -> Result<u64, ContractError> {
+        Self::create_escrow_with_inspection_window(
+            env,
+            seller_or_payees,
+            buyer,
+            resolver,
+            token,
+            amount,
+            fee_bps,
+            resolver_fee_bps,
+            shipping_window,
+            notes,
+            0,
+        )
+    }
+
+    /// Same as `create_escrow`, plus an explicit `inspection_window` in seconds.
+    ///
+    /// The buyer's inspection period starts at `delivered_at`; `auto_release`
+    /// becomes eligible only once `now >= delivered_at + inspection_window`.
+    /// `0` selects the legacy `DELIVERY_RELEASE_WINDOW`. Values above
+    /// `MAX_SHIPPING_WINDOW` are rejected with `InvalidShippingWindow`.
+    pub fn create_escrow_with_inspection_window(
+        env: Env,
+        seller_or_payees: Val,
+        buyer: Option<Address>,
+        resolver: Address,
+        token: Address,
+        amount: i128,
+        fee_bps: u32,
+        resolver_fee_bps: u32,
+        shipping_window: u64,
+        notes: Option<String>,
+        inspection_window: u64,
     ) -> Result<u64, ContractError> {
         let payees = if let Ok(payees_vec) = Vec::<Payee>::try_from_val(&env, &seller_or_payees) {
             BoundedPayees { inner: payees_vec }
@@ -228,6 +266,7 @@ impl Escrow {
             notes.unwrap_or_else(|| String::from_str(&env, "")),
             None,
             0,
+            inspection_window,
         )
     }
 
@@ -332,6 +371,7 @@ impl Escrow {
             String::from_str(&env, ""),
             expires_at,
             grace_period,
+            0,
         )?;
 
         if let Some(exp_data) = expires_at {
@@ -633,6 +673,7 @@ impl Escrow {
             platform_fee_bps: 0,
             arbitration_fee_bps: 0,
             shipping_window,
+            inspection_window: 0,
             packed_timestamps: 0,
             state: EscrowState::Pending,
             shipped_at: 0,
@@ -883,6 +924,7 @@ impl Escrow {
             platform_fee_bps: 0,
             arbitration_fee_bps: 0,
             shipping_window,
+            inspection_window: 0,
             packed_timestamps: 0,
             state: EscrowState::Pending,
             shipped_at: 0,
@@ -1658,6 +1700,7 @@ impl Escrow {
             platform_fee_bps: 0,
             arbitration_fee_bps: 0,
             shipping_window,
+            inspection_window: 0,
             packed_timestamps: 0,
             state: EscrowState::Pending,
             shipped_at: 0,
@@ -2333,6 +2376,7 @@ impl Escrow {
                 input.shipping_window,
                 input.notes,
                 None,
+                0,
                 0,
             )?;
             escrow_ids.push_back(id);

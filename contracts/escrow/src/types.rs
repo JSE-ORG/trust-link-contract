@@ -669,6 +669,11 @@ pub struct Escrow {
     /// Arbitration fee rate snapshotted at funding; immutable for in-flight escrows.
     pub arbitration_fee_bps: u32,
     pub shipping_window: u64,
+    /// Seconds the buyer has to inspect goods after `delivered_at` before
+    /// `auto_release` becomes eligible. `0` means "not set" and falls back to
+    /// the legacy `DELIVERY_RELEASE_WINDOW` (48 hours), so pre-existing escrows
+    /// keep their behaviour.
+    pub inspection_window: u64,
     /// Packed timestamp field: high 32 bits = `funded_at`, low 32 bits = `dispute_deadline`.
     ///
     /// Both timestamps fit in 32 bits until year 2106 (Unix epoch < 2^32).

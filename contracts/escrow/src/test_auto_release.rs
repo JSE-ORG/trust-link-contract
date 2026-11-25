@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{ContractError, Escrow, EscrowClient, EscrowState, Payee};
+use crate::{ContractError, Escrow, EscrowClient, EscrowState, Payee, MAX_SHIPPING_WINDOW};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
     token, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
@@ -462,5 +462,86 @@ fn test_auto_release_non_existent_escrow_rejected() {
     assert_eq!(
         fix.client.try_auto_release(&missing_id),
         Err(Ok(ContractError::EscrowNotFound))
+    );
+}
+
+#[test]
+fn test_auto_release_custom_48h_inspection_window_fails_at_24h_and_succeeds_at_49h() {
+    let fix = setup_fixture();
+    let amount = 4_000_i128;
+    let shipping_window = 3600_u64;
+    let inspection_window = 172_800_u64; // 48 hours
+
+    let seller_val = fix.seller.clone().into_val(&fix.env);
+    let escrow_id = fix.client.create_escrow_with_inspection_window(
+        &seller_val,
+        &Some(fix.buyer.clone()),
+        &fix.resolver,
+        &fix.token,
+        &amount,
+        &0_u32,
+        &0_u32,
+        &shipping_window,
+        &None::<soroban_sdk::String>,
+        &inspection_window,
+    );
+    assert_eq!(
+        fix.client.get_escrow(&escrow_id).inspection_window,
+        inspection_window
+    );
+
+    mint(&fix.env, &fix.token, &fix.buyer, amount);
+    fix.client.fund_escrow(&escrow_id, &fix.buyer);
+
+    fix.env
+        .ledger()
+        .set_timestamp(fix.env.ledger().timestamp() + 10);
+    fix.client.mark_shipped(
+        &fix.seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&fix.env, "TRACK48H"),
+    );
+
+    fix.client.propose_record_delivery(&fix.admin, &escrow_id);
+    let prop_time = fix.env.ledger().timestamp();
+    fix.env.ledger().set_timestamp(prop_time + 86_400);
+    fix.client.record_delivery(&fix.admin, &escrow_id);
+
+    let delivered_at = fix.env.ledger().timestamp();
+
+    // 24 hours after delivery: still inside the 48-hour inspection window.
+    fix.env.ledger().set_timestamp(delivered_at + 86_400);
+    assert_eq!(
+        fix.client.try_auto_release(&escrow_id),
+        Err(Ok(ContractError::ShippingWindowNotElapsed))
+    );
+
+    // 49 hours after delivery: inspection window has elapsed.
+    fix.env.ledger().set_timestamp(delivered_at + 176_400);
+    assert!(fix.client.try_auto_release(&escrow_id).is_ok());
+
+    let escrow = fix.client.get_escrow(&escrow_id);
+    assert_eq!(escrow.state, EscrowState::Completed);
+    assert_eq!(balance(&fix.env, &fix.token, &fix.seller), amount);
+}
+
+#[test]
+fn test_create_escrow_with_inspection_window_above_max_rejected() {
+    let fix = setup_fixture();
+    let seller_val = fix.seller.clone().into_val(&fix.env);
+    assert_eq!(
+        fix.client.try_create_escrow_with_inspection_window(
+            &seller_val,
+            &Some(fix.buyer.clone()),
+            &fix.resolver,
+            &fix.token,
+            &10_000_i128,
+            &0_u32,
+            &0_u32,
+            &3600_u64,
+            &None::<soroban_sdk::String>,
+            &(MAX_SHIPPING_WINDOW + 1),
+        ),
+        Err(Ok(ContractError::InvalidShippingWindow))
     );
 }
