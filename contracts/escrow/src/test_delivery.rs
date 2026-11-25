@@ -116,6 +116,69 @@ fn test_mark_shipped_rejects_empty_tracking_id() {
 }
 
 #[test]
+fn test_mark_shipped_rejects_whitespace_only_tracking_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+    );
+
+    let res = client.try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, " "));
+    assert!(matches!(res, Err(Ok(ContractError::InvalidTrackingId))));
+}
+
+#[test]
+fn test_mark_shipped_accepts_space_padded_tracking_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+    );
+
+    let tracking_id = SorobanString::from_str(&env, " TRACK-001 ");
+    client.mark_shipped(&seller, &id, &tracking_id);
+    assert_eq!(client.get_escrow(&id).tracking_id, Some(tracking_id));
+}
+
+#[test]
+fn test_mark_shipped_rejects_control_characters_in_tracking_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 100, 3600,
+    );
+
+    for tracking_id in ["TRACK\t123", "TRACK\n123", "TRACK\u{7f}123"] {
+        let res =
+            client.try_mark_shipped(&seller, &id, &SorobanString::from_str(&env, tracking_id));
+        assert!(matches!(res, Err(Ok(ContractError::InvalidTrackingId))));
+    }
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Funded);
+}
+
+#[test]
 fn test_record_delivery_sets_timestamp() {
     let env = Env::default();
     env.mock_all_auths();
