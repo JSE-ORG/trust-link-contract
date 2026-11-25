@@ -1,8 +1,37 @@
 #![cfg(test)]
 
 use crate::test_helpers::setup_contract;
-use crate::ContractError;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use crate::{ContractError, TimelockCancelled, TimelockOperation};
+use soroban_sdk::{
+    symbol_short,
+    testutils::{Address as _, Events as _},
+    Address, Env, Symbol, TryFromVal, Val,
+};
+
+fn timelock_cancelled_event(
+    env: &Env,
+    contract_id: &Address,
+    operation: u32,
+) -> Option<TimelockCancelled> {
+    env.events()
+        .all()
+        .filter_by_contract(contract_id)
+        .events()
+        .iter()
+        .find_map(|event| {
+            let soroban_sdk::xdr::ContractEventBody::V0(v0) = &event.body;
+            let mut topics = v0.topics.iter();
+            let topic1 = Symbol::try_from_val(env, topics.next()?).ok()?;
+            let topic2 = Symbol::try_from_val(env, topics.next()?).ok()?;
+            if topic1 != symbol_short!("Timelock") || topic2 != symbol_short!("Cancelled") {
+                return None;
+            }
+            let data = Val::try_from_val(env, &v0.data).ok()?;
+            TimelockCancelled::try_from_val(env, &data)
+                .ok()
+                .filter(|event| event.operation == operation)
+        })
+}
 
 fn register_token(env: &Env) -> Address {
     let token_admin = Address::generate(env);
@@ -92,6 +121,24 @@ fn test_cancel_timelock_op_rejects_non_admin() {
 
     let result = client.try_cancel_timelock_op(&intruder, &4_u32);
     assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+}
+
+#[test]
+fn test_cancel_timelock_op_emits_cancelled_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+    let operation = TimelockOperation::SetArbitrationFee as u32;
+    client.queue_set_arbitration_fee(&admin, &100_u32);
+
+    client.cancel_timelock_op(&admin, &operation);
+
+    let event = timelock_cancelled_event(&env, &contract_id, operation)
+        .expect("TimelockCancelled event must be emitted on cancellation");
+    assert_eq!(event.operation, operation);
+    assert_eq!(event.proposer, admin);
+    assert_eq!(event.canceller, admin);
 }
 
 #[test]
@@ -225,6 +272,12 @@ fn rotation_invalidates_old_timelocks_and_new_admin_can_requeue() {
     env.ledger()
         .with_mut(|li| li.timestamp += crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS);
     client.execute_set_admin(&old_admin, &new_admin);
+
+    let cancelled =
+        timelock_cancelled_event(&env, &contract_id, TimelockOperation::SetPlatformFee as u32)
+            .expect("admin rotation must emit TimelockCancelled");
+    assert_eq!(cancelled.proposer, old_admin);
+    assert_eq!(cancelled.canceller, new_admin);
 
     env.as_contract(&contract_id, || {
         for operation in [
