@@ -107,6 +107,50 @@ pub fn emit_admin_rotated(env: &Env, old_admin: Address, new_admin: Address) {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminPending {
+    pub schema_version: u32,
+    pub old_admin: Address,
+    pub pending_admin: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Admin"), symbol_short!("Pending"),)`, data: `AdminPending`.
+pub fn emit_admin_pending(env: &Env, old_admin: Address, pending_admin: Address) {
+    env.events().publish(
+        (symbol_short!("Admin"), symbol_short!("Pending")),
+        AdminPending {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_admin,
+            pending_admin,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminAccepted {
+    pub schema_version: u32,
+    pub old_admin: Address,
+    pub new_admin: Address,
+    pub timestamp: u64,
+}
+
+/// Topic: `(symbol_short!("Admin"), symbol_short!("Accepted"),)`, data: `AdminAccepted`.
+pub fn emit_admin_accepted(env: &Env, old_admin: Address, new_admin: Address) {
+    env.events().publish(
+        (symbol_short!("Admin"), symbol_short!("Accepted")),
+        AdminAccepted {
+            schema_version: EVENT_SCHEMA_VERSION,
+            old_admin,
+            new_admin,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractPausedEvent {
     pub schema_version: u32,
     pub admin: Address,
@@ -1577,11 +1621,7 @@ pub fn emit_payee_share_skipped(
     net_pool: i128,
 ) {
     env.events().publish(
-        (
-            symbol_short!("Payee"),
-            symbol_short!("Skip"),
-            payee.clone(),
-        ),
+        (symbol_short!("Payee"), symbol_short!("Skip"), payee.clone()),
         PayeeShareSkipped {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,

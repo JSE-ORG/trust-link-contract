@@ -9,9 +9,9 @@
 extern crate std;
 
 use crate::{
-    ActionPausedEvent, ActionUnpausedEvent, AmountLimitsUpdated, ContractPausedEvent,
-    ContractUnpausedEvent, Escrow, EscrowClient, ResolverApproved, ResolverRemoved,
-    ResolverStrictUpdated, TimelockExecuted, TimelockOperation, TimelockQueued,
+    ActionPausedEvent, ActionUnpausedEvent, AdminAccepted, AdminPending, AmountLimitsUpdated,
+    ContractPausedEvent, ContractUnpausedEvent, Escrow, EscrowClient, ResolverApproved,
+    ResolverRemoved, ResolverStrictUpdated, TimelockExecuted, TimelockOperation, TimelockQueued,
     TtlExtensionUpdated,
 };
 use soroban_sdk::{
@@ -343,6 +343,45 @@ fn admin_rotation_emits_cancellation_and_mismatch_reason() {
     ));
 }
 
+#[test]
+fn two_step_admin_transfer_emits_pending_then_accepted_and_rotated() {
+    let (env, client, contract_id, old_admin) = setup();
+    let new_admin = Address::generate(&env);
+
+    client.set_pending_admin(&old_admin, &new_admin);
+    assert!(event_emitted::<AdminPending, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Admin"),
+        symbol_short!("Pending"),
+        |event| event.old_admin == old_admin && event.pending_admin == new_admin,
+    ));
+    // Ownership has not moved yet.
+    assert!(!event_emitted::<crate::AdminRotated, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Admin"),
+        symbol_short!("Rotated"),
+        |_| true,
+    ));
+
+    client.accept_admin(&new_admin);
+    assert!(event_emitted::<AdminAccepted, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Admin"),
+        symbol_short!("Accepted"),
+        |event| event.old_admin == old_admin && event.new_admin == new_admin,
+    ));
+    assert!(event_emitted::<crate::AdminRotated, _>(
+        &env,
+        &contract_id,
+        symbol_short!("Admin"),
+        symbol_short!("Rotated"),
+        |event| event.old_admin == old_admin && event.new_admin == new_admin,
+    ));
+}
+
 mod golden_xdr {
     //! Golden XDR snapshots for every event payload. Each fixture serializes
     //! to ScVal XDR and must decode back to the identical struct. The digest
@@ -522,6 +561,28 @@ mod golden_xdr {
         golden_admin_rotated,
         AdminRotated,
         |env| AdminRotated {
+            schema_version: crate::EVENT_SCHEMA_VERSION,
+            old_admin: golden_address(env, 92),
+            new_admin: golden_address(env, 161),
+            timestamp: GOLDEN_TIMESTAMP
+        },
+        "be9227d2dc531badb2fd92c00db62937eff74454b0af1ab16ad46a6f5adb938e"
+    );
+    golden_event!(
+        golden_admin_pending,
+        AdminPending,
+        |env| AdminPending {
+            schema_version: crate::EVENT_SCHEMA_VERSION,
+            old_admin: golden_address(env, 92),
+            pending_admin: golden_address(env, 161),
+            timestamp: GOLDEN_TIMESTAMP
+        },
+        "2847dafa160b43f048c68b12ab91d959ea02cd70b0181a882410ef13e1f059c4"
+    );
+    golden_event!(
+        golden_admin_accepted,
+        AdminAccepted,
+        |env| AdminAccepted {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             old_admin: golden_address(env, 92),
             new_admin: golden_address(env, 161),

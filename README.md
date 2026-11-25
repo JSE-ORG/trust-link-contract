@@ -735,6 +735,11 @@ Admin rotation is performed by `queue_set_admin(new_admin)` followed by
 `execute_set_admin(new_admin)` after the timelock delay (the `set_admin(new_admin)`
 helper exists only in test builds).
 
+A two-step alternative, `set_pending_admin(new_admin)` followed by
+`accept_admin()` from the new address, transfers ownership only after the
+recipient proves key ownership; the old admin stays in control until then.
+See [ADMIN.md → Two-step acceptance](ADMIN.md#two-step-acceptance-set_pending_admin--accept_admin).
+
 Only the current admin can queue a rotation; rotation emits an `AdminRotated`
 event. As part of the rotation every queued timelock proposal from the previous
 admin is purged from storage and a `TimelockCancelled` event is emitted for each

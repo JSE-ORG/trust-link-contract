@@ -3,7 +3,9 @@
 //! admin-gated functions; the old admin is not.
 
 use crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS;
-use crate::{storage, DataKey, Escrow, EscrowClient, TimelockCancelled, TimelockOperation};
+use crate::{
+    storage, ContractError, DataKey, Escrow, EscrowClient, TimelockCancelled, TimelockOperation,
+};
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events as _, Ledger as _},
@@ -183,4 +185,102 @@ fn execute_set_admin_purges_queued_proposals() {
     assert!(client
         .try_execute_set_platform_fee(&new_admin, &250_u32)
         .is_err());
+}
+
+fn read_admin(env: &Env, contract_id: &Address) -> Option<Address> {
+    env.as_contract(contract_id, || {
+        env.storage().instance().get(&DataKey::Admin)
+    })
+}
+
+fn read_pending_admin(env: &Env, contract_id: &Address) -> Option<Address> {
+    env.as_contract(contract_id, || {
+        env.storage().instance().get(&DataKey::PendingAdmin)
+    })
+}
+
+#[test]
+fn two_step_admin_transfer_keeps_old_admin_until_acceptance() {
+    let (env, client, admin) = setup();
+    let new_admin = Address::generate(&env);
+
+    client.set_pending_admin(&admin, &new_admin);
+
+    // Proposal alone must not transfer ownership.
+    assert_eq!(read_admin(&env, &client.address), Some(admin.clone()));
+    assert_eq!(
+        read_pending_admin(&env, &client.address),
+        Some(new_admin.clone())
+    );
+
+    client.accept_admin(&new_admin);
+
+    assert_eq!(read_admin(&env, &client.address), Some(new_admin.clone()));
+    assert_eq!(read_pending_admin(&env, &client.address), None);
+
+    // The incoming admin can act; the outgoing one can no longer.
+    client.set_protocol_fee(&new_admin, &50_u32);
+    env.mock_auths(&[]);
+    assert!(client.try_set_protocol_fee(&admin, &100_u32).is_err());
+}
+
+#[test]
+fn third_party_cannot_accept_admin_transfer() {
+    let (env, client, admin) = setup();
+    let new_admin = Address::generate(&env);
+    let impostor = Address::generate(&env);
+
+    client.set_pending_admin(&admin, &new_admin);
+
+    assert_eq!(
+        client.try_accept_admin(&impostor),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+    // Ownership and the pending proposal are unchanged.
+    assert_eq!(read_admin(&env, &client.address), Some(admin));
+    assert_eq!(read_pending_admin(&env, &client.address), Some(new_admin));
+}
+
+#[test]
+fn accept_admin_without_pending_transfer_is_not_authorized() {
+    let (env, client, _admin) = setup();
+    let caller = Address::generate(&env);
+
+    assert_eq!(
+        client.try_accept_admin(&caller),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+}
+
+#[test]
+fn set_pending_admin_requires_the_current_admin() {
+    let (env, client, _admin) = setup();
+    let new_admin = Address::generate(&env);
+    let impostor = Address::generate(&env);
+
+    assert_eq!(
+        client.try_set_pending_admin(&impostor, &new_admin),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+    assert_eq!(read_pending_admin(&env, &client.address), None);
+}
+
+#[test]
+fn accept_admin_purges_queued_timelock_proposals() {
+    let (env, client, admin) = setup();
+    let new_admin = Address::generate(&env);
+    let hash = BytesN::from_array(&env, &[11u8; 32]);
+
+    client.queue_set_platform_fee(&admin, &150_u32);
+    client.queue_upgrade(&admin, &hash);
+    client.set_pending_admin(&admin, &new_admin);
+    client.accept_admin(&new_admin);
+
+    let cancellations = cancellation_events(&env, &client.address);
+    assert_no_timelock_proposals(&env, &client.address);
+    assert_eq!(cancellations.len(), 2);
+    for cancellation in cancellations.iter() {
+        assert_eq!(cancellation.proposer, admin);
+        assert_eq!(cancellation.canceller, new_admin);
+    }
 }
