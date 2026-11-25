@@ -74,6 +74,18 @@ pub fn update_global_config(env: &Env, f: impl FnOnce(&mut GlobalConfig)) {
     write_global_config(env, &config);
 }
 
+/// Fee collector required for settlement paths that accrue or move protocol fees.
+pub fn require_fee_collector(env: &Env) -> Result<Address, ContractError> {
+    read_global_config(env)
+        .fee_collector
+        .ok_or(ContractError::NotInitialized)
+}
+
+/// Treasury is optional; platform fees are skipped when unset.
+pub fn get_treasury_address(env: &Env) -> Option<Address> {
+    read_global_config(env).treasury
+}
+
 // ── Accumulated protocol fees (pull pattern) ────────────────────────────────
 
 /// Returns the accumulated unclaimed protocol fees for `token`.

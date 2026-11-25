@@ -1399,9 +1399,7 @@ impl Escrow {
         }
 
         let fee_config = read_fee_config(&env);
-        let fee_collector: Address = crate::storage::read_global_config(&env)
-            .fee_collector
-            .ok_or(ContractError::NotInitialized)?;
+        let fee_collector = crate::storage::require_fee_collector(&env)?;
 
         let prev_state = escrow.state.clone();
         let mut updated = escrow;
