@@ -482,7 +482,7 @@ mod golden_xdr {
 
     #[test]
     fn golden_schema_version_is_pinned() {
-        assert_eq!(EVENT_SCHEMA_VERSION, 4, "bump schema version explicitly");
+        assert_eq!(EVENT_SCHEMA_VERSION, 5, "bump schema version explicitly");
     }
 
     golden_event!(
@@ -645,6 +645,7 @@ mod golden_xdr {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             escrow_id: 7_u64,
             resolver: golden_address(env, 7),
+            resolved_by: golden_address(env, 7),
             resolution: ResolutionType::Release,
             recipient: golden_address(env, 40),
             amount: 1_000_000_i128,

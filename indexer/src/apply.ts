@@ -334,7 +334,7 @@ async function applyDisputeResolved(client: pg.PoolClient, event: RawEvent): Pro
     `UPDATE disputes
         SET status = 'Resolved', resolution = $2, resolver = $3, resolved_at = $4
       WHERE escrow_id = $1`,
-    [escrowId, d.resolution, d.resolver, str(d.timestamp)],
+    [escrowId, d.resolution, d.resolved_by, str(d.timestamp)],
   );
 }
 

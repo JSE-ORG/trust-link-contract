@@ -7,12 +7,12 @@
 //! the on-chain dispute record must be marked `Resolved`.
 
 use crate::{
-    DataKey, DisputeData, DisputeStatus, Escrow, EscrowClient, EscrowData, EscrowState, Payee,
-    ResolutionType,
+    DataKey, DisputeData, DisputeResolved, DisputeStatus, Escrow, EscrowClient, EscrowData,
+    EscrowState, Payee, ResolutionType,
 };
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    token, Address, BytesN, Env, IntoVal, String, Symbol, Vec,
+    token, Address, BytesN, Env, IntoVal, String, Symbol, TryFromVal, Vec,
 };
 
 #[test]
@@ -87,6 +87,22 @@ fn full_dispute_release_to_vendor() {
     client.resolve_dispute(&resolver, &escrow_id, &ResolutionType::Release);
     env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
     client.finalize_dispute(&resolver, &escrow_id);
+
+    let resolved_event = env
+        .events()
+        .all()
+        .filter_by_contract(&contract_id)
+        .events()
+        .iter()
+        .find_map(|event| match &event.body {
+            soroban_sdk::xdr::ContractEventBody::V0(v0) => {
+                let data = soroban_sdk::Val::try_from_val(&env, &v0.data).ok()?;
+                let event = DisputeResolved::try_from_val(&env, &data).ok()?;
+                (event.escrow_id == escrow_id).then_some(event)
+            }
+        })
+        .expect("DisputeResolved event should be emitted");
+    assert_eq!(resolved_event.resolved_by, resolver);
 
     // ── Post-resolution assertions ─────────────────────────────────────────
     let token_client = token::TokenClient::new(&env, &token_address);

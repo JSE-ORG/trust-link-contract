@@ -7,7 +7,7 @@ This document details the events emitted by the Soroban TrustLink Escrow contrac
 Every event payload carries a `schema_version: u32` field whose value is the
 `EVENT_SCHEMA_VERSION` constant defined in `contracts/escrow/src/events.rs`.
 
-**Current version: `1`**
+**Current version: `5`**
 
 Indexers and consumers **must** read `schema_version` before decoding the rest
 of the payload.  A version mismatch means the XDR field layout has changed and
@@ -18,6 +18,7 @@ the consumer needs to be updated before it can safely decode the event.
 | Version | Change summary |
 |---------|---------------|
 | 1 | Initial versioned schema — `schema_version` field added to all event structs. |
+| 5 | Added the mandatory `resolved_by` address to `DisputeResolved`; timeout refunds use the contract address. |
 
 **Rules for contributors:**
 
@@ -140,7 +141,8 @@ By placing relevant addresses in the topics, indexers can filter directly for ev
   - Payload: `DisputeRaised` `{ schema_version, escrow_id, buyer, reason, description, evidence_hash, timestamp }`
 - **dispute_resolved**: 
   - Topics: `["Dispute", "Resolved", resolver]`
-  - Payload: `DisputeResolved` `{ schema_version, escrow_id, resolver, resolution, recipient, amount, arbitration_fee, resolver_fee, timestamp }`
+  - Payload: `DisputeResolved` `{ schema_version, escrow_id, resolver, resolved_by, resolution, recipient, amount, arbitration_fee, resolver_fee, platform_fee, timestamp, prev_state, new_state }`
+  - `resolved_by` is the resolver who decided the dispute; timeout refunds are attributed to the contract address.
 - **dispute_pending_finalization**:
   - Topics: `["Dispute", "Pending", resolver]`
   - Payload: `DisputePendingFinalization` `{ schema_version, escrow_id, resolver, resolution, amount, appeal_deadline, pending_at }`

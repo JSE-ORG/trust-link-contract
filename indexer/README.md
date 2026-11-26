@@ -96,6 +96,13 @@ query AllEscrowsForParticipant($contractId: String!, $address: String!) {
 }
 ```
 
+`DisputeResolved` includes a non-null `resolved_by` address in its payload for
+all resolutions. For timeout refunds, `resolved_by` is the escrow contract
+address, indicating that the contract's timeout path made the resolution.
+Resolver-attributed queries can continue using topic 3; consumers should read
+`resolved_by` from the payload when they need attribution that includes
+automated timeout refunds.
+
 Full query file: `mercury/queries/escrows_by_participant.graphql`
 
 Generate the `$address` XDR variable:

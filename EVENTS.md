@@ -73,7 +73,7 @@ The tables below list all 61 event topics. The `Payload fields` column is the ex
 | `ResolverVoteRecorded` | `(Symbol::new(env, "resolver_vote_recorded"),)` | `schema_version: u32`<br>`escrow_id: u64`<br>`resolver: Address`<br>`resolution: ResolutionType`<br>`vote_count: u32`<br>`threshold: u32`<br>`voted_at: u64` | A multi-resolver vote was recorded. |
 | `DisputePendingFinalization` | `(symbol_short!("Dispute"), symbol_short!("Pending"), resolver.clone())` | `schema_version: u32`<br>`escrow_id: u64`<br>`resolver: Address`<br>`resolution: ResolutionType`<br>`amount: i128`<br>`appeal_deadline: u64`<br>`pending_at: u64` | Resolution reached; awaiting the appeal window before payout. |
 | `DisputeAppealed` | `(symbol_short!("Dispute"), symbol_short!("Appealed"), appellant.clone())` | `schema_version: u32`<br>`escrow_id: u64`<br>`appellant: Address`<br>`timestamp: u64`<br>`appeal_fee_charged: i128`<br>`appeal_round: u32` | Resolution appealed; votes and resolution state reset. |
-| `DisputeResolved` | `(symbol_short!("Dispute"), symbol_short!("Resolved"), resolver.clone())` | `schema_version: u32`<br>`escrow_id: u64`<br>`resolver: Address`<br>`resolution: ResolutionType`<br>`recipient: Address`<br>`amount: i128`<br>`arbitration_fee: i128`<br>`resolver_fee: i128`<br>`platform_fee: i128`<br>`timestamp: u64`<br>`prev_state: EscrowState`<br>`new_state: EscrowState` | Final dispute settlement with fee breakdown. |
+| `DisputeResolved` | `(symbol_short!("Dispute"), symbol_short!("Resolved"), resolver.clone())` | `schema_version: u32`<br>`escrow_id: u64`<br>`resolver: Address`<br>`resolved_by: Address`<br>`resolution: ResolutionType`<br>`recipient: Address`<br>`amount: i128`<br>`arbitration_fee: i128`<br>`resolver_fee: i128`<br>`platform_fee: i128`<br>`timestamp: u64`<br>`prev_state: EscrowState`<br>`new_state: EscrowState` | Final dispute settlement with fee breakdown; timeout refunds attribute `resolved_by` to the contract address. |
 
 ### Fee and treasury events
 
@@ -233,9 +233,10 @@ The following are illustrative JSON renderings of the topic XDR and payload XDR.
   ],
   "value": {
     "DisputeResolved": {
-      "schema_version": 4,
+      "schema_version": 5,
       "escrow_id": 42,
       "resolver": "G...RESOLVER",
+      "resolved_by": "G...RESOLVER",
       "resolution": "Release",
       "recipient": "G...SELLER",
       "amount": "10000000",

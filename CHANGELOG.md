@@ -33,6 +33,9 @@ non-user-facing repository maintenance.
 
 ### Changed
 
+- Added the non-null `resolved_by` address to `DisputeResolved` event payloads;
+  timeout refunds are attributed to the escrow contract. Bumped the event
+  schema version to 5 and updated indexer documentation.
 - Rewrote `CONTRIBUTING.md`: corrected the project structure, build/test
   commands, and wasm target (`wasm32v1-none`) to match the current workspace
   layout, and added a Quick Start section so new contributors can set up in

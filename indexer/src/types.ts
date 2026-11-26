@@ -240,6 +240,7 @@ export interface DisputeResolvedPayload {
   schema_version: number;
   escrow_id: string | number;
   resolver: string;
+  resolved_by: string;
   resolution: string;
   recipient: string;
   /**

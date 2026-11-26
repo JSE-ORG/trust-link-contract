@@ -331,7 +331,7 @@ impl Escrow {
         let resolved_by = dispute_data
             .resolved_by
             .clone()
-            .ok_or(ContractError::InvalidState)?;
+            .unwrap_or(env.current_contract_address());
 
         let appeal_deadline = dispute_data
             .resolved_at
@@ -517,6 +517,7 @@ impl Escrow {
         emit_dispute_resolved(
             &env,
             escrow_id,
+            resolved_by.clone(),
             resolved_by,
             resolution,
             recipient,
@@ -801,7 +802,8 @@ impl Escrow {
         emit_dispute_resolved(
             &env,
             escrow_id,
-            timeout_resolver,
+            timeout_resolver.clone(),
+            env.current_contract_address(),
             ResolutionType::Refund,
             buyer,
             escrow.amount,
