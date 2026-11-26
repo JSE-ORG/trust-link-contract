@@ -189,6 +189,7 @@ fn clear_all_timelock_proposals(env: &Env, canceller: &Address) {
 
 /// Cancel all outstanding proposals when the admin changes. A rejected
 /// execution cannot do this itself: Soroban rolls back state and events on error.
+#[allow(dead_code)]
 fn invalidate_timelocks_on_rotation(env: &Env) {
     // TimelockOperation discriminants are append-only; update the upper bound
     // when a new operation is added.
@@ -1095,9 +1096,7 @@ impl Escrow {
                 .persistent()
                 .get(&DataKey::UpgradeHistory)
                 .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
-            let next_version = u32::try_from(history.len())
-                .unwrap_or(u32::MAX)
-                .saturating_add(1);
+            let next_version = history.len().saturating_add(1);
             history.push_back(crate::types::UpgradeRecord {
                 wasm_hash: new_wasm_hash.clone(),
                 upgraded_at: env.ledger().timestamp(),

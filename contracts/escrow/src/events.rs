@@ -9,7 +9,7 @@ use crate::ResolutionType;
 /// Increment this constant whenever a field is added, removed, or renamed in
 /// any event struct.  Consumers can use it to guard against decoding stale
 /// snapshots with the wrong XDR shape.
-pub const EVENT_SCHEMA_VERSION: u32 = 4;
+pub const EVENT_SCHEMA_VERSION: u32 = 5;
 
 /// Event topic/data schemas used by the escrow contract.
 ///
@@ -593,6 +593,7 @@ pub struct EscrowExpired {
     pub schema_version: u32,
     pub escrow_id: u64,
     pub buyer: Address,
+    pub token: Address,
     pub amount: i128,
     pub timestamp: u64,
     pub prev_state: crate::EscrowState,
@@ -608,7 +609,9 @@ pub fn emit_escrow_expired(
     env: &Env,
     escrow_id: u64,
     buyer: Address,
+    token: Address,
     amount: i128,
+    now: u64,
     prev_state: crate::EscrowState,
     new_state: crate::EscrowState,
 ) {
@@ -622,8 +625,9 @@ pub fn emit_escrow_expired(
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             buyer,
+            token,
             amount,
-            timestamp: env.ledger().timestamp(),
+            timestamp: now,
             prev_state,
             new_state,
         },
@@ -1577,11 +1581,7 @@ pub fn emit_payee_share_skipped(
     net_pool: i128,
 ) {
     env.events().publish(
-        (
-            symbol_short!("Payee"),
-            symbol_short!("Skip"),
-            payee.clone(),
-        ),
+        (symbol_short!("Payee"), symbol_short!("Skip"), payee.clone()),
         PayeeShareSkipped {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
@@ -1940,6 +1940,29 @@ pub fn emit_accumulated_fees_claimed(env: &Env, collector: Address, token: Addre
             token,
             amount,
             timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+/// Diagnostic emitted when a sub-call in a `multicall` batch fails.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MulticallSubcallFailed {
+    pub schema_version: u32,
+    pub index: u32,
+    pub function: Symbol,
+    pub error_code: u32,
+}
+
+/// Topic: `(symbol_short!("Multicall"), symbol_short!("Failed"))`, data: `MulticallSubcallFailed`.
+pub fn emit_multicall_failed(env: &Env, index: u32, function: Symbol, error_code: u32) {
+    env.events().publish(
+        (symbol_short!("Multicall"), symbol_short!("Failed")),
+        MulticallSubcallFailed {
+            schema_version: EVENT_SCHEMA_VERSION,
+            index,
+            function,
+            error_code,
         },
     );
 }

@@ -6,11 +6,11 @@ All events are published through Soroban's `env.events().publish(topics, payload
 
 ## Schema versioning
 
-- `pub const EVENT_SCHEMA_VERSION: u32 = 4` is stamped into the `schema_version` field of every payload.
+- `pub const EVENT_SCHEMA_VERSION: u32 = 5` is stamped into the `schema_version` field of every payload.
 - Every payload begins with `schema_version: u32`. Consumers must decode this field before any other field.
 - Increment `EVENT_SCHEMA_VERSION` whenever a field is added, removed, or renamed in **any** event struct; the version is contract-wide, not per-event.
 - Consumers should reject or skip events whose `schema_version` is greater than the version they understand, rather than attempting a best-effort decode.
-- Versions 1–3 are historical snapshots. `basket_tokens` was added in version 3 to `EscrowFunded` and `RefundRequestedEvent`; version 4 is the current shape.
+- Versions 1–4 are historical snapshots. `basket_tokens` was added in version 3 to `EscrowFunded` and `RefundRequestedEvent`; version 4 was the previous shape. Version 5 adds `token` to `EscrowExpired` and introduces `MulticallSubcallFailed`; version 5 is the current shape.
 
 ## Decoding and indexing best practices
 
@@ -41,7 +41,7 @@ if topics.get(0) == symbol_short!("Treasury").into_val(env)
 
 ## Topic registry and XDR payload layouts
 
-The tables below list all 61 event topics. The `Payload fields` column is the exact XDR struct layout in declaration order. Rust tuple trailing commas are omitted from the topic column for readability; topic values and their order are unchanged.
+The tables below list all 62 event topics. The `Payload fields` column is the exact XDR struct layout in declaration order. Rust tuple trailing commas are omitted from the topic column for readability; topic values and their order are unchanged.
 
 ### Lifecycle events
 
@@ -54,7 +54,7 @@ The tables below list all 61 event topics. The `Payload fields` column is the ex
 | `EscrowCompleted` | `(symbol_short!("Escrow"), symbol_short!("Completed"), recipient.clone())` | `schema_version: u32`<br>`escrow_id: u64`<br>`recipient: Address`<br>`amount: i128`<br>`fee_bps: u32`<br>`timestamp: u64`<br>`prev_state: EscrowState`<br>`new_state: EscrowState` | Normal completion and payout to the recipient. |
 | `AutoReleased` | `(symbol_short!("Escrow"), symbol_short!("Released"), seller.clone())` | `schema_version: u32`<br>`escrow_id: u64`<br>`seller: Address`<br>`amount: i128`<br>`fee_bps: u32`<br>`timestamp: u64`<br>`prev_state: EscrowState`<br>`new_state: EscrowState` | Funds auto-released to the seller after the shipping window. |
 | `EscrowCanceled` | `(symbol_short!("Escrow"), symbol_short!("Canceled"), cancelled_by.clone())` | `schema_version: u32`<br>`escrow_id: u64`<br>`seller: Address`<br>`cancelled_by: Address`<br>`timestamp: u64`<br>`prev_state: EscrowState`<br>`new_state: EscrowState` | Explicit cancellation. `cancelled_by` may be the buyer, not the seller. |
-| `EscrowExpired` | `(symbol_short!("Escrow"), symbol_short!("Expired"), buyer.clone())` | `schema_version: u32`<br>`escrow_id: u64`<br>`buyer: Address`<br>`amount: i128`<br>`timestamp: u64`<br>`prev_state: EscrowState`<br>`new_state: EscrowState` | `reclaim_expired` returned principal (and basket tokens) to the buyer. |
+| `EscrowExpired` | `(symbol_short!("Escrow"), symbol_short!("Expired"), buyer.clone())` | `schema_version: u32`<br>`escrow_id: u64`<br>`buyer: Address`<br>`token: Address`<br>`amount: i128`<br>`timestamp: u64`<br>`prev_state: EscrowState`<br>`new_state: EscrowState` | `reclaim_expired` returned principal (and basket tokens) to the buyer. |
 | `EscrowAutoCanceled` | `(symbol_short!("Escrow"), symbol_short!("AutoCncl"))` | `schema_version: u32`<br>`escrow_id: u64`<br>`timestamp: u64` | Permissionless `auto_cancel_pending` sweep; no actor topic. |
 | `BasketEscrowCreated` | `(symbol_short!("Basket"), symbol_short!("Created"), seller.clone())` | `schema_version: u32`<br>`escrow_id: u64`<br>`seller: Address`<br>`token_count: u32`<br>`timestamp: u64` | Multi-token basket escrow created. |
 | `MessagePosted` | `(symbol_short!("Message"), symbol_short!("Posted"), sender.clone())` | `schema_version: u32`<br>`escrow_id: u64`<br>`sender: Address`<br>`timestamp: u64` | Escrow-scoped message posted. |
@@ -136,6 +136,12 @@ The tables below list all 61 event topics. The `Payload fields` column is the ex
 
 > Note: the source doc comments on the three `Timelock*` emitters mention an `operation as u32` topic. The actual `publish` calls use only the two-symbol tuples shown above; `operation` is a payload field, not a topic. This table documents the emitted reality.
 
+### Diagnostic events
+
+| Event / data struct | Topic tuple | Payload fields (`name: type`) | Description |
+|---|---|---|---|
+| `MulticallSubcallFailed` | `(symbol_short!("Multicall"), symbol_short!("Failed"))` | `schema_version: u32`<br>`index: u32`<br>`function: Symbol`<br>`error_code: u32` | A `multicall` sub-call failed at the given zero-based batch index. Published before the batch reverts, so the record is diagnostic only and never committed as a successful contract event. |
+
 ## Example XDR payloads
 
 The following are illustrative JSON renderings of the topic XDR and payload XDR. Addresses are shortened; `i128` values are shown as decimal strings to avoid precision loss.
@@ -152,7 +158,7 @@ The following are illustrative JSON renderings of the topic XDR and payload XDR.
   ],
   "value": {
     "EscrowCreated": {
-      "schema_version": 4,
+      "schema_version": 5,
       "escrow_id": 42,
       "seller": "G...SELLER",
       "resolver": "G...RESOLVER",
@@ -181,7 +187,7 @@ The following are illustrative JSON renderings of the topic XDR and payload XDR.
   ],
   "value": {
     "EscrowFunded": {
-      "schema_version": 4,
+      "schema_version": 5,
       "escrow_id": 42,
       "buyer": "G...BUYER",
       "amount": "10000000",
@@ -208,7 +214,7 @@ The following are illustrative JSON renderings of the topic XDR and payload XDR.
   ],
   "value": {
     "DisputeRaised": {
-      "schema_version": 4,
+      "schema_version": 5,
       "escrow_id": 42,
       "buyer": "G...BUYER",
       "reason": "OTHER",
@@ -233,7 +239,7 @@ The following are illustrative JSON renderings of the topic XDR and payload XDR.
   ],
   "value": {
     "DisputeResolved": {
-      "schema_version": 4,
+      "schema_version": 5,
       "escrow_id": 42,
       "resolver": "G...RESOLVER",
       "resolution": "Release",
@@ -260,7 +266,7 @@ The following are illustrative JSON renderings of the topic XDR and payload XDR.
   ],
   "value": {
     "PlatformFeeCollected": {
-      "schema_version": 4,
+      "schema_version": 5,
       "escrow_id": 42,
       "token": "C...USDC",
       "treasury": "G...TREASURY",
@@ -274,7 +280,7 @@ The following are illustrative JSON renderings of the topic XDR and payload XDR.
 ## Completeness checklist
 
 - [x] All `#[contracttype]` event structs in `contracts/escrow/src/events.rs` are represented.
-- [x] All 61 `emit_*` topic tuples are documented (Rust trailing commas omitted for readability).
+- [x] All 62 `emit_*` topic tuples are documented (Rust trailing commas omitted for readability).
 - [x] Every payload lists its fields in XDR declaration order.
 - [x] Schema version rules and decoding guidance are documented.
 - [x] Example payloads cover lifecycle, dispute, basket, and fee accounting events.

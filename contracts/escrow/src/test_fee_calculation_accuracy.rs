@@ -693,8 +693,7 @@ fn test_multi_payee_zero_share_rounded_down() {
     token::StellarAssetClient::new(&env, &token).mint(&contract_id, &net);
 
     env.as_contract(&contract_id, || {
-        crate::internal::distribute_to_payees(&env, &token, &payees, net, Some(1))
-            .unwrap();
+        crate::internal::distribute_to_payees(&env, &token, &payees, net, Some(1)).unwrap();
     });
 
     let token_client = token::Client::new(&env, &token);

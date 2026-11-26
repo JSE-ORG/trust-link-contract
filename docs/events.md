@@ -7,7 +7,7 @@ This document details the events emitted by the Soroban TrustLink Escrow contrac
 Every event payload carries a `schema_version: u32` field whose value is the
 `EVENT_SCHEMA_VERSION` constant defined in `contracts/escrow/src/events.rs`.
 
-**Current version: `1`**
+**Current version: `5`**
 
 Indexers and consumers **must** read `schema_version` before decoding the rest
 of the payload.  A version mismatch means the XDR field layout has changed and
@@ -18,6 +18,8 @@ the consumer needs to be updated before it can safely decode the event.
 | Version | Change summary |
 |---------|---------------|
 | 1 | Initial versioned schema — `schema_version` field added to all event structs. |
+| 2–4 | Historical schema revisions; `basket_tokens` was added in version 3. See `EVENTS.md` for current field layouts. |
+| 5 | `EscrowExpired` gained `token`; added the `MulticallSubcallFailed` diagnostic for reverting batches. |
 
 **Rules for contributors:**
 
@@ -133,6 +135,13 @@ By placing relevant addresses in the topics, indexers can filter directly for ev
 - **escrow_cancelled**: 
   - Topics: `["Escrow", "Canceled", seller]`
   - Payload: `EscrowCanceled` `{ schema_version, escrow_id, seller, timestamp }`
+- **escrow_expired**:
+  - Topics: `["Escrow", "Expired", buyer]`
+  - Payload: `EscrowExpired` `{ schema_version, escrow_id, buyer, token, amount, timestamp, prev_state, new_state }`
+- **multicall_subcall_failed** (diagnostic):
+  - Topics: `["Multicall", "Failed"]`
+  - Payload: `MulticallSubcallFailed` `{ schema_version, index, function, error_code }`
+  - Published immediately before a failing batch reverts; the record is diagnostic only and is never committed as a successful contract event.
 
 ### Dispute & Resolution
 - **dispute_raised**: 

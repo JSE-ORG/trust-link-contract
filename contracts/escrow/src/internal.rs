@@ -1159,8 +1159,8 @@ pub(crate) fn payout_basket_tokens(
         if !is_transferable_basket_entry(&entry, primary_token) {
             continue;
         }
-        let (net_amount, fee) = match &fee_context {
-            Some((fee_bps, platform_fee_bps, fee_collector, treasury)) => {
+        let (net_amount, fee) =
+            if let Some((fee_bps, platform_fee_bps, fee_collector, treasury)) = &fee_context {
                 crate::helpers::payout::transfer_basket_with_fees(
                     env,
                     escrow_id,
@@ -1172,12 +1172,10 @@ pub(crate) fn payout_basket_tokens(
                     fee_collector,
                     treasury.as_ref(),
                 )?
-            }
-            None => {
+            } else {
                 crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);
                 (entry.amount, 0)
-            }
-        };
+            };
         crate::events::emit_basket_token_payout(
             env,
             escrow_id,
@@ -1241,6 +1239,7 @@ pub(crate) fn payout_basket_tokens_split(
 /// paths (`confirm_delivery`, `auto_release`, `co_signed_release`, and a
 /// `Release` dispute resolution); refund paths keep the single-recipient
 /// behaviour.
+#[allow(dead_code)]
 pub(crate) fn distribute_basket_tokens(
     env: &Env,
     escrow_id: u64,

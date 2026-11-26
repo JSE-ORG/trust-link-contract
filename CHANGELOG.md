@@ -30,6 +30,7 @@ non-user-facing repository maintenance.
 - Added formal escrow lifecycle state-machine specification in
   `docs/state-machine.md`.
 - Added this Keep a Changelog file.
+- Added `MulticallSubcallFailed` diagnostic event carrying the zero-based index, function symbol, and error code of the failing sub-call in a reverted `multicall` batch.
 
 ### Changed
 
@@ -37,6 +38,9 @@ non-user-facing repository maintenance.
   commands, and wasm target (`wasm32v1-none`) to match the current workspace
   layout, and added a Quick Start section so new contributors can set up in
   under 30 minutes.
+- Bumped `EVENT_SCHEMA_VERSION` to 5: `EscrowExpired` now carries the refunded
+  primary `token` address. Indexers must update their decoders before consuming
+  the new event shape.
 
 ### Deprecated
 
@@ -48,7 +52,11 @@ non-user-facing repository maintenance.
 
 ### Fixed
 
-- Nothing yet.
+- `reclaim_expired` now stamps the exact ledger timestamp and refund token in
+  its `EscrowExpired` event, distinguishing expiration refunds from manual
+  cancellations in telemetry.
+- Removed a duplicate `payout_platform_fee` definition that prevented the
+  contract crate from compiling.
 
 ### Security
 

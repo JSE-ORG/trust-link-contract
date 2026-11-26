@@ -5,8 +5,14 @@
 //! `multicall` allows multiple contract calls to be dispatched within a single
 //! Stellar transaction, reducing the total transaction count to 1.
 
-use crate::{ContractCall, ContractError, Escrow, EscrowClient, EscrowState, Payee};
-use soroban_sdk::{testutils::Address as _, token, Address, Env, IntoVal, Symbol, Vec};
+use crate::{
+    ContractCall, ContractError, Escrow, EscrowClient, EscrowState, MulticallSubcallFailed, Payee,
+    EVENT_SCHEMA_VERSION,
+};
+use soroban_sdk::{
+    testutils::Address as _, token, xdr::ContractEventBody, Address, Env, IntoVal, Symbol,
+    TryFromVal, Val, Vec,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -40,6 +46,33 @@ fn single_payee(env: &Env, address: &Address) -> Vec<Payee> {
 
 fn mint(env: &Env, token: &Address, to: &Address, amount: i128) {
     token::StellarAssetClient::new(env, token).mint(to, &amount);
+}
+
+fn multicall_failure_events(env: &Env) -> Vec<MulticallSubcallFailed> {
+    let mut found = Vec::new(env);
+    for host_event in env.host().get_events().unwrap().0 {
+        let ContractEventBody::V0(body) = &host_event.event.body;
+        let mut topics = body.topics.iter();
+        let (Some(first), Some(second)) = (topics.next(), topics.next()) else {
+            continue;
+        };
+        let (Ok(first), Ok(second)) = (
+            Symbol::try_from_val(env, first),
+            Symbol::try_from_val(env, second),
+        ) else {
+            continue;
+        };
+        if first != Symbol::new(env, "Multicall") || second != Symbol::new(env, "Failed") {
+            continue;
+        }
+        let Ok(data) = Val::try_from_val(env, &body.data) else {
+            continue;
+        };
+        if let Ok(decoded) = MulticallSubcallFailed::try_from_val(env, &data) {
+            found.push_back(decoded);
+        }
+    }
+    found
 }
 
 // ---------------------------------------------------------------------------
@@ -360,4 +393,112 @@ fn test_multicall_duplicate_fund_escrow_reverts() {
 
     let token_client = token::StellarAssetClient::new(&env, &token);
     assert_eq!(token_client.balance(&buyer), 2_000);
+}
+
+#[test]
+fn test_multicall_emits_diagnostic_for_failed_index_two() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let payees_val = single_payee(&env, &seller).into_val(&env);
+    let id = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    mint(&env, &token, &buyer, 2_000);
+
+    let mut fund_args: Vec<soroban_sdk::Val> = Vec::new(&env);
+    fund_args.push_back(id.into_val(&env));
+    fund_args.push_back(buyer.clone().into_val(&env));
+    let mut escrow_args: Vec<soroban_sdk::Val> = Vec::new(&env);
+    escrow_args.push_back(id.into_val(&env));
+
+    let mut calls: Vec<ContractCall> = Vec::new(&env);
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "fund_escrow"),
+        args: fund_args,
+    });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "get_escrow"),
+        args: escrow_args,
+    });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "get_escrow"),
+        args: Vec::new(&env),
+    });
+
+    assert_eq!(
+        client.try_multicall(&calls),
+        Err(Ok(ContractError::InvalidMulticallArg))
+    );
+    let events = multicall_failure_events(&env);
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Pending);
+    assert_eq!(token::Client::new(&env, &token).balance(&buyer), 2_000);
+    assert_eq!(token::Client::new(&env, &token).balance(&contract_id), 0);
+
+    assert_eq!(events.len(), 1);
+    let event = events.get(0).unwrap();
+    assert_eq!(event.schema_version, EVENT_SCHEMA_VERSION);
+    assert_eq!(event.index, 2);
+    assert_eq!(event.function, Symbol::new(&env, "get_escrow"));
+    assert_eq!(event.error_code, ContractError::InvalidMulticallArg as u32);
+}
+
+#[test]
+fn test_multicall_emits_diagnostic_for_failed_index_zero() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let payees_val = single_payee(&env, &seller).into_val(&env);
+    let id = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    mint(&env, &token, &buyer, 2_000);
+
+    let mut fund_args: Vec<soroban_sdk::Val> = Vec::new(&env);
+    fund_args.push_back(id.into_val(&env));
+    fund_args.push_back(buyer.clone().into_val(&env));
+
+    let mut calls: Vec<ContractCall> = Vec::new(&env);
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "unknown_op"),
+        args: Vec::new(&env),
+    });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "fund_escrow"),
+        args: fund_args,
+    });
+
+    assert_eq!(
+        client.try_multicall(&calls),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+    let events = multicall_failure_events(&env);
+
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Pending);
+    assert_eq!(token::Client::new(&env, &token).balance(&buyer), 2_000);
+
+    assert_eq!(events.len(), 1);
+    let event = events.get(0).unwrap();
+    assert_eq!(event.index, 0);
+    assert_eq!(event.function, Symbol::new(&env, "unknown_op"));
+    assert_eq!(event.error_code, ContractError::NotAuthorized as u32);
 }
