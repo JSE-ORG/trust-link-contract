@@ -216,7 +216,7 @@ fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
     for (amount, fee_bps) in non_divisible_fee_cases() {
         let env = Env::default();
         env.mock_all_auths();
-        let (_contract_id, client, admin, fee_collector) = setup_contract(&env);
+        let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
 
         // Set protocol fee to match the per-escrow fee_bps used for testing
         client.set_protocol_fee(&admin, &fee_bps);
@@ -249,21 +249,21 @@ fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
 
         let tc = soroban_sdk::token::Client::new(&env, &token);
         let seller_payout = tc.balance(&seller);
-        let fee_collector_balance = tc.balance(&fee_collector);
+        let accumulated_fee = client.get_accumulated_fees(&token);
 
         assert_eq!(
             seller_payout, expected_net,
             "seller payout wrong: amount={amount}, fee_bps={fee_bps}"
         );
         assert_eq!(
-            fee_collector_balance, expected_fee,
-            "fee_collector received wrong fee: amount={amount}, fee_bps={fee_bps}"
+            accumulated_fee, expected_fee,
+            "accumulated fee wrong: amount={amount}, fee_bps={fee_bps}"
         );
         // The core no-dust invariant: payout + fee == original amount.
         assert_eq!(
-            seller_payout + fee_collector_balance,
+            seller_payout + accumulated_fee,
             amount,
-            "dust detected: amount={amount}, fee_bps={fee_bps}, payout={seller_payout}, fee={fee_collector_balance}"
+            "dust detected: amount={amount}, fee_bps={fee_bps}, payout={seller_payout}, fee={accumulated_fee}"
         );
     }
 }

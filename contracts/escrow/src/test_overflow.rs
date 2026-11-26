@@ -90,8 +90,8 @@ fn test_fee_calculation_max_escrow_amount() {
 
     let tc = soroban_sdk::token::Client::new(&env, &token);
     assert_eq!(tc.balance(&seller), expected_net);
-    assert_eq!(tc.balance(&fee_collector), expected_fee);
-    assert_eq!(tc.balance(&contract_id), 0);
+    assert_eq!(client.get_accumulated_fees(&token), expected_fee);
+    assert_eq!(tc.balance(&contract_id), expected_fee);
 }
 
 #[test]
