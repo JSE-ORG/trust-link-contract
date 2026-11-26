@@ -1770,13 +1770,10 @@ impl Escrow {
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
             address: seller.clone(),
-            bps: 10_000,
+            bps: BASIS_POINTS,
         });
-        validate_resolvers(
-            &resolver_set,
-            &BoundedPayees { inner: payees },
-            buyer.as_ref(),
-        )?;
+        let payees = BoundedPayees { inner: payees };
+        validate_resolvers(&resolver_set, &payees, buyer.as_ref())?;
 
         persist_basket_escrow(
             &env,
@@ -1851,13 +1848,10 @@ impl Escrow {
         let mut payees = Vec::new(&env);
         payees.push_back(Payee {
             address: seller.clone(),
-            bps: 10_000,
+            bps: BASIS_POINTS,
         });
-        validate_resolvers(
-            &resolver_set,
-            &BoundedPayees { inner: payees },
-            buyer.as_ref(),
-        )?;
+        let payees = BoundedPayees { inner: payees };
+        validate_resolvers(&resolver_set, &payees, buyer.as_ref())?;
 
         persist_basket_escrow(
             &env,

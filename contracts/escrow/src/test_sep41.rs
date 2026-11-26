@@ -326,7 +326,7 @@ fn test_sep41_dispute_and_release() {
     // arbitration_fee = 1000 * 50 / 10000 = 5 → fee_collector
     // escrow_fee = 1000 * 100 / 10000 = 10 (flat 1% of the principal, not of 995)
     // net payout = 1000 - 5 - 10 = 985 → seller
-    // fee_collector total = 5 + 10 = 15
+    // fee_collector total = 5 (arbitration); protocol fee 10 is accrued
     assert_eq!(balance(&env, &token, &seller), 985);
     assert_eq!(balance(&env, &token, &buyer), 0);
     assert_eq!(balance(&env, &token, &fee_collector), 5);

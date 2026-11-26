@@ -22,7 +22,9 @@ contract_balance = sum(escrow.amount for all non-terminal escrows)
                  + accumulated_fees
 ```
 
-**Verification**: Checksum tokens via query at end of test runs.
+**Verification**: Checksum tokens via query at end of test runs. The full
+per-path argument, including accrued protocol fees and basket tokens, is in
+[Payout Conservation Proofs](#payout-conservation-proofs) below.
 
 ---
 
@@ -136,23 +138,29 @@ fee = amount.checked_mul(fee_bps)
 
 ### I7: Amount Conservation in Dispute Resolution
 
-**Statement**: In dispute resolution, `payout + fees = original_amount`.
+**Statement**: In dispute resolution,
+`payout + protocol_fee + platform_fee + arbitration_fee + resolver_fee == original_amount`.
 
 **Proof**:
-- Arbitration fee deducted first
-- Protocol fee calculated on adjusted amount
-- All components sum to original
-- Multi-payee split dust is credited to the first payee (payees `1..N` are floored, `payees[0]` gets the remainder); the bias is bounded by `N - 1` stroops and does not alter the sum
+- At resolution the provisional arbitration and resolver fees are deducted from `escrow.amount`, giving `A' = A - arbitration_fee - resolver_fee`
+- At finalization the fee basis is reconstructed as `B = A' + arbitration_fee + resolver_fee = A`
+- Protocol and platform fees are each computed on the same gross basis `B` (no compounding on the reduced remainder)
+- All components sum to the original principal; any split dust is credited to the first payee / buyer as documented in the conservation section
 
 **Implementation**:
 ```
-arbitration_fee = amount * arbitration_fee_bps / 10000
-adjusted_amount = amount - arbitration_fee
-protocol_fee = adjusted_amount * protocol_fee_bps / 10000
-payout = adjusted_amount - protocol_fee
-verify: payout + arbitration_fee + protocol_fee == amount
-multi_payee_dust <= payees.len() - 1
+arbitration_fee = A * arbitration_fee_bps / 10000
+resolver_fee = A * resolver_fee_bps / 10000
+A' = A - arbitration_fee - resolver_fee
+B = A' + arbitration_fee + resolver_fee
+protocol_fee = B * fee_bps / 10000
+platform_fee = B * platform_fee_bps / 10000
+payout = A' - protocol_fee - platform_fee
+verify: payout + protocol_fee + platform_fee + arbitration_fee + resolver_fee == A
 ```
+
+See [Payout Conservation Proofs](#payout-conservation-proofs) for the complete
+proof, the appeal-cycle argument, and the basket-token per-token identities.
 
 **Verification**: Test all fee combinations; verify arithmetic.
 
@@ -365,6 +373,263 @@ history.push_back((state, timestamp));
 **Consequence**: All funded escrows have complete role tuple: (seller, buyer, resolver).
 
 ---
+
+## Payout Conservation Proofs
+
+This section gives the formal conservation argument for every settlement path.
+It is written against `contracts/escrow/src/helpers/payout.rs`,
+`contracts/escrow/src/internal.rs` (`settle_escrow_to_payees`,
+`distribute_to_payees`, `payout_basket_tokens`, `payout_basket_tokens_split`),
+`contracts/escrow/src/disputes.rs` (`finalize_dispute`,
+`claim_dispute_timeout`, `cancel_pending_finalization`) and the release/refund
+entry points in `contracts/escrow/src/instructions.rs`.
+
+### Notation
+
+| Symbol | Meaning |
+|---|---|
+| `A` | Principal funded into the escrow (`escrow.amount` at funding) |
+| `A'` | Principal after provisional arbitration/resolver fees are deducted at resolution: `A' = A - a - r` |
+| `B` | Fee basis used by `finalize_dispute` and `calculate_dispute_allocations`: `B = A' + a + r = A` |
+| `f` | Protocol fee rate in basis points (`escrow.fee_bps` snapshot or live global rate) |
+| `q` | Platform fee rate in basis points (`platform_fee_bps`) |
+| `a` | Arbitration fee: `floor(A * arbitration_fee_bps / 10_000)` |
+| `r` | Resolver fee: `floor(A * resolver_fee_bps / 10_000)` |
+| `P` | Protocol fee actually charged on a path |
+| `F` | Platform fee actually charged on a path |
+| `bps` / `BASIS_POINTS` | Basis points, `10_000` |
+| `M_j` | Amount of the `j`-th secondary basket token entry |
+| `N` | Number of payees |
+| `k` | Number of compensated resolvers |
+| `C_t` | Contract custody of token `t` |
+
+All arithmetic is checked; every division is floor division on non-negative
+values, which is identical to truncation toward zero. `payout()` skips
+non-positive amounts, so a fee that rounds to zero is simply not transferred
+(`transfer_with_protocol_fee` / `transfer_basket_with_fees` return that zero
+fee in their tuple and the identity below still holds).
+
+### Global conservation law
+
+**Statement (C-1).** For every token `t`, at the end of every transaction:
+
+```text
+C_t = Σ(escrow.amount for non-terminal escrows whose primary token is t)
+    + Σ(M_j for non-primary basket entries of those escrows in t)
+    + AccruedFees_t
+    + UnallocatedResidual_t
+```
+
+where `AccruedFees_t` is `DataKey::AccumulatedFees(t)` and
+`UnallocatedResidual_t` is non-zero only for the admin-cancel edge case
+documented below.
+
+**Proof.** Funding transfers exactly `A` (plus each `M_j`) into the contract and
+records the matching amount. Every terminal path below is proved to transfer
+exactly the recorded amount minus the fees it books, and each booked protocol
+fee is credited to `AccruedFees_t` in the same invocation. `claim_accumulated_fees`
+(admin) debits `AccruedFees_t` and transfers exactly that amount to the fee
+collector, so the sum is invariant under claims. Refunds and releases are
+mutually exclusive because every path transitions the escrow to a terminal
+state before any external transfer (CEI ordering), so no principal can be
+settled twice. ∎
+
+### Settlement path matrix
+
+| Entry point | Fee basis | Protocol `P` | Platform `F` | Other fees | Recipient rule | Conservation identity |
+|---|---|---|---|---|---|---|
+| `confirm_delivery` | `A` | `floor(A*f/10_000)`, `f` = snapshotted `escrow.fee_bps` | `0` on the primary; secondary basket tokens pay `floor(M_j*q/10_000)` | none | `net = A - P` split across all payees | `Σ p_i + P = A`; for each secondary entry `net_j + P_j + F_j = M_j` |
+| `auto_release` | `A` | `floor(A*f/10_000)`, `f` = live global `protocol_fee_bps` | same as `confirm_delivery` | none | same as `confirm_delivery` | `Σ p_i + P = A`; secondary entries as above |
+| `co_signed_release` | `A` | `floor(A*f/10_000)`, live global rate | `0` on the primary; secondary basket tokens pay protocol + platform | none | entire `net` to the primary payee | `net + P = A`; secondary entries as above |
+| `finalize_dispute` (Release / Refund) | `B = A` | `floor(B*f/10_000)` | `floor(B*q/10_000)` when a treasury exists | `a` to fee collector, `r` split among `k` winning resolvers | `payout = A' - P - F` to the payee (Release) or buyer (Refund) | `payout + P + F + a + r = A` |
+| `finalize_dispute` (`Split(s)`) | `B = A` | same | same | same | `payee_net = floor(payout*s/10_000)`, `buyer_net = payout - payee_net` | `payee_net + buyer_net + P + F + a + r = A` |
+| `claim_dispute_timeout` | `A` | `floor(A*f/10_000)` | `floor(A*q/10_000)` only when a treasury exists | none (`a = r = 0`) | `payout = A - P - F` to buyer; secondary basket tokens gross | `payout + P + F = A` |
+| `cancel_escrow` (Funded), `mutual_cancel`, `emergency_drain`, `reclaim_expired` | `A` | `0` | `0` | none | full `A` to buyer; all secondary basket entries gross | `refund + Σ M_j = A + Σ M_j` |
+| `cancel_pending_finalization` | `A'` | `0` | `0` | none | `A'` to buyer; secondary basket entries gross | `refund + (a + r) + Σ M_j = A + Σ M_j`; see known exception |
+
+### Lemma 1 — payee distribution sums exactly to its input
+
+`distribute_to_payees(amount)` pays payee `i >= 1` the floored share
+`p_i = floor(amount * b_i / 10_000)` and defines the primary payee as
+`p_0 = amount - Σ_{i=1}^{N-1} p_i`.
+
+By construction `Σ_{i=0}^{N-1} p_i = amount`. Because
+`Σ_{i=1}^{N-1} p_i <= amount * (10_000 - b_0) / 10_000 <= amount`, `p_0 >= 0`,
+so `remaining` never underflows. Writing `amount * b_i = 10_000 * p_i + d_i`
+with `0 <= d_i < 10_000` gives
+`p_0 - amount*b_0/10_000 = Σ_{i=1}^{N-1} d_i/10_000 < N - 1`, so the primary
+payee is favoured by fewer than `N - 1` stroops and no stroop is stranded.
+The creation-time invariant `Σ b_i = 10_000` is enforced by `validate_payees`.
+
+### Lemma 2 — split net sums exactly to its input
+
+`split_net(net, s)` computes `payee_net = floor(net*s/10_000)` using the
+split-div form `(net/10_000)*s + (net%10_000)*s/10_000` (overflow-free and
+exactly equal to the floor of the product) and `buyer_net = net - payee_net`.
+Therefore `payee_net + buyer_net = net` and both are non-negative.
+
+By the same argument as Lemma 1, `payee_net <= net` and the rounding remainder
+`< 1` stroop is credited to the buyer.
+
+### Lemma 3 — resolver fee distribution sums exactly to `r`
+
+The resolver fee is split across the `k >= 1` compensated resolvers:
+`share = floor(r/k)` and `dust = r - share*k` with `0 <= dust < k`. Each winner
+receives `share`, and `resolved_by` receives `dust` when positive. Hence
+`k*share + dust = r`. When the compensable set is empty the list falls back to
+`resolved_by`, so `k >= 1` always.
+
+### Theorem 1 — `confirm_delivery` / `auto_release` conservation
+
+Let `P = floor(A*f/10_000)` and `net = A - P`. Then:
+
+1. `calculate_protocol_fee` returns `(P, net)` with `P + net = A` (floor
+   rounding keeps the remainder in `net`).
+2. `settle_escrow_to_payees` transitions to `Completed` and persists before any
+   transfer, then credits `AccruedFees_t += P` when `P > 0`, and calls
+   `distribute_to_payees(net)`.
+3. By Lemma 1, the payee transfers sum to exactly `net`.
+4. `payout_basket_tokens(..., Some(f))` iterates the stored entries and skips
+   every entry whose token equals `escrow.token` or whose amount is `<= 0`
+   (`is_transferable_basket_entry`). For each remaining `j`,
+   `transfer_basket_with_fees` returns
+   `net_j = M_j - P_j - F_j` with `P_j = floor(M_j*f/10_000)` and
+   `F_j = floor(M_j*q/10_000)` (or `F_j = 0` without a treasury); the primary
+   token is therefore never paid twice and each secondary token satisfies
+   `net_j + P_j + F_j = M_j`.
+5. Adding the primary identity and each per-token identity yields
+   `Σ p_i + P + Σ_j (net_j + P_j + F_j) = A + Σ_j M_j`.
+
+`auto_release` is identical except that `f` is read live; the identity is
+independent of the rate. ∎
+
+### Theorem 2 — `finalize_dispute` conservation
+
+At resolution time `execute_resolution_transition` records
+`a = floor(A*arbitration_fee_bps/10_000)` and
+`r = floor(A*resolver_fee_bps/10_000)`, rejects `a + r > A` with
+`FeeExceedsMax`, stores both in `DisputeData`, and sets
+`A' = A - a - r`. No token moves at this step (fees are provisional and an
+appeal may clear them).
+
+At finalization:
+
+1. `B = A' + a + r = A` exactly, so the fee basis is the original funded
+   principal, not the reduced remainder.
+2. `P = floor(B*f/10_000)` and `F = floor(B*q/10_000)` when a treasury exists, and `F = 0` otherwise.
+   Both fees are computed independently on the same gross basis; there is no
+   compounding on a shrinking base.
+3. `T = P + F`; if `T > A'` the call reverts with `InsufficientBalance`, so
+   `payout = A' - T >= 0`.
+4. The state transition and fee accounting are persisted before any transfer
+   (CEI). The transfers are:
+   - `a` to the fee collector and `r` split per Lemma 3,
+   - `F` to the treasury when configured (`payout_platform_fee` skips zero and
+     emits `PlatformFeeCollected`),
+   - `P` credited to `AccruedFees_t`,
+   - `payout` to the recipient, or `payee_net + buyer_net = payout` under
+     `Split` per Lemma 2.
+5. Therefore `payout + P + F + a + r = (A' - P - F) + P + F + a + r = A' + a + r = A`.
+
+Secondary basket tokens are settled per entry:
+`net_j + P_j + F_j = M_j` on Release/Refund, and under `Split`
+`payee_j + buyer_j = net_j` by Lemma 2. The primary token is excluded by
+`is_transferable_basket_entry`, so the identities compose without
+double-counting. ∎
+
+### Theorem 3 — appeal cycles preserve conservation
+
+`appeal_dispute` is allowed only in `PendingFinalization` and restores the
+principal exactly:
+`A = A' + arbitration_fee + resolver_fee`, then clears the provisional
+resolution, `resolved_by`, `resolved_at`, votes and the recorded fee amounts.
+The arbitration and resolver fees were never transferred, so custody is
+unchanged; the next resolution round records fresh fees against the restored
+`A`. The appeal fee, when configured, is paid by the appellant directly to the
+fee collector and is not deducted from escrow custody, so it cannot reduce the
+principal. By induction over appeal rounds, every round satisfies Theorem 2
+with the same `A`, and finalization at round `n` settles exactly once. ∎
+
+### Theorem 4 — refund paths
+
+`cancel_escrow` on a `Funded` escrow, `mutual_cancel`, `emergency_drain` and
+`reclaim_expired` transfer exactly `escrow.amount` to the buyer and call
+`payout_basket_tokens(..., None)`, which pays every secondary entry gross.
+No fee is booked, so `refund + Σ M_j = A + Σ M_j` and `AccruedFees_t` is
+untouched. `emergency_drain` additionally requires the global pause and rejects
+`PendingFinalization`, so it cannot race a resolver ruling.
+
+`claim_dispute_timeout` settles without arbitration or resolver fees (`a = r = 0`):
+`P = floor(A*f/10_000)`, `F = floor(A*q/10_000)` when a treasury exists, and
+`payout = A - P - F`; secondary basket entries are refunded gross. Thus
+`payout + P + F = A`. ∎
+
+### Basket-escrow invariants
+
+| ID | Statement | Enforcement |
+|---|---|---|
+| B1 | `BasketTokens(escrow_id)` contains the primary token exactly once and every secondary token at most once | `build_basket_entries` + duplicate scan in `create_basket_escrow*`; `fund_basket_escrow` repeats the same scan |
+| B2 | Primary custody is tracked only by `escrow.amount`; basket entries are additional | `is_transferable_basket_entry` skips `entry.token == escrow.token` on both the funding and payout legs |
+| B3 | A release charges protocol (and platform) fees on each secondary entry; the primary follows the primary-token rule | `payout_basket_tokens(Some(f))`, `transfer_basket_with_fees`, `payout_basket_tokens_split` |
+| B4 | A refund returns every secondary entry gross and the primary `escrow.amount` in full | `payout_basket_tokens(None)` on `cancel_escrow`, `mutual_cancel`, `emergency_drain`, `reclaim_expired`, `claim_dispute_timeout`, `cancel_pending_finalization` |
+| B5 | Zero-amount entries never produce a zero-value transfer | `is_transferable_basket_entry` requires `entry.amount > 0`; `payout` also skips non-positive amounts |
+| B6 | Basket size is bounded and the stored XDR shape is stable | `BoundedBasket::try_new` (capacity check) and `MAX_BASKET_SIZE` |
+
+### Dust and rounding table
+
+| Location | Rounding | Magnitude | Beneficiary | Conservation |
+|---|---|---|---|---|
+| Protocol fee | floor(`amount*f/10_000`) | remainder `< 1` stroop | stays in `net` (recipient) | `P + net = amount` |
+| Platform fee | floor(`amount*q/10_000`) | remainder `< 1` stroop | stays in `net` (recipient) | `F + net = amount` component |
+| Multi-payee split | payees `1..N` floored, payee 0 takes the remainder | total `< N - 1` stroops | primary payee | `Σ p_i = net` exactly |
+| Dispute `Split(bps)` | payee floored, buyer takes the remainder | `< 1` stroop | buyer | `payee_net + buyer_net = payout` |
+| Resolver fee split | `k - 1` winners floored, dust to `resolved_by` | `< k` stroops | `resolved_by` | `Σ shares + dust = r` |
+| Basket secondary entry | protocol and platform each floored independently | `< 2` stroops per entry | recipient | `net_j + P_j + F_j = M_j` |
+
+### Accrued protocol fees
+
+Release and finalization paths credit `P` to `DataKey::AccumulatedFees(token)`
+instead of transferring it immediately. The tokens remain in contract custody,
+so C-1 still holds with `AccruedFees_t` as the counterparty. The admin-only
+`claim_accumulated_fees` reads the ledger, transfers exactly that amount to the
+configured fee collector and resets it to zero; this is a pure custody transfer
+and cannot create or destroy value. `claim_accumulated_fees` reverts with
+`InsufficientBalance` when the ledger is zero, so repeated calls are safe.
+
+### Known accounting exception
+
+`cancel_pending_finalization` (and its `admin_cancel_finalization` alias)
+refunds `escrow.amount`, which at that point is `A' = A - a - r` because the
+resolution transition provisionally deducted the arbitration and resolver fees.
+Those fees were never transferred and are not added to `AccruedFees_t` by this
+path, so `a + r` remains in the contract as an unallocated residual
+(`UnallocatedResidual_t` in C-1). This is not a loss of funds and cannot be
+withdrawn by an attacker, but it is not attributed to any beneficiary. Documented
+here so an auditor can reconcile the ledger exactly; the normal finalization and
+appeal paths do not have this residual.
+
+### Worked examples
+
+| Scenario | Principal | Fees | Transfers | Check |
+|---|---|---|---|---|
+| `confirm_delivery`, `f = 200`, `N = 1` | `1_000` | `P = 20` | seller `980`, accrued `20` | `980 + 20 = 1_000` |
+| `confirm_delivery`, `f = 200`, payees `6_000/4_000` | `1_001` | `P = 20` | `net = 981`; payee 0 `589` (floor 588 + 1 dust), payee 1 `392` | `589 + 392 + 20 = 1_001` |
+| `finalize_dispute` Release, `arb = 500`, `f = 200`, `q = 100` | `1_000` | `a = 50`, `P = 20`, `F = 10`; `A' = 950` | collector `50`, treasury `10`, accrued `20`, seller `920` | `920 + 20 + 10 + 50 = 1_000` |
+| `finalize_dispute` `Split(5_000)`, `f = 100` | `10_001` | `P = 100`, `A' = 10_001` | payout `9_901`; payee `4_950`, buyer `4_951`; accrued `100` | `4_950 + 4_951 + 100 = 10_001` |
+| Refund after appeal (`a = r = 0`) | `1_000` | `P = 20` | buyer `980`, accrued `20` | `980 + 20 = 1_000` |
+| Basket release, secondary `M = 5_000`, `f = 100`, `q = 200` | entry `5_000` | `P_j = 50`, `F_j = 100` | seller `4_850`, accrued `50`, treasury `100` | `4_850 + 50 + 100 = 5_000` |
+
+### Audit verification matrix
+
+| Invariant | Primary evidence |
+|---|---|
+| C-1 global custody | `test_fee_property_invariants.rs`, `test_fee_calculation_accuracy.rs`, `test_edge_cases.rs`, `test_overflow.rs` |
+| Theorem 1 (release) | `test.rs` (`test_confirm_delivery`, `test_auto_release`), `test_fee_snapshot.rs`, `test_sep41.rs` |
+| Theorem 2 (dispute) | `test_arbitration_fee.rs`, `test_dispute.rs`, `test_fee_calculation_accuracy.rs` |
+| Theorem 3 (appeal) | `test_appeal.rs`, `test_fallback_resolver.rs`, `test_finalize_dispute_appeal_boundary.rs` |
+| Theorem 4 (refunds) | `test_cancel_restrictions.rs`, `test_mutual_cancel.rs`, `test_emergency_drain.rs`, `test_expiration.rs`, `test_dispute_timeout.rs` |
+| Basket B1-B6 | `test_basket_escrow.rs`, `test_bounded_basket.rs`, `test_multi_asset.rs` |
+| Accrued fee claim | `admin.rs` `accumulated_fee_tests`, `test_fee_snapshot.rs` |
 
 ## Invariant Violations
 

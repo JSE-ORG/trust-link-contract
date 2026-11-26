@@ -1159,8 +1159,8 @@ pub(crate) fn payout_basket_tokens(
         if !is_transferable_basket_entry(&entry, primary_token) {
             continue;
         }
-        let (net_amount, fee) = match &fee_context {
-            Some((fee_bps, platform_fee_bps, fee_collector, treasury)) => {
+        let (net_amount, fee) =
+            if let Some((fee_bps, platform_fee_bps, fee_collector, treasury)) = &fee_context {
                 crate::helpers::payout::transfer_basket_with_fees(
                     env,
                     escrow_id,
@@ -1172,12 +1172,10 @@ pub(crate) fn payout_basket_tokens(
                     fee_collector,
                     treasury.as_ref(),
                 )?
-            }
-            None => {
+            } else {
                 crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);
                 (entry.amount, 0)
-            }
-        };
+            };
         crate::events::emit_basket_token_payout(
             env,
             escrow_id,
@@ -1227,63 +1225,6 @@ pub(crate) fn payout_basket_tokens_split(
             &fee_collector,
             config.treasury.as_ref(),
         )?;
-    }
-    Ok(())
-}
-
-/// Distributes every non-primary basket token across `payees` in proportion to
-/// their basis points.
-///
-/// This is the multi-payee counterpart to [`payout_basket_tokens`]: instead of
-/// sending 100% of each secondary token to one address, it reuses
-/// [`distribute_to_payees`] so every payee receives its configured share and
-/// any rounding dust is awarded to the primary payee. Used by the release
-/// paths (`confirm_delivery`, `auto_release`, `co_signed_release`, and a
-/// `Release` dispute resolution); refund paths keep the single-recipient
-/// behaviour.
-pub(crate) fn distribute_basket_tokens(
-    env: &Env,
-    escrow_id: u64,
-    payees: &BoundedPayees,
-    fee_bps: u32,
-) -> Result<(), ContractError> {
-    let escrow = load_escrow(env, escrow_id)?;
-    let primary_token = &escrow.token;
-    let basket_tokens = load_basket_tokens(env, escrow_id);
-
-    let config = crate::storage::read_global_config(env);
-
-    for i in 0..basket_tokens.len() {
-        let entry = basket_tokens
-            .get(i)
-            .ok_or(ContractError::BasketIndexOutOfBounds)?;
-        if !is_transferable_basket_entry(&entry, primary_token) {
-            continue;
-        }
-        let protocol_fee = crate::helpers::payout::calculate_fee(entry.amount, fee_bps)?;
-        let platform_fee = match config.treasury.as_ref() {
-            Some(_) => {
-                crate::helpers::payout::calculate_fee(entry.amount, escrow.platform_fee_bps)?
-            }
-            None => 0,
-        };
-        let net_amount = entry
-            .amount
-            .checked_sub(protocol_fee)
-            .ok_or(ContractError::AmountCalculationOverflow)?
-            .checked_sub(platform_fee)
-            .ok_or(ContractError::AmountCalculationOverflow)?;
-        distribute_to_payees(env, &entry.token, payees, net_amount, Some(escrow_id))?;
-        crate::storage::add_accumulated_fee(env, &entry.token, protocol_fee)?;
-        if let Some(treasury_addr) = config.treasury.as_ref() {
-            crate::helpers::payout::payout_platform_fee(
-                env,
-                escrow_id,
-                &entry.token,
-                treasury_addr,
-                platform_fee,
-            );
-        }
     }
     Ok(())
 }

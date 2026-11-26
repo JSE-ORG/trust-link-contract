@@ -180,32 +180,9 @@ fn clear_all_timelock_proposals(env: &Env, canceller: &Address) {
             env.storage()
                 .instance()
                 .set(&DataKey::InvalidatedTimelockOp(operation), &true);
-            let proposer = proposal.proposer.clone();
+            let proposer = proposal.proposer;
             emit_timelock_cancelled(env, operation, proposer.clone(), canceller.clone());
             emit_timelock_admin_mismatch(env, operation, proposer);
-        }
-    }
-}
-
-/// Cancel all outstanding proposals when the admin changes. A rejected
-/// execution cannot do this itself: Soroban rolls back state and events on error.
-fn invalidate_timelocks_on_rotation(env: &Env) {
-    // TimelockOperation discriminants are append-only; update the upper bound
-    // when a new operation is added.
-    for operation in 1..=(TimelockOperation::SetTimelockDelay as u32) {
-        if let Some(proposal) = storage::read_timelock_proposal(env, operation) {
-            storage::remove_timelock_proposal(env, operation);
-            env.storage()
-                .instance()
-                .set(&DataKey::InvalidatedTimelockOp(operation), &true);
-            // Cancellation is automatic, not an action signed by the new admin.
-            emit_timelock_cancelled(
-                env,
-                operation,
-                proposal.proposer.clone(),
-                env.current_contract_address(),
-            );
-            emit_timelock_admin_mismatch(env, operation, proposal.proposer);
         }
     }
 }
@@ -1095,9 +1072,7 @@ impl Escrow {
                 .persistent()
                 .get(&DataKey::UpgradeHistory)
                 .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
-            let next_version = u32::try_from(history.len())
-                .unwrap_or(u32::MAX)
-                .saturating_add(1);
+            let next_version = history.len().saturating_add(1);
             history.push_back(crate::types::UpgradeRecord {
                 wasm_hash: new_wasm_hash.clone(),
                 upgraded_at: env.ledger().timestamp(),

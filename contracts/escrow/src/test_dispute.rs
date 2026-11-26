@@ -907,15 +907,17 @@ fn test_split_resolution_50_50_pays_both_sides_with_no_stranded_funds() {
     let fee_bal = tc.balance(&fee_collector);
     let contract_bal = tc.balance(&contract_id);
 
-    // Net principal = everything that is not a fee.
-    let net = amount - fee_bal;
+    // The 1% protocol fee is accrued in the contract; the collector holds 0.
+    let protocol_fee = amount * 100 / 10_000;
+    let net = amount - protocol_fee;
+    assert_eq!(fee_bal, 0);
     assert_eq!(seller_bal, net * 5_000 / 10_000, "payee gets 50% of net");
     assert_eq!(buyer_bal, net - seller_bal, "buyer gets the remainder");
 
     // Invariants: payee_net + buyer_net == net, and zero stroops stranded.
     assert_eq!(seller_bal + buyer_bal, net);
-    assert_eq!(seller_bal + buyer_bal + fee_bal, amount);
-    assert_eq!(contract_bal, 0);
+    assert_eq!(seller_bal + buyer_bal + contract_bal, amount);
+    assert_eq!(contract_bal, protocol_fee);
 }
 
 #[test]
@@ -941,7 +943,8 @@ fn test_split_resolution_extremes_match_release_and_refund() {
             assert_eq!(tc.balance(&seller), 0);
             assert!(tc.balance(&buyer) > 0);
         }
-        assert_eq!(tc.balance(&contract_id), 0);
+        // The 1% protocol fee (100 of 10_001) is accrued in the contract.
+        assert_eq!(tc.balance(&contract_id), 100);
     }
 }
 

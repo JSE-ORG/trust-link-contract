@@ -31,11 +31,11 @@ struct Setup {
 
 /// Creates and funds a single-resolver escrow, ready for `raise_dispute`.
 fn setup_funded_escrow() -> Setup {
-    setup_funded_escrow_with_resolver_fee(0)
+    setup_funded_escrow_with_fees(50, 0)
 }
 
-/// Same as [`setup_funded_escrow`], with a per-escrow resolver fee.
-fn setup_funded_escrow_with_resolver_fee(resolver_fee_bps: u32) -> Setup {
+/// Sets the arbitration fee before funding snapshots it, and sets the resolver fee at creation.
+fn setup_funded_escrow_with_fees(arbitration_fee_bps: u32, resolver_fee_bps: u32) -> Setup {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -51,7 +51,7 @@ fn setup_funded_escrow_with_resolver_fee(resolver_fee_bps: u32) -> Setup {
 
     let contract_id = env.register(Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    client.initialize(&admin, &fee_collector, &50_u32);
+    client.initialize(&admin, &fee_collector, &arbitration_fee_bps);
 
     let mut payees = Vec::new(&env);
     payees.push_back(Payee {
@@ -203,7 +203,7 @@ fn appeal_fails_after_finalization_completed() {
 
     // Appeal is no longer possible once finalization has completed.
     let res = client.try_appeal_dispute(&setup.buyer, &setup.escrow_id);
-    assert_eq!(res, Err(Ok(ContractError::NotPendingFinalization)));
+    assert_eq!(res, Err(Ok(ContractError::EscrowAlreadyCompleted)));
     assert_eq!(
         client.get_dispute(&setup.escrow_id).unwrap().status,
         DisputeStatus::Resolved,
@@ -412,12 +412,11 @@ fn appealed_event_fee_basis(setup: &Setup) -> Option<i128> {
 /// charged on the initial principal.
 #[test]
 fn appeal_fee_is_charged_on_reconstructed_principal() {
-    let setup = setup_funded_escrow_with_resolver_fee(200); // 2% resolver fee
+    let setup = setup_funded_escrow_with_fees(500, 200); // 5% arbitration, 2% resolver
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
     let token_client = token::Client::new(&setup.env, &setup.token);
     token::StellarAssetClient::new(&setup.env, &setup.token).mint(&setup.buyer, &1_000);
 
-    client.set_arbitration_fee(&setup.admin, &500_u32); // 5% => 50
     client.set_appeal_fee(&setup.admin, &500_u32); // 5%
     raise_and_resolve(&setup);
 
@@ -445,7 +444,7 @@ fn appeal_fee_is_charged_on_reconstructed_principal() {
 /// A disabled appeal fee (`appeal_fee_bps == 0`) skips the transfer.
 #[test]
 fn appeal_fee_disabled_skips_fee_transfer() {
-    let setup = setup_funded_escrow_with_resolver_fee(200);
+    let setup = setup_funded_escrow_with_fees(50, 200);
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
     let token_client = token::Client::new(&setup.env, &setup.token);
 
@@ -468,11 +467,10 @@ fn appeal_fee_disabled_skips_fee_transfer() {
 /// the resolver fee goes to the resolver of the final round.
 #[test]
 fn resolve_appeal_reresolve_with_new_resolver_defers_and_pays_final_resolver() {
-    let setup = setup_funded_escrow_with_resolver_fee(200);
+    let setup = setup_funded_escrow_with_fees(500, 200);
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
     let token_client = token::Client::new(&setup.env, &setup.token);
 
-    client.set_arbitration_fee(&setup.admin, &500_u32); // 5% => 50
     client.set_appeal_fee(&setup.admin, &0_u32);
     assert_eq!(token_client.balance(&setup.contract_id), AMOUNT);
 

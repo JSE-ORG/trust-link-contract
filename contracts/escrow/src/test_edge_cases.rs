@@ -250,20 +250,25 @@ fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
         let tc = soroban_sdk::token::Client::new(&env, &token);
         let seller_payout = tc.balance(&seller);
         let fee_collector_balance = tc.balance(&fee_collector);
+        let accumulated_fee = tc.balance(&client.address);
 
         assert_eq!(
             seller_payout, expected_net,
             "seller payout wrong: amount={amount}, fee_bps={fee_bps}"
         );
         assert_eq!(
-            fee_collector_balance, expected_fee,
-            "fee_collector received wrong fee: amount={amount}, fee_bps={fee_bps}"
+            fee_collector_balance, 0,
+            "protocol fee is accumulated, not paid out immediately"
         );
-        // The core no-dust invariant: payout + fee == original amount.
         assert_eq!(
-            seller_payout + fee_collector_balance,
+            accumulated_fee, expected_fee,
+            "accumulated fee wrong: amount={amount}, fee_bps={fee_bps}"
+        );
+        // The core no-dust invariant: payout + accrued fee == original amount.
+        assert_eq!(
+            seller_payout + accumulated_fee,
             amount,
-            "dust detected: amount={amount}, fee_bps={fee_bps}, payout={seller_payout}, fee={fee_collector_balance}"
+            "dust detected: amount={amount}, fee_bps={fee_bps}, payout={seller_payout}, fee={accumulated_fee}"
         );
     }
 }
