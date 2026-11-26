@@ -652,11 +652,11 @@ fn test_fee_calculation_odd_amounts_sub_stroop_rounding_3bps() {
     }
 }
 
-/// Secondary payee with `1 bps` on a small net rounds to zero stroops; settlement
-/// must succeed without zero-value token transfers and award dust to the primary payee.
+/// A secondary payee with `1 bps` rounds to zero before dust allocation; escrow
+/// ID 1 assigns the remainder stroop to that payee without a zero-value transfer.
 #[test]
-fn test_multi_payee_zero_share_rounded_down() {
-    use crate::helpers::payout::calculate_multi_payee_allocations;
+fn test_multi_payee_floored_zero_share_can_receive_dust() {
+    use crate::helpers::payout::calculate_multi_payee_allocations_for_escrow;
     use crate::Escrow;
     use soroban_sdk::{testutils::Address as _, token, Address, Env, Vec};
 
@@ -680,11 +680,12 @@ fn test_multi_payee_zero_share_rounded_down() {
     };
 
     let net = 500_i128;
-    let allocations = calculate_multi_payee_allocations(&env, &payees, net).unwrap();
-    assert_eq!(allocations.len(), 1);
-    let only = allocations.get(0).unwrap();
-    assert_eq!(only.recipient, primary);
-    assert_eq!(only.amount, net);
+    let allocations = calculate_multi_payee_allocations_for_escrow(&env, &payees, net, 1).unwrap();
+    assert_eq!(allocations.len(), 2);
+    assert_eq!(allocations.get(0).unwrap().recipient, primary);
+    assert_eq!(allocations.get(0).unwrap().amount, 499);
+    assert_eq!(allocations.get(1).unwrap().recipient, micro_share);
+    assert_eq!(allocations.get(1).unwrap().amount, 1);
 
     let contract_id = env.register(Escrow, ());
     let token = env
@@ -693,12 +694,68 @@ fn test_multi_payee_zero_share_rounded_down() {
     token::StellarAssetClient::new(&env, &token).mint(&contract_id, &net);
 
     env.as_contract(&contract_id, || {
-        crate::internal::distribute_to_payees(&env, &token, &payees, net, Some(1))
-            .unwrap();
+        crate::internal::distribute_to_payees(&env, &token, &payees, net, Some(1)).unwrap();
     });
 
     let token_client = token::Client::new(&env, &token);
-    assert_eq!(token_client.balance(&micro_share), 0);
-    assert_eq!(token_client.balance(&primary), net);
+    assert_eq!(token_client.balance(&micro_share), 1);
+    assert_eq!(token_client.balance(&primary), 499);
+    assert_eq!(token_client.balance(&contract_id), 0);
+}
+
+#[test]
+fn test_multi_payee_dust_rotates_across_seven_payees() {
+    use crate::helpers::payout::calculate_multi_payee_allocations_for_escrow;
+    use crate::Escrow;
+    use soroban_sdk::{testutils::Address as _, token, Address, Env, Vec};
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let mut payee_addresses = Vec::new(&env);
+    for _ in 0..7 {
+        payee_addresses.push_back(Address::generate(&env));
+    }
+    let mut payees_inner = Vec::new(&env);
+    for i in 0..7 {
+        payees_inner.push_back(Payee {
+            address: payee_addresses.get(i).unwrap(),
+            bps: if i == 6 { 1_432 } else { 1_428 },
+        });
+    }
+    let payees = BoundedPayees {
+        inner: payees_inner,
+    };
+    let net = 1_000_003_i128;
+    let escrow_id = 4;
+
+    let allocations =
+        calculate_multi_payee_allocations_for_escrow(&env, &payees, net, escrow_id).unwrap();
+    assert_eq!(allocations.len(), 7);
+    let contract_id = env.register(Escrow, ());
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    token::StellarAssetClient::new(&env, &token).mint(&contract_id, &net);
+
+    env.as_contract(&contract_id, || {
+        crate::internal::distribute_to_payees(&env, &token, &payees, net, Some(escrow_id)).unwrap();
+    });
+
+    let token_client = token::Client::new(&env, &token);
+    let mut total_paid = 0_i128;
+    for i in 0..7 {
+        let address = payee_addresses.get(i).unwrap();
+        let expected = match i {
+            4 | 5 => 142_801,
+            6 => 143_201,
+            _ => 142_800,
+        };
+        assert_eq!(token_client.balance(&address), expected);
+        assert_eq!(allocations.get(i).unwrap().amount, expected);
+        total_paid += token_client.balance(&address);
+    }
+
+    assert_eq!(total_paid, net);
     assert_eq!(token_client.balance(&contract_id), 0);
 }

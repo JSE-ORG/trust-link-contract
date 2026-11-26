@@ -2,7 +2,7 @@ use crate::types::{BoundedPayees, Escrow, ResolutionType};
 use crate::{ContractError, BASIS_POINTS};
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
-/// Floor of `amount * bps / BASIS_POINTS` (matches [`crate::internal::distribute_to_payees`]).
+/// Floor of `amount * bps / BASIS_POINTS` before remainder allocation.
 pub fn floored_payee_share(amount: i128, bps: u32) -> Result<i128, ContractError> {
     if amount < 0 {
         return Err(ContractError::InvalidAmount);
@@ -14,49 +14,113 @@ pub fn floored_payee_share(amount: i128, bps: u32) -> Result<i128, ContractError
         .ok_or(ContractError::ArithmeticError)
 }
 
-/// Settlement simulation for multi-payee escrows: mirrors on-chain distribution
-/// but lists only payees that would receive a strictly positive transfer.
+/// Settlement simulation for multi-payee escrows using escrow ID `0`.
+///
+/// Use [`calculate_multi_payee_allocations_for_escrow`] to simulate a specific
+/// escrow's round-robin dust allocation.
 pub fn calculate_multi_payee_allocations(
     env: &Env,
     payees: &BoundedPayees,
     amount: i128,
 ) -> Result<Vec<TransferInstruction>, ContractError> {
+    calculate_multi_payee_allocations_for_escrow(env, payees, amount, 0)
+}
+
+/// Settlement simulation for multi-payee escrows: mirrors on-chain
+/// distribution and lists only payees that would receive a positive transfer.
+pub fn calculate_multi_payee_allocations_for_escrow(
+    env: &Env,
+    payees: &BoundedPayees,
+    amount: i128,
+    escrow_id: u64,
+) -> Result<Vec<TransferInstruction>, ContractError> {
+    let shares = calculate_payee_shares(payees, amount, escrow_id)?;
+    let mut transfers = Vec::new(env);
+
+    for (i, share) in shares.iter().enumerate() {
+        if share > 0 {
+            let payee = payees
+                .inner
+                .get(u32::try_from(i).map_err(|_| ContractError::ArithmeticError)?)
+                .ok_or(ContractError::PayeeIndexOutOfBounds)?;
+            transfers.push_back(TransferInstruction {
+                recipient: payee.address,
+                amount: share,
+            });
+        }
+    }
+
+    Ok(transfers)
+}
+
+/// Calculates exact per-payee shares, distributing each remainder stroop in
+/// turn starting at `escrow_id % payees.len()`.
+pub(crate) fn calculate_payee_shares(
+    payees: &BoundedPayees,
+    amount: i128,
+    escrow_id: u64,
+) -> Result<Vec<i128>, ContractError> {
     if amount < 0 {
         return Err(ContractError::InvalidAmount);
     }
 
-    let mut remaining = amount;
-    let mut transfers = Vec::new(env);
+    let payee_count = payees.inner.len();
+    if payee_count == 0 {
+        return Err(ContractError::PayeeIndexOutOfBounds);
+    }
 
-    for i in 1..payees.inner.len() {
+    let mut shares = Vec::new(payees.inner.env());
+    let mut total_distributed = 0_i128;
+    let mut total_bps = 0_u32;
+
+    for i in 0..payee_count {
         let payee = payees
             .inner
             .get(i)
             .ok_or(ContractError::PayeeIndexOutOfBounds)?;
-        let payee_amount = floored_payee_share(amount, payee.bps)?;
-        if payee_amount > 0 {
-            transfers.push_back(TransferInstruction {
-                recipient: payee.address.clone(),
-                amount: payee_amount,
-            });
-        }
-        remaining = remaining
-            .checked_sub(payee_amount)
+        total_bps = total_bps
+            .checked_add(payee.bps)
             .ok_or(ContractError::ArithmeticError)?;
+        let share = floored_payee_share(amount, payee.bps)?;
+        total_distributed = total_distributed
+            .checked_add(share)
+            .ok_or(ContractError::ArithmeticError)?;
+        shares.push_back(share);
     }
 
-    let first_payee = payees
-        .inner
-        .get(0)
-        .ok_or(ContractError::PayeeIndexOutOfBounds)?;
-    if remaining > 0 {
-        transfers.push_back(TransferInstruction {
-            recipient: first_payee.address.clone(),
-            amount: remaining,
-        });
+    if total_bps != BASIS_POINTS {
+        return Err(ContractError::PayeeBpsMismatch);
     }
 
-    Ok(transfers)
+    let dust = amount
+        .checked_sub(total_distributed)
+        .ok_or(ContractError::ArithmeticError)?;
+    if dust >= i128::from(payee_count) {
+        return Err(ContractError::ArithmeticError);
+    }
+
+    let start_index = u32::try_from(escrow_id % u64::from(payee_count))
+        .map_err(|_| ContractError::ArithmeticError)?;
+    for offset in 0..u32::try_from(dust).map_err(|_| ContractError::ArithmeticError)? {
+        let index = (start_index + offset) % payee_count;
+        let share = shares
+            .get(index)
+            .ok_or(ContractError::PayeeIndexOutOfBounds)?;
+        shares.set(
+            index,
+            share.checked_add(1).ok_or(ContractError::ArithmeticError)?,
+        );
+    }
+
+    let sum = shares
+        .iter()
+        .try_fold(0_i128, |sum, share| sum.checked_add(share))
+        .ok_or(ContractError::ArithmeticError)?;
+    if sum != amount {
+        return Err(ContractError::ArithmeticError);
+    }
+
+    Ok(shares)
 }
 
 /// Computes the protocol fee for `amount` at `fee_bps` basis points.

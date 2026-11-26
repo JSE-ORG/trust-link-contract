@@ -1554,9 +1554,9 @@ pub struct EmergencyDrainBlocked {
     pub timestamp: u64,
 }
 
-/// Diagnostic: a non-primary payee's floored share rounded to zero stroops.
+/// Diagnostic: a non-primary payee's final share rounded to zero stroops.
 /// Published during settlement when [`crate::internal::distribute_to_payees`]
-/// skips the token transfer; the unallocated dust stays with the primary payee.
+/// skips the token transfer.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PayeeShareSkipped {
