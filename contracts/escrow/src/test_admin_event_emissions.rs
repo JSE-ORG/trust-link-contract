@@ -482,41 +482,41 @@ mod golden_xdr {
 
     #[test]
     fn golden_schema_version_is_pinned() {
-        assert_eq!(EVENT_SCHEMA_VERSION, 4, "bump schema version explicitly");
+        assert_eq!(EVENT_SCHEMA_VERSION, 5, "bump schema version explicitly");
     }
 
     golden_event!(
         golden_fee_updated,
         FeeUpdated,
-        |env| FeeUpdated {
+        |_env| FeeUpdated {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             old_fee_bps: 7_u32,
             new_fee_bps: 12_u32,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "23a3edd649b835e0700cc190060c4233070d1600566c4bf15db5df815e3960bb"
+        "48d1ec6b7abf92ecb491e500a6ff547f5479662d4c08b071389550505894677d"
     );
     golden_event!(
         golden_protocol_fee_updated,
         ProtocolFeeUpdated,
-        |env| ProtocolFeeUpdated {
+        |_env| ProtocolFeeUpdated {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             old_fee_bps: 7_u32,
             new_fee_bps: 12_u32,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "23a3edd649b835e0700cc190060c4233070d1600566c4bf15db5df815e3960bb"
+        "48d1ec6b7abf92ecb491e500a6ff547f5479662d4c08b071389550505894677d"
     );
     golden_event!(
         golden_arbitration_fee_updated,
         ArbitrationFeeUpdated,
-        |env| ArbitrationFeeUpdated {
+        |_env| ArbitrationFeeUpdated {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             old_fee_bps: 7_u32,
             new_fee_bps: 12_u32,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "23a3edd649b835e0700cc190060c4233070d1600566c4bf15db5df815e3960bb"
+        "48d1ec6b7abf92ecb491e500a6ff547f5479662d4c08b071389550505894677d"
     );
     golden_event!(
         golden_admin_rotated,
@@ -527,7 +527,7 @@ mod golden_xdr {
             new_admin: golden_address(env, 161),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "be9227d2dc531badb2fd92c00db62937eff74454b0af1ab16ad46a6f5adb938e"
+        "77a2e7395f68dd2eebfacbfd4698b7e172aa9b254cb2aada12ee09088524cc9f"
     );
     golden_event!(
         golden_contract_paused_event,
@@ -537,7 +537,7 @@ mod golden_xdr {
             admin: golden_address(env, 60),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "f45e57586fcd1709aca8b21d2619700dd6410e85bdeae9a2dbce100bfb5872a8"
+        "eccb088ca71e35bc52093d0fe1ce4b314da62026b8dba1dad563af8da55e7495"
     );
     golden_event!(
         golden_contract_unpaused_event,
@@ -547,7 +547,7 @@ mod golden_xdr {
             admin: golden_address(env, 21),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "a28d11078c72e76d706124bbe58657ca4b5679f519a5ac0713391717f136cab9"
+        "9ff6f223839e7174a5d11f807fe4bdad34942e7e61b84525d4c112159cd595da"
     );
     golden_event!(
         golden_escrow_created,
@@ -566,7 +566,7 @@ mod golden_xdr {
             timestamp: GOLDEN_TIMESTAMP,
             new_state: EscrowState::Completed
         },
-        "5a845d3792e4fd7bff638b168f7cd3b409dcb20a7b4e77180b95d256379cf579"
+        "1077873453a3e670f810cde9401f3bec9245f11a5f063ba01348e4a3823cd45f"
     );
     golden_event!(
         golden_escrow_funded,
@@ -581,7 +581,7 @@ mod golden_xdr {
             new_state: EscrowState::Completed,
             basket_tokens: Some(golden_basket(env))
         },
-        "33d277c43afe2ffc8755b81f3cf86286dacc304eae2b6ad302cd082ee6d02a60"
+        "7649590160948a57bea054f3c94ea3a0788bb8ffe4448661ec372baf35a35a5e"
     );
     golden_event!(
         golden_escrow_shipped,
@@ -595,17 +595,17 @@ mod golden_xdr {
             prev_state: EscrowState::Shipped,
             new_state: EscrowState::Completed
         },
-        "e6fe5703446f9984df059b1f558154cfe8cac0cd0b1f72d77276ed1ad7a56728"
+        "eb23f66de1257729a88f7aa86e2d77044b44c73a35cb5b1d2a18b1f5454f15d1"
     );
     golden_event!(
         golden_delivery_recorded,
         DeliveryRecorded,
-        |env| DeliveryRecorded {
+        |_env| DeliveryRecorded {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             escrow_id: 7_u64,
             delivered_at: GOLDEN_TIMESTAMP
         },
-        "2384c6aa085b3959bda82bab16804cba883bba033befd07770f1ccf09dfd98fe"
+        "4421925c81fc5367ac4cc7114bf538113a1cb93d3f5c9668852ec4f39cc7b53a"
     );
     golden_event!(
         golden_escrow_completed,
@@ -620,7 +620,7 @@ mod golden_xdr {
             prev_state: EscrowState::Shipped,
             new_state: EscrowState::Completed
         },
-        "0b71e54692b870dc0ca546eca8d50676e6f323803eda8cfb120bab1e668f4521"
+        "e157da8b014fe8d4f2cb22b3db12aaae92c00f9ffeed6b9031d1776b48152b2a"
     );
     golden_event!(
         golden_dispute_raised,
@@ -636,7 +636,7 @@ mod golden_xdr {
             prev_state: EscrowState::Shipped,
             new_state: EscrowState::Completed
         },
-        "f64254a89eee5210dd378857c202b8828ebc54ea5a3aabd77b5a2b780351a8c8"
+        "36d7331aeaa513d725bcd0ca64f20ea5e6cec5c1a6b2ea5b6bfc11adee34667b"
     );
     golden_event!(
         golden_dispute_resolved,
@@ -655,7 +655,7 @@ mod golden_xdr {
             prev_state: EscrowState::Shipped,
             new_state: EscrowState::Completed
         },
-        "04db1cfb82aeabdaf41a6b47eac2f9c6188348eba5325cd3f3658db562db6af9"
+        "814080ec3195a642d5eaff645e57b9ff0f4e0e86eda3843aaf4a156ccb925bd0"
     );
     golden_event!(
         golden_resolver_vote_recorded,
@@ -669,7 +669,7 @@ mod golden_xdr {
             threshold: 5_u32,
             voted_at: GOLDEN_TIMESTAMP
         },
-        "5723352454d5df52890cf4e45310dade63714f87b6f3c20f0ec5ef7692ad5e2a"
+        "2aae2b94022d7b09ee3b8b0614ea448330d56065b304f22d6bc097b965051282"
     );
     golden_event!(
         golden_auto_released,
@@ -684,7 +684,7 @@ mod golden_xdr {
             prev_state: EscrowState::Shipped,
             new_state: EscrowState::Completed
         },
-        "688d6f7bcc018d7ff35355ad047c8f176852f1af6be1b1bacd771c04cbdc7eb7"
+        "b20133a7d1df1c7f35d5fa595a0e0eac805fc82c3e3b593b3c529e149708ddf0"
     );
     golden_event!(
         golden_escrow_canceled,
@@ -698,7 +698,7 @@ mod golden_xdr {
             prev_state: EscrowState::Shipped,
             new_state: EscrowState::Completed
         },
-        "13a7e3d8314651326e846c503a921e6d4d9db6e04bf6aa131c085c450751d544"
+        "778ced575c8352ce5fe82b9bd80beae13bc4468ad49e92710a7017f4f418e442"
     );
     golden_event!(
         golden_escrow_expired,
@@ -707,22 +707,23 @@ mod golden_xdr {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             escrow_id: 7_u64,
             buyer: golden_address(env, 62),
+            token: golden_address(env, 44),
             amount: 1_000_000_i128,
             timestamp: GOLDEN_TIMESTAMP,
             prev_state: EscrowState::Shipped,
             new_state: EscrowState::Completed
         },
-        "7247e8b2d5ccfd59e5e53e3a9ec06698ed6e6ef6640ddb1e31abc2665df5fd0e"
+        "5d391da8b80ec06d89e4f3d0337c06cf21d431b9217bfd947d5fbe396f46c81a"
     );
     golden_event!(
         golden_escrow_auto_canceled,
         EscrowAutoCanceled,
-        |env| EscrowAutoCanceled {
+        |_env| EscrowAutoCanceled {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             escrow_id: 7_u64,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "4ee1392ef31878aca7de0f97f9f08c97866c95a618860789324cfb3989c8034d"
+        "2f6fe6528eadcc1a3b398388af663e43ff871e6329c8debdf56afaf1580da674"
     );
     golden_event!(
         golden_contract_initialized,
@@ -734,7 +735,7 @@ mod golden_xdr {
             arbitration_fee_bps: 11_u32,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "7fa9c29221af0f532b1dafda63d2940edecfc8e0ba27b7dde0b6cd5410fd9916"
+        "d0283c76900f451eba04b21b6e7206649f9015549053df5be64735390d9e2551"
     );
     golden_event!(
         golden_resolver_rotated,
@@ -746,7 +747,7 @@ mod golden_xdr {
             new_resolver: golden_address(env, 127),
             rotated_at: GOLDEN_TIMESTAMP
         },
-        "25efba56f44d184d000d1c86e1fe81be31f95259ba571e08a7257ed94761fba6"
+        "bfe784ee68585d3c5ffe166037ab6330cb24167aeaa02a22f9c714f194569dac"
     );
     golden_event!(
         golden_dispute_evidence_submitted,
@@ -760,7 +761,7 @@ mod golden_xdr {
             entry_count: 2_u32,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "376f78c588fb23f744a8f8476a254ce72375cdbb867ec8892967bac0c0b62b61"
+        "c4af41b169718e0e3dd3e1408f977c67e5df441d10ecd6df57a790d21af6c034"
     );
     golden_event!(
         golden_resolver_sanctioned,
@@ -773,27 +774,27 @@ mod golden_xdr {
             sanctioned_by: golden_address(env, 167),
             sanctioned_at: GOLDEN_TIMESTAMP
         },
-        "37235229936d921a9fd5bc3f06171ca2aff1019f56702318e104a7cd9d19eb20"
+        "3332127f48a795945b78f04f302a1195a25136925db3fbdd744447217736f212"
     );
     golden_event!(
         golden_token_allowlist_updated,
         TokenAllowlistUpdated,
-        |env| TokenAllowlistUpdated {
+        |_env| TokenAllowlistUpdated {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             added: true,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "98525bb625d804fd377a85e5a0b4fa249d750efba7848559a7abeb546365b7e0"
+        "f3769bd1cbd2ba7aef9ba2bd29639063f845bb9ed055af4b157f1bfb6832dfcd"
     );
     golden_event!(
         golden_allowlist_toggled,
         AllowlistToggled,
-        |env| AllowlistToggled {
+        |_env| AllowlistToggled {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             enabled: true,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "98e25935eef7c8770c8ae27f0c087a4153e6232e36331ca4fe79b68493e1dbe8"
+        "236087f0e40692cc3f4342beb399d04f13b468cf071e899f50b350994eb344fa"
     );
     golden_event!(
         golden_dispute_pending_finalization,
@@ -808,7 +809,7 @@ mod golden_xdr {
             pending_at: GOLDEN_TIMESTAMP,
             resolution_reason: Some(Symbol::new(env, "other"))
         },
-        "98fcf7d1587f04369cd481e2811b3a62bbd9ef3efbe1ab0e3ec4f4593c9f0903"
+        "4ce170854fab3492626953726d0b3a25021180f3e80b2141231d5385e19e1d9e"
     );
     golden_event!(
         golden_dispute_appealed,
@@ -822,18 +823,18 @@ mod golden_xdr {
             appeal_round: 1_u32,
             fee_basis: 10_000_i128
         },
-        "376fd473ea668709aa1698607eac7478235756f58f908f4b8f3593a52669316e"
+        "c901d6ff8baca1c27288a4d2f9826a06226148a7e8cf3a82c022adcde727dc73"
     );
     golden_event!(
         golden_platform_fee_updated,
         PlatformFeeUpdated,
-        |env| PlatformFeeUpdated {
+        |_env| PlatformFeeUpdated {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             old_fee_bps: 7_u32,
             new_fee_bps: 12_u32,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "23a3edd649b835e0700cc190060c4233070d1600566c4bf15db5df815e3960bb"
+        "48d1ec6b7abf92ecb491e500a6ff547f5479662d4c08b071389550505894677d"
     );
     golden_event!(
         golden_treasury_updated,
@@ -844,7 +845,7 @@ mod golden_xdr {
             new_treasury: golden_address(env, 96),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "a7723e299ab8131d6ff21ea61cfe0731f06cbc9a06af9c973712e84f1a72a5f1"
+        "b12c2460b76a3ec6096575b00d9632bbb32d54a54dc9aa3daa6cb958f14785c4"
     );
     golden_event!(
         golden_platform_fee_collected,
@@ -857,7 +858,7 @@ mod golden_xdr {
             fee_amount: 10_000_i128,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "22b1401d0a224672f5b0e585fbe67ef6b59e2ce1ca57103a98a6189ce04cacc0"
+        "d11a8b40701a3649fb4cfc96319e6a26535541c135b9e9e8ca666d968b0b36c7"
     );
     golden_event!(
         golden_basket_escrow_created,
@@ -869,7 +870,7 @@ mod golden_xdr {
             token_count: 2_u32,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "73edfd797ee67dafa29b2bf8137c26b7a24b9bf3963d6a36114c23a68957778d"
+        "453de56d4ecb0e9fa50077e8f2e71f3ee8f6ac95bbfd16f21a448b5c4d11cd5b"
     );
     golden_event!(
         golden_basket_token_payout,
@@ -883,7 +884,7 @@ mod golden_xdr {
             fee: 10_000_i128,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "bde0cfd16d26f95ec2d63bc1c8e2164218f6badd59e7ed9ea1ad9ed34ffa0a96"
+        "31ef05e818c6a79f114a75c57309aa95ca265306afc913423b727944064859f4"
     );
     golden_event!(
         golden_message_posted,
@@ -894,7 +895,7 @@ mod golden_xdr {
             sender: golden_address(env, 18),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "5e650b194c5c9b9660a6df8b33fe31469fccb36d4740d64ddc84d6eeac9720b0"
+        "101d78bf268f190e15fc9213725151e63ce966705f1eaadb1e2d0947ca10a89c"
     );
     golden_event!(
         golden_refund_requested_event,
@@ -908,7 +909,7 @@ mod golden_xdr {
             new_state: EscrowState::Completed,
             basket_tokens: Some(golden_basket(env))
         },
-        "f7a6f425156a66c9f6222bae023cd1fe5aeeeb4002ffcc7a303cc4f342291361"
+        "ee34251a0eac2607ee47b835a4e3255e8c72b4e4c4fada5b7d84213c71590c83"
     );
     golden_event!(
         golden_refund_approved_event,
@@ -921,7 +922,7 @@ mod golden_xdr {
             prev_state: EscrowState::Shipped,
             new_state: EscrowState::Completed
         },
-        "50143a344c2be0e6ecb0c42ca617af6041e617f77ac7980964a7e5305af46c44"
+        "d18202dcb797259d3bb7ea8051bbd18cd0a5247d8f8e2076cca6f57cb1ea24ec"
     );
     golden_event!(
         golden_contract_upgraded_event,
@@ -932,7 +933,7 @@ mod golden_xdr {
             new_wasm_hash: BytesN::from_array(env, &[7_u8; 32]),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "17985d96e3b4f7ee26f258b8da21001edaae9a88d519bca4ebf49b5127d0ab8b"
+        "8ea33f4ca16e33e8c6d71a49fdc50acf818bb794c3a8298acb14c831a525918c"
     );
     golden_event!(
         golden_storage_migrated_event,
@@ -944,7 +945,7 @@ mod golden_xdr {
             to_version: 4_u32,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "19c11d150fcff399c172e5c831b2fbd9153096d2051b2f5ca7e5c41b21ae7de2"
+        "0aff670927fddcf24dc2b1e4c831da15b0c84f5b8f99580d903efe9a3567e88a"
     );
     golden_event!(
         golden_ttl_extension_updated,
@@ -956,7 +957,7 @@ mod golden_xdr {
             caller: golden_address(env, 122),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "4de50a1ce40750c8242a78ca1797ffc44fe9aecc29d5172db554239dae4126d5"
+        "6779568c20c3d476dc80c0ab6bbde6e6ef342f4d977b4baae7deffc8643431b2"
     );
     golden_event!(
         golden_amount_limits_updated,
@@ -970,7 +971,7 @@ mod golden_xdr {
             caller: golden_address(env, 24),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "7e5400b1d7c90ccb2aa4a889a0fa1a5d324e913fa93bc35710349e7b7205e3b0"
+        "0b40baa7e45a549c0c0e497782adeea5809a01ddb17f572a1cc8933e3a36bead"
     );
     golden_event!(
         golden_action_paused_event,
@@ -981,7 +982,7 @@ mod golden_xdr {
             caller: golden_address(env, 188),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "05e435dcb72968719889b7a1e268d5228a846c1893f3421e8486ab70cff444f9"
+        "a0f12972ab00f957a9012ece7906c7cddb2d83500e8dfedb1d08696062eca46c"
     );
     golden_event!(
         golden_action_unpaused_event,
@@ -992,7 +993,7 @@ mod golden_xdr {
             caller: golden_address(env, 3),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "cfb8c29f4db0181a3b9bd77bea0896126bebe72bad75b97601ecacd19f7c31d2"
+        "4586e85b56097014d714bf9d59fc640e623a239ec5ee1e34f661ba75af85ca26"
     );
     golden_event!(
         golden_resolver_approved,
@@ -1003,7 +1004,7 @@ mod golden_xdr {
             caller: golden_address(env, 1),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "e403901a9a4a43382bcd08eeb3b533f1fd9c5c747d423bc1e5f448d91f74c7c6"
+        "dce003f0d8d904258bdb116bccad7cad7aa059a35fdb36397c864d3914d629c0"
     );
     golden_event!(
         golden_resolver_removed,
@@ -1014,7 +1015,7 @@ mod golden_xdr {
             caller: golden_address(env, 187),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "80603b363362a7468d2a1da81c0328a19fa1155f1db494f45802035e3d806dc9"
+        "ea5d3d163e07f69b975609f175c0a3070a141a94ce2942f229ff772a72f4b621"
     );
     golden_event!(
         golden_resolver_strict_updated,
@@ -1026,7 +1027,7 @@ mod golden_xdr {
             caller: golden_address(env, 198),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "979dc5d504c00f9f4263ffe2304c32b354b72d084155e6dd83fcb9d58d5f28e5"
+        "c9f4e415a22a17d3473d7f005037b8693780bcc2c0325aead596a726d5502366"
     );
     golden_event!(
         golden_fee_collector_updated,
@@ -1036,7 +1037,7 @@ mod golden_xdr {
             old_collector: golden_address(env, 132),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "37b239e1a01f02b4788496396fd4e645d7f38f0acf06530cdd2c70f371bb440a"
+        "9466e1e03acf8c9a787ab180da1537d30f8eae8470d31e1721d801f37b7d8034"
     );
     golden_event!(
         golden_fee_collector_pending,
@@ -1047,7 +1048,7 @@ mod golden_xdr {
             pending_collector: golden_address(env, 64),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "b94502ccf9cba0caf31333f42b1895f6bc6076f553befff7cef2b6adb3e6565e"
+        "11b7ec234795c12d0fb2ec3b296c1723e092540ecee70c1025b99ba2c588b92d"
     );
     golden_event!(
         golden_fee_collector_accepted,
@@ -1058,7 +1059,7 @@ mod golden_xdr {
             new_collector: golden_address(env, 81),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "cc2a0052cf163eb3feabe9e1b46e2c7646676ac6104e5de7088e594753614eb6"
+        "ce810d14c945271e3021bbc01f05a39d0b01c8ab6388b10dd122c82fa94426ea"
     );
     golden_event!(
         golden_treasury_pending,
@@ -1069,7 +1070,7 @@ mod golden_xdr {
             pending_treasury: golden_address(env, 107),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "efc9f6696d2f1d3e71eab5a96dd60f39c04827293a7c0d5c92c6ae7ed2b6c6b7"
+        "a8521b3ca5ed284e9f40d02634e16298687c65bdf3f4cbe6a764af14b739ffc1"
     );
     golden_event!(
         golden_treasury_accepted,
@@ -1080,7 +1081,7 @@ mod golden_xdr {
             new_treasury: golden_address(env, 1),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "24b943e55918242a659c873d7f66358c4d13b8e0d17501ed51a3c942f19d291a"
+        "893fba4d204d74b822d838d4cf4b0151bb147eea8202c6fe7c0d344ed130caeb"
     );
     golden_event!(
         golden_emergency_drain,
@@ -1092,48 +1093,48 @@ mod golden_xdr {
             amount: 1_000_000_i128,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "17c9548a4768fc12744a0017b5293e9f1f80c3dde0b1d5b6ec2ba5446488bdfb"
+        "2f8fd4550a64c77ae8fd2eccc2aaf1dd0f71e37c9382ff009065c6d87e36a9d3"
     );
     golden_event!(
         golden_emergency_drain_blocked,
         EmergencyDrainBlocked,
-        |env| EmergencyDrainBlocked {
+        |_env| EmergencyDrainBlocked {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             escrow_id: 7_u64,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "4ee1392ef31878aca7de0f97f9f08c97866c95a618860789324cfb3989c8034d"
+        "2f6fe6528eadcc1a3b398388af663e43ff871e6329c8debdf56afaf1580da674"
     );
     golden_event!(
         golden_delivery_proposed,
         DeliveryProposed,
-        |env| DeliveryProposed {
+        |_env| DeliveryProposed {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             escrow_id: 7_u64,
             proposed_at: 1_700_005_000_u64,
             unlock_at: 1_700_010_000_u64
         },
-        "05030971d6aef9256cc0561bd110dd2b32711396a41c11486b4652a106008338"
+        "7de51a76ca76d150ee67b52697ea026a7103eda6f4664357c8fa85cf4c3ade3a"
     );
     golden_event!(
         golden_delivery_proposal_cancelled,
         DeliveryProposalCancelled,
-        |env| DeliveryProposalCancelled {
+        |_env| DeliveryProposalCancelled {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             escrow_id: 7_u64,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "4ee1392ef31878aca7de0f97f9f08c97866c95a618860789324cfb3989c8034d"
+        "2f6fe6528eadcc1a3b398388af663e43ff871e6329c8debdf56afaf1580da674"
     );
     golden_event!(
         golden_pending_expiry_clear,
         PendingExpiryClear,
-        |env| PendingExpiryClear {
+        |_env| PendingExpiryClear {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             escrow_id: 7_u64,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "4ee1392ef31878aca7de0f97f9f08c97866c95a618860789324cfb3989c8034d"
+        "2f6fe6528eadcc1a3b398388af663e43ff871e6329c8debdf56afaf1580da674"
     );
     golden_event!(
         golden_timelock_queued,
@@ -1145,7 +1146,7 @@ mod golden_xdr {
             queued_at: 1_700_005_000_u64,
             ready_at: 1_700_020_000_u64
         },
-        "86a1ca3364cf6441fa4d909529376d42888705c60d53433b28f7fc105e674116"
+        "fd86f5733b7fd6fbb91bdbc04121ca359da2426e12d247520df30cf12b95e04a"
     );
     golden_event!(
         golden_timelock_executed,
@@ -1158,7 +1159,7 @@ mod golden_xdr {
             params: golden_params(env),
             executed_at: GOLDEN_TIMESTAMP
         },
-        "a9a2fe03c737f012aaae681a4695fcc0e74721c3c168e2560e197b86e9198384"
+        "bcf7d567a5aacef4d60fea2af648742f2ab953798f9d2525cfd1f843ed92e5cf"
     );
     golden_event!(
         golden_timelock_cancelled,
@@ -1170,7 +1171,7 @@ mod golden_xdr {
             canceller: golden_address(env, 37),
             cancelled_at: GOLDEN_TIMESTAMP
         },
-        "df1a86e13f5314c09cf829b67d003603203a24e2ac0160582ba8ddc2a8cba1f8"
+        "cea977831f9f4f4aae5acd28c979a4f50047cc3ea45b82c8520bda580107e6c5"
     );
     golden_event!(
         golden_timelock_cancellation_reason,
@@ -1182,29 +1183,29 @@ mod golden_xdr {
             reason: Symbol::new(env, "golden_reason"),
             cancelled_at: GOLDEN_TIMESTAMP
         },
-        "8a1150665290b7c4289e4ce97711a741887fff108498c1fabf71722d35bb7696"
+        "129fe6f0af71fa2fe5df7044478961e0f0baaab5883a4f82e623c32155f5aab2"
     );
     golden_event!(
         golden_max_appeals_updated,
         MaxAppealsUpdated,
-        |env| MaxAppealsUpdated {
+        |_env| MaxAppealsUpdated {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             old_max: 4_u32,
             new_max: 9_u32,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "15f0e7cb9d1a3b874561d299015d321bf04fd9034e51fbc6785248c96c9730e9"
+        "c62c4863efdac3ea34f88afa2a538750f50adf00afe8e8ae6c8fbe91cc4c0332"
     );
     golden_event!(
         golden_max_basket_size_updated,
         MaxBasketSizeUpdated,
-        |env| MaxBasketSizeUpdated {
+        |_env| MaxBasketSizeUpdated {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             old_max: 4_u32,
             new_max: 9_u32,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "15f0e7cb9d1a3b874561d299015d321bf04fd9034e51fbc6785248c96c9730e9"
+        "c62c4863efdac3ea34f88afa2a538750f50adf00afe8e8ae6c8fbe91cc4c0332"
     );
     golden_event!(
         golden_recovery_withdraw,
@@ -1216,7 +1217,7 @@ mod golden_xdr {
             amount: 1_000_000_i128,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "c02e841b8711f6c72b69a48fd1a795c05d078209d46bcb9299fb4e7fdc139764"
+        "0cb6ab4d50ab1a88292789ed13f20e668024f63bd7c3a2677ee631a732721dd7"
     );
     golden_event!(
         golden_timelock_delay_updated,
@@ -1228,18 +1229,18 @@ mod golden_xdr {
             caller: golden_address(env, 153),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "18578178a8793fd6f472afefe03998a3290241d319e19a72e98737ff285cefec"
+        "38c105ab8b04953b266435329b9171426289d11809c21720e77e5925b7c0b0dd"
     );
     golden_event!(
         golden_appeal_fee_updated,
         AppealFeeUpdated,
-        |env| AppealFeeUpdated {
+        |_env| AppealFeeUpdated {
             schema_version: crate::EVENT_SCHEMA_VERSION,
             old_fee_bps: 7_u32,
             new_fee_bps: 12_u32,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "23a3edd649b835e0700cc190060c4233070d1600566c4bf15db5df815e3960bb"
+        "48d1ec6b7abf92ecb491e500a6ff547f5479662d4c08b071389550505894677d"
     );
     golden_event!(
         golden_recovery_mode_updated,
@@ -1250,7 +1251,7 @@ mod golden_xdr {
             caller: golden_address(env, 26),
             timestamp: GOLDEN_TIMESTAMP
         },
-        "bab8effd9df411f16c5cce5fabd0a82e00be390809b0e6d55728b0b083fad69b"
+        "9edfc231589f382af12a8c14d210b6c534a9c3c2b26ace1ad6ce914e59bf9e20"
     );
     golden_event!(
         golden_accumulated_fees_claimed,
@@ -1262,6 +1263,17 @@ mod golden_xdr {
             amount: 1_000_000_i128,
             timestamp: GOLDEN_TIMESTAMP
         },
-        "ee3d75ef0ad9d3aaaa8e15c26b4b81c89d02896deb5d2f9356541dbdc613a95b"
+        "d2fe7d74a5376e8b1396079e71118bed43300d003867a3dcb522caf68507fc0f"
+    );
+    golden_event!(
+        golden_multicall_subcall_failed,
+        MulticallSubcallFailed,
+        |env| MulticallSubcallFailed {
+            schema_version: crate::EVENT_SCHEMA_VERSION,
+            index: 2_u32,
+            function: Symbol::new(env, "fund_escrow"),
+            error_code: 4_u32
+        },
+        "8cb8781eb4589625eba1e7c505b9c48522f8146f7d023d2407cd7ee778951de3"
     );
 }

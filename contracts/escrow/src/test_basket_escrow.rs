@@ -1539,7 +1539,7 @@ fn create_basket_escrow_fallback_settles_basket_on_backup_refund() {
 
     let backup = Address::generate(&fx.env);
     let now = fx.env.ledger().timestamp();
-    let dispute_deadline = now + 100;
+    let dispute_deadline = now + crate::MIN_FALLBACK_DEADLINE_OFFSET;
 
     let escrow_id = client.create_basket_escrow_fallback(
         &fx.seller,
@@ -1788,7 +1788,7 @@ fn confirm_delivery_collects_protocol_and_platform_fees_on_basket_tokens() {
     // Primary token keeps its existing treatment: only the protocol fee is
     // taken (no platform fee is charged on the primary on this path).
     assert_eq!(
-        a.token.balance(&fx.fee_collector),
+        client.get_accumulated_fees(&a.address),
         fee(a_amount, 100),
         "primary protocol fee"
     );
@@ -1807,7 +1807,7 @@ fn confirm_delivery_collects_protocol_and_platform_fees_on_basket_tokens() {
             "secondary net to seller"
         );
         assert_eq!(
-            tk.token.balance(&fx.fee_collector),
+            client.get_accumulated_fees(&tk.address),
             fee(amount, 100),
             "secondary protocol fee"
         );
@@ -1816,7 +1816,11 @@ fn confirm_delivery_collects_protocol_and_platform_fees_on_basket_tokens() {
             fee(amount, 200),
             "secondary platform fee"
         );
-        assert_eq!(tk.token.balance(&fx.contract_id), 0, "contract drained");
+        assert_eq!(
+            tk.token.balance(&fx.contract_id),
+            fee(amount, 100),
+            "protocol fee retained for claim"
+        );
     }
 }
 

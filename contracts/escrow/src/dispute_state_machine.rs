@@ -1,4 +1,5 @@
 //! Internal dispute voting and state-transition logic.
+#![allow(dead_code)]
 
 use crate::internal::{
     load_dispute, load_resolver_votes, save_dispute, save_escrow, save_resolver_votes,

@@ -401,7 +401,9 @@ impl Escrow {
             &env,
             escrow_id,
             buyer,
+            escrow.token.clone(),
             escrow.amount,
+            now,
             prev_state,
             EscrowState::Expired,
         );
@@ -2350,6 +2352,8 @@ impl Escrow {
     /// `get_arbitration_fee`, `rotate_resolver`, `cancel_escrow`); any other
     /// `function` name reverts the entire call with `NotAuthorized`, and a
     /// missing or undecodable argument reverts with `InvalidMulticallArg`.
+    /// A failing sub-call publishes a `MulticallSubcallFailed` diagnostic with
+    /// its zero-based index, function name, and error code before reverting.
     /// Authorization for each sub-call is enforced exactly as if it were
     /// called directly. Reverts with `ContractPaused` if the contract is
     /// paused, and with `MulticallBatchTooLarge` when the batch exceeds
@@ -2383,45 +2387,52 @@ impl Escrow {
         let s_rotate_resolver = Symbol::new(&env, "rotate_resolver");
         let s_cancel_escrow = Symbol::new(&env, "cancel_escrow");
 
-        for call in calls {
-            let res_val: Val = if call.function == s_fund_escrow {
-                dispatch_fund_escrow(&env, &call.args)?
+        for (index, call) in calls.into_iter().enumerate() {
+            let dispatch_result: Result<Val, ContractError> = if call.function == s_fund_escrow {
+                dispatch_fund_escrow(&env, &call.args)
             } else if call.function == s_get_escrow {
-                dispatch_get_escrow(&env, &call.args)?
+                dispatch_get_escrow(&env, &call.args)
             } else if call.function == s_mark_shipped {
-                dispatch_mark_shipped(&env, &call.args)?
+                dispatch_mark_shipped(&env, &call.args)
             } else if call.function == s_confirm_delivery {
-                dispatch_confirm_delivery(&env, &call.args)?
+                dispatch_confirm_delivery(&env, &call.args)
             } else if call.function == s_raise_dispute {
-                dispatch_raise_dispute(&env, &call.args)?
+                dispatch_raise_dispute(&env, &call.args)
             } else if call.function == s_resolve_dispute {
-                dispatch_resolve_dispute(&env, &call.args)?
+                dispatch_resolve_dispute(&env, &call.args)
             } else if call.function == s_auto_release {
-                dispatch_auto_release(&env, &call.args)?
+                dispatch_auto_release(&env, &call.args)
             } else if call.function == s_cancel_escrow {
-                dispatch_cancel_escrow(&env, &call.args)?
+                dispatch_cancel_escrow(&env, &call.args)
             } else if call.function == s_rotate_resolver {
-                dispatch_rotate_resolver(&env, &call.args)?
+                dispatch_rotate_resolver(&env, &call.args)
             } else if call.function == s_initialize {
-                dispatch_initialize(&env, &call.args)?
+                dispatch_initialize(&env, &call.args)
             } else if call.function == s_pause_contract {
-                dispatch_pause_contract(&env, &call.args)?
+                dispatch_pause_contract(&env, &call.args)
             } else if call.function == s_unpause_contract {
-                dispatch_unpause_contract(&env, &call.args)?
+                dispatch_unpause_contract(&env, &call.args)
             } else if call.function == s_get_dispute {
-                dispatch_get_dispute(&env, &call.args)?
+                dispatch_get_dispute(&env, &call.args)
             } else if call.function == s_get_fee_config {
-                dispatch_get_fee_config(&env, &call.args)
+                Ok(dispatch_get_fee_config(&env, &call.args))
             } else if call.function == s_set_arbitration_fee {
-                dispatch_set_arbitration_fee(&env, &call.args)?
+                dispatch_set_arbitration_fee(&env, &call.args)
             } else if call.function == s_get_arbitration_fee {
-                dispatch_get_arbitration_fee(&env, &call.args)
+                Ok(dispatch_get_arbitration_fee(&env, &call.args))
             } else if call.function == s_create_escrow {
-                dispatch_create_escrow(&env, &call.args)?
+                dispatch_create_escrow(&env, &call.args)
             } else {
-                return Err(ContractError::NotAuthorized);
+                Err(ContractError::NotAuthorized)
             };
-            results.push_back(res_val);
+            match dispatch_result {
+                Ok(res_val) => results.push_back(res_val),
+                Err(err) => {
+                    let failed_index = u32::try_from(index).unwrap_or(u32::MAX);
+                    emit_multicall_failed(&env, failed_index, call.function.clone(), err as u32);
+                    return Err(err);
+                }
+            }
         }
         Ok(results)
     }

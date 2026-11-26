@@ -203,7 +203,7 @@ fn appeal_fails_after_finalization_completed() {
 
     // Appeal is no longer possible once finalization has completed.
     let res = client.try_appeal_dispute(&setup.buyer, &setup.escrow_id);
-    assert_eq!(res, Err(Ok(ContractError::NotPendingFinalization)));
+    assert_eq!(res, Err(Ok(ContractError::EscrowAlreadyCompleted)));
     assert_eq!(
         client.get_dispute(&setup.escrow_id).unwrap().status,
         DisputeStatus::Resolved,
@@ -417,14 +417,13 @@ fn appeal_fee_is_charged_on_reconstructed_principal() {
     let token_client = token::Client::new(&setup.env, &setup.token);
     token::StellarAssetClient::new(&setup.env, &setup.token).mint(&setup.buyer, &1_000);
 
-    client.set_arbitration_fee(&setup.admin, &500_u32); // 5% => 50
     client.set_appeal_fee(&setup.admin, &500_u32); // 5%
     raise_and_resolve(&setup);
 
-    // 1_000 principal - 50 arbitration - 20 resolver = 930 remaining.
-    assert_eq!(client.get_escrow(&setup.escrow_id).amount, 930);
+    // 1_000 principal - 5 arbitration (50 bps snapshotted at funding) - 20 resolver = 975.
+    assert_eq!(client.get_escrow(&setup.escrow_id).amount, 975);
     let dispute = client.get_dispute(&setup.escrow_id).unwrap();
-    assert_eq!(dispute.arbitration_fee, 50);
+    assert_eq!(dispute.arbitration_fee, 5);
     assert_eq!(dispute.resolver_fee, 20);
 
     let collector_before = token_client.balance(&setup.fee_collector);
@@ -432,7 +431,7 @@ fn appeal_fee_is_charged_on_reconstructed_principal() {
     // Must run before any further contract call, which resets the buffer.
     assert_eq!(appealed_event_fee_basis(&setup), Some(1_000));
 
-    // 5% of the initial 1_000 principal = 50 (not 5% of 930 = 46).
+    // 5% of the initial 1_000 principal = 50 (not 5% of 975 = 48).
     assert_eq!(
         token_client.balance(&setup.fee_collector) - collector_before,
         50
@@ -472,7 +471,6 @@ fn resolve_appeal_reresolve_with_new_resolver_defers_and_pays_final_resolver() {
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
     let token_client = token::Client::new(&setup.env, &setup.token);
 
-    client.set_arbitration_fee(&setup.admin, &500_u32); // 5% => 50
     client.set_appeal_fee(&setup.admin, &0_u32);
     assert_eq!(token_client.balance(&setup.contract_id), AMOUNT);
 
@@ -502,7 +500,7 @@ fn resolve_appeal_reresolve_with_new_resolver_defers_and_pays_final_resolver() {
     assert_eq!(token_client.balance(&setup.contract_id), AMOUNT);
     let dispute = client.get_dispute(&setup.escrow_id).unwrap();
     assert_eq!(dispute.resolved_by, Some(new_resolver.clone()));
-    assert_eq!(dispute.arbitration_fee, 50);
+    assert_eq!(dispute.arbitration_fee, 5);
     assert_eq!(dispute.resolver_fee, 20);
 
     setup
@@ -515,8 +513,8 @@ fn resolve_appeal_reresolve_with_new_resolver_defers_and_pays_final_resolver() {
     // protocol fee) are all settled together at finalization.
     assert_eq!(token_client.balance(&new_resolver), 20);
     assert_eq!(token_client.balance(&setup.resolver), 0);
-    assert_eq!(token_client.balance(&setup.fee_collector), 50);
-    assert_eq!(token_client.balance(&setup.seller), 1_000 - 50 - 20);
+    assert_eq!(token_client.balance(&setup.fee_collector), 5);
+    assert_eq!(token_client.balance(&setup.seller), 1_000 - 5 - 20);
     assert_eq!(token_client.balance(&setup.contract_id), 0);
     assert!(client.get_dispute(&setup.escrow_id).unwrap().fees_charged);
 }

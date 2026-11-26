@@ -1,143 +1,151 @@
 {
-  "_comment": "Corrected per-invocation harness baseline measured on main b16ac31; set_admin includes #1233 invalidation: CPU +49.69%, memory +8.36% vs main.",
+  "_comment": "Gas baselines for contracts/escrow/src/test_gas_profile.rs. Regenerate with `make bench-gas-update` after an intentional change.",
   "appeal_dispute": {
-    "cpu_insns": 541433,
-    "mem_bytes": 192437
+    "cpu_insns": 638398,
+    "mem_bytes": 216157
   },
   "approve_refund": {
-    "cpu_insns": 729201,
-    "mem_bytes": 233139
+    "cpu_insns": 812693,
+    "mem_bytes": 244298
   },
   "auto_release": {
-    "cpu_insns": 783497,
-    "mem_bytes": 241473
+    "cpu_insns": 856213,
+    "mem_bytes": 252793
   },
   "batch_create_escrow(10)": {
-    "cpu_insns": 4706587,
-    "mem_bytes": 1165214
+    "cpu_insns": 4811967,
+    "mem_bytes": 1202084
+  },
+  "bounded_basket_read(3 tokens)": {
+    "cpu_insns": 237094,
+    "mem_bytes": 116321
+  },
+  "bounded_basket_write(3 tokens)": {
+    "cpu_insns": 717081,
+    "mem_bytes": 233104
   },
   "cancel_escrow (Pending)": {
-    "cpu_insns": 400025,
-    "mem_bytes": 131728
+    "cpu_insns": 432900,
+    "mem_bytes": 136943
   },
   "co_signed_release": {
-    "cpu_insns": 798450,
-    "mem_bytes": 266823
+    "cpu_insns": 860201,
+    "mem_bytes": 278149
   },
   "confirm_delivery": {
-    "cpu_insns": 977929,
-    "mem_bytes": 289450
+    "cpu_insns": 934515,
+    "mem_bytes": 272816
   },
   "create_basket_escrow(3 tokens)": {
-    "cpu_insns": 706707,
-    "mem_bytes": 227080
+    "cpu_insns": 717081,
+    "mem_bytes": 233104
   },
   "create_escrow": {
-    "cpu_insns": 531704,
-    "mem_bytes": 178808
+    "cpu_insns": 542242,
+    "mem_bytes": 182495
   },
   "create_escrow_multi(3-of-3)": {
-    "cpu_insns": 524968,
-    "mem_bytes": 184748
+    "cpu_insns": 532050,
+    "mem_bytes": 188212
   },
   "create_escrow_with_fallback": {
-    "cpu_insns": 511941,
-    "mem_bytes": 183168
+    "cpu_insns": 519023,
+    "mem_bytes": 186632
   },
   "emergency_drain": {
-    "cpu_insns": 698874,
-    "mem_bytes": 242181
+    "cpu_insns": 774053,
+    "mem_bytes": 252880
   },
   "ensure_action_not_paused": {
     "cpu_insns": 76489,
     "mem_bytes": 38070
   },
   "finalize_dispute": {
-    "cpu_insns": 1090984,
-    "mem_bytes": 340472
+    "cpu_insns": 1025599,
+    "mem_bytes": 321714
   },
   "fund_escrow": {
-    "cpu_insns": 841675,
-    "mem_bytes": 264025
+    "cpu_insns": 904406,
+    "mem_bytes": 276326
   },
   "get_escrow (view)": {
-    "cpu_insns": 184036,
-    "mem_bytes": 87939
+    "cpu_insns": 202170,
+    "mem_bytes": 91794
   },
   "get_fee_config (view)": {
     "cpu_insns": 93838,
     "mem_bytes": 41130
   },
   "get_stats (view)": {
-    "cpu_insns": 2255866,
-    "mem_bytes": 537231
+    "cpu_insns": 3174918,
+    "mem_bytes": 720684
   },
   "initialize": {
     "cpu_insns": 99902,
     "mem_bytes": 39735
   },
   "mark_shipped": {
-    "cpu_insns": 396144,
-    "mem_bytes": 134559
+    "cpu_insns": 442250,
+    "mem_bytes": 140114
   },
   "multicall(fund x3)": {
-    "cpu_insns": 2728749,
-    "mem_bytes": 710827
+    "cpu_insns": 2941841,
+    "mem_bytes": 757582
   },
   "mutual_cancel": {
-    "cpu_insns": 717662,
-    "mem_bytes": 230956
+    "cpu_insns": 798557,
+    "mem_bytes": 242165
   },
   "pause_contract": {
     "cpu_insns": 164065,
     "mem_bytes": 56607
   },
   "post_message": {
-    "cpu_insns": 343336,
-    "mem_bytes": 143670
+    "cpu_insns": 364124,
+    "mem_bytes": 147930
   },
   "raise_dispute": {
-    "cpu_insns": 517163,
-    "mem_bytes": 197985
+    "cpu_insns": 555232,
+    "mem_bytes": 206844
   },
   "request_refund": {
-    "cpu_insns": 409119,
-    "mem_bytes": 137880
+    "cpu_insns": 473358,
+    "mem_bytes": 147817
   },
   "resolve_dispute (Refund)": {
-    "cpu_insns": 649844,
-    "mem_bytes": 221531
+    "cpu_insns": 631617,
+    "mem_bytes": 218720
   },
   "resolve_dispute (Release)": {
-    "cpu_insns": 649844,
-    "mem_bytes": 221531
+    "cpu_insns": 630446,
+    "mem_bytes": 218720
   },
   "rotate_resolver": {
-    "cpu_insns": 276055,
-    "mem_bytes": 106877
+    "cpu_insns": 296227,
+    "mem_bytes": 111378
   },
   "set_admin": {
     "cpu_insns": 214788,
     "mem_bytes": 59336
   },
   "set_arbitration_fee": {
-    "cpu_insns": 171664,
-    "mem_bytes": 57065
+    "cpu_insns": 176940,
+    "mem_bytes": 57277
   },
   "set_fee": {
-    "cpu_insns": 167648,
-    "mem_bytes": 56464
+    "cpu_insns": 172924,
+    "mem_bytes": 56676
   },
   "set_protocol_fee": {
-    "cpu_insns": 171664,
-    "mem_bytes": 57065
+    "cpu_insns": 176940,
+    "mem_bytes": 57277
   },
   "unpause_contract": {
-    "cpu_insns": 165535,
-    "mem_bytes": 56863
+    "cpu_insns": 170811,
+    "mem_bytes": 57075
   },
   "vote (multi-resolver, first)": {
-    "cpu_insns": 299009,
-    "mem_bytes": 134101
+    "cpu_insns": 317615,
+    "mem_bytes": 138237
   }
 }

@@ -4137,7 +4137,7 @@
                     "symbol": "schema_version"
                   },
                   "val": {
-                    "u32": 4
+                    "u32": 5
                   }
                 },
                 {

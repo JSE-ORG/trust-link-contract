@@ -1,9 +1,14 @@
 #![cfg(test)]
 
-use crate::{ContractError, Escrow, EscrowClient, EscrowState, ResolutionType};
+use crate::{
+    ContractError, Escrow, EscrowClient, EscrowExpired, EscrowState, ResolutionType,
+    EVENT_SCHEMA_VERSION,
+};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
-    token, Address, BytesN, Env, Symbol,
+    testutils::{Address as _, Events as _, Ledger as _},
+    token,
+    xdr::ContractEventBody,
+    Address, BytesN, Env, Symbol, TryFromVal, Val, Vec,
 };
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
@@ -39,6 +44,39 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
 fn mint_tokens(env: &Env, token: &Address, to: &Address, amount: i128) {
     let sac = token::StellarAssetClient::new(env, token);
     sac.mint(to, &amount);
+}
+
+fn escrow_expired_events(env: &Env, contract_id: &Address) -> Vec<EscrowExpired> {
+    let mut found = Vec::new(env);
+    for event in env
+        .events()
+        .all()
+        .filter_by_contract(contract_id)
+        .events()
+        .iter()
+    {
+        let ContractEventBody::V0(body) = &event.body;
+        let mut topics = body.topics.iter();
+        let (Some(first), Some(second)) = (topics.next(), topics.next()) else {
+            continue;
+        };
+        let (Ok(first), Ok(second)) = (
+            Symbol::try_from_val(env, first),
+            Symbol::try_from_val(env, second),
+        ) else {
+            continue;
+        };
+        if first != Symbol::new(env, "Escrow") || second != Symbol::new(env, "Expired") {
+            continue;
+        }
+        let Ok(data) = Val::try_from_val(env, &body.data) else {
+            continue;
+        };
+        if let Ok(decoded) = EscrowExpired::try_from_val(env, &data) {
+            found.push_back(decoded);
+        }
+    }
+    found
 }
 
 #[test]
@@ -168,6 +206,42 @@ fn test_reclaim_lifecycle() {
     // Verify funds returned to buyer
     assert_eq!(token::Client::new(&env, &token).balance(&buyer), 1000);
     assert_eq!(token::Client::new(&env, &token).balance(&contract_id), 0);
+}
+
+#[test]
+fn test_reclaim_expired_emits_escrow_expired_event() {
+    let (env, _admin, seller, buyer, resolver, token, contract_id) = setup_env();
+    let client = EscrowClient::new(&env, &contract_id);
+
+    let id = client.create_escrow_with_expiration(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+        &Some(10_u64),
+        &5_u64,
+    );
+
+    mint_tokens(&env, &token, &buyer, 1_000);
+    client.fund_escrow(&id, &buyer);
+    env.ledger().set_timestamp(10);
+    client.reclaim_expired(&id);
+
+    let events = escrow_expired_events(&env, &contract_id);
+    assert_eq!(events.len(), 1);
+    let event = events.get(0).unwrap();
+    assert_eq!(event.schema_version, EVENT_SCHEMA_VERSION);
+    assert_eq!(event.escrow_id, id);
+    assert_eq!(event.buyer, buyer);
+    assert_eq!(event.token, token);
+    assert_eq!(event.amount, 1_000);
+    assert_eq!(event.timestamp, 10);
+    assert_eq!(event.prev_state, EscrowState::Funded);
+    assert_eq!(event.new_state, EscrowState::Expired);
+    assert_eq!(token::Client::new(&env, &token).balance(&buyer), 1_000);
 }
 
 #[test]

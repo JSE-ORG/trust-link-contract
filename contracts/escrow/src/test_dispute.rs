@@ -904,7 +904,7 @@ fn test_split_resolution_50_50_pays_both_sides_with_no_stranded_funds() {
     let tc = token::Client::new(&env, &token);
     let seller_bal = tc.balance(&seller);
     let buyer_bal = tc.balance(&buyer);
-    let fee_bal = tc.balance(&fee_collector);
+    let fee_bal = client.get_accumulated_fees(&token);
     let contract_bal = tc.balance(&contract_id);
 
     // Net principal = everything that is not a fee.
@@ -915,7 +915,7 @@ fn test_split_resolution_50_50_pays_both_sides_with_no_stranded_funds() {
     // Invariants: payee_net + buyer_net == net, and zero stroops stranded.
     assert_eq!(seller_bal + buyer_bal, net);
     assert_eq!(seller_bal + buyer_bal + fee_bal, amount);
-    assert_eq!(contract_bal, 0);
+    assert_eq!(contract_bal, fee_bal);
 }
 
 #[test]
@@ -941,7 +941,10 @@ fn test_split_resolution_extremes_match_release_and_refund() {
             assert_eq!(tc.balance(&seller), 0);
             assert!(tc.balance(&buyer) > 0);
         }
-        assert_eq!(tc.balance(&contract_id), 0);
+        assert_eq!(
+            tc.balance(&contract_id),
+            client.get_accumulated_fees(&token)
+        );
     }
 }
 

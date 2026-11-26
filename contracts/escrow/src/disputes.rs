@@ -481,7 +481,6 @@ impl Escrow {
             }
         }
 
-
         if let Some(ref treasury_addr) = treasury {
             crate::helpers::payout::payout_platform_fee(
                 &env,
@@ -491,27 +490,23 @@ impl Escrow {
                 platform_fee,
             );
         }
-        match (&resolution, &buyer_split) {
-            (ResolutionType::Split(split_bps), Some(buyer)) => {
-                // payee_net + buyer_net == payout_amount: nothing is stranded.
-                let (payee_net, buyer_net) =
-                    crate::helpers::payout::split_net(payout_amount, *split_bps)?;
-                payout(&env, &escrow.token, &recipient, payee_net);
-                payout(&env, &escrow.token, buyer, buyer_net);
-                crate::internal::payout_basket_tokens_split(
-                    &env,
-                    escrow_id,
-                    &recipient,
-                    buyer,
-                    *split_bps,
-                    escrow.fee_bps,
-                )?;
-            }
-            _ => {
-                payout(&env, &escrow.token, &recipient, payout_amount);
-                payout_basket_tokens(&env, escrow_id, &recipient, Some(escrow.fee_bps))?;
-            }
-
+        if let (ResolutionType::Split(split_bps), Some(buyer)) = (&resolution, &buyer_split) {
+            // payee_net + buyer_net == payout_amount: nothing is stranded.
+            let (payee_net, buyer_net) =
+                crate::helpers::payout::split_net(payout_amount, *split_bps)?;
+            payout(&env, &escrow.token, &recipient, payee_net);
+            payout(&env, &escrow.token, buyer, buyer_net);
+            crate::internal::payout_basket_tokens_split(
+                &env,
+                escrow_id,
+                &recipient,
+                buyer,
+                *split_bps,
+                escrow.fee_bps,
+            )?;
+        } else {
+            payout(&env, &escrow.token, &recipient, payout_amount);
+            payout_basket_tokens(&env, escrow_id, &recipient, Some(escrow.fee_bps))?;
         }
 
         emit_dispute_resolved(
