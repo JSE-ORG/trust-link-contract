@@ -487,13 +487,18 @@ impl Escrow {
             }
         }
 
-        transfer_helper(
-            &env,
-            &escrow.token,
-            &buyer,
-            &env.current_contract_address(),
-            escrow.amount,
-        );
+        let contract_addr = env.current_contract_address();
+        let starting_balance =
+            soroban_sdk::token::Client::new(&env, &escrow.token).balance(&contract_addr);
+        transfer_helper(&env, &escrow.token, &buyer, &contract_addr, escrow.amount);
+        let current_balance =
+            soroban_sdk::token::Client::new(&env, &escrow.token).balance(&contract_addr);
+        let received = current_balance
+            .checked_sub(starting_balance)
+            .ok_or(ContractError::InvalidAmount)?;
+        if received < escrow.amount {
+            return Err(ContractError::InvalidAmount);
+        }
 
         // Transfer additional basket tokens if this is a basket escrow.
         // `is_transferable_basket_entry` is the same predicate
@@ -505,13 +510,23 @@ impl Escrow {
                 .get(i)
                 .ok_or(ContractError::IndexOutOfBounds)?;
             if is_transferable_basket_entry(&entry, &escrow.token) {
+                let starting_balance =
+                    soroban_sdk::token::Client::new(&env, &entry.token).balance(&contract_addr);
                 transfer_helper(
                     &env,
                     &entry.token,
                     &buyer,
-                    &env.current_contract_address(),
+                    &contract_addr,
                     entry.amount,
                 );
+                let current_balance =
+                    soroban_sdk::token::Client::new(&env, &entry.token).balance(&contract_addr);
+                let received = current_balance
+                    .checked_sub(starting_balance)
+                    .ok_or(ContractError::InvalidAmount)?;
+                if received < entry.amount {
+                    return Err(ContractError::InvalidAmount);
+                }
             }
         }
 

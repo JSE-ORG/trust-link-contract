@@ -7,6 +7,7 @@
 //! payout path (`transfer_with_protocol_fee`).  These tests verify that the full
 //! lifecycle works correctly with a generic SEP-41 token that is not USDC.
 
+use crate::malicious_token::{Attack, MaliciousToken, MaliciousTokenClient};
 use crate::test_helpers::{record_delivery_timelocked, setup_contract};
 use crate::{EscrowState, Payee};
 use soroban_sdk::{
@@ -394,4 +395,44 @@ fn test_sep41_auto_release_with_fees() {
     assert_eq!(balance(&env, &token, &fee_collector), 0);
     assert_eq!(balance(&env, &token, &contract_id), 10);
     assert_eq!(client.get_escrow(&id).state, EscrowState::Completed);
+}
+
+#[test]
+fn test_sep41_fee_on_transfer_cannot_underfund_escrow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let token = env.register(MaliciousToken, ());
+    let token_client = MaliciousTokenClient::new(&env, &token);
+    let buyer = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let amount = 1_000_i128;
+
+    token_client.mint(&buyer, &amount);
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller,
+        bps: 10_000,
+    });
+    let id = client.create_escrow(
+        &payees.into_val(&env),
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &amount,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
+
+    token_client.set_attack(&Attack::FeeOnTransfer);
+    let result = client.try_fund_escrow(&id, &buyer);
+
+    assert_eq!(result, Err(Ok(crate::ContractError::InvalidAmount)));
+    assert_eq!(token_client.balance(&buyer), amount);
+    assert_eq!(token_client.balance(&contract_id), 0);
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Pending);
 }

@@ -258,6 +258,11 @@ pub(crate) fn payout_platform_fee(
 
 /// Transfers `amount` of `token_addr` from this contract to `recipient`.
 ///
+/// Accounting assumes standard 1:1 SEP-41 semantics: `transfer(amount)` must
+/// credit the recipient with exactly `amount`. Payouts do not verify recipient
+/// balance deltas, so tokens with transfer fees, burns, or balance rebases
+/// must not be used.
+///
 /// This is the single choke point every payout path shares — protocol and
 /// arbitration fees, treasury platform fees, payee distributions, basket
 /// tokens, refunds, and emergency drains — so the "only move funds when there
