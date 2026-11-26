@@ -1,16 +1,9 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, token, Address, Env, String as SorobanString};
+use soroban_sdk::{
+    testutils::Address as _, token, Address, Env, IntoVal, String as SorobanString, Val, Vec,
+};
 use trustlink_escrow::{ContractError, Escrow, EscrowClient, EscrowState, Payee};
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
-}
 
 #[test]
 fn test_auto_release_before_record_delivery_reverts() {
@@ -35,8 +28,14 @@ fn test_auto_release_before_record_delivery_reverts() {
     token::StellarAssetClient::new(&env, &token_addr).mint(&buyer, &amount);
 
     // 1. Create Escrow
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees: Val = payees.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees,
         &None::<Address>,
         &resolver,
         &token_addr,
@@ -44,6 +43,7 @@ fn test_auto_release_before_record_delivery_reverts() {
         &100_u32,
         &0_u32,
         &3600_u64,
+        &None::<SorobanString>,
     );
 
     // 2. Fund Escrow

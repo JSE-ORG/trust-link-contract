@@ -1,10 +1,10 @@
-# TrustLink — Soroban Escrow Contract
+# TrustLink ? Soroban Escrow Contract
 # TrustLink Contract (Soroban Escrow)
 
 > Trustless escrow for social commerce on Stellar: funds move only when the contract can prove the requested lifecycle event has happened.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/JSE-ORG/trust-link-contract/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/JSE-ORG/trust-link-contract/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-248%20passing-success?style=flat-square&logo=rust)](contracts/escrow)
+[![Tests](https://img.shields.io/badge/tests-334%20passing-success?style=flat-square&logo=rust)](contracts/escrow)
 [![Coverage](https://img.shields.io/codecov/c/github/JSE-ORG/trust-link-contract?style=flat-square&logo=codecov&label=coverage)](https://codecov.io/gh/JSE-ORG/trust-link-contract)
 [![Crate](https://img.shields.io/badge/crate-v0.1.0-blue?style=flat-square&logo=rust)](contracts/escrow/Cargo.toml)
 [![Stellar](https://img.shields.io/badge/Stellar-Soroban-7B68EE?style=flat-square&logo=stellar)](https://stellar.org)
@@ -15,7 +15,7 @@
 
 ## Overview
 
-The TrustLink Escrow Contract is the **trustless vault** of the TrustLink protocol. It holds Stellar assets (USDC and other SEP-41 tokens) in escrow and releases them only when verifiable conditions are met — buyer confirms delivery, dispute resolver decides, or the shipping window expires.
+The TrustLink Escrow Contract is the **trustless vault** of the TrustLink protocol. It holds Stellar assets (USDC and other SEP-41 tokens) in escrow and releases them only when verifiable conditions are met ? buyer confirms delivery, dispute resolver decides, or the shipping window expires.
 
 Buyers and sellers never meet. The contract handles the trust gap.
 
@@ -25,34 +25,44 @@ Buyers and sellers never meet. The contract handles the trust gap.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Pending: create_escrow (9 args)
-    Pending --> Funded: fund_escrow
-    Pending --> Canceled: cancel_escrow
-    Funded --> Shipped: mark_shipped
-    Funded --> Disputed: raise_dispute before dispute_deadline
-    Shipped --> Disputed: raise_dispute before dispute_deadline
-    Shipped --> Completed: confirm_delivery after dispute_deadline
-    Funded --> Completed: auto_release after dispute_deadline + shipping window
-    Shipped --> Completed: auto_release after dispute_deadline + shipping window
-    Funded --> Completed: auto_release after delivered_at + release window
-    Shipped --> Completed: auto_release after delivered_at + release window
-    Disputed --> PendingFinalization: resolve_dispute
-    PendingFinalization --> Disputed: appeal_dispute
-    PendingFinalization --> Completed: finalize_dispute(Release)
-    PendingFinalization --> Refunded: finalize_dispute(Refund)
-    Funded --> Expired: derived release eligibility
-    Shipped --> Expired: derived release eligibility
-    Expired --> Completed: auto_release
+    [*] --> Pending : create_escrow
+
+    Pending --> Funded : fund_escrow
+    Pending --> Canceled : cancel_escrow
+    Pending --> Expired : reclaim_expired
+
+    Funded --> Shipped : mark_shipped
+    Funded --> Completed : confirm_delivery
+    Funded --> Completed : auto_release
+    Funded --> Disputed : raise_dispute
+    Funded --> RefundRequested : request_refund
+
+    Shipped --> Completed : confirm_delivery
+    Shipped --> Completed : auto_release
+    Shipped --> Disputed : raise_dispute
+
+    RefundRequested --> Refunded : approve_refund
+
+    Disputed --> PendingFinalization : resolve_dispute / vote
+
+    PendingFinalization --> Completed : finalize_dispute
+    PendingFinalization --> Refunded : finalize_dispute
+    PendingFinalization --> Disputed : appeal_dispute
 ```
 
 Key rules:
-- **Pending**: seller cancels freely (no money moved)
-- **Funded → Shipped**: only seller can mark shipped
-- **Shipped → Completed**: buyer confirms after `dispute_deadline`, funds release to payees
-- **Funded or Shipped → Disputed**: buyer raises dispute
-- **Funded/Shipped → Completed (auto)**: anyone triggers after the dispute deadline and a configured release window elapses
-- **Disputed → PendingFinalization → Completed/Refunded**: resolver decides,
-  then finalization waits for the appeal window
+- **Pending**: seller cancels freely (no money moved); `reclaim_expired` sets state to `Expired` if not funded in time.
+- **Funded → Shipped**: only seller can mark shipped.
+- **Shipped → Completed**: buyer confirms delivery (after `dispute_deadline`), funds release to seller.
+- **Funded or Shipped → Disputed**: buyer raises dispute (before `dispute_deadline`).
+- **Funded or Shipped → RefundRequested**: buyer requests refund, which must be approved by seller.
+- **Shipped → Completed (auto)**: anyone triggers after `shipped_at + shipping_window` AND `dispute_deadline` elapses.
+- **Funded → Completed (auto)**: anyone triggers after `funded_at + shipping_window` AND `dispute_deadline` elapses.
+- **Disputed → PendingFinalization**: resolver (or M-of-N multi-resolvers) decide outcome.
+- **PendingFinalization → Completed/Refunded**: anyone finalizes the dispute after 24-hour appeal window elapses.
+- **PendingFinalization → Disputed**: either party can appeal before finalization, resetting the resolution.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete state machine with guard conditions and error codes.
 
 ---
 
@@ -60,15 +70,15 @@ Key rules:
 
 | Function | Auth | Description |
 |---|---|---|
-| `create_escrow(payees, buyer, resolver, token, amount, fee_bps, resolver_fee_bps, shipping_window, notes)` | first payee | Creates escrow, assigns sequential `u64` ID. `buyer` and `notes` may be `null`. |
+| `create_escrow(seller_or_payees, buyer, resolver, token, amount, fee_bps, resolver_fee_bps, shipping_window, notes)` | seller/payees | Creates escrow with optional buyer and notes. |
 | `fund_escrow(escrow_id, buyer)` | buyer | Transfers `amount` tokens from buyer to contract, sets `funded_at`. |
 | `mark_shipped(escrow_id)` | seller | Sets state to `Shipped`, starts delivery clock at `shipped_at`. |
-| `confirm_delivery(escrow_id)` | buyer | Transfers tokens from contract to seller, state → `Completed`. |
-| `raise_dispute(escrow_id)` | buyer | Freezes funds, state → `Disputed`. Works from `Funded` or `Shipped`. |
+| `confirm_delivery(escrow_id)` | buyer | Transfers tokens from contract to seller, state ? `Completed`. |
+| `raise_dispute(escrow_id)` | buyer | Freezes funds, state ? `Disputed`. Works from `Funded` or `Shipped`. |
 | `resolve_dispute(escrow_id, release_to_seller)` | resolver | Transfers to seller or refunds buyer. |
 | `auto_release(escrow_id)` | anyone | After `shipped_at + window`, releases to seller. |
 | `cancel_escrow(escrow_id)` | seller | Only in `Pending` state (no funds moved). |
-| `get_escrow(escrow_id) → EscrowData` | none | Read-only view. |
+| `get_escrow(escrow_id) ? EscrowData` | none | Read-only view. |
 
 ---
 
@@ -76,16 +86,26 @@ Key rules:
 
 ```rust
 pub struct EscrowData {
-    pub seller: Address,           // creator
+    pub payees: Vec<Payee>,        // list of payees and their shares
     pub buyer: Option<Address>,    // set when funded, None during Pending
-    pub resolver: Address,         // dispute admin key
+    pub resolvers: ResolverSet,    // resolver configuration (Single, Multi, Fallback)
     pub token: Address,            // Stellar asset contract (USDC etc.)
     pub amount: i128,              // raw units (incl. decimals)
+    pub fee_bps: u32,              // creator/escrow fee in basis points
+    pub resolver_fee_bps: u32,     // dispute resolution fee in basis points
     pub shipping_window: u64,      // seconds after shipped_at for auto-release
     pub funded_at: u64,            // ledger timestamp when funded (0 if pending)
+    pub dispute_deadline: u64,     // deadline for raising disputes (0 if not funded)
     pub shipped_at: u64,           // ledger timestamp when shipped (0 if not shipped)
-    pub created_at: u64,           // ledger timestamp of creation
-    pub state: EscrowState,
+    pub delivered_at: Option<u64>, // ledger timestamp when delivery confirmed
+    pub tracking_id: Option<String>,// tracking reference for delivery
+    pub state: EscrowState,        // current lifecycle state of the escrow
+    pub notes: Option<String>,     // arbitrary metadata notes
+}
+
+pub struct Payee {
+    pub address: Address,
+    pub bps: u32,                  // share of payout in basis points (100 = 1%)
 }
 
 pub enum EscrowState {
@@ -98,19 +118,16 @@ pub enum EscrowState {
     Refunded,
     Canceled,
     PendingFinalization,
+    Expired,
 }
 ```
-
-`Expired` is the derived time-eligibility condition shown in the state
-diagrams; it is not persisted as a separate enum variant in this contract.
-See the complete [error-code reference](ERROR_CODES.md).
 
 ---
 
 ## Getting Started
-This repository contains the **TrustLink escrow smart contract** implemented for **Stellar’s Soroban** runtime, plus a small set of developer tooling and language bindings to interact with the contract.
+This repository contains the **TrustLink escrow smart contract** implemented for **Stellar?s Soroban** runtime, plus a small set of developer tooling and language bindings to interact with the contract.
 
-At a high level, TrustLink replaces “trust me” payments with a lifecycle that is enforced in code:
+At a high level, TrustLink replaces ?trust me? payments with a lifecycle that is enforced in code:
 
 - A **seller** creates an escrow agreement.
 - A **buyer** funds the escrow by transferring tokens into the contract.
@@ -120,7 +137,7 @@ At a high level, TrustLink replaces “trust me” payments with a lifecycle tha
   - allows the buyer to **raise a dispute** before a deadline, after which an authorized **resolver/oracle** decides the outcome, or
   - allows **auto-release** after time windows elapse if no dispute remains unresolved.
 
-The core goal is to ensure that each outcome—delivery completion, dispute release, dispute refund, or cancellation—happens via contract-enforced rules with clear authorization boundaries.
+The core goal is to ensure that each outcome?delivery completion, dispute release, dispute refund, or cancellation?happens via contract-enforced rules with clear authorization boundaries.
 
 ---
 
@@ -139,6 +156,7 @@ The core goal is to ensure that each outcome—delivery completion, dispute rele
   - [6.1 Fee calculation and fee cap](#61-fee-calculation-and-fee-cap)
   - [6.2 Arbitration fee](#62-arbitration-fee)
   - [6.3 Withdrawing protocol fees](#63-withdrawing-protocol-fees)
+- [6.4 Multi-payee rounding dust](#64-multi-payee-rounding-dust)
 - [7. Operational controls](#7-operational-controls)
   - [7.1 Pause / unpause](#71-pause--unpause)
   - [7.2 Admin rotation](#72-admin-rotation)
@@ -165,11 +183,11 @@ The core goal is to ensure that each outcome—delivery completion, dispute rele
 
 ## 1. What is this project?
 
-TrustLink is a **trustless escrow protocol** designed for **peer-to-peer social commerce**. In typical social commerce scenarios—payments initiated through DMs, chats, or lightweight marketplace workflows—buyer and seller rarely share a traditional, enforceable contract. Disputes are commonly handled manually and inconsistently.
+TrustLink is a **trustless escrow protocol** designed for **peer-to-peer social commerce**. In typical social commerce scenarios?payments initiated through DMs, chats, or lightweight marketplace workflows?buyer and seller rarely share a traditional, enforceable contract. Disputes are commonly handled manually and inconsistently.
 
 This smart contract enforces payment outcomes on-chain.
 
-### The contract’s purpose
+### The contract?s purpose
 
 The contract is the **escrow vault and arbitration enforcement layer**. It:
 
@@ -180,9 +198,9 @@ The contract is the **escrow vault and arbitration enforcement layer**. It:
 - supports **auto-release** after time windows elapse (permissionless triggering),
 - supports a global pause flag for operational safety.
 
-### What “trustless” means here
+### What ?trustless? means here
 
-“Trustless” does not mean “no trust anywhere.” Instead, it means that the protocol eliminates the need to trust a custodian to move funds correctly. With the exception of the dispute resolver/oracle’s judgment, outcomes are determined by:
+?Trustless? does not mean ?no trust anywhere.? Instead, it means that the protocol eliminates the need to trust a custodian to move funds correctly. With the exception of the dispute resolver/oracle?s judgment, outcomes are determined by:
 
 - deterministic state machine transitions,
 - deterministic token transfer logic, and
@@ -231,7 +249,7 @@ The repository includes `ORACLE_TRUST_MODEL.md`, which documents the central tru
 
 When the buyer raises a dispute, the contract stores an evidence hash and metadata, but it cannot verify the underlying evidence (shipments, courier records, legal documents). Real-world verification is impossible for on-chain code without trusted inputs.
 
-Therefore, the contract embeds a resolver oracle address per escrow and requires the resolver to authenticate the dispute outcome using Soroban’s `require_auth()`.
+Therefore, the contract embeds a resolver oracle address per escrow and requires the resolver to authenticate the dispute outcome using Soroban?s `require_auth()`.
 
 If the resolver key is compromised, the attacker can finalize disputes in any direction by signing `resolve_dispute`.
 
@@ -251,29 +269,69 @@ Admin can pause the contract and update fee parameters. Admin compromises primar
 
 The escrow lifecycle is a finite state machine. The escrow states are defined in `contracts/escrow/src/types.rs`:
 
+- `Pending` — the escrow exists but holds no funds yet; the seller may cancel it, and it becomes `Expired` if `reclaim_expired` runs after the expiry window.
+- `Funded` — the buyer deposited `amount`; the dispute window is open and the seller may `mark_shipped`.
+- `Shipped` — the seller recorded a tracking id; the delivery window is running toward auto-release.
+- `Completed` — funds were released to the payees (buyer confirmed delivery, `auto_release` fired, or a dispute was finalized for the seller).
+- `Disputed` — the buyer opened a dispute; funds are frozen pending a resolver decision.
+- `RefundRequested` — the buyer asked for a refund; the seller must approve it, which moves the escrow to `Refunded`.
+- `Refunded` — the amount was returned to the buyer.
+- `Canceled` — the escrow was canceled before funding; no money ever moved.
+- `PendingFinalization` — a resolution is recorded and the appeal window is running; `finalize_dispute` settles it.
+- `Expired` — a `Pending` escrow was reclaimed past its expiry without ever being funded.
+
+The transition graph for these ten states is shown in the [state machine diagram](#state-machine) above.
+
+### Build & Test
+
 - Rust 1.75+
 - [Stellar CLI](https://developers.stellar.org/docs/tools/stellar-cli) 21+
 - wasm32v1-none target (`rustup target add wasm32v1-none`)
-
-### Build & Test
 
 ```bash
 # Build for Soroban
 cargo build --target wasm32v1-none -p trustlink-escrow
 
-# Run all 16 tests
-cargo test -p trustlink-escrow
+# Run the unit tests (fast local loop)
+make test
+
+# Run every test target — unit tests + integration suites (what CI enforces)
+make test-all
 ```
-- `Pending`
-- `Funded`
-- `Shipped`
-- `Completed`
-- `Disputed`
-- `RefundRequested`
-- `Refunded`
-- `Canceled`
-- `PendingFinalization`
-- `Expired` (derived release eligibility; not persisted)
+
+Unit tests run against the mock `Env`. For end-to-end coverage against a real
+Soroban network (Testnet by default) ? deploy, fund, and drive each lifecycle
+path while asserting on-chain state ? use the idempotent scripts in
+[`e2e/`](e2e/README.md):
+
+```bash
+cd e2e && ./run_all.sh
+```
+
+### Local devnet
+
+`scripts/start-testnet.sh` brings up a self-contained Stellar QuickStart
+devnet, deploys and initializes the contract, and seeds escrows covering the
+Pending / Funded / Shipped / Disputed states. It is idempotent ? re-running it
+reuses the container, identities and deployment:
+
+```bash
+make testnet                      # start + deploy + seed
+source .stellar/local-testnet/local-testnet.env
+make testnet-stop                 # tear down
+```
+
+### Fuzzing
+
+Eight `cargo-fuzz` harnesses cover the public entry points. They are compiled
+and smoke-run on every push by [`.github/workflows/fuzz.yml`](.github/workflows/fuzz.yml),
+with longer runs on a nightly schedule. See
+[`contracts/escrow/fuzz/README.md`](contracts/escrow/fuzz/README.md):
+
+```bash
+make fuzz-build                   # compile all targets
+FUZZ_TIME=60 make fuzz            # run each target for 60s
+```
 
 ### State transitions in practice
 
@@ -315,21 +373,25 @@ stellar contract deploy \
   --source deployer \
   --network testnet
 
-# → outputs CONTRACT_ID, save it
+# ? outputs CONTRACT_ID, save it
 ```
 
 ### Invoke Examples
 
 ```bash
-# Create escrow (buyer unknown yet)
+# Create escrow (buyer is optional in the contract; pass one to restrict funding)
 stellar contract invoke \
   --id $CONTRACT_ID --source seller --network testnet -- \
   create_escrow \
-  --seller $SELLER_ADDR \
+  --seller_or_payees $SELLER_ADDR \
+  --buyer $BUYER_ADDR \
   --resolver $RESOLVER_ADDR \
   --token $USDC_CONTRACT \
   --amount 50000000 \
-  --shipping_window 604800
+  --fee_bps 50 \
+  --resolver_fee_bps 50 \
+  --shipping_window 604800 \
+  --notes "optional note, max 500 chars"
 
 # Fund escrow (buyer connects wallet)
 stellar contract invoke \
@@ -352,12 +414,19 @@ stellar contract invoke \
 stellar contract invoke \
   --id $CONTRACT_ID --source seller --network testnet -- \
   create_escrow \
-  --seller $SELLER_ADDR \
+  --seller_or_payees $SELLER_ADDR \
+  --buyer $BUYER_ADDR \
   --resolver $RESOLVER_ADDR \
   --token $USDC_CONTRACT \
   --amount 50000000 \
-  --shipping_window 604800
+  --fee_bps 50 \
+  --resolver_fee_bps 50 \
+  --shipping_window 604800 \
+  --notes "optional note, max 500 chars"
 ```
+
+The full signature and the guards each argument is checked against are in
+[8.2 Escrow management](#82-escrow-management).
 
 #### Fund escrow
 ```bash
@@ -403,9 +472,9 @@ stellar contract invoke \
 | Test | What it verifies |
 |---|---|
 | `test_create_escrow` | All fields set correctly, id increments |
-| `test_fund_escrow` | Tokens move to contract, state → Funded |
-| `test_mark_shipped` | State → Shipped, shipped_at set |
-| `test_confirm_delivery` | Full happy path: create → fund → ship → confirm |
+| `test_fund_escrow` | Tokens move to contract, state ? Funded |
+| `test_mark_shipped` | State ? Shipped, shipped_at set |
+| `test_confirm_delivery` | Full happy path: create ? fund ? ship ? confirm |
 | `test_raise_dispute_after_funded` | Dispute from Funded state |
 | `test_raise_dispute_after_shipped` | Dispute from Shipped state |
 | `test_raise_and_resolve_dispute_release_to_seller` | Resolver releases to seller |
@@ -425,10 +494,10 @@ stellar contract invoke \
 
 ```
 contracts/escrow/
-├── Cargo.toml
-└── src/
-    ├── lib.rs       # Contract + events + storage (single module)
-    └── test.rs      # All 16 tests
+??? Cargo.toml
+??? src/
+    ??? lib.rs       # Contract + events + storage (single module)
+    ??? test.rs      # All 16 tests
 ```
 
 ---
@@ -442,11 +511,13 @@ contracts/escrow/
 
 > This contract has not been formally audited. Use on mainnet at your own risk.
 
+Please see our [Responsible Disclosure Policy](SECURITY.md#responsible-disclosure-policy) if you wish to report a vulnerability.
+
 ---
 
 ## Roadmap
 
-- [x] Core escrow state machine (Pending → Funded → Shipped → Completed / Disputed)
+- [x] Core escrow state machine (Pending ? Funded ? Shipped ? Completed / Disputed)
 - [x] SEP-41 token support (USDC, native assets)
 - [x] Auto-release after shipping window
 - [x] Dispute + resolver flow
@@ -460,7 +531,7 @@ contracts/escrow/
 
 ## License
 
-MIT © TrustLink Contributors
+MIT ? TrustLink Contributors
 6. **Dispute resolution**
    - `resolve_dispute` requires resolver auth.
    - Allowed only from `Disputed`.
@@ -541,12 +612,19 @@ Each meaningful lifecycle step emits an event (examples):
 - `EscrowFunded`
 - `EscrowShipped`
 - `EscrowCompleted`
-- `EscrowCancelled`
+- `EscrowCanceled`
 - `DisputeRaised`
 - `DisputeResolved`
 - `AutoReleased`
 
-The tests include numerous snapshot JSON files under `contracts/escrow/test_snapshots/…` that strongly suggests events are checked for stability and correctness.
+Payout event amounts are **pre-fee gross values**, not the net amounts transferred:
+
+- `EscrowCompleted.amount` is the gross escrowed amount before the protocol fee. Derive the net payout as `amount - floor(amount * fee_bps / 10_000)`.
+- `DisputeResolved.amount` is the escrow balance after arbitration/resolver fees and before the platform/protocol fees. The recipient payout is `amount - platform_fee - protocol_fee`, where the protocol fee is `floor((amount + arbitration_fee + resolver_fee) * fee_bps / 10_000)`.
+
+The indexer exposes `deriveNetAmount` and `deriveDisputeNetAmount` in `indexer/src/types.ts` for these derivations.
+
+The tests include numerous snapshot JSON files under `contracts/escrow/test_snapshots/?` that strongly suggests events are checked for stability and correctness.
 
 For backend oracle/indexer designs, the recommended workflow is:
 
@@ -560,20 +638,58 @@ The escrow contract is token-agnostic, using SEP-41 token interface clients. All
 
 - `soroban_sdk::token::Client`
 
+```mermaid
+sequenceDiagram
+    participant Buyer
+    participant Contract
+    participant Seller_Payees as Seller / Payees
+    participant Fee_Collector
+
+    Note over Buyer,Fee_Collector: Happy path (fund ? confirm delivery / auto_release)
+    Buyer->>Contract: fund_escrow (transfer amount)
+    Buyer->>Contract: confirm_delivery (or auto_release triggers)
+    Contract->>Fee_Collector: transfer protocol fee (fee_bps)
+    Contract->>Seller_Payees: transfer net amount (split by payee bps)
+
+    Note over Buyer,Fee_Collector: Dispute resolution path
+    Buyer->>Contract: fund_escrow (transfer amount)
+    Buyer->>Contract: raise_dispute
+    Contract-->>Contract: state ? Disputed
+    Note over Contract: resolve_dispute / vote ? PendingFinalization
+    Buyer->>Contract: finalize_dispute (after appeal window)
+    Contract->>Contract: state ? Completed or Refunded (saved before transfers)
+    Contract->>Fee_Collector: transfer platform fee (optional)
+    Contract->>Fee_Collector: transfer protocol fee (fee_bps)
+    alt Release to seller
+        Contract->>Seller_Payees: transfer net amount
+    else Refund to buyer
+        Contract->>Buyer: transfer net amount
+    end
+```
+
 Token transfers occur in:
 
-- `fund_escrow`: buyer → contract
-- `confirm_delivery`: contract → seller
-- `auto_release`: contract → seller
-- `resolve_dispute`: contract → seller or buyer
-- `withdraw_fees`: contract → fee collector recipient
+- `fund_escrow`: buyer ? contract
+- `confirm_delivery`: contract ? payees (payout split based on basis points) + contract ? fee collector
+- `auto_release`: contract ? payees (payout split based on basis points) + contract ? fee collector
+- `resolve_dispute`: contract ? payees (payout split based on basis points) or buyer + contract ? fee collector
 
-The payout logic is governed by `deduct_and_transfer`, which calculates:
+The payout logic is governed by `transfer_with_protocol_fee`, which splits the net amount (after fee deduction) among the list of payees:
 
 - fee = amount * fee_bps / 10_000 (basis points)
-- net = amount - fee
+- net_total = amount - fee
+- payee_payout = net_total * payee.bps / 10_000
+
+and transfers each `payee_payout` to the respective payee address and `fee` directly to the configured fee collector in the same call ? the protocol fee never accumulates in the contract. The sum of basis points (bps) across all payees must equal exactly 10,000 (100%).
 
 The arbitration fee is handled as a separate deduction in `resolve_dispute`.
+### 6.4 Multi-payee rounding dust
+
+When a payout is split across multiple payees, the contract calculates floor-rounded amounts for secondary payees and assigns the remaining net amount to the first payee. This preserves total payout conservation while making the rounding policy deterministic. The maximum bias is bounded by `N - 1` stroops for `N` payees because each secondary payee can contribute at most one truncated stroop of dust.
+
+**Dust-to-first-payee policy.** Payees `1..N` (every payee except `payees[0]`) receive `floor(net * bps / 10000)`; `payees[0]` receives `net` minus the sum of those floored amounts. Dust is therefore always credited to the first payee, never to the others, so for multi-payee splits the first payee is systematically favoured by strictly less than `N - 1` stroops (at most `N - 1`) per payout. For a single payee there is no dust. Order the payees list accordingly if this bias matters to you. No stroop is lost or created: the payouts always sum exactly to `net`.
+
+**Zero-share payouts.** When `floor(net * bps / 10000)` is `0` for a secondary payee, the contract does not issue a token transfer to that address; the skipped stroops stay in the primary payee's remainder. Indexers should use `calculate_multi_payee_allocations` (or listen for the diagnostic `PayeeShareSkipped` event) rather than assuming every listed payee receives a transfer. As a rule of thumb, a secondary payee needs `net * bps >= 10_000` for a 1-stroop payout (e.g. `1 bps` requires `net >= 10_000` stroops).
 
 ---
 
@@ -587,26 +703,19 @@ Escrow creation accepts a `fee_bps` parameter, and `create_escrow` rejects any v
 
 Additionally, the contract can update a default fee via admin (`set_fee`) stored in `DataKey::DefaultFeeBps`. (Per-escrow fee is passed at creation time.)
 
-The `deduct_and_transfer` helper rejects negative amounts and uses checked arithmetic to avoid silent overflows.
+The `transfer_with_protocol_fee` helper uses checked arithmetic to avoid silent overflows.
 
 ### 6.2 Arbitration fee
 
 Dispute resolution uses an arbitration fee configured on-chain as `ArbitrationFee`.
 
-`resolve_dispute` reads the arbitration fee, checks that the escrow’s `amount` covers it, subtracts it from `escrow.amount`, and tracks total arbitration fees per token.
+`resolve_dispute` reads the arbitration fee, checks that the escrow?s `amount` covers it, subtracts it from `escrow.amount`, and tracks total arbitration fees per token.
 
 This creates the effect that arbitration resolution payouts are reduced by arbitration fee before applying the protocol fee model.
 
-### 6.3 Withdrawing protocol fees
+### 6.3 Protocol fee delivery
 
-`withdraw_fees(token, to, amount)` enables the admin to move accumulated protocol token balances from the contract to the target address.
-
-Guards include:
-
-- paused check,
-- admin authorization,
-- amount positive,
-- sufficient balance in the contract token vault.
+The protocol fee is forwarded to the configured fee collector (`DataKey::FeeCollector`) directly at payout time via `transfer_with_protocol_fee` ? it never accumulates in the contract's own token balance, so there is no separate admin sweep step.
 
 ---
 
@@ -622,9 +731,15 @@ The pause behavior is tested in `test_pause.rs` and corresponding snapshots.
 
 ### 7.2 Admin rotation
 
-Admin rotation is performed by `set_admin(new_admin)`.
+Admin rotation is performed by `queue_set_admin(new_admin)` followed by
+`execute_set_admin(new_admin)` after the timelock delay (the `set_admin(new_admin)`
+helper exists only in test builds).
 
-Only the current admin can rotate; rotation emits an `AdminRotated` event.
+Only the current admin can queue a rotation; rotation emits an `AdminRotated`
+event. As part of the rotation every queued timelock proposal from the previous
+admin is purged from storage and a `TimelockCancelled` event is emitted for each
+one, so the incoming admin starts with a clean governance slate. See
+[ADMIN.md → Automatic invalidation on admin rotation](ADMIN.md#automatic-invalidation-on-admin-rotation).
 
 This is useful to recover from lost keys and to evolve operational security posture.
 
@@ -645,7 +760,7 @@ This reduces the chance of long-lived escrow entries expiring unexpectedly.
 
 ## 8. Public API reference
 
-This section provides an “operator’s view” of the contract methods as they appear in:
+This section provides an ?operator?s view? of the contract methods as they appear in:
 
 - `contracts/escrow/src/lib.rs`
 - TypeScript bindings under `bindings/src`
@@ -666,21 +781,46 @@ A second call panics in current implementation.
 
 ### 8.2 Escrow management
 
-#### `create_escrow(payees, buyer, resolver, token, amount, fee_bps, resolver_fee_bps, shipping_window, notes)`
+#### `create_escrow(seller_or_payees, buyer, resolver, token, amount, fee_bps, resolver_fee_bps, shipping_window, notes)`
 
-- **Auth:** the first payee authorizes creation.
-- **Guards:** amount > 0, fee_bps <= 300, not paused.
+The production entry point. The first argument is polymorphic: it accepts either
+a single seller `Address` or a `Vec<Payee>` (`{ address, bps }` shares summing
+to 10,000 bps) to split the payout across multiple payees.
+
+- **Auth:** the first payee's `require_auth()` — the seller in the single-address form.
+- **Guards:** not paused; `amount` within the admin-configured `[min_amount, max_amount]` bounds; `fee_bps` and `resolver_fee_bps` each <= 300; `shipping_window` in `[1, 63_072_000]` seconds; `notes` <= 500 characters; resolver distinct from every payee and from the buyer (`ConflictingRoles` otherwise); resolver present in the approved registry when strict mode is enabled (`UnauthorizedResolver` otherwise); `token` on the allowlist when the allowlist is enabled (`TokenNotAllowed` otherwise); at most 10 payees whose `bps` sum to exactly 10,000 (`PayeeBpsMismatch` otherwise).
 - **Effects:**
   - creates new escrow record with unique id from `EscrowCounter`,
+  - resolver set configured as `ResolverSet::Single(resolver)`,
   - state = `Pending`,
-  - stores the optional buyer and notes,
+  - `buyer` is stored as given: `None` leaves the escrow open for anyone to fund, while `Some(buyer)` restricts funding to that address (`fund_escrow` rejects any other caller with `NotAuthorizedBuyer`),
+  - `notes` is stored as the empty string when `None` is passed,
   - dispute deadline and funding fields set to zero defaults.
+
+#### `create_escrow_with_fallback(seller, buyer, primary_resolver, backup_resolver, dispute_deadline, token, amount, fee_bps, shipping_window)`
+
+- **Auth:** `seller.require_auth()`.
+- **Guards:** amount >= `MIN_ESCROW_AMOUNT`, amount <= `MAX_ESCROW_AMOUNT`, fee_bps <= 300, no role conflicts, primary != backup, `dispute_deadline <= now + MAX_FALLBACK_DEADLINE_OFFSET` (39 days), not paused.
+- **Effects:**
+  - creates escrow with `ResolverSet::Fallback(FallbackResolver { primary, backup, dispute_deadline })`,
+  - primary resolver can resolve disputes immediately upon dispute,
+  - backup resolver can resolve disputes once `ledger.timestamp() >= dispute_deadline`,
+  - state = `Pending`.
+
+#### `create_escrow_multi(seller, buyer, resolvers, threshold, token, amount, fee_bps, shipping_window)`
+
+- **Auth:** `seller.require_auth()`.
+- **Guards:** amount > 0, fee_bps <= 300, resolvers non-empty and unique, 0 < threshold <= resolvers.len(), not paused.
+- **Effects:**
+  - creates escrow with `ResolverSet::Multi(MultiResolver { resolvers, threshold })`,
+  - disputes resolved via M-of-N voting tally,
+  - state = `Pending`.
 
 #### `cancel_escrow(escrow_id)`
 
 - **Auth:** seller require auth (escrow.seller).
 - **Guards:** escrow must be in `Pending`.
-- **Effects:** state = `Canceled` and emits `EscrowCancelled`.
+- **Effects:** state = `Canceled` and emits `EscrowCanceled`.
 
 ### 8.3 Delivery & dispute flows
 
@@ -733,8 +873,8 @@ Whether clients use this function depends on the deployment; the contract also p
 - **Effects:**
   - subtract arbitration fee from escrow amount
   - transfers net remainder based on resolution direction:
-    - `Release` → seller
-    - `Refund` → buyer
+    - `Release` ? seller
+    - `Refund` ? buyer
   - sets escrow state `Completed` or `Refunded`
   - updates dispute status to `Resolved`
   - emits `DisputeResolved`.
@@ -761,33 +901,29 @@ Whether clients use this function depends on the deployment; the contract also p
 
 ## 9. Error codes
 
-The contract uses Soroban typed errors defined in `contracts/escrow/src/types.rs`:
+The contract uses Soroban typed errors, defined as the `ContractError` enum in
+`contracts/escrow/src/errors.rs`. The numeric values are stable ABI — they are
+part of the deployed contract interface and must never be renumbered.
 
-- `InvalidAmount = 1`
-- `InsufficientBalance = 2`
-- `EscrowNotFound = 3`
-- `InvalidState = 4`
-- `NotAuthorized = 5`
-- `AlreadyInitialized = 6`
-- `FeeExceedsMax = 7`
-- `EscrowHasNoBuyer = 8`
-- `ShippingWindowNotElapsed = 9`
-- `InvalidEvidenceHash = 10`
-- `DisputeNotFound = 11`
-- `ArithmeticError = 12`
-- `DisputeWindowClosed = 13`
-- `ContractPaused = 14`
-- `ArithmeticOverflow = 15`
-- `InvalidStateTransition = 16`
-- `InputTooLong = 17`
+**The canonical reference is [`ERROR_CODES.md`](ERROR_CODES.md).** That file
+lists every error code with its numeric value, the exact condition that
+triggers it, and the remediation for it. It is the single source of truth for
+error handling — read it rather than relying on a partial list here.
 
-Client applications should handle these errors by showing user-friendly messages or by retrying/correcting inputs depending on the code.
+The TypeScript bindings mirror the same enum in
+[`bindings/src/errors.ts`](bindings/src/errors.ts); `scripts/check-error-codes.mjs`
+enforces that the two stay in sync in CI, and
+[`bindings/src/errors.ts`](bindings/src/errors.ts) additionally maps codes to
+typed exceptions for client applications.
+
+Client applications should handle these errors by showing user-friendly messages
+or by retrying/correcting inputs depending on the code.
 
 ---
 
 ## 10. Security considerations
 
-This contract’s security is primarily a combination of:
+This contract?s security is primarily a combination of:
 
 - correct authorization checks,
 - strict state-machine guards,
@@ -812,7 +948,7 @@ This ensures that even if someone can guess or discover an escrow id, they canno
 
 Classic EVM external reentrancy patterns rely on the callee executing attacker-controlled callbacks while the caller is mid-execution.
 
-Soroban’s execution model prevents classic external reentrancy patterns. The included `REENTRANCY_ANALYSIS.md` explains why: nested invocation frames are host-managed and there is no ability to inject callbacks that can re-enter the caller mid-frame.
+Soroban?s execution model prevents classic external reentrancy patterns. The included `REENTRANCY_ANALYSIS.md` explains why: nested invocation frames are host-managed and there is no ability to inject callbacks that can re-enter the caller mid-frame.
 
 Even so, the contract still enforces good internal structure:
 
@@ -833,7 +969,7 @@ TrustLink has explicit operational trust points:
 - The resolver is required for dispute finality.
 - Admin keys can pause the contract and update fees.
 
-The protocol is therefore not purely “no trust ever,” but it is structured so that trust is limited to clearly defined roles with explicit authentication.
+The protocol is therefore not purely ?no trust ever,? but it is structured so that trust is limited to clearly defined roles with explicit authentication.
 
 The repository includes further guidance in `ORACLE_TRUST_MODEL.md`.
 
@@ -913,9 +1049,9 @@ Contribution guidelines are in `CONTRIBUTING.md`.
 
 Recommended workflow:
 
-- format with `cargo fmt`,
-- lint with `cargo clippy -- -D warnings`,
-- run tests with `cargo test`,
+- format with `make fmt` (check with `make fmt-check`),
+- lint with `make clippy` (the canonical gate — identical to the pre-commit hook and CI),
+- run tests with `make test-all` (unit + integration suites),
 - ensure CI passes before opening a PR.
 
 The repository participates in the **Stellar Wave Program**, and the docs describe issue labels and contribution points.
@@ -924,7 +1060,7 @@ The repository participates in the **Stellar Wave Program**, and the docs descri
 
 ## 15. License
 
-MIT © TrustLink Contributors
+MIT ? TrustLink Contributors
 
 ---
 
@@ -942,9 +1078,14 @@ MIT © TrustLink Contributors
 
 `raise_dispute` stores a `BytesN<32>` evidence hash.
 
-The contract commits to the hash, but does not validate evidence content. The resolver is trusted to interpret the evidence off-chain (based on the repository’s trust model).
+The contract commits to the hash, but does not validate evidence content. The resolver is trusted to interpret the evidence off-chain (based on the repository?s trust model).
 
 ---
 
 End of README.
 
+### Running E2E Tests
+To run the end-to-end lifecycle testing scripts against testnet, run:
+```bash
+make e2e
+```

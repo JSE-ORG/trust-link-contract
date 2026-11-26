@@ -1,8 +1,18 @@
 #![cfg(test)]
 
-use crate::{Payee, ContractError, EscrowClient};
-use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
-use soroban_sdk::{token, Address, Env};
+use crate::{ContractError, EscrowClient, Payee};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{Address, Env, IntoVal, String as SorobanString, Vec};
+
+#[allow(dead_code)]
+fn single_payee(env: &Env, address: &Address) -> Vec<Payee> {
+    let mut payees = Vec::new(env);
+    payees.push_back(Payee {
+        address: address.clone(),
+        bps: 10_000,
+    });
+    payees
+}
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let env = Env::default();
@@ -15,7 +25,9 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
     let token_admin = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
-    let token_address = env.register_stellar_asset_contract(token_admin.clone());
+    let token_address = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
 
     (
         env,
@@ -33,7 +45,7 @@ fn test_amount_limits_enforced() {
     let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    
+
     client.initialize(&admin, &fee_collector, &0_u32);
 
     let min_limit = 500;
@@ -42,56 +54,175 @@ fn test_amount_limits_enforced() {
     client.set_amount_limits(&admin, &min_limit, &max_limit);
 
     // Test below minimum
-    let res = client.try_create_escrow(
-        &single_payee(&env, &seller),
+    let seller_val = seller.clone().into_val(&env);
+    let res = client.try_create_escrow_8(
+        &seller_val,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &499,
         &100,
-        &0_u32,
-        &3600
+        &3600,
     );
     assert_eq!(res, Err(Ok(ContractError::AmountBelowMinimum)));
 
     // Test exactly minimum
-    let id1 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_2 = Vec::new(&env);
+    payees_2.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_2_val = payees_2.into_val(&env);
+    let id1 = client.create_escrow_8(
+        &payees_2_val,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &500,
         &100,
-        &0_u32,
-        &3600
+        &3600,
     );
     assert_eq!(id1, 1);
 
     // Test exactly maximum
-    let id2 = client.create_escrow(
-        &single_payee(&env, &seller),
+    let mut payees_1 = Vec::new(&env);
+    payees_1.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_1_val = payees_1.into_val(&env);
+    let id2 = client.create_escrow_8(
+        &payees_1_val,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &5000,
         &100,
-        &0_u32,
-        &3600
+        &3600,
     );
     assert_eq!(id2, 2);
 
     // Test above maximum
-    let res = client.try_create_escrow(
-        &single_payee(&env, &seller),
+    let seller_val_2 = seller.clone().into_val(&env);
+    let res = client.try_create_escrow_8(
+        &seller_val_2,
         &Some(buyer.clone()),
         &resolver,
         &token,
         &5001,
         &100,
-        &0_u32,
-        &3600
+        &3600,
     );
     assert_eq!(res, Err(Ok(ContractError::AmountExceedsMaximum)));
+}
+
+/// Issue #1229: every secondary token in a basket is validated against the
+/// same canonical `min_amount`/`max_amount` bounds as the primary amount.
+#[test]
+fn test_basket_secondary_amount_limits_are_enforced() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let second_token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+    client.set_amount_limits(&admin, &500, &5000);
+
+    let tokens = Vec::from_array(&env, [token.clone(), second_token.clone()]);
+
+    // Secondary token below min_amount.
+    let amounts = Vec::from_array(&env, [1_000_i128, 499_i128]);
+    let result = client.try_create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &100_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(result, Err(Ok(ContractError::AmountBelowMinimum)));
+
+    // Secondary token above max_amount.
+    let amounts = Vec::from_array(&env, [1_000_i128, 5_001_i128]);
+    let result = client.try_create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &100_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(result, Err(Ok(ContractError::AmountExceedsMaximum)));
+
+    // Both entries exactly at the configured boundaries are accepted.
+    let amounts = Vec::from_array(&env, [500_i128, 5_000_i128]);
+    let id = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &100_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(client.get_basket_tokens(&id).unwrap().len(), 2);
+}
+
+#[test]
+fn test_basket_secondary_amount_limits_follow_dynamic_config() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let second_token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let tokens = Vec::from_array(&env, [token.clone(), second_token.clone()]);
+    let amounts = Vec::from_array(&env, [1_000_i128, 900_i128]);
+
+    client.set_amount_limits(&admin, &100, &2_000);
+    let accepted = client.create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &100_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+
+    // An admin limit change must apply immediately to secondary assets too.
+    client.set_amount_limits(&admin, &1_000, &2_000);
+    let result = client.try_create_basket_escrow(
+        &seller,
+        &Some(buyer.clone()),
+        &resolver,
+        &tokens,
+        &amounts,
+        &100_u32,
+        &3_600_u64,
+        &None::<SorobanString>,
+        &None::<u64>,
+        &0_u64,
+    );
+    assert_eq!(result, Err(Ok(ContractError::AmountBelowMinimum)));
+    assert!(accepted > 0);
 }
 
 #[test]
@@ -99,19 +230,10 @@ fn test_set_amount_limits_auth() {
     let (env, admin, seller, _buyer, _resolver, _token, fee_collector) = setup_env();
     let contract_id = env.register(crate::Escrow, ());
     let client = EscrowClient::new(&env, &contract_id);
-    
+
     client.initialize(&admin, &fee_collector, &0_u32);
 
     // Seller tries to set limits
     let res = client.try_set_amount_limits(&seller, &500, &5000);
     assert_eq!(res, Err(Ok(ContractError::NotAuthorized)));
-}
-
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
 }

@@ -7,13 +7,15 @@
 //! - fee_bps = 301 (rejected with FeeExceedsMax)
 
 use crate::{ContractError, Escrow, EscrowClient, Payee};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal};
 
 fn setup(env: &Env) -> (EscrowClient<'static>, Address, Address, Address, Address) {
     let admin = Address::generate(env);
     let seller = Address::generate(env);
     let resolver = Address::generate(env);
-    let token = env.register_stellar_asset_contract(Address::generate(env));
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(env))
+        .address();
     let fee_collector = Address::generate(env);
 
     let contract_id = env.register(Escrow, ());
@@ -40,14 +42,14 @@ fn test_create_escrow_fee_bps_zero() {
     let payees = single_payee(&env, &seller);
 
     // fee_bps = 0 should be accepted
-    let id = client.create_escrow(
-        &payees,
+    let payees_val = payees.into_val(&env);
+    let id = client.create_escrow_8(
+        &payees_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &0_u32, // fee_bps
-        &0_u32, // resolver_fee_bps
         &3600_u64,
     );
     assert_eq!(id, 1);
@@ -64,14 +66,14 @@ fn test_create_escrow_fee_bps_max() {
     let payees = single_payee(&env, &seller);
 
     // fee_bps = 300 (MAX) should be accepted
-    let id = client.create_escrow(
-        &payees,
+    let payees_val = payees.into_val(&env);
+    let id = client.create_escrow_8(
+        &payees_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &300_u32, // fee_bps (MAX)
-        &0_u32, // resolver_fee_bps
         &3600_u64,
     );
     assert_eq!(id, 1);
@@ -88,14 +90,14 @@ fn test_create_escrow_fee_bps_above_max() {
     let payees = single_payee(&env, &seller);
 
     // fee_bps = 301 should be rejected
-    let res = client.try_create_escrow(
-        &payees,
+    let payees_val = payees.into_val(&env);
+    let res = client.try_create_escrow_8(
+        &payees_val,
         &None::<Address>,
         &resolver,
         &token,
         &1000_i128,
         &301_u32, // fee_bps (MAX + 1)
-        &0_u32, // resolver_fee_bps
         &3600_u64,
     );
 

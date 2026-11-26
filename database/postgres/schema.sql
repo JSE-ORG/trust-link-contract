@@ -11,7 +11,8 @@ CREATE TYPE escrow_state AS ENUM (
     'Refunded',
     'Canceled',
     'Cancelled',
-    'PendingFinalization'
+    'PendingFinalization',
+    'Expired'
 );
 
 CREATE TYPE dispute_status AS ENUM (

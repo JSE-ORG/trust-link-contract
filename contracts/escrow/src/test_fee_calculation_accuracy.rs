@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use crate::helpers::payout::calculate_protocol_fee;
+use crate::types::{BoundedPayees, Payee, ResolverSet};
 use crate::ContractError;
 
 /// Parameterized test that verifies fee calculation is mathematically correct
@@ -367,7 +368,6 @@ fn test_fee_calculation_no_rounding_loss_various_amounts() {
         );
     }
 }
-
 #[test]
 fn test_fee_calculation_edge_case_amounts() {
     // Test edge cases with amounts that might cause rounding issues
@@ -406,7 +406,6 @@ fn test_fee_calculation_edge_case_amounts() {
         );
     }
 }
-
 #[test]
 fn test_fee_calculation_invalid_amount() {
     // Test that negative amounts return an error
@@ -422,7 +421,7 @@ fn test_fee_calculation_invalid_amount() {
 #[test]
 fn test_dispute_allocations_include_protocol_fee() {
     use crate::helpers::payout::calculate_dispute_allocations;
-    use crate::{Payee, EscrowData, EscrowState, ResolutionType};
+    use crate::{EscrowData, EscrowState, ResolutionType};
     use soroban_sdk::{testutils::Address as _, Address, Env};
 
     let env = Env::default();
@@ -433,29 +432,49 @@ fn test_dispute_allocations_include_protocol_fee() {
     let fee_collector = Address::generate(&env);
 
     // Create mock escrow with 1,000,000 stroops and 100 bps (1%) fee
+    // ==========================================
+    // FIRST TEST TRANSFORMATION
+    // ==========================================
+
+    // 1. Setup a single payee vector representing 100% allocation for the seller
+    let mut payees_53 = soroban_sdk::Vec::new(&env);
+    payees_53.push_back(crate::types::Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+
     let escrow = EscrowData {
-        payees: soroban_sdk::Vec::new(&env), // Not used in this specific helper call
-        seller: seller.clone(),
+        payees: BoundedPayees { inner: payees_53 }, // Changed from seller: seller.clone()
         buyer: Some(buyer.clone()),
-        resolver: resolver.clone(),
+        resolvers: ResolverSet::Single(resolver.clone()),
         token: token.clone(),
         amount: 1_000_000_i128,
-        fee_bps: 100_u32, // 1%
-        resolver_fee_bps: 0,
+        fee_bps: 100_u32,        // 1%
+        resolver_fee_bps: 0_u32, // Added missing field
+        platform_fee_bps: 0_u32,
+        arbitration_fee_bps: 0_u32,
         state: EscrowState::Disputed,
         shipping_window: 3600,
-        funded_at: 0,
-        dispute_deadline: 0,
+        packed_timestamps: 0,
         shipped_at: 0,
         delivered_at: None,
         tracking_id: None,
+        notes: soroban_sdk::String::from_str(&env, ""),
+        expires_at: None,
+        grace_period: 0,
     };
 
     let arbitration_fee = 50_000_i128; // 5% arbitration fee
     let resolution = ResolutionType::Release;
 
-    let result =
-        calculate_dispute_allocations(&env, &escrow, &resolution, arbitration_fee, &fee_collector);
+    let result = calculate_dispute_allocations(
+        &env,
+        &escrow,
+        &resolution,
+        arbitration_fee,
+        0_i128,
+        &fee_collector,
+    );
 
     assert!(result.is_ok());
     let transfers = result.unwrap();
@@ -463,32 +482,29 @@ fn test_dispute_allocations_include_protocol_fee() {
     // Should have 2 transfers: net to seller + protocol fee to fee_collector
     assert_eq!(transfers.len(), 2);
 
-    // Verify amounts:
-    // Total = 1,000,000
-    // Arbitration fee = 50,000
-    // Remaining = 950,000
-    // Protocol fee (1%) = 9,500
-    // Net to seller = 940,500
+    // Verify amounts (#1250 aligned):
+    // escrow.amount = 1,000,000 (already has arbitration deducted externally)
+    // fee_basis = 1,000,000 + 50,000 (arbitration) + 0 (resolver) = 1,050,000
+    // Protocol fee (1% of fee_basis) = 10,500
+    // Net to seller = 1,000,000 - 10,500 = 989,500
 
     let seller_transfer = &transfers.get(0).unwrap();
     assert_eq!(seller_transfer.recipient, seller);
-    assert_eq!(seller_transfer.amount, 940_500);
+    assert_eq!(seller_transfer.amount, 989_500);
 
     let fee_transfer = &transfers.get(1).unwrap();
     assert_eq!(fee_transfer.recipient, fee_collector);
-    assert_eq!(fee_transfer.amount, 9_500);
+    assert_eq!(fee_transfer.amount, 10_500);
 
-    // Verify no funds are lost
-    assert_eq!(
-        seller_transfer.amount + fee_transfer.amount + arbitration_fee,
-        escrow.amount
-    );
+    // Verify invariant: net + protocol_fee == escrow.amount
+    assert_eq!(seller_transfer.amount + fee_transfer.amount, escrow.amount);
 }
 
 #[test]
 fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     use crate::helpers::payout::calculate_dispute_allocations;
-    use crate::{Payee, EscrowData, EscrowState, ResolutionType};
+    use crate::types::{EscrowState, ResolutionType};
+    use crate::EscrowData;
     use soroban_sdk::{testutils::Address as _, Address, Env};
 
     let env = Env::default();
@@ -498,29 +514,48 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
     let token = Address::generate(&env);
     let fee_collector = Address::generate(&env);
 
+    // ==========================================
+    // SECOND TEST TRANSFORMATION
+    // ==========================================
+
+    let mut payees_52 = soroban_sdk::Vec::new(&env);
+    payees_52.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+
     let escrow = EscrowData {
-        payees: soroban_sdk::Vec::new(&env),
-        seller: seller.clone(),
+        payees: BoundedPayees { inner: payees_52 },
         buyer: Some(buyer.clone()),
-        resolver: resolver.clone(),
+        resolvers: ResolverSet::Single(resolver.clone()),
         token: token.clone(),
         amount: 1_000_000_i128,
-        fee_bps: 0_u32, // 0% fee
-        resolver_fee_bps: 0,
+        fee_bps: 0_u32,          // 0% fee
+        resolver_fee_bps: 0_u32, // Added missing field
+        platform_fee_bps: 0_u32,
+        arbitration_fee_bps: 0_u32,
         state: EscrowState::Disputed,
         shipping_window: 3600,
-        funded_at: 0,
-        dispute_deadline: 0,
+        packed_timestamps: 0,
         shipped_at: 0,
         delivered_at: None,
         tracking_id: None,
+        notes: soroban_sdk::String::from_str(&env, ""),
+        expires_at: None,
+        grace_period: 0,
     };
 
     let arbitration_fee = 50_000_i128;
     let resolution = ResolutionType::Refund;
 
-    let result =
-        calculate_dispute_allocations(&env, &escrow, &resolution, arbitration_fee, &fee_collector);
+    let result = calculate_dispute_allocations(
+        &env,
+        &escrow,
+        &resolution,
+        arbitration_fee,
+        0_i128,
+        &fee_collector,
+    );
 
     assert!(result.is_ok());
     let transfers = result.unwrap();
@@ -530,5 +565,140 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
 
     let buyer_transfer = &transfers.get(0).unwrap();
     assert_eq!(buyer_transfer.recipient, buyer);
-    assert_eq!(buyer_transfer.amount, 950_000); // 1,000,000 - 50,000 arbitration
+    // net = escrow.amount (protocol fee is 0)
+    assert_eq!(buyer_transfer.amount, 1_000_000);
+}
+
+/// Tests that `calculate_fee` correctly floors sub-stroop remainders when
+/// `amount * fee_bps` is not evenly divisible by `BASIS_POINTS` (10_000).
+///
+/// The algorithm splits the computation to avoid i128 overflow:
+///
+/// ```text
+/// part1 = (amount / 10_000) * fee_bps          -- whole multiple contribution
+/// part2 = (amount % 10_000) * fee_bps / 10_000 -- remainder contribution (floored)
+/// fee   = part1 + part2
+/// net   = amount - fee
+/// ```
+///
+/// Because integer division truncates, any fractional stroop is dropped from
+/// `fee` and stays in `net`. The invariant `net + fee == amount` always holds,
+/// so no stroop is ever stranded in the contract.
+///
+/// Cases chosen to expose the rounding boundary:
+///
+/// | amount | fee_bps | exact fee | floored fee | dropped remainder |
+/// |--------|---------|-----------|-------------|-------------------|
+/// | 1      | 3       | 0.0003    | 0           | 0.0003 stroop     |
+/// | 3_333  | 3       | 0.9999    | 0           | 0.9999 stroop     | ← largest waived fee
+/// | 3_334  | 3       | 1.0002    | 1           | 0.0002 stroop     | ← first amount yielding 1 stroop
+/// | 9_999  | 3       | 2.9997    | 2           | 0.9997 stroop     | ← issue's stated example
+/// | 10_001 | 3       | 3.0003    | 3           | 0.0003 stroop     |
+/// | 99_997 | 3       | 29.9991   | 29          | 0.9991 stroop     |
+#[test]
+fn test_fee_calculation_odd_amounts_sub_stroop_rounding_3bps() {
+    // (amount, expected_fee, expected_net)
+    // Derived via: fee = floor(amount * 3 / 10_000), net = amount - fee.
+    let cases: &[(i128, i128, i128)] = &[
+        // 1 * 3 / 10_000 = 0.0003 → fee = 0, all 1 stroop stays with recipient.
+        (1, 0, 1),
+        // 3_333 * 3 / 10_000 = 0.9999 → fee rounds down to 0 (largest waived fee at 3 bps).
+        (3_333, 0, 3_333),
+        // 3_334 * 3 / 10_000 = 1.0002 → fee = 1 (the first amount where 3 bps charges 1 stroop).
+        (3_334, 1, 3_333),
+        // 9_999 * 3 / 10_000 = 2.9997 → fee = 2, 0.9997 sub-stroop dropped.
+        // This is the canonical example from the issue description.
+        (9_999, 2, 9_997),
+        // 10_001 * 3 / 10_000 = 3.0003 → fee = 3, 0.0003 sub-stroop dropped.
+        (10_001, 3, 9_998),
+        // 99_997 * 3 / 10_000 = 29.9991 → fee = 29, 0.9991 sub-stroop dropped.
+        (99_997, 29, 99_968),
+    ];
+
+    for &(amount, expected_fee, expected_net) in cases {
+        let (fee, net) = calculate_protocol_fee(amount, 3)
+            .unwrap_or_else(|e| panic!("calculate_protocol_fee({amount}, 3) failed: {e:?}"));
+
+        assert_eq!(
+            fee, expected_fee,
+            "fee mismatch for amount={amount} @ 3 bps: \
+             expected {expected_fee}, got {fee}"
+        );
+        assert_eq!(
+            net, expected_net,
+            "net mismatch for amount={amount} @ 3 bps: \
+             expected {expected_net}, got {net}"
+        );
+        // The core invariant: no stroop is ever stranded in the contract.
+        assert_eq!(
+            net + fee,
+            amount,
+            "invariant net+fee==amount violated for amount={amount} @ 3 bps: \
+             net={net}, fee={fee}, sum={}",
+            net + fee
+        );
+        // Rounding is always floor: fee must never exceed the exact rational value.
+        // Equivalently: fee * 10_000 <= amount * 3.
+        assert!(
+            fee * 10_000 <= amount * 3,
+            "fee {fee} exceeds exact rational value for amount={amount} @ 3 bps"
+        );
+        // The truncated remainder is strictly less than 1 stroop:
+        // fee * 10_000 + 10_000 > amount * 3  (i.e. fee+1 would over-charge)
+        assert!(
+            fee * 10_000 + 10_000 > amount * 3,
+            "incorrect fee floor for amount={amount} @ 3 bps: {fee}"
+        );
+    }
+}
+
+/// Secondary payee with `1 bps` on a small net rounds to zero stroops; settlement
+/// must succeed without zero-value token transfers and award dust to the primary payee.
+#[test]
+fn test_multi_payee_zero_share_rounded_down() {
+    use crate::helpers::payout::calculate_multi_payee_allocations;
+    use crate::Escrow;
+    use soroban_sdk::{testutils::Address as _, token, Address, Env, Vec};
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let primary = Address::generate(&env);
+    let micro_share = Address::generate(&env);
+
+    let mut payees_inner = Vec::new(&env);
+    payees_inner.push_back(Payee {
+        address: primary.clone(),
+        bps: 9_999,
+    });
+    payees_inner.push_back(Payee {
+        address: micro_share.clone(),
+        bps: 1,
+    });
+    let payees = BoundedPayees {
+        inner: payees_inner.clone(),
+    };
+
+    let net = 500_i128;
+    let allocations = calculate_multi_payee_allocations(&env, &payees, net).unwrap();
+    assert_eq!(allocations.len(), 1);
+    let only = allocations.get(0).unwrap();
+    assert_eq!(only.recipient, primary);
+    assert_eq!(only.amount, net);
+
+    let contract_id = env.register(Escrow, ());
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    token::StellarAssetClient::new(&env, &token).mint(&contract_id, &net);
+
+    env.as_contract(&contract_id, || {
+        crate::internal::distribute_to_payees(&env, &token, &payees, net, Some(1))
+            .unwrap();
+    });
+
+    let token_client = token::Client::new(&env, &token);
+    assert_eq!(token_client.balance(&micro_share), 0);
+    assert_eq!(token_client.balance(&primary), net);
+    assert_eq!(token_client.balance(&contract_id), 0);
 }

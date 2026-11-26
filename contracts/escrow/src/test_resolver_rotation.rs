@@ -2,10 +2,14 @@
 //! Tests for `rotate_resolver`: seller and admin can rotate, buyer cannot,
 //! same-address is rejected, and terminal states are rejected.
 
-use crate::{Payee, ContractError, Escrow, EscrowClient, EscrowState, ResolutionType, ResolverRotated};
+use crate::{
+    ContractError, Escrow, EscrowClient, EscrowState, Payee, ResolutionType, ResolverRotated,
+    ResolverSanctioned, ResolverSet,
+};
 use soroban_sdk::{
-    testutils::{Address as _, Events as _},
-    token, Address, BytesN, Env, String as SorobanString, Symbol, TryFromVal, Val,
+    symbol_short,
+    testutils::{Address as _, Events as _, Ledger as _},
+    token, Address, BytesN, Env, IntoVal, String as SorobanString, Symbol, TryFromVal, Val, Vec,
 };
 
 struct Fx {
@@ -37,15 +41,22 @@ fn setup() -> Fx {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
+    let mut payees_67 = Vec::new(&env);
+    payees_67.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees_67.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_val,
         &None::<Address>,
         &resolver,
         &token_addr,
         &500_i128,
         &0_u32,
         &0_u32,
-        &0_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
 
     Fx {
@@ -67,7 +78,7 @@ fn seller_can_rotate_resolver() {
     fx.client
         .rotate_resolver(&fx.seller, &fx.escrow_id, &new_resolver);
 
-    use crate::{Payee, DataKey, EscrowData};
+    use crate::{DataKey, EscrowData};
     let escrow: EscrowData = fx
         .env
         .as_contract(&fx.client.address, || {
@@ -77,7 +88,7 @@ fn seller_can_rotate_resolver() {
                 .get(&DataKey::Escrow(fx.escrow_id))
         })
         .expect("escrow exists");
-    assert_eq!(escrow.resolver, new_resolver);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(new_resolver));
 }
 
 #[test]
@@ -88,7 +99,7 @@ fn admin_can_rotate_resolver() {
     fx.client
         .rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
 
-    use crate::{Payee, DataKey, EscrowData};
+    use crate::{DataKey, EscrowData};
     let escrow: EscrowData = fx
         .env
         .as_contract(&fx.client.address, || {
@@ -98,7 +109,7 @@ fn admin_can_rotate_resolver() {
                 .get(&DataKey::Escrow(fx.escrow_id))
         })
         .expect("escrow exists");
-    assert_eq!(escrow.resolver, new_resolver);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(new_resolver));
 }
 
 #[test]
@@ -161,15 +172,22 @@ fn terminal_state_rejected() {
     let client = EscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &fee_collector, &0_u32);
 
+    let mut payees_66 = Vec::new(&env);
+    payees_66.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees_66.into_val(&env);
     let escrow_id = client.create_escrow(
-        &single_payee(&env, &seller),
+        &payees_val,
         &None::<Address>,
         &resolver,
         &token_addr,
         &100_i128,
         &0_u32,
         &0_u32,
-        &0_u64
+        &3600_u64,
+        &None::<SorobanString>,
     );
 
     // Cancel moves to Canceled (terminal)
@@ -180,10 +198,112 @@ fn terminal_state_rejected() {
     assert_eq!(result, Err(Ok(ContractError::InvalidState)));
 }
 
+/// `rotate_resolver`'s authorization check loops over every entry in
+/// `payees`, not just `payees[0]`, so a secondary payee is authorized to
+/// rotate the resolver exactly like the primary payee or admin (issue #952).
+#[test]
+fn secondary_payee_can_rotate_resolver() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let primary_payee = Address::generate(&env);
+    let secondary_payee = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+
+    let sac = env.register_stellar_asset_contract_v2(token_admin);
+    let token_addr = sac.address();
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: primary_payee.clone(),
+        bps: 6_000,
+    });
+    payees.push_back(Payee {
+        address: secondary_payee.clone(),
+        bps: 4_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let escrow_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &500_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
+
+    let new_resolver = Address::generate(&env);
+    client.rotate_resolver(&secondary_payee, &escrow_id, &new_resolver);
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(new_resolver));
+}
+
+/// A non-payee, non-admin address is still rejected on a multi-payee escrow,
+/// confirming the loosened "any payee" check doesn't accidentally admit
+/// arbitrary callers (issue #952).
+#[test]
+fn non_payee_non_admin_cannot_rotate_resolver_multi_payee() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let primary_payee = Address::generate(&env);
+    let secondary_payee = Address::generate(&env);
+    let outsider = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+
+    let sac = env.register_stellar_asset_contract_v2(token_admin);
+    let token_addr = sac.address();
+
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: primary_payee.clone(),
+        bps: 6_000,
+    });
+    payees.push_back(Payee {
+        address: secondary_payee.clone(),
+        bps: 4_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let escrow_id = client.create_escrow(
+        &payees_val,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &500_i128,
+        &0_u32,
+        &0_u32,
+        &3600_u64,
+        &None::<SorobanString>,
+    );
+
+    let new_resolver = Address::generate(&env);
+    let result = client.try_rotate_resolver(&outsider, &escrow_id, &new_resolver);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+}
+
 /// Returns true if the contract emitted a `resolver_rotated` event whose
 /// `old_resolver`/`new_resolver` match the expected addresses.
 fn resolver_rotated_emitted(fx: &Fx, old: &Address, new: &Address) -> bool {
-    let expected_topic = Symbol::new(&fx.env, "resolver_rotated");
+    let expected_t1 = symbol_short!("Resolver");
+    let expected_t2 = symbol_short!("Rotated");
     fx.env
         .events()
         .all()
@@ -192,13 +312,20 @@ fn resolver_rotated_emitted(fx: &Fx, old: &Address, new: &Address) -> bool {
         .iter()
         .any(|event| match &event.body {
             soroban_sdk::xdr::ContractEventBody::V0(v0) => {
-                let Some(topic) = v0.topics.iter().next() else {
+                let mut topics = v0.topics.iter();
+                let Some(t1) = topics.next() else {
                     return false;
                 };
-                let Ok(topic) = Symbol::try_from_val(&fx.env, topic) else {
+                let Some(t2) = topics.next() else {
                     return false;
                 };
-                if topic != expected_topic {
+                let Ok(sym1) = Symbol::try_from_val(&fx.env, t1) else {
+                    return false;
+                };
+                let Ok(sym2) = Symbol::try_from_val(&fx.env, t2) else {
+                    return false;
+                };
+                if sym1 != expected_t1 || sym2 != expected_t2 {
                     return false;
                 }
                 let Ok(data) = Val::try_from_val(&fx.env, &v0.data) else {
@@ -208,20 +335,25 @@ fn resolver_rotated_emitted(fx: &Fx, old: &Address, new: &Address) -> bool {
                     .map(|ev| &ev.old_resolver == old && &ev.new_resolver == new)
                     .unwrap_or(false)
             }
-            _ => false,
         })
 }
 
 /// Drives the escrow in the fixture all the way to the `Disputed` state.
 fn drive_to_dispute(fx: &Fx) {
     fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
-    fx.client
-        .mark_shipped(&fx.seller, &fx.escrow_id, &SorobanString::from_str(&fx.env, "TRK-ROT"));
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + 3601);
+    fx.client.mark_shipped(
+        &fx.seller,
+        &fx.escrow_id,
+        &soroban_sdk::String::from_str(&fx.env, "TRK-ROT"),
+    );
     fx.client.raise_dispute(
         &fx.buyer,
         &fx.escrow_id,
-        &Symbol::new(&fx.env, "broken"),
-        &SorobanString::from_str(&fx.env, "item arrived damaged"),
+        &Symbol::new(&fx.env, "DEFECTIVE"),
+        &soroban_sdk::Bytes::from_slice(&fx.env, b"item arrived damaged"),
         &BytesN::from_array(&fx.env, &[1u8; 32]),
     );
 }
@@ -232,13 +364,17 @@ fn drive_to_dispute(fx: &Fx) {
 fn admin_can_rotate_resolver_during_active_dispute() {
     let fx = setup();
     drive_to_dispute(&fx);
-    assert_eq!(fx.client.get_escrow(&fx.escrow_id).state, EscrowState::Disputed);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::Disputed
+    );
 
     let new_resolver = Address::generate(&fx.env);
-    fx.client.rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    fx.client
+        .rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
 
     let escrow = fx.client.get_escrow(&fx.escrow_id);
-    assert_eq!(escrow.resolver, new_resolver);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(new_resolver));
     // Rotation does not change the lifecycle state.
     assert_eq!(escrow.state, EscrowState::Disputed);
 }
@@ -250,13 +386,30 @@ fn rotation_rejected_after_dispute_resolved() {
     let fx = setup();
     drive_to_dispute(&fx);
 
-    // Resolve the dispute in the seller's favour → Completed (terminal).
-    fx.client.resolve_dispute(&fx.admin, &fx.escrow_id, &ResolutionType::Release);
-    assert_eq!(fx.client.get_escrow(&fx.escrow_id).state, EscrowState::Completed);
+    // Resolve → PendingFinalization
+    fx.client
+        .resolve_dispute(&fx.resolver, &fx.escrow_id, &ResolutionType::Release);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::PendingFinalization
+    );
 
+    // Fast-forward past appeal window and finalize → Completed (terminal)
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + 86401);
+    fx.client.finalize_dispute(&fx.resolver, &fx.escrow_id);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::Completed
+    );
+
+    // Dedicated code for a Completed escrow (was InvalidState).
     let new_resolver = Address::generate(&fx.env);
-    let result = fx.client.try_rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
-    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+    let result = fx
+        .client
+        .try_rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    assert_eq!(result, Err(Ok(ContractError::EscrowAlreadyCompleted)));
 }
 
 /// Acceptance: a `resolver_rotated` event is emitted carrying the old and new
@@ -267,7 +420,8 @@ fn rotation_emits_resolver_rotated_event() {
     drive_to_dispute(&fx);
 
     let new_resolver = Address::generate(&fx.env);
-    fx.client.rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    fx.client
+        .rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
 
     assert!(
         resolver_rotated_emitted(&fx, &fx.resolver, &new_resolver),
@@ -275,11 +429,159 @@ fn rotation_emits_resolver_rotated_event() {
     );
 }
 
-fn single_payee(env: &Env, address: &Address) -> soroban_sdk::Vec<Payee> {
-    let mut payees = soroban_sdk::Vec::new(env);
-    payees.push_back(Payee {
-        address: address.clone(),
-        bps: 10_000,
-    });
-    payees
+// ── sanction_resolver ───────────────────────────────────────────────────────
+
+/// Returns true if the contract emitted a `resolver_sanctioned` event whose
+/// fields match the expected escrow, old and replacement resolvers.
+fn resolver_sanctioned_emitted(fx: &Fx, old: &Address, replacement: &Address) -> bool {
+    let expected_t1 = symbol_short!("Resolver");
+    let expected_t2 = symbol_short!("Sanction");
+    fx.env
+        .events()
+        .all()
+        .filter_by_contract(&fx.client.address)
+        .events()
+        .iter()
+        .any(|event| match &event.body {
+            soroban_sdk::xdr::ContractEventBody::V0(v0) => {
+                let mut topics = v0.topics.iter();
+                let Some(t1) = topics.next() else {
+                    return false;
+                };
+                let Some(t2) = topics.next() else {
+                    return false;
+                };
+                let Ok(sym1) = Symbol::try_from_val(&fx.env, t1) else {
+                    return false;
+                };
+                let Ok(sym2) = Symbol::try_from_val(&fx.env, t2) else {
+                    return false;
+                };
+                if sym1 != expected_t1 || sym2 != expected_t2 {
+                    return false;
+                }
+                let Ok(data) = Val::try_from_val(&fx.env, &v0.data) else {
+                    return false;
+                };
+                ResolverSanctioned::try_from_val(&fx.env, &data)
+                    .map(|ev| {
+                        ev.escrow_id == fx.escrow_id
+                            && &ev.old_resolver == old
+                            && &ev.replacement_resolver == replacement
+                            && ev.sanctioned_by == fx.admin
+                    })
+                    .unwrap_or(false)
+            }
+        })
+}
+
+/// Admin sanctions a bad resolver mid-dispute: the replacement can vote and
+/// finalize, while the sanctioned resolver is locked out.
+#[test]
+fn admin_sanctions_resolver_during_active_dispute_and_replacement_finalizes() {
+    let fx = setup();
+    drive_to_dispute(&fx);
+
+    let replacement = Address::generate(&fx.env);
+    fx.client.add_approved_resolver(&fx.admin, &replacement);
+
+    fx.client
+        .sanction_resolver(&fx.admin, &fx.escrow_id, &replacement);
+
+    assert!(resolver_sanctioned_emitted(&fx, &fx.resolver, &replacement));
+    let escrow = fx.client.get_escrow(&fx.escrow_id);
+    assert_eq!(escrow.resolvers, ResolverSet::Single(replacement.clone()));
+    assert_eq!(escrow.state, EscrowState::Disputed);
+
+    // The sanctioned resolver can no longer vote.
+    let result =
+        fx.client
+            .try_resolve_dispute(&fx.resolver, &fx.escrow_id, &ResolutionType::Refund);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+
+    // The replacement casts the deciding vote and finalizes.
+    fx.client
+        .vote(&replacement, &fx.escrow_id, &ResolutionType::Release);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + 86401);
+    fx.client.finalize_dispute(&replacement, &fx.escrow_id);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).state,
+        EscrowState::Completed
+    );
+}
+
+#[test]
+fn sanction_resolver_requires_admin() {
+    let fx = setup();
+    drive_to_dispute(&fx);
+
+    let replacement = Address::generate(&fx.env);
+    fx.client.add_approved_resolver(&fx.admin, &replacement);
+
+    let result = fx
+        .client
+        .try_sanction_resolver(&fx.seller, &fx.escrow_id, &replacement);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+}
+
+#[test]
+fn sanction_resolver_rejects_unapproved_replacement() {
+    let fx = setup();
+    drive_to_dispute(&fx);
+
+    let unapproved = Address::generate(&fx.env);
+    let result = fx
+        .client
+        .try_sanction_resolver(&fx.admin, &fx.escrow_id, &unapproved);
+    assert_eq!(result, Err(Ok(ContractError::UnauthorizedResolver)));
+    // Resolver is unchanged.
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).resolvers,
+        ResolverSet::Single(fx.resolver.clone())
+    );
+}
+
+#[test]
+fn sanction_resolver_rejects_completed_escrow() {
+    let fx = setup();
+    drive_to_dispute(&fx);
+    fx.client
+        .resolve_dispute(&fx.resolver, &fx.escrow_id, &ResolutionType::Release);
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + 86401);
+    fx.client.finalize_dispute(&fx.resolver, &fx.escrow_id);
+
+    let replacement = Address::generate(&fx.env);
+    fx.client.add_approved_resolver(&fx.admin, &replacement);
+    let result = fx
+        .client
+        .try_sanction_resolver(&fx.admin, &fx.escrow_id, &replacement);
+    assert_eq!(result, Err(Ok(ContractError::EscrowAlreadyCompleted)));
+}
+
+#[test]
+fn sanction_resolver_rejects_refunded_escrow() {
+    let fx = setup();
+    drive_to_dispute(&fx);
+    fx.client
+        .resolve_dispute(&fx.resolver, &fx.escrow_id, &ResolutionType::Refund);
+    fx.env
+        .ledger()
+        .set_timestamp(fx.env.ledger().timestamp() + 86401);
+    fx.client.finalize_dispute(&fx.resolver, &fx.escrow_id);
+
+    let replacement = Address::generate(&fx.env);
+    fx.client.add_approved_resolver(&fx.admin, &replacement);
+    let result = fx
+        .client
+        .try_sanction_resolver(&fx.admin, &fx.escrow_id, &replacement);
+    assert_eq!(result, Err(Ok(ContractError::EscrowAlreadyRefunded)));
 }

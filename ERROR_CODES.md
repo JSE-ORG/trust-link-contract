@@ -1,37 +1,89 @@
-# Contract error codes
+# TrustLink Error Codes Reference
 
-`ContractError` is the stable on-chain error ABI. Numeric values must not be
-renumbered. The authoritative definitions are in
-[`contracts/escrow/src/errors.rs`](contracts/escrow/src/errors.rs).
+This document provides a comprehensive reference of all `ContractError` variants returned by the TrustLink escrow contract. These numeric codes are part of the stable ABI and are used to diagnose failed transactions.
 
-| Code | Name |
-|---:|---|
-| 1 | InvalidAmount |
-| 2 | InsufficientBalance |
-| 3 | EscrowNotFound |
-| 4 | InvalidState |
-| 5 | NotAuthorized |
-| 6 | AlreadyInitialized |
-| 7 | FeeExceedsMax |
-| 8 | EscrowHasNoBuyer |
-| 9 | ShippingWindowNotElapsed |
-| 10 | InvalidEvidenceHash |
-| 11 | DisputeNotFound |
-| 12 | ArithmeticError |
-| 13 | DeliveryBeforeDisputeWindow |
-| 14 | ContractPaused |
-| 15 | ArithmeticOverflow |
-| 16 | InvalidStateTransition |
-| 17 | InputTooLong |
-| 18 | InvalidAddress |
-| 19 | SameAddress |
-| 20 | AmountExceedsMaximum |
-| 21 | InvalidTrackingId |
-| 22 | DeliveryNotRecorded |
-| 23 | ConflictingRoles |
-| 24 | DisputeWindowClosed |
-| 25 | TokenNotAllowed |
-| 26 | NotPendingFinalization |
-| 27 | AppealWindowActive |
-| 28 | PlatformFeeExceedsMax |
-| 29 | AmountBelowMinimum |
+## Error Codes Table
+
+| Code | Name | Meaning | Resolution |
+|:---:|---|---|---|
+| **1** | `InvalidAmount` | The supplied amount is zero, negative, or otherwise invalid for the operation. | Ensure the amount is positive and satisfies `MIN_ESCROW_AMOUNT`. Triggers are **amount-related only** (escrow/basket-entry/payout amounts, amount limits, fee-calculation inputs). A TTL-extension value outside `MIN_TTL_EXTENSION..=MAX_TTL_EXTENSION` (`set_ttl_extension` and its timelocked `execute_set_ttl_extension`) is **not** reported as `InvalidAmount`; it returns `InvalidTtlExtension` (46). Indexers should map TTL-extension failures to code 46, not code 1. |
+| **2** | `InsufficientBalance` | The contract vault does not hold enough tokens to complete the transfer or fee withdrawal. | Verify the contract holds sufficient tokens for the requested payout. |
+| **3** | `EscrowNotFound` | The requested Escrow ID does not exist in persistent storage. | Re-verify the Escrow ID; it may have been mistyped or never created. |
+| **4** | `InvalidState` | The escrow is in a lifecycle state that does not permit the requested action. A `Completed` or `Refunded` escrow returns `EscrowAlreadyCompleted` (63) / `EscrowAlreadyRefunded` (64) instead where the check specifically distinguishes those two terminal states. | Consult the state machine diagram to ensure the action is valid for the current state. |
+| **5** | `NotAuthorized` | The caller's address does not have the required permissions for this function. | Ensure you are calling from the correct account (Seller, Buyer, Resolver, or Admin). Not returned for missing configuration (unset treasury / fee collector): that is `NotInitialized` (35). |
+| **6** | `AlreadyInitialized` | The contract has already been initialized with an admin and fee collector. | No action required; initialization can only be performed once per contract deployment. |
+| **7** | `FeeExceedsMax` | A fee basis-point value exceeds the configured protocol hard cap. | Supply a fee value within the permitted limits (e.g., <= 3% for escrow fees). |
+| **8** | `EscrowHasNoBuyer` | The operation requires an assigned buyer, but the escrow is still in `Pending` state. | The buyer must call `fund_escrow` before this operation can proceed. |
+| **9** | `ShippingWindowNotElapsed` | `auto_release` was triggered before the mandatory shipping window elapsed. | Wait until `funded_at + shipping_window` has passed before re-triggering. |
+| **10** | `InvalidEvidenceHash` | **Active.** Returned by `raise_dispute` when `evidence_hash` is the all-zero digest (`[0u8; 32]`). Wrong-length digests are still rejected by the host (the parameter is `BytesN<32>`). | Provide a 32-byte SHA-256 digest of the evidence — `hashEvidence()` in `@trustlink/contract-bindings` produces one. |
+| **11** | `DisputeNotFound` | No dispute record exists for the requested escrow ID. | Ensure that `raise_dispute` was successfully called before attempting resolution. |
+| **12** | `ArithmeticError` | An internal checked arithmetic operation failed (division by zero or general failure). | Review input amounts or contract state for edge-case values. |
+| **13** | `DeliveryBeforeDisputeWindow` | `auto_release` was triggered on a `Funded` (never-shipped) escrow before its `dispute_deadline`. (`confirm_delivery` returns `DisputeWindowStillOpen` (24) for the same timing condition.) | Wait for the `dispute_deadline` to pass before re-triggering. |
+| **14** | `ContractPaused` | The contract, or this specific action, is currently paused by the admin for maintenance or emergency. Admin entry points listed in `ADMIN.md` can be paused individually with `pause_action`. | Wait for the admin to call `unpause_contract` (or `unpause_action` for the specific action) before attempting the operation again. |
+| **15** | `ArithmeticOverflow` | A calculation resulted in a value larger than the supported integer type (i128). | Check if the escrow amount exceeds safety limits; use smaller amounts if possible. |
+| **16** | `InvalidStateTransition` | The requested state change is not allowed by the escrow lifecycle rules. A `Completed` or `Refunded` escrow returns `EscrowAlreadyCompleted` (63) / `EscrowAlreadyRefunded` (64) instead where the check specifically distinguishes those two terminal states. | Ensure the action follows the allowed sequence (e.g., Pending -> Funded -> Shipped). |
+| **17** | `InputTooLong` | A supplied string (like tracking ID or description) exceeds the maximum length. | Shorten the input string to be within the character limits (e.g., Tracking ID <= 64 chars). |
+| **18** | `InvalidAddress` | An address argument is invalid (e.g., it is the zero address or a duplicate role). | Use a valid Stellar address and ensure roles (Admin/FeeCollector) are distinct. |
+| **19** | `SameAddress` | A rotation or update was attempted with the same address as the current one. | Supply a different address to perform the update. |
+| **20** | `AmountExceedsMaximum` | The escrow amount exceeds the safety-capped `MAX_ESCROW_AMOUNT`. | Reduce the escrow amount to be within the protocol's arithmetic safety bounds. |
+| **21** | `InvalidTrackingId` | The tracking ID supplied is empty or improperly formatted. | Provide a non-empty, valid string for the tracking ID. |
+| **22** | `DeliveryNotRecorded` | `auto_release` was attempted but the admin has not yet recorded the delivery. | Ensure that delivery is recorded via `record_delivery` if required by the flow. |
+| **23** | `ConflictingRoles` | A resolver address is also assigned the Seller or Buyer role. Duplicate resolvers do **not** use this code: a repeated multi-resolver entry or a fallback `primary == backup` returns `DuplicateResolver` (80). | Ensure that the Seller, Buyer, and Resolver are all distinct accounts. |
+| **24** | `DisputeWindowStillOpen` | The dispute window timing is violated: `raise_dispute` is called after `dispute_deadline` (too late to raise), or `confirm_delivery` is called before `dispute_deadline` (too early to confirm). Code 24 is reused for both to maintain ABI stability. | For `raise_dispute`: ensure it is called before `dispute_deadline`. For `confirm_delivery`: wait until `dispute_deadline` has passed. |
+| **25** | `UnauthorizedResolver` | A resolver is not in the approved registry and strict mode is enabled. | Use an authorized resolver from the approved registry. |
+| **26** | `ContractNotPaused` | `emergency_drain` was called but the contract is not paused. | Ensure the contract is paused before calling emergency drain operations. |
+| **27** | `TokenNotAllowed` | A token is not in the allowlist and the allowlist is enabled. | Use a token from the approved allowlist or contact the admin to add the token. |
+| **28** | `EscrowExpired` | An escrow's pending expiration window has passed. | The escrow can no longer be funded; create a new escrow. |
+| **29** | `AmountBelowMinimum` | An escrow amount is below the configured minimum. | Increase the escrow amount to meet the minimum requirement. |
+| **30** | `NotPendingFinalization` | An action requires the escrow to be in `PendingFinalization` state. | Ensure the escrow has reached the PendingFinalization state before this action. |
+| **31** | `AppealWindowActive` | Finalization is attempted while the appeal window is still active. | Wait for the appeal window to expire before finalizing. |
+| **32** | `PlatformFeeExceedsMax` | The platform fee exceeds `MAX_PLATFORM_FEE_BPS` = 200 (`contracts/escrow/src/lib.rs:109`). Enforced independently at both call sites: the immediate `set_platform_fee` (`contracts/escrow/src/admin.rs:1942`-`1943`) and the timelocked `execute_set_platform_fee` (`contracts/escrow/src/admin.rs:962`-`963`, reached via `queue_set_platform_fee` + `execute_set_platform_fee`, which does not check the cap at queue time). | Configure a platform fee ≤ 200 bps (2%) on either path. |
+| **33** | `InvalidShippingWindow` | `shipping_window` is zero or exceeds the maximum allowed value. | Provide a valid shipping window duration within the allowed range. |
+| **34** | `DeliveryAlreadyRecorded` | `record_delivery` was called on an escrow that already has delivery recorded. | No action required; delivery has already been recorded for this escrow. |
+| **35** | `NotInitialized` | A read accessor was called before the contract has been initialized, or a required config value (e.g. treasury or fee collector) is unset. Distinct from `NotAuthorized` (5), which means the caller lacks permission. | Initialize the contract first by calling `initialize`. |
+| **36** | `IndexOutOfBounds` | An internal collection index is out of bounds, indicating a storage or argument invariant violation. | This is an internal error; contact the contract maintainer. |
+| **37** | `InvalidExpiration` | A supplied expiration timestamp is not strictly in the future. | Provide an expiration timestamp that is in the future. |
+| **38** | `DeliveryNotProposed` | `record_delivery` was called before a delivery proposal was initiated. | Admin must first call `propose_record_delivery` and wait for the timelock. |
+| **39** | `TimelockNotElapsed` | `record_delivery` was called before the required 24-hour timelock elapsed, or an `execute_<operation>` admin call was made before the queued proposal's `ready_at`. | Wait until 24 hours have passed since `propose_record_delivery` was called, or until the proposal's `ready_at` (see the `TimelockQueued` event). |
+| **40** | `GracePeriodNotElapsed` | The grace period has not elapsed yet. | Wait for the grace period to elapse before performing this action. |
+| **41** | `MaxAppealsReached` | The maximum number of appeals has been reached. | The dispute can no longer be appealed. |
+| **42** | `BasketTokenMismatch` | A basket (`tokens`/`amounts`) argument is malformed. Four distinct triggers share this code (all in `contracts/escrow/src/instructions.rs`): (1) **length mismatch / empty** — `tokens.len() != amounts.len()` or either vector empty, `create_basket_escrow` (`instructions.rs:1362`); (2) **over-cap** — more tokens than the configured `max_basket_size`, `create_basket_escrow` (`instructions.rs:1366`); (3) **duplicate token** — the same token address appears more than once, `create_basket_escrow` (`instructions.rs:1423`–`1428`); (4) **empty stored basket** — `fund_basket_escrow` on an escrow with no stored basket tokens (`instructions.rs:1589`). | Ensure `tokens` and `amounts` are non-empty and of equal length, contain no duplicate tokens, and are within `max_basket_size`; only call `fund_basket_escrow` on an escrow whose basket entries were stored by `create_basket_escrow`. Note: a basket entry with `amount <= 0` is an amount error (`InvalidAmount`, 1), not a structure error. |
+| **43** | `InvalidMulticallArg` | A `multicall` argument is missing or fails to decode into the expected type. | Provide valid arguments that match the types expected by the target function. |
+| **44** | `PayeeBpsMismatch` | A `Payee` list's basis points do not sum to exactly 10,000 (100%). | Ensure the sum of all `bps` values across payees equals exactly 10,000. |
+| **45** | `TooManyMessages` | The maximum number of messages for an escrow has been reached. | No more messages can be attached to this escrow. |
+| **46** | `InvalidTtlExtension` | The requested TTL extension is outside `MIN_TTL_EXTENSION..=MAX_TTL_EXTENSION` (1,000 to 2,592,000 ledgers), e.g. `0` and `999` are rejected while `1000` is accepted. Raised by `set_ttl_extension` and `execute_set_ttl_extension` (distinct from `InvalidAmount`, 1, which covers amount paths). | Supply a TTL extension value within `MIN_TTL_EXTENSION..=MAX_TTL_EXTENSION`. |
+| **47** | `InvalidResolverThreshold` | Multi-resolver threshold is invalid: zero, exceeds resolver count, or resolver list is empty. | Ensure threshold is > 0, ≤ resolver count, and resolver list is non-empty. |
+| **48** | `InvalidFallbackDeadline` | `create_escrow_with_fallback` was given a `dispute_deadline` more than 39 days (`MAX_FALLBACK_DEADLINE_OFFSET`) past the current ledger timestamp, which could lock disputed funds if the primary resolver is unresponsive. | Pass a deadline no later than `now + 3_369_600` seconds; typically `now + a few days`. |
+| **49** | `DisputeTimeoutNotElapsed` | `claim_dispute_timeout` was called before the dispute had remained unresolved for the configured maximum dispute duration (`DisputeTimeout`). | Wait until `disputed_at + get_dispute_timeout()` before forcing the refund. |
+| **50** | `DisputeNotDeadlocked` | `resolve_deadlocked_dispute` was called before `DISPUTE_DEADLOCK_WINDOW` elapsed, or the recorded votes actually meet the resolver threshold. | Wait for the deadlock window; if the threshold is already met the escrow is in `PendingFinalization`, so finalize instead. |
+| **51** | `InvalidDisputeTimeout` | `set_dispute_timeout` was given a value outside `MIN_DISPUTE_TIMEOUT..=MAX_DISPUTE_TIMEOUT`. | Supply a timeout between 1 hour and 365 days. |
+| **52** | `NoResolverVotes` | `resolve_deadlocked_dispute` was called while no resolver had cast a vote. | The resolver-inaction case is handled by `claim_dispute_timeout`; wait for that window instead. |
+| **53** | `EscrowCounterOverflow` | The escrow ID counter overflowed its maximum `u64` value. | This is an internal error; contact the contract maintainer. |
+| **54** | `FeeCalculationOverflow` | Checked arithmetic overflowed during fee basis-point math. | Use smaller amounts or lower fee rates; contact the maintainer if persistent. |
+| **55** | `AmountCalculationOverflow` | Checked arithmetic overflowed during net payout math. | Use smaller amounts; contact the maintainer if persistent. |
+| **56** | `PayeeIndexOutOfBounds` | A payee list index is out of bounds, indicating a payee storage or argument invariant violation. | This is an internal error; contact the contract maintainer. |
+| **57** | `BasketIndexOutOfBounds` | A basket token list index is out of bounds, indicating a basket-token storage or argument invariant violation. | This is an internal error; contact the contract maintainer. |
+| **58** | `ProtocolFeeExceedsMax` | The global protocol fee exceeds its configured hard cap. | Configure a protocol fee within the allowed limits. |
+| **59** | `ArbitrationFeeExceedsMax` | The arbitration fee exceeds its configured hard cap. | Configure an arbitration fee within the allowed limits. |
+| **60** | `MulticallBatchTooLarge` | A `multicall` batch exceeds `MAX_MULTICALL_BATCH_SIZE`. | Split the batch into smaller calls within the allowed size. |
+| **61** | `NotAuthorizedBuyer` | A buyer-only operation was attempted by a caller that is not the escrow's buyer. | Call from the escrow's assigned buyer account. |
+| **62** | `NotAuthorizedSeller` | A seller-only operation (e.g. `mark_shipped`) was attempted by a caller that is not the escrow's primary payee. | Call from the escrow's primary payee (seller) account. |
+| **63** | `EscrowAlreadyCompleted` | An action was attempted on an escrow that has already reached the terminal `Completed` state. | No action required; the escrow lifecycle is finished. |
+| **64** | `EscrowAlreadyRefunded` | An action was attempted on an escrow that has already reached the terminal `Refunded` state. | No action required; the escrow lifecycle is finished. |
+| **65** | `AppealFeeExceedsMax` | `set_appeal_fee` (or its timelocked execute step) was given a fee above `MAX_APPEAL_FEE_BPS` (5%). | Supply an appeal fee within `MIN_APPEAL_FEE_BPS..=MAX_APPEAL_FEE_BPS`, or `0` to disable the fee. |
+| **66** | `AppealFeeBelowMinimum` | `set_appeal_fee` (or its timelocked execute step) was given a non-zero fee below `MIN_APPEAL_FEE_BPS` (0.1%). | Raise the fee to at least the minimum so appeals always cost griefers meaningfully, or use `0` to disable it. |
+| **67** | `NotInRecoveryMode` | `recovery_withdraw` was called while recovery mode is not enabled. | The admin must call `enable_recovery_mode` first; use the standard state machine otherwise. |
+| **68** | `InvalidDisputeReason` | `raise_dispute` was given a `reason` symbol that is not one of the predefined dispute reasons. | Use one of `ITEM_NOT_RECEIVED`, `NOT_AS_DESCRIBED`, `DAMAGED`, `DEFECTIVE`, `FRAUD`, `OTHER`. |
+| **69** | `InvalidOperation` | An arbitrary u32 operation ID does not map to a valid `TimelockOperation`. | Supply a valid timelock operation ID. |
+| **70** | `InvalidTimelockDelay` | A timelock delay was set outside the allowed bounds (`MIN_TIMELOCK_DELAY_SECONDS..=MAX_TIMELOCK_DELAY_SECONDS`). | Supply a delay between 12 hours and 30 days. |
+| **71** | `InvalidProposalHash` | The executed parameters do not match the queued proposal hash. | Re-execute with the exact parameters that were queued. |
+| **72** | `DuplicateNotes` | A `batch_create_escrow` call contains duplicate notes values. | Ensure every entry in the batch carries a distinct notes value. |
+| **73** | `GracePeriodTooLong` | `create_escrow_with_expiration` was called with a `grace_period` that exceeds `MAX_GRACE_PERIOD`. | Supply a grace period within the allowed maximum. |
+| **74** | `TimestampInvariantViolated` | `resolved_at` is earlier than `disputed_at`, violating the timestamp ordering invariant. | This indicates ledger timestamp regression; retry at a later timestamp. |
+| **75** | `NoPendingFeeCollector` | `accept_fee_collector` was called but no pending fee collector is set. | The admin must call `set_fee_collector` first to register a pending collector. |
+| **76** | `InvalidMaxAppeals` | `set_max_appeals` was given a value outside the supported range. | Supply a max appeals value within `MIN_MAX_APPEALS..=MAX_MAX_APPEALS`. |
+| **77** | `InvalidMaxBasketSize` | `set_max_basket_size` was given a value outside the supported range. | Supply a max basket size within `MIN_MAX_BASKET_SIZE..=MAX_BASKET_SIZE`. |
+| **78** | `InvalidWasmHash` | `execute_upgrade` was called with an all-zero or otherwise invalid WASM hash. | Supply the valid WASM hash of the new contract build. |
+| **79** | `NoPendingTreasury` | `accept_treasury` was called but no pending treasury is set. | The admin must call `set_treasury` first to register a pending treasury. |
+| **80** | `DuplicateResolver` | The same address appears more than once in a resolver configuration. Two triggers share this code (both in `validate_resolvers`, `contracts/escrow/src/internal.rs`): (1) **duplicate multi-resolver** — an address is repeated in a `ResolverSet::Multi` list; (2) **fallback equality** — `primary_resolver == backup_resolver` in a `ResolverSet::Fallback`. Kept distinct from `ConflictingRoles` (23), which means a resolver also holds the Seller or Buyer role. | Ensure every multi-resolver address is unique and that a fallback escrow's primary and backup resolvers are different accounts. |
+| **81** | `EvidenceLimitReached` | `submit_dispute_evidence` was called but the escrow's evidence log already holds `MAX_EVIDENCE_ENTRIES` (5) entries. | No further evidence can be added; rely on the entries already logged. |

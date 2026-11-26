@@ -2,7 +2,251 @@
 
 ## Overview
 
-TrustLink is a Soroban smart contract on the Stellar network that implements a trustless escrow system between a **buyer** and one or more **payees**, mediated by a **resolver** in case of disputes. All state lives on-chain; no off-chain service is required for core escrow operations.
+TrustLink is a Soroban smart contract on the Stellar network that implements a trustless escrow system between a **buyer** and a **seller**, mediated by an optional **resolver** in case of disputes. All state lives on-chain; no off-chain service is required for core escrow operations.
+
+---
+
+## State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending : create_escrow
+
+    Pending --> Funded : fund_escrow
+    Pending --> Canceled : cancel_escrow
+    Pending --> Expired : reclaim_expired
+
+    Funded --> Shipped : mark_shipped
+    Funded --> Completed : confirm_delivery (after dispute_deadline)
+    Funded --> Completed : auto_release (after dispute_deadline + shipping_window)
+    Funded --> Disputed : raise_dispute (before dispute_deadline)
+    Funded --> RefundRequested : request_refund
+
+    Shipped --> Completed : confirm_delivery (after dispute_deadline)
+    Shipped --> Completed : auto_release (after shipped_at + shipping_window AND dispute_deadline)
+    Shipped --> Disputed : raise_dispute (before dispute_deadline)
+
+    RefundRequested --> Refunded : approve_refund
+    RefundRequested --> Funded : deny_refund
+
+    Disputed --> PendingFinalization : resolve_dispute / vote (threshold met)
+
+    PendingFinalization --> Completed : finalize_dispute (Release, after appeal_window)
+    PendingFinalization --> Refunded : finalize_dispute (Refund, after appeal_window)
+    PendingFinalization --> Disputed : appeal_dispute (within appeal_window)
+
+    Completed --> [*]
+    Refunded --> [*]
+    Canceled --> [*]
+    Expired --> [*]
+```
+
+### Valid Transitions
+
+| From | To | Trigger | Guard Conditions |
+|---|---|---|---|
+| `Pending` | `Funded` | `fund_escrow` | Buyer authorizes |
+| `Pending` | `Canceled` | `cancel_escrow` | Seller authorizes |
+| `Pending` | `Expired` | `reclaim_expired` | `now > expiration` (if set) |
+| `Funded` | `Shipped` | `mark_shipped` | Seller authorizes |
+| `Funded` | `Completed` | `confirm_delivery` | Buyer authorizes, `now >= dispute_deadline` |
+| `Funded` | `Completed` | `auto_release` | Permissionless, `now >= dispute_deadline`, `now >= funded_at + shipping_window` |
+| `Funded` | `Disputed` | `raise_dispute` | Buyer authorizes, `now < dispute_deadline` |
+| `Funded` | `RefundRequested` | `request_refund` | Buyer authorizes |
+| `Shipped` | `Completed` | `confirm_delivery` | Buyer authorizes, `now >= dispute_deadline` |
+| `Shipped` | `Completed` | `auto_release` | Permissionless, `now >= dispute_deadline`, `now >= shipped_at + shipping_window` |
+| `Shipped` | `Disputed` | `raise_dispute` | Buyer authorizes, `now < dispute_deadline` |
+| `RefundRequested` | `Refunded` | `approve_refund` | Seller authorizes |
+| `RefundRequested` | `Funded` | `deny_refund` | Seller authorizes |
+| `Disputed` | `PendingFinalization` | `resolve_dispute` / `vote` | Resolver(s) authorize, voting threshold met (see [Multi-Resolver Dispute Resolution](#multi-resolver-dispute-resolution-m-of-n-voting)) |
+| `PendingFinalization` | `Completed` | `finalize_dispute` | Permissionless, resolution=Release, `now >= resolved_at + APPEAL_WINDOW` (24h) |
+| `PendingFinalization` | `Refunded` | `finalize_dispute` | Permissionless, resolution=Refund, `now >= resolved_at + APPEAL_WINDOW` (24h) |
+| `PendingFinalization` | `Disputed` | `appeal_dispute` | Buyer or seller authorizes, `now < resolved_at + APPEAL_WINDOW` (24h) |
+
+**Terminal States:** `Completed`, `Refunded`, `Canceled`, `Expired` — no further transitions are possible.
+
+**Guard Condition Details** (see `contracts/escrow/src/instructions.rs`):
+- `auto_release` timing: lines 1157-1181
+  - For `Funded` escrows: requires `now >= dispute_deadline` AND `now >= funded_at + shipping_window`
+  - For `Shipped` escrows: requires `now >= dispute_deadline` AND `now >= shipped_at + shipping_window`
+  - Returns error code 13 (`DeliveryBeforeDisputeWindow`) if `dispute_deadline` not yet passed
+  - Returns error code 9 (`ShippingWindowNotElapsed`) if `shipping_window` not yet elapsed
+- `confirm_delivery` timing: lines 1016+
+  - Requires `now >= dispute_deadline`
+  - Returns error code 24 (`DisputeWindowStillOpen`) if called too early
+- `raise_dispute` timing: must be called before `dispute_deadline` (typically 48 hours after funding)
+
+`Completed` and `Refunded` are terminal states — no further transitions are possible. A dispute can be appealed and re-resolved any number of times; each appeal increments `DisputeData.appeal_count` and, for multi-resolver escrows, clears prior votes so a fresh voting round begins.
+
+---
+
+## Escrow Lifecycle Sequence
+
+```mermaid
+sequenceDiagram
+    participant S as Seller
+    participant C as Contract
+    participant B as Buyer
+    participant R as Resolver
+
+    S->>C: create_escrow(seller_or_payees, buyer, resolver, token, amount, fee_bps, resolver_fee_bps, shipping_window, notes)
+    C-->>S: escrow_id
+
+    B->>C: fund_escrow(escrow_id)
+    C->>C: transfer tokens from buyer
+
+    Note over C: State: Funded (shipping window starts)
+
+    alt Delivery confirmed by buyer
+        B->>C: confirm_delivery(escrow_id)
+        C->>S: transfer tokens to seller
+        Note over C: State: Completed
+    else Shipping window elapsed
+        Anyone->>C: auto_release(escrow_id)
+        C->>S: transfer tokens to seller
+        Note over C: State: Completed
+    else Dispute raised
+        B->>C: raise_dispute(escrow_id, evidence_hash)
+        Note over C: State: Disputed
+        R->>C: resolve_dispute(escrow_id, resolution) / vote(escrow_id, resolution)
+        Note over C: Threshold met → State: PendingFinalization
+        alt Appeal window elapses without appeal
+            Anyone->>C: finalize_dispute(escrow_id)
+            alt Resolution was Release
+                C->>S: transfer tokens
+            else Resolution was Refund
+                C->>B: transfer tokens
+            end
+        else Buyer or seller appeals in time
+            B->>C: appeal_dispute(escrow_id)
+            Note over C: State: Disputed (votes cleared, new round)
+        end
+    end
+```
+
+---
+
+## Token Flow
+
+```mermaid
+flowchart LR
+    B[Buyer] -->|fund_escrow| C[Contract]
+    C -->|confirm_delivery / auto_release| S[Seller]
+    C -->|finalize_dispute after resolution=Refund| B
+    C -->|finalize_dispute after resolution=Release| S
+```
+
+TrustLink uses the [SEP-41](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0041.md) token interface (`soroban_sdk::token::Client`). The contract never holds more than one escrow's tokens per escrow ID. Multiple concurrent escrows each lock their own `amount` independently.
+
+---
+
+## Fee Model
+
+TrustLink charges fees along two independent axes:
+
+| Fee | Scope | Set by | Cap | Constant |
+|---|---|---|---|---|
+| `fee_bps` | Per-escrow, set at creation | Escrow creator (seller/payee) | 3% | `MAX_ESCROW_FEE_BPS` |
+| `protocol_fee_bps` | Global default, in `FeeConfig` | Admin | 5% | `MAX_PROTOCOL_FEE_BPS` |
+| `arbitration_fee_bps` | Global default, in `FeeConfig` | Admin | 5% | `MAX_ARBITRATION_FEE_BPS` |
+
+`protocol_fee_bps` and `arbitration_fee_bps` are both *admin*-controlled and both deducted from the same pool of value (an escrow's locked amount) — the protocol fee on ordinary settlement, the arbitration fee specifically when a resolver settles a dispute. Because they're independently capped at 5% each, `validate_combined_fees` (`internal.rs`) additionally enforces `protocol_fee_bps + arbitration_fee_bps <= MAX_COMBINED_FEE_BPS` (1000 bps = **10%**) whenever either one is updated.
+
+### Why a combined cap, and why 10%
+
+- **Defense in depth against a single compromised or malicious admin.** Each individual cap (5% + 5%) already happens to sum to the combined cap today, but the two are enforced independently and could drift apart over time (e.g. a future change that raises `MAX_ARBITRATION_FEE_BPS` without revisiting the other). The combined check is the actual invariant that matters economically: *no combination of admin-set fees can ever take more than 10% of an escrow's value*, regardless of how the individual per-fee ceilings evolve.
+- **10% keeps the protocol's take a minority share.** A buyer and seller are exchanging value for goods/services; the protocol is an intermediary securing that exchange, not a party to it. A 10% combined ceiling caps the admin's worst-case extraction to roughly the range of typical marketplace/payment-processor take rates, so even a fully malicious admin cannot use fee configuration alone to drain a meaningful fraction of escrowed funds — the attack has to go through some other path (and the 24-hour timelock on admin fee changes, `ADMIN_TIMELOCK_DELAY_SECONDS` in `admin.rs`, gives participants a window to react before a new fee takes effect).
+- **Deliberately excludes `fee_bps`.** The per-escrow `fee_bps` is capped separately (3%) and is not part of `MAX_COMBINED_FEE_BPS` because it isn't admin-controlled — it's set by the escrow's own creator at creation time, so it's a term the buyer/seller already agreed to rather than a value an admin can move after the fact.
+
+---
+
+## Multi-Resolver Dispute Resolution (M-of-N Voting)
+
+See [docs/resolvers.md](docs/resolvers.md) for single, M-of-N, and fallback
+schemes, including deadline gating and deadlock risks.
+
+An escrow's dispute resolver is not always a single address. `EscrowData.resolvers` holds a `ResolverSet`, which is one of three variants:
+
+| Variant | Created via | Resolver count | Vote threshold |
+|---|---|---|---|
+| `Single(Address)` | `create_escrow` | 1 | 1 |
+| `Multi(MultiResolver { resolvers, threshold })` | `create_escrow_multi` | N (any number) | M (configurable, `0 < M ≤ N`) |
+| `Fallback(FallbackResolver { primary, backup, dispute_deadline })` | `create_escrow_with_fallback` | 2 | 1 |
+
+For all three variants, the same entry points are used to resolve a dispute:
+
+- `resolve_dispute(escrow_id, resolution)` or `vote(escrow_id, resolution)` — either name may be used; both call into the same voting logic. The caller must be authorized by the escrow's `ResolverSet`; fallback authorization uses `can_resolve_now` so the backup is gated by its deadline.
+- Each call records or overwrites that resolver's vote (`ResolverVote { resolver, resolution, voted_at }`) — a resolver changing their mind simply votes again.
+- Votes are tallied separately per `ResolutionType` (`Release` vs `Refund`). Once either tally reaches `ResolverSet::threshold()`, the resolution executes automatically in the same transaction and the escrow moves to `PendingFinalization` (see [Appeal Flow](#appeal-flow)) — no separate "finalize the vote" step is needed to reach that state.
+- Full vote history for an escrow is queryable via `get_resolver_votes(escrow_id) -> Vec<ResolverVote>`.
+
+For `Single` and `Fallback` sets the threshold is 1, so the first vote from an authorized resolver resolves the dispute. For `Fallback` sets specifically, the primary is always authorized, while the backup is authorized only when `ledger.timestamp() >= dispute_deadline`; the deadline is an absolute timestamp checked at call time.
+
+Multi-resolver escrows also support an **approved resolver registry**, managed by the admin:
+
+- `add_approved_resolver` / `remove_approved_resolver` — maintain the allowlist.
+- `set_resolver_strict(true)` — once enabled, `create_escrow`/`create_escrow_multi`/etc. reject any resolver not in the allowlist.
+- `get_approved_resolvers` / `is_resolver_strict` — read-only views.
+
+See [MULTI_RESOLVER_SCHEME.md](./MULTI_RESOLVER_SCHEME.md) for the full design rationale, backward-compatibility notes, and data structures.
+
+---
+
+## Appeal Flow
+
+A resolved dispute is not settled immediately — it passes through a cooling-off period before funds move, so the losing party has a chance to contest the outcome.
+
+```mermaid
+sequenceDiagram
+    participant P as Buyer or Seller
+    participant C as Contract
+    participant R as Resolver(s)
+
+    Note over C: State: Disputed
+    R->>C: resolve_dispute / vote (threshold met)
+    Note over C: State: PendingFinalization<br/>appeal_deadline = resolved_at + APPEAL_WINDOW (24h)
+    alt No appeal before appeal_deadline
+        Note over P,C: Anyone
+        P->>C: finalize_dispute(escrow_id)
+        C->>C: pay out per stored resolution (Release/Refund)
+        Note over C: State: Completed / Refunded
+    else Appeal before appeal_deadline
+        P->>C: appeal_dispute(escrow_id)
+        C->>C: clear stored resolution + votes, appeal_count += 1
+        Note over C: State: Disputed (new voting round)
+    end
+```
+
+Key rules (`finalize_dispute` / `appeal_dispute` in `lib.rs`):
+
+- The appeal window is `APPEAL_WINDOW` (86,400 seconds / 24 hours), measured from `DisputeData.resolved_at`.
+- `finalize_dispute` reverts with `AppealWindowActive` if called before `appeal_deadline`. It is permissionless (any caller may trigger it) once the window has elapsed, and pays out the previously-recorded resolution (minus platform and protocol fees) to the seller (`Release`) or buyer (`Refund`).
+- `appeal_dispute` reverts with `NotPendingFinalization` if the escrow isn't in `PendingFinalization`, and with `DisputeWindowStillOpen` if called after `appeal_deadline`. Only the escrow's buyer or (first) seller payee may call it.
+- A successful appeal clears the stored resolution and, for `Multi` resolver sets, deletes all recorded votes — resolvers must vote again from a clean slate. `DisputeData.appeal_count` is incremented so the number of appeal rounds is queryable via `get_dispute`.
+- Appeals are limited by the admin-configured maximum (`MAX_APPEALS`, default 3;
+  configurable within the contract's allowed 1–10 range). Each permitted appeal
+  uses the same window and rules, and a new resolution starts a fresh round.
+
+---
+
+## Basket Escrow (Multi-Token Payout)
+
+A basket escrow lets a single escrow lock and later pay out **multiple different tokens** to one seller, instead of the single `(token, amount)` pair used by `create_escrow`.
+
+```mermaid
+flowchart LR
+    S[Seller] -->|create_basket_escrow tokens+amounts| C[Contract]
+    B[Buyer] -->|fund_basket_escrow| C
+    C -->|transfer each token| S
+```
+
+- `create_basket_escrow(seller, buyer, resolver, tokens, amounts, fee_bps, shipping_window, expires_at, grace_period)` — `tokens` and `amounts` must be the same non-empty length and at most 20 entries. Duplicate token addresses are rejected with a pairwise scan bounded to at most 190 comparisons. The primary `EscrowData` record (state, resolvers, fee config, lifecycle) tracks `tokens[0]`/`amounts[0]` as usual; the *full* token/amount list is stored separately as `Vec<TokenEntry>` keyed by escrow ID. Every token is checked against the token allowlist (if enabled) before the escrow is created. `expires_at` is optional; when set, its schedule and `grace_period` are persisted, basket funding is rejected once the deadline is reached, and the buyer can reclaim after the grace period.
+- The maximum-size creation gas regression test records CPU and memory use and enforces ceilings of 50,000,000 CPU instructions and 5,000,000 bytes of memory per call.
+- `create_basket_escrow(seller, buyer, resolver, tokens, amounts, fee_bps, shipping_window, notes, expires_at)` — `tokens` and `amounts` must be the same non-empty length. The primary `EscrowData` record (state, resolvers, fee config, lifecycle) tracks `tokens[0]`/`amounts[0]` as usual; the *full* token/amount list is stored separately as `Vec<TokenEntry>` keyed by escrow ID. Every token is checked against the token allowlist (if enabled) before the escrow is created. When `expires_at` is present, the contract also persists a `PendingExpiry` schedule used by funding and reclaim checks.
+- `fund_basket_escrow(escrow_id, buyer)` — transfers **all** basket tokens from the buyer to the contract in one call, in place of calling `fund_escrow` per token.
+- `get_basket_tokens(escrow_id) -> Vec<TokenEntry>` — read-only view of the full basket (each `TokenEntry { token, amount }`).
+- Payout: every path that releases funds for a basket escrow (`confirm_delivery`, `auto_release`, `co_signed_release`, dispute resolution via `finalize_dispute`) calls the primary token transfer *and* `payout_basket_tokens`, which iterates the stored `TokenEntry` list and transfers each additional token to the recipient. Non-basket escrows have an empty basket list, so `payout_basket_tokens` is a no-op for them — the same code path is safe for both.
+- The state machine, dispute flow, and appeal flow described above apply identically to basket escrows; only the token transfer step differs.
 
 ---
 
@@ -12,71 +256,46 @@ TrustLink is a Soroban smart contract on the Stellar network that implements a t
 
 | Function | Caller | Description |
 |---|---|---|
-| `create_escrow` | First payee | Creates a new escrow in `Pending` state |
+| `create_escrow` | Seller | Creates a new escrow in `Pending` state with a single resolver |
+| `create_escrow_multi` | Seller | Creates an escrow with an M-of-N resolver voting set |
+| `create_escrow_with_fallback` | Seller | Creates an escrow with a primary + backup resolver |
+| `create_basket_escrow` | Seller | Creates a multi-token ("basket") escrow — see [Basket Escrow](#basket-escrow-multi-token-payout) |
 | `fund_escrow` | Buyer | Locks tokens into the contract, moves escrow to `Funded` |
+| `fund_basket_escrow` | Buyer | Locks all basket tokens into the contract in one call |
 | `confirm_delivery` | Buyer | Releases funds to seller on satisfied delivery |
 | `raise_dispute` | Buyer | Moves escrow to `Disputed` with a 32-byte evidence hash |
-| `resolve_dispute` | Resolver | Pays out to seller or refunds buyer based on dispute finding |
+| `resolve_dispute` / `vote` | Resolver (any member of the escrow's `ResolverSet`) | Casts a resolution vote; once the threshold is met, moves to `PendingFinalization` — see [Multi-Resolver Dispute Resolution](#multi-resolver-dispute-resolution-m-of-n-voting) |
+| `finalize_dispute` | Anyone (permissionless) | After the appeal window elapses, pays out the recorded resolution — see [Appeal Flow](#appeal-flow) |
+| `appeal_dispute` | Buyer or seller | Reopens a `PendingFinalization` dispute back to `Disputed` within the appeal window |
+| `get_resolver_votes` | Anyone | Read-only view of an escrow's vote history |
+| `get_basket_tokens` | Anyone | Read-only view of a basket escrow's token/amount list |
 | `auto_release` | Anyone | Releases to seller once the shipping window has elapsed |
+| `record_delivery` | Admin | Records delivery timestamp (idempotent — rejects duplicate calls) |
 | `get_escrow` | Anyone | Read-only view of an escrow record |
 
 ### 2. Data Types (`EscrowData`)
 
 ```
 EscrowData {
-    seller:          Address        — party receiving funds on success
-    buyer:           Option<Address>— set at fund time; None before funding
-    resolver:        Address        — trusted third-party mediator
-    token:           Address        — SEP-41 token contract address
-    amount:          i128           — locked token amount
-    shipping_window: u64            — seconds after funding before auto-release is allowed
-    funded_at:       u64            — ledger timestamp recorded at fund time
-    state:           EscrowState    — current lifecycle state
+    payees:           Vec<Payee>      — payout recipients (single seller today; bps must sum to 10_000)
+    buyer:            Option<Address> — set at fund time; None before funding
+    resolvers:        ResolverSet     — Single / Multi / Fallback — see Multi-Resolver Dispute Resolution
+    token:            Address         — SEP-41 token contract address (primary token for basket escrows)
+    amount:           i128            — locked token amount (primary amount for basket escrows)
+    fee_bps:          u32             — escrow-level fee, in basis points
+    resolver_fee_bps: u32             — arbitration fee taken by the resolver on dispute resolution
+    shipping_window:  u64             — seconds after funding (or shipping) before auto-release is allowed
+    funded_at:        u64             — ledger timestamp recorded at fund time
+    dispute_deadline: u64             — ledger timestamp after which a dispute can no longer be raised
+    shipped_at:       u64             — ledger timestamp recorded by mark_shipped (0 if not shipped)
+    delivered_at:     Option<u64>     — timestamp when delivery was recorded (None if not yet recorded)
+    tracking_id:      Option<String>  — optional shipping tracking reference
+    state:            EscrowState     — current lifecycle state
+    notes:            Option<String>  — optional free-text note set at creation
 }
 ```
 
-### 3. State Machine (`EscrowState`)
-
-```mermaid
-stateDiagram-v2
-    [*] --> Pending: create_escrow (9 args)
-    Pending --> Funded: fund_escrow
-    Pending --> Canceled: cancel_escrow
-    Funded --> Shipped: mark_shipped
-    Funded --> Disputed: raise_dispute before dispute_deadline
-    Shipped --> Disputed: raise_dispute before dispute_deadline
-    Shipped --> Completed: confirm_delivery after dispute_deadline
-    Funded --> Completed: auto_release after dispute_deadline + shipping window
-    Shipped --> Completed: auto_release after dispute_deadline + shipping window
-    Funded --> Completed: auto_release after delivered_at + release window
-    Shipped --> Completed: auto_release after delivered_at + release window
-    Disputed --> PendingFinalization: resolve_dispute
-    PendingFinalization --> Disputed: appeal_dispute during appeal window
-    PendingFinalization --> Completed: finalize_dispute(Release)
-    PendingFinalization --> Refunded: finalize_dispute(Refund)
-    Funded --> Expired: derived release eligibility
-    Shipped --> Expired: derived release eligibility
-    Expired --> Completed: auto_release
-```
-
-`Expired` is a derived eligibility condition, not a stored `EscrowState` in
-the current contract. It is shown to make the time-based guard visible.
-
-Valid transitions:
-
-| From | To | Trigger |
-|---|---|---|
-| `Pending` | `Funded` | `fund_escrow` |
-| `Funded` | `Completed` | `auto_release` after the dispute deadline and a release window |
-| `Shipped` | `Completed` | `confirm_delivery` after the dispute deadline, or `auto_release` after a release window |
-| `Funded` | `Disputed` | `raise_dispute` |
-| `Shipped` | `Disputed` | `raise_dispute` |
-| `Disputed` | `PendingFinalization` | `resolve_dispute` |
-| `PendingFinalization` | `Disputed` | `appeal_dispute` during the appeal window |
-| `PendingFinalization` | `Completed` or `Refunded` | `finalize_dispute` after the appeal window |
-
-`Completed`, `Refunded`, and `Canceled` are terminal states. `Expired` is a
-derived time condition and does not persist a separate state.
+Basket token/amount pairs beyond the primary `token`/`amount` are stored separately, keyed by escrow ID, as `Vec<TokenEntry { token, amount }>` — see [Basket Escrow](#basket-escrow-multi-token-payout).
 
 ---
 
@@ -88,24 +307,25 @@ All storage uses Soroban **instance** storage (entries share the contract instan
 |---|---|---|
 | `EscrowCounter` | `u64` | Monotonically increasing counter; also the ID of the most-recently created escrow |
 | `Escrow(id: u64)` | `EscrowData` | Full escrow record keyed by its numeric ID |
+| `EscrowStateHistory(id: u64)` | `Vec<(EscrowState, u64)>` | Audit trail of state transitions with timestamps; capped at MAX_STATE_HISTORY_ENTRIES=50 to bound storage for high-churn escrows. When limit reached, oldest entry is evicted (FIFO). See [State History Capping](#state-history-capping). |
+| `Admin` | `Address` | Contract administrator |
+| `FeeCollector` | `Address` | Address receiving platform fees |
+| `DefaultFeeBps` | `u32` | Default fee in basis points |
+| `Paused` | `bool` | Global pause flag |
 
 IDs start at `1`. The counter is read, incremented, and stored atomically inside `create_escrow`.
 
----
+### State History Capping
 
-## Token Flow
+Each escrow maintains a queryable audit trail of state transitions in `EscrowStateHistory(escrow_id)`. To prevent unbounded storage growth for escrows that cycle through states frequently (e.g., repeated disputes → appeal → re-dispute), the history is capped at `MAX_STATE_HISTORY_ENTRIES = 50` entries. When an escrow accumulates more than 50 transitions:
 
-TrustLink uses the [SEP-41](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0041.md) token interface (`soroban_sdk::token::Client`).
+- The oldest entry is evicted (pop_front) before the new entry is appended
+- Only the most recent 50 transitions are retained
+- Off-chain indexers querying `get_state_history(escrow_id)` will see a truncated tail; the full history is not preserved on-chain
 
-```
-fund_escrow:         buyer ──transfer──► contract
-confirm_delivery:    contract ──transfer──► seller
-auto_release:        contract ──transfer──► seller
-resolve_dispute:     contract ──transfer──► seller  (if release_to_seller)
-                     contract ──transfer──► buyer   (if refund)
-```
-
-The contract never holds more than one escrow's tokens per escrow ID. Multiple concurrent escrows each lock their own `amount` independently.
+Indexers expecting complete history for high-churn escrows should either:
+1. Poll frequently to capture all transitions before the 50-entry window rotates
+2. Be aware that early transitions may be missing from long-lived disputed escrows
 
 ---
 
@@ -119,12 +339,99 @@ The contract never holds more than one escrow's tokens per escrow ID. Multiple c
 
 | Topic | Data | Emitted by |
 |---|---|---|
-| `("create_escrow",)` | `escrow_id: u32` | `create_escrow` |
-| `("fund_escrow",)` | `escrow_id: u32` | `fund_escrow` |
-| `("confirm_delivery",)` | `escrow_id: u32` | `confirm_delivery` |
-| `("raise_dispute",)` | `(escrow_id: u32, evidence_hash: Bytes)` | `raise_dispute` |
-| `("resolve_dispute",)` | `(escrow_id: u32, release_to_seller: bool)` | `resolve_dispute` |
-| `("auto_release",)` | `escrow_id: u32` | `auto_release` |
+| `("create_escrow",)` | `escrow_id: u64` | `create_escrow` |
+| `("fund_escrow",)` | `escrow_id: u64` | `fund_escrow` |
+| `("confirm_delivery",)` | `escrow_id: u64` | `confirm_delivery` |
+| `("raise_dispute",)` | `(escrow_id: u64, evidence_hash: Bytes)` | `raise_dispute` |
+| `("resolve_dispute",)` | `(escrow_id: u64, release_to_seller: bool)` | `resolve_dispute` |
+| `("auto_release",)` | `escrow_id: u64` | `auto_release` |
+| `("delivery_recorded",)` | `(escrow_id: u64, delivered_at: u64)` | `record_delivery` |
+| `("escrow_shipped",)` | `(escrow_id: u64, tracking_id: String)` | `mark_shipped` |
+
+---
+
+## Timelock Permission Model
+
+All admin-level mutations (fee changes, upgrades, resolver registry changes, pause/unpause, TTL extension, token allowlist, the timelock delay itself) are guarded by an **admin timelock delay** (`DataKey::AdminTimelockDelay`, default 24 hours, configurable between 12 hours and 30 days). This enforces a two-step workflow:
+
+1. **Queue**: Admin calls `queue_<operation>(params)` to propose the change.
+   - Requires admin auth.
+   - A proposal record is created with:
+     - `proposer`: the admin that queued the operation
+     - `ready_at`: current timestamp + the current timelock delay (see [Timelock delay changes](#timelock-delay-changes))
+     - `params_hash`: domain-separated hash from `compute_proposal_hash` (below)
+   - Emits `emit_timelock_queued` event
+
+2. **Execute**: Once `ready_at` has passed, **any address** can call `execute_<operation>(caller, params)` — the admin, a keeper bot, a cron job (#1235). The admin's authorization was captured at queue time, so execution needs no admin signature. `execute_timelock_op` checks, in order:
+   - `caller.require_auth()` — the *executor* signs for its own address, so the recorded executor is authentic
+   - a proposal is queued for the operation, else `InvalidState`
+   - `now >= proposal.ready_at`, else `TimelockNotElapsed`
+   - `proposal.proposer` is the **current** admin, else `NotAuthorized` (a proposal from a rotated-out admin never executes)
+   - `compute_proposal_hash(operation, params)` equals `proposal.params_hash`, else `InvalidProposalHash`
+   - Deletes the proposal record, applies the operation, and emits `TimelockExecuted { proposer, executor, params, .. }`. `executor == proposer` means the admin executed it; `executor != proposer` means a keeper did.
+
+3. **Cancel**: The **current admin** can cancel any pending proposal via `cancel_timelock_op(operation)`.
+   - Requires admin auth; non-admin callers rejected with `NotAuthorized`
+   - Allows admins to cancel accidental, superseded, or orphaned proposals
+   - Emits `emit_timelock_cancelled` event
+
+### Permission Summary
+
+| Operation | Queue | Execute | Cancel |
+|---|---|---|---|
+| `queue_*` (any mutation) | Current admin | **Anyone** who signs for their own address, after `ready_at`, while the proposer is still admin | Current admin |
+| `cancel_timelock_op` | — | Current admin only (`require_auth` + admin check) | — |
+
+### Proposal hash (domain separation)
+
+`compute_proposal_hash(env, operation, params)` hashes
+`params.to_xdr() || current_contract_address().to_xdr() || (operation as u32).to_xdr()`
+with SHA-256 (#1236). Binding the hash to the contract address and the operation code means:
+
+- the same parameter vector queued for two different operations (e.g. `SetPlatformFee(50)` and `SetArbitrationFee(50)`) produces two different hashes;
+- a proposal record copied into, or replayed against, another escrow instance does not verify there.
+
+Both queue and execute use the same helper, and a mismatch is `InvalidProposalHash`.
+
+### Timelock delay changes
+
+`queue_set_timelock_delay(new_delay)` rejects values outside `MIN_TIMELOCK_DELAY_SECONDS..=MAX_TIMELOCK_DELAY_SECONDS` with `InvalidTimelockDelay`. Otherwise the change itself is queued with a delay of **`max(current_delay, new_delay)`** (#1238):
+
+- **Shortening** (e.g. 24h → 12h) still waits the full *current* 24h, so a briefly compromised admin key cannot collapse the timelock and push a malicious upgrade through the shorter window.
+- **Lengthening** (e.g. 24h → 72h) waits the new 72h.
+- Proposals already queued keep the `ready_at` they were queued with, so a reduction never shortens an in-flight countdown.
+
+Executing early reverts with `TimelockNotElapsed`.
+
+### Admin Rotation Scenario
+
+If the admin role is rotated before a proposal executes:
+
+- **Old admin** queued a proposal; **new admin** takes over
+- The old proposal is **orphaned**: nobody (keeper, new admin, old admin) can execute it, because its proposer is no longer the current admin (`NotAuthorized`)
+- **New admin** can cancel it via `cancel_timelock_op` to free the operation slot
+- **New admin** must queue their own proposal and wait the full delay
+
+### Implementation
+
+All timelock operations go through `queue_timelock_op` / `execute_timelock_op` in `contracts/escrow/src/admin.rs`:
+
+```rust
+caller.require_auth(); // executor, may be a keeper
+// ...
+if now < proposal.ready_at {
+    return Err(ContractError::TimelockNotElapsed);
+}
+let admin = require_admin(env)?;
+if proposal.proposer != admin {
+    return Err(ContractError::NotAuthorized);
+}
+if compute_proposal_hash(env, operation, &params) != proposal.params_hash {
+    return Err(ContractError::InvalidProposalHash);
+}
+```
+
+Selected admin entry points can additionally be paused one at a time with `pause_action`; see [ADMIN.md](ADMIN.md#pausable-admin-actions).
 
 ---
 
@@ -132,25 +439,29 @@ The contract never holds more than one escrow's tokens per escrow ID. Multiple c
 
 | Operation | Who must sign |
 |---|---|
-| `create_escrow` | `seller` |
-| `fund_escrow` | `buyer` |
+| `create_escrow` / `create_escrow_multi` / `create_escrow_with_fallback` / `create_basket_escrow` | `seller` |
+| `fund_escrow` / `fund_basket_escrow` | `buyer` |
 | `confirm_delivery` | `buyer` (retrieved from stored `EscrowData`) |
 | `raise_dispute` | `buyer` (retrieved from stored `EscrowData`) |
-| `resolve_dispute` | `resolver` (retrieved from stored `EscrowData`) |
+| `resolve_dispute` / `vote` | caller must be authorized by `EscrowData.resolvers` (any resolver for `Multi`, primary always or backup at/after its fallback deadline for `Fallback`, the single resolver for `Single`) |
+| `finalize_dispute` | No auth restriction beyond signing the transaction — permissionless once the appeal window has elapsed |
+| `appeal_dispute` | `buyer` or the first `payees` entry (seller), retrieved from stored `EscrowData` |
+| `add_approved_resolver` / `remove_approved_resolver` / `set_resolver_strict` | `admin` |
+| `record_delivery` | `admin` |
 | `auto_release` | No auth required — permissionless after window expires |
-| `get_escrow` | No auth required — read-only |
+| `get_escrow` / `get_resolver_votes` / `get_basket_tokens` | No auth required — read-only |
 
 ---
 
 ## Cross-Contract Interactions
 
+```mermaid
+flowchart LR
+    TLC[TrustLink Contract] -->|SEP-41 transfer / approve| TC[Token Contract]
+    TLC -.->|read-only| R[Resolver Registry]
+```
+
 TrustLink calls one external contract: the **token contract** at `EscrowData.token`. All token interactions use `soroban_sdk::token::Client`, which conforms to the SEP-41 interface. No other cross-contract calls are made.
-
-## Resolver schemes
-
-See [docs/resolvers.md](docs/resolvers.md) and
-[MULTI_RESOLVER_SCHEME.md](MULTI_RESOLVER_SCHEME.md) for single, M-of-N, and
-fallback resolver behavior, including deadline gating and deadlock risks.
 
 ---
 
@@ -159,12 +470,28 @@ fallback resolver behavior, including deadline gating and deadlock risks.
 ```
 trust-link-contract/
 ├── Cargo.toml                     — workspace manifest
+├── Makefile                       — developer commands
 ├── ARCHITECTURE.md                — this file
 ├── README.md
+├── bindings/                      — TypeScript bindings
+│   ├── package.json
+│   └── src/
 └── contracts/
     └── escrow/
         ├── Cargo.toml
+        ├── fuzz/                  — fuzz testing targets
+        ├── tests/                 — integration tests
         └── src/
-            ├── lib.rs             — contract implementation
-            └── test.rs            — unit and integration tests
+            ├── lib.rs             — module wiring, re-exports, constants, the `Escrow` contract type
+            ├── instructions.rs    — creation/funding/delivery/cancellation/batch entry points
+            ├── admin.rs           — pause, fees, upgrades, token allowlist, resolver registry
+            ├── disputes.rs        — raise/vote/finalize/appeal entry points
+            ├── queries.rs         — read-only views over escrow/fee/contract state
+            ├── internal.rs        — shared private helpers (storage, validation, fee math)
+            ├── types.rs           — data types and keys
+            ├── errors.rs          — error codes
+            ├── events.rs          — event helpers
+            ├── storage.rs         — storage helpers
+            ├── helpers/           — payout calculations
+            └── test*.rs           — unit tests (60+ files)
 ```

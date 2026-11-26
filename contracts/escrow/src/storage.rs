@@ -1,30 +1,370 @@
-use soroban_sdk::{contracttype, Address, Env, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
-use crate::{DataKey, EscrowData, FeeConfig};
+use crate::types::{EvidenceEntry, Message};
+use crate::{
+    ContractError, DataKey, EscrowData, FeeConfig, GlobalConfig, TimelockProposal,
+    DEFAULT_APPEAL_FEE_BPS, DEFAULT_DISPUTE_TIMEOUT, DEFAULT_TTL_EXTENSION, MAX_ESCROW_AMOUNT,
+    MIN_ESCROW_AMOUNT, TTL_THRESHOLD_DIVISOR,
+};
 
-/// Number of escrow IDs stored in each user index page. Page zero contains IDs
-/// `[0, PAGE_SIZE)`, page one `[PAGE_SIZE, 2 * PAGE_SIZE)`, and so on. Buyer
-/// and vendor pages use different DataKey variants, so equal addresses and
-/// page numbers can never alias.
-pub const PAGE_SIZE: u64 = 10;
-
-/// Default TTL extension (in ledgers) for persistent storage entries.
-/// This matches the value used in lib.rs to ensure consistent behavior.
-const DEFAULT_TTL_EXTENSION: u32 = 120_960;
+// ============================================================================
+// TTL CONSTANTS — documented here as the canonical reference.
+//
+// DEFAULT_TTL_EXTENSION (120_960 ledgers ≈ 13.7 days at 10 s/ledger) is the
+// fallback used when no admin-configured value exists in instance storage.
+// The threshold for triggering an extension is always set to
+// `ext / TTL_THRESHOLD_DIVISOR` so that the key is kept alive as long as it
+// continues to be accessed before crossing the configured threshold.
+//
+// Both instance and persistent entries use the same value so that all storage
+// tiers expire on the same schedule.  Admins can override the value via
+// `set_ttl_extension`.
+// ============================================================================
 
 /// Get the configured TTL extension from the contract, or use the default.
-fn get_ttl_extension(env: &Env) -> u32 {
-    use crate::DataKey;
+pub fn get_ttl_extension(env: &Env) -> u32 {
+    read_global_config(env).ttl_extension_ledgers
+}
+
+// ── Global admin configuration ──────────────────────────────────────────────
+
+/// Configuration a contract has before any admin setting is written. Each
+/// value matches what the matching pre-v2 key fell back to when absent.
+///
+/// `min_amount`/`max_amount` here are the *defaults* taken from
+/// [`MIN_ESCROW_AMOUNT`]/[`MAX_ESCROW_AMOUNT`]. Once written, the stored
+/// `GlobalConfig` is the canonical source of the amount bounds — the constants
+/// are not consulted during validation.
+pub fn default_global_config() -> GlobalConfig {
+    GlobalConfig {
+        fee_collector: None,
+        treasury: None,
+        protocol_fee_bps: 0,
+        arbitration_fee_bps: 0,
+        platform_fee_bps: 0,
+        appeal_fee_bps: DEFAULT_APPEAL_FEE_BPS,
+        min_amount: MIN_ESCROW_AMOUNT,
+        max_amount: MAX_ESCROW_AMOUNT,
+        dispute_timeout: DEFAULT_DISPUTE_TIMEOUT,
+        ttl_extension_ledgers: DEFAULT_TTL_EXTENSION,
+        state_flags: 0,
+    }
+}
+
+/// Reads the global configuration in one storage access.
+///
+/// Falls back to assembling it from the pre-v2 per-setting keys for
+/// contracts that were upgraded but have not yet run `migrate`; the first
+/// write after that persists the combined entry.
+pub fn read_global_config(env: &Env) -> GlobalConfig {
     env.storage()
         .instance()
-        .get(&DataKey::TtlExtensionLedgers)
-        .unwrap_or(DEFAULT_TTL_EXTENSION)
+        .get(&DataKey::GlobalConfig)
+        .unwrap_or_else(|| read_legacy_global_config(env))
+}
+
+pub fn write_global_config(env: &Env, config: &GlobalConfig) {
+    env.storage().instance().set(&DataKey::GlobalConfig, config);
+}
+
+/// Read-modify-write of the global configuration.
+pub fn update_global_config(env: &Env, f: impl FnOnce(&mut GlobalConfig)) {
+    let mut config = read_global_config(env);
+    f(&mut config);
+    write_global_config(env, &config);
+}
+
+/// Registered merchant discount in basis points (0 when unset).
+pub fn merchant_fee_discount_bps(env: &Env, merchant: &Address) -> u32 {
+    env.storage()
+        .instance()
+        .get(&crate::DataKey::MerchantFeeTier(merchant.clone()))
+        .unwrap_or(0)
+}
+
+pub fn write_merchant_fee_tier(env: &Env, merchant: &Address, discount_bps: u32) {
+    let key = crate::DataKey::MerchantFeeTier(merchant.clone());
+    if discount_bps == 0 {
+        env.storage().instance().remove(&key);
+    } else {
+        env.storage().instance().set(&key, &discount_bps);
+    }
+}
+
+/// Fee collector required for settlement paths that accrue or move protocol fees.
+pub fn require_fee_collector(env: &Env) -> Result<Address, ContractError> {
+    read_global_config(env)
+        .fee_collector
+        .ok_or(ContractError::NotInitialized)
+}
+
+/// Treasury is optional; platform fees are skipped when unset.
+pub fn get_treasury_address(env: &Env) -> Option<Address> {
+    read_global_config(env).treasury
+}
+
+// ── Accumulated protocol fees (pull pattern) ────────────────────────────────
+
+/// Returns the accumulated unclaimed protocol fees for `token`.
+pub fn read_accumulated_fees(env: &Env, token: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::AccumulatedFees(token.clone()))
+        .unwrap_or(0)
+}
+
+/// Credits `amount` to `DataKey::AccumulatedFees(token)` for later pull
+/// withdrawal by the configured fee collector.
+pub fn add_accumulated_fee(env: &Env, token: &Address, amount: i128) -> Result<(), ContractError> {
+    if amount <= 0 {
+        return Ok(());
+    }
+    let key = DataKey::AccumulatedFees(token.clone());
+    let current: i128 = env.storage().instance().get(&key).unwrap_or(0);
+    let updated = current
+        .checked_add(amount)
+        .ok_or(ContractError::FeeCalculationOverflow)?;
+    env.storage().instance().set(&key, &updated);
+    Ok(())
+}
+
+/// Atomically reads and zeroes out `DataKey::AccumulatedFees(token)`.
+pub fn take_accumulated_fees(env: &Env, token: &Address) -> i128 {
+    let key = DataKey::AccumulatedFees(token.clone());
+    let amount: i128 = env.storage().instance().get(&key).unwrap_or(0);
+    if amount > 0 {
+        env.storage().instance().set(&key, &0i128);
+    }
+    amount
+}
+
+/// Pre-v2 keys whose values now live in [`GlobalConfig`].
+fn legacy_global_config_keys() -> [DataKey; 13] {
+    [
+        DataKey::FeeCollector,
+        DataKey::Treasury,
+        DataKey::FeeConfig,
+        DataKey::PlatformFeeBps,
+        DataKey::AppealFeeBps,
+        DataKey::MinAmount,
+        DataKey::MaxAmount,
+        DataKey::DisputeTimeout,
+        DataKey::TtlExtensionLedgers,
+        DataKey::Paused,
+        DataKey::TokenAllowlistEnabled,
+        DataKey::ResolverStrict,
+        DataKey::RecoveryMode,
+    ]
+}
+
+fn read_legacy_global_config(env: &Env) -> GlobalConfig {
+    let storage = env.storage().instance();
+    let defaults = default_global_config();
+    let fees: Option<FeeConfig> = storage.get(&DataKey::FeeConfig);
+    let paused = storage
+        .get(&DataKey::Paused)
+        .unwrap_or(defaults.state_flags & crate::types::GLOBAL_CONFIG_FLAG_PAUSED != 0);
+    let token_allowlist_enabled = storage.get(&DataKey::TokenAllowlistEnabled).unwrap_or(
+        defaults.state_flags & crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED != 0,
+    );
+    let resolver_strict = storage
+        .get(&DataKey::ResolverStrict)
+        .unwrap_or(defaults.state_flags & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT != 0);
+    let recovery_mode = storage
+        .get(&DataKey::RecoveryMode)
+        .unwrap_or(defaults.state_flags & crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE != 0);
+
+    let mut state_flags = 0u32;
+    if paused {
+        state_flags |= crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+    }
+    if token_allowlist_enabled {
+        state_flags |= crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+    }
+    if resolver_strict {
+        state_flags |= crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
+    }
+    if recovery_mode {
+        state_flags |= crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE;
+    }
+
+    GlobalConfig {
+        fee_collector: storage.get(&DataKey::FeeCollector),
+        treasury: storage.get(&DataKey::Treasury),
+        protocol_fee_bps: fees.as_ref().map_or(0, |f| f.protocol_fee_bps),
+        arbitration_fee_bps: fees.map_or(0, |f| f.arbitration_fee_bps),
+        platform_fee_bps: storage
+            .get(&DataKey::PlatformFeeBps)
+            .unwrap_or(defaults.platform_fee_bps),
+        appeal_fee_bps: storage
+            .get(&DataKey::AppealFeeBps)
+            .unwrap_or(defaults.appeal_fee_bps),
+        min_amount: storage
+            .get(&DataKey::MinAmount)
+            .unwrap_or(defaults.min_amount),
+        max_amount: storage
+            .get(&DataKey::MaxAmount)
+            .unwrap_or(defaults.max_amount),
+        dispute_timeout: storage
+            .get(&DataKey::DisputeTimeout)
+            .unwrap_or(defaults.dispute_timeout),
+        ttl_extension_ledgers: storage
+            .get(&DataKey::TtlExtensionLedgers)
+            .unwrap_or(defaults.ttl_extension_ledgers),
+        state_flags,
+    }
+}
+
+/// v1 -> v2 migration step: folds the per-setting keys into a single
+/// [`DataKey::GlobalConfig`] entry and deletes them. If `GlobalConfig`
+/// already exists (a setter ran after the upgrade), it is authoritative and
+/// the stale legacy keys are just removed.
+pub fn migrate_legacy_global_config(env: &Env) {
+    let config = read_global_config(env);
+    write_global_config(env, &config);
+    let storage = env.storage().instance();
+    for key in legacy_global_config_keys() {
+        storage.remove(&key);
+    }
+}
+
+/// Extend the instance-storage TTL.
+///
+/// Called on every public entry point so the singleton configuration keys
+/// (Admin, `FeeConfig`, `EscrowCounter`, etc.) never expire between interactions.
+pub fn extend_instance_ttl(env: &Env) {
+    let ext = get_ttl_extension(env);
+    env.storage()
+        .instance()
+        .extend_ttl(ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
 /// Helper to extend TTL on a persistent storage key.
-fn extend_ttl_for_key(env: &Env, key: &StorageKey) {
+fn extend_ttl_for_key(env: &Env, key: &DataKey) {
     let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(key, ext / TTL_THRESHOLD_DIVISOR, ext);
+}
+
+// ── Messages, stored one-per-key for true pagination ────────────────────────
+
+/// Number of messages stored for `escrow_id`.
+///
+/// Falls back to the pre-paging `Messages(escrow_id)` vector's length for
+/// contracts written before paging existed.
+pub fn read_message_count(env: &Env, escrow_id: u64) -> u32 {
+    let key = DataKey::MessageCount(escrow_id);
+    let count: u32 = env.storage().persistent().get(&key).unwrap_or(0);
+    if count == 0 {
+        let legacy_key = DataKey::Messages(escrow_id);
+        if let Some(legacy) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Vec<Message>>(&legacy_key)
+        {
+            return legacy.len();
+        }
+    }
+    count
+}
+
+/// Reads the single message stored at `Message(escrow_id, index)`, if any.
+/// This is the targeted read that makes `get_messages` pagination cheap: only
+/// the requested page's slots are deserialised, never the full thread.
+pub fn read_message_at(env: &Env, escrow_id: u64, index: u32) -> Option<Message> {
+    let key = DataKey::Message(escrow_id, index);
+    if let Some(message) = env.storage().persistent().get::<DataKey, Message>(&key) {
+        extend_ttl_for_key(env, &key);
+        return Some(message);
+    }
+    // Backward compatibility with the monolithic layout.
+    let legacy_key = DataKey::Messages(escrow_id);
+    env.storage()
+        .persistent()
+        .get::<DataKey, Vec<Message>>(&legacy_key)
+        .and_then(|legacy| legacy.get(index))
+}
+
+/// Appends `message` as the next indexed entry for `escrow_id`, rejecting once
+/// `cap` messages already exist. Only the new key and the count are written.
+pub fn append_message(
+    env: &Env,
+    escrow_id: u64,
+    message: &Message,
+    cap: u32,
+) -> Result<(), ContractError> {
+    migrate_legacy_messages(env, escrow_id);
+    let count_key = DataKey::MessageCount(escrow_id);
+    let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+    if count >= cap {
+        return Err(ContractError::TooManyMessages);
+    }
+    let key = DataKey::Message(escrow_id, count);
+    env.storage().persistent().set(&key, message);
+    extend_ttl_for_key(env, &key);
+    env.storage().persistent().set(&count_key, &(count + 1));
+    extend_ttl_for_key(env, &count_key);
+    Ok(())
+}
+
+// ── Dispute evidence log ────────────────────────────────────────────────────
+
+/// Reads the evidence log for `escrow_id` (empty if nothing was submitted).
+pub fn read_evidence_log(env: &Env, escrow_id: u64) -> Vec<EvidenceEntry> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EvidenceLog(escrow_id))
+        .unwrap_or(Vec::new(env))
+}
+
+/// Appends `entry` to the evidence log for `escrow_id`, rejecting with
+/// `EvidenceLimitReached` once `cap` entries already exist. Returns the new
+/// number of entries.
+pub fn append_evidence(
+    env: &Env,
+    escrow_id: u64,
+    entry: &EvidenceEntry,
+    cap: u32,
+) -> Result<u32, ContractError> {
+    let key = DataKey::EvidenceLog(escrow_id);
+    let mut log = read_evidence_log(env, escrow_id);
+    if log.len() >= cap {
+        return Err(ContractError::EvidenceLimitReached);
+    }
+    log.push_back(entry.clone());
+    env.storage().persistent().set(&key, &log);
+    extend_ttl_for_key(env, &key);
+    Ok(log.len())
+}
+
+/// One-time relocation of `escrow_id`'s messages from the pre-paging vector
+/// into per-index keys, so an upgraded contract keeps its thread and can keep
+/// appending.
+fn migrate_legacy_messages(env: &Env, escrow_id: u64) {
+    let count_key = DataKey::MessageCount(escrow_id);
+    if env.storage().persistent().has(&count_key) {
+        return;
+    }
+    let legacy_key = DataKey::Messages(escrow_id);
+    if !env.storage().persistent().has(&legacy_key) {
+        return;
+    }
+    let legacy: Vec<Message> = env
+        .storage()
+        .persistent()
+        .get(&legacy_key)
+        .unwrap_or(Vec::new(env));
+    let mut index: u32 = 0;
+    for message in legacy.iter() {
+        let key = DataKey::Message(escrow_id, index);
+        env.storage().persistent().set(&key, &message);
+        extend_ttl_for_key(env, &key);
+        index += 1;
+    }
+    env.storage().persistent().set(&count_key, &index);
+    extend_ttl_for_key(env, &count_key);
+    env.storage().persistent().remove(&legacy_key);
 }
 
 /// Typed keys for all contract storage entries.
@@ -33,145 +373,372 @@ fn extend_ttl_for_key(env: &Env, key: &StorageKey) {
 /// - Instance keys store singleton/global configuration and counters.
 /// - Persistent keys store per-escrow data and user indexes that must survive
 ///   contract instance TTL changes.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum StorageKey {
-    // Instance storage: global singleton values.
-    /// Stores the current admin address responsible for contract administration.
-    AdminAddress,
-    /// Stores the global fee configuration (protocol_fee_bps, arbitration_fee_bps).
-    FeeConfig,
-    /// Stores the monotonically incrementing counter used to generate unique escrow IDs.
-    EscrowCounter,
-
-    // Persistent storage: large, append-only, or user-scoped records.
-    /// Stores complete escrow data (seller, buyer, token, amount, state, etc.) by escrow ID.
-    EscrowData(u64),
-    /// Stores list of escrow IDs associated with a vendor (seller) address for easy lookup.
-    VendorEscrowIndex(Address),
-    /// Stores list of escrow IDs associated with a buyer address for easy lookup.
-    BuyerEscrowIndex(Address),
-}
-
+///
+/// Storage helpers use the unified `DataKey` enum defined in `types.rs`.
 pub fn write_admin_address(env: &Env, admin: &Address) {
-    env.storage()
-        .instance()
-        .set(&StorageKey::AdminAddress, admin);
+    env.storage().instance().set(&DataKey::Admin, admin);
 }
 
 pub fn read_admin_address(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&StorageKey::AdminAddress)
+    env.storage().instance().get(&DataKey::Admin)
 }
 
 pub fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
-    env.storage()
-        .instance()
-        .set(&StorageKey::FeeConfig, fee_config);
+    update_global_config(env, |c| {
+        c.protocol_fee_bps = fee_config.protocol_fee_bps;
+        c.arbitration_fee_bps = fee_config.arbitration_fee_bps;
+    });
 }
 
-pub fn read_fee_config(env: &Env) -> Option<FeeConfig> {
-    env.storage().instance().get(&StorageKey::FeeConfig)
+pub fn read_fee_config(env: &Env) -> FeeConfig {
+    let config = read_global_config(env);
+    FeeConfig {
+        protocol_fee_bps: config.protocol_fee_bps,
+        arbitration_fee_bps: config.arbitration_fee_bps,
+    }
 }
 
 pub fn write_escrow_counter(env: &Env, counter: u64) {
     env.storage()
         .instance()
-        .set(&StorageKey::EscrowCounter, &counter);
+        .set(&DataKey::EscrowCounter, &counter);
 }
 
 pub fn read_escrow_counter(env: &Env) -> u64 {
     env.storage()
         .instance()
-        .get(&StorageKey::EscrowCounter)
+        .get(&DataKey::EscrowCounter)
         .unwrap_or(0)
 }
 
 pub fn write_escrow_data(env: &Env, escrow_id: u64, escrow: &EscrowData) {
-    let key = StorageKey::EscrowData(escrow_id);
+    let key = DataKey::Escrow(escrow_id);
     env.storage().persistent().set(&key, escrow);
     extend_ttl_for_key(env, &key);
 }
 
 pub fn read_escrow_data(env: &Env, escrow_id: u64) -> Option<EscrowData> {
-    env.storage()
+    let key = DataKey::Escrow(escrow_id); // Ensure this matches DataKey enum
+    let result = env.storage().persistent().get(&key);
+    if result.is_some() {
+        extend_ttl_for_key(env, &key);
+    }
+    result
+}
+
+fn page_count(total: u32) -> u32 {
+    total.div_ceil(crate::ESCROW_INDEX_PAGE_SIZE)
+}
+
+fn read_index_count(env: &Env, key: &DataKey) -> u32 {
+    env.storage().persistent().get(key).unwrap_or(0)
+}
+
+// ── Vendor (seller) escrow index, sharded into fixed-size pages ──────────────
+
+/// Appends `escrow_id` to `vendor`'s paged escrow index, touching only the
+/// current tail page instead of rewriting the whole index.
+pub fn append_vendor_escrow_index(env: &Env, vendor: &Address, escrow_id: u64) {
+    migrate_legacy_vendor_index(env, vendor);
+    let count = read_index_count(env, &DataKey::VendorEscrowCount(vendor.clone()));
+    let page_key = DataKey::VendorEscrow(vendor.clone(), count / crate::ESCROW_INDEX_PAGE_SIZE);
+    let mut page: Vec<u64> = env
+        .storage()
         .persistent()
-        .get(&StorageKey::EscrowData(escrow_id))
-}
+        .get(&page_key)
+        .unwrap_or(Vec::new(env));
+    page.push_back(escrow_id);
+    env.storage().persistent().set(&page_key, &page);
+    extend_ttl_for_key(env, &page_key);
 
-pub fn write_vendor_escrow_index(env: &Env, vendor: &Address, escrow_ids: &Vec<u64>) {
-    let key = StorageKey::VendorEscrowIndex(vendor.clone());
-    env.storage().persistent().set(&key, escrow_ids);
-    extend_ttl_for_key(env, &key);
-}
-
-pub fn read_vendor_escrow_index(env: &Env, vendor: &Address) -> Vec<u64> {
-    env.storage()
-        .persistent()
-        .get(&StorageKey::VendorEscrowIndex(vendor.clone()))
-        .unwrap_or(Vec::new(env))
-}
-
-pub fn write_buyer_escrow_index(env: &Env, buyer: &Address, escrow_ids: &Vec<u64>) {
-    let key = StorageKey::BuyerEscrowIndex(buyer.clone());
-    env.storage().persistent().set(&key, escrow_ids);
-    extend_ttl_for_key(env, &key);
-}
-
-pub fn read_buyer_escrow_index(env: &Env, buyer: &Address) -> Vec<u64> {
-    env.storage()
-        .persistent()
-        .get(&StorageKey::BuyerEscrowIndex(buyer.clone()))
-        .unwrap_or(Vec::new(env))
-}
-
-fn append_paged_index(env: &Env, user: &Address, escrow_id: u64, buyer: bool) {
-    let count_key = if buyer {
-        DataKey::BuyerEscrowCount(user.clone())
-    } else {
-        DataKey::VendorEscrowCount(user.clone())
-    };
-    let count: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
-    let page = count / PAGE_SIZE;
-    let page_key = if buyer {
-        DataKey::BuyerEscrow(user.clone(), page as u32)
-    } else {
-        DataKey::VendorEscrow(user.clone(), page as u32)
-    };
-    let mut ids: Vec<u64> = env.storage().persistent().get(&page_key).unwrap_or(Vec::new(env));
-    ids.push_back(escrow_id);
-    env.storage().persistent().set(&page_key, &ids);
+    let count_key = DataKey::VendorEscrowCount(vendor.clone());
     env.storage().persistent().set(&count_key, &(count + 1));
-    let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(&page_key, ext / 2, ext);
-    env.storage().persistent().extend_ttl(&count_key, ext / 2, ext);
+    extend_ttl_for_key(env, &count_key);
 }
 
-/// Append to the buyer namespace and its independent counter.
-pub fn append_buyer_escrow(env: &Env, buyer: &Address, escrow_id: u64) {
-    append_paged_index(env, buyer, escrow_id, true);
+/// Total number of escrow ids indexed for `vendor`.
+pub fn read_vendor_escrow_count(env: &Env, vendor: &Address) -> u32 {
+    read_index_count(env, &DataKey::VendorEscrowCount(vendor.clone()))
 }
 
-/// Append to the vendor namespace and its independent counter.
-pub fn append_vendor_escrow(env: &Env, vendor: &Address, escrow_id: u64) {
-    append_paged_index(env, vendor, escrow_id, false);
+/// Reads every escrow id indexed for `vendor`, reassembling the pages in order.
+pub fn read_vendor_escrow_index(env: &Env, vendor: &Address) -> Vec<u64> {
+    let count = read_vendor_escrow_count(env, vendor);
+    if count == 0 {
+        return read_legacy_vendor_index(env, vendor);
+    }
+    let mut result = Vec::new(env);
+    let mut page_idx = 0;
+    while page_idx < page_count(count) {
+        let key = DataKey::VendorEscrow(vendor.clone(), page_idx);
+        if let Some(page) = env.storage().persistent().get::<DataKey, Vec<u64>>(&key) {
+            for id in page.iter() {
+                result.push_back(id);
+            }
+            extend_ttl_for_key(env, &key);
+        }
+        page_idx += 1;
+    }
+    result
 }
 
-pub fn read_paged_index(env: &Env, user: &Address, page: u32, buyer: bool) -> Vec<u64> {
-    let key = if buyer {
-        DataKey::BuyerEscrow(user.clone(), page)
-    } else {
-        DataKey::VendorEscrow(user.clone(), page)
-    };
-    env.storage().persistent().get(&key).unwrap_or(Vec::new(env))
+/// Reads at most `limit` ids of `vendor`'s index starting at offset `start`
+/// (ascending, oldest first). Only the pages overlapping the window are loaded,
+/// so cost is proportional to the page size rather than the whole index.
+pub fn read_vendor_escrow_index_page(
+    env: &Env,
+    vendor: &Address,
+    start: u64,
+    limit: u64,
+) -> Vec<u64> {
+    let count = read_vendor_escrow_count(env, vendor);
+    let mut result = Vec::new(env);
+    if count == 0 {
+        // Pre-sharding deployments still hold a single flat vector.
+        let legacy = read_legacy_vendor_index(env, vendor);
+        let total = u64::from(legacy.len());
+        let end = start.saturating_add(limit).min(total);
+        let mut i = start;
+        while i < end {
+            let Ok(index) = u32::try_from(i) else { break };
+            if let Some(id) = legacy.get(index) {
+                result.push_back(id);
+            }
+            i += 1;
+        }
+        return result;
+    }
+    let total = u64::from(count);
+    if start >= total || limit == 0 {
+        return result;
+    }
+    let end = start.saturating_add(limit).min(total);
+    let page_size = u64::from(crate::ESCROW_INDEX_PAGE_SIZE);
+    let mut i = start;
+    while i < end {
+        let Ok(page_idx) = u32::try_from(i / page_size) else {
+            break;
+        };
+        let key = DataKey::VendorEscrow(vendor.clone(), page_idx);
+        let page_end = ((i / page_size) + 1) * page_size;
+        if let Some(page) = env.storage().persistent().get::<DataKey, Vec<u64>>(&key) {
+            extend_ttl_for_key(env, &key);
+            let mut j = i;
+            while j < end.min(page_end) {
+                // `j % page_size` is below the u32 page size.
+                let Ok(offset) = u32::try_from(j % page_size) else {
+                    break;
+                };
+                if let Some(id) = page.get(offset) {
+                    result.push_back(id);
+                }
+                j += 1;
+            }
+        }
+        i = end.min(page_end);
+    }
+    result
 }
 
-pub fn read_paged_index_count(env: &Env, user: &Address, buyer: bool) -> u64 {
-    let key = if buyer {
-        DataKey::BuyerEscrowCount(user.clone())
-    } else {
-        DataKey::VendorEscrowCount(user.clone())
-    };
-    env.storage().persistent().get(&key).unwrap_or(0)
+/// Overwrites `vendor`'s index with `escrow_ids`, re-sharding it into pages.
+pub fn write_vendor_escrow_index(env: &Env, vendor: &Address, escrow_ids: &Vec<u64>) {
+    clear_pages(
+        env,
+        |page| DataKey::VendorEscrow(vendor.clone(), page),
+        read_vendor_escrow_count(env, vendor),
+    );
+    write_pages(
+        env,
+        |page| DataKey::VendorEscrow(vendor.clone(), page),
+        &DataKey::VendorEscrowCount(vendor.clone()),
+        escrow_ids,
+    );
+}
+
+fn read_legacy_vendor_index(env: &Env, vendor: &Address) -> Vec<u64> {
+    let key = DataKey::VendorEscrowIndex(vendor.clone());
+    let result: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env));
+    if env.storage().persistent().has(&key) {
+        extend_ttl_for_key(env, &key);
+    }
+    result
+}
+
+/// Moves a pre-paging `VendorEscrowIndex(addr)` vector into the paged layout on
+/// first write, so upgraded contracts keep their existing index.
+fn migrate_legacy_vendor_index(env: &Env, vendor: &Address) {
+    if read_vendor_escrow_count(env, vendor) != 0 {
+        return;
+    }
+    let legacy_key = DataKey::VendorEscrowIndex(vendor.clone());
+    if !env.storage().persistent().has(&legacy_key) {
+        return;
+    }
+    let legacy: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&legacy_key)
+        .unwrap_or(Vec::new(env));
+    write_vendor_escrow_index(env, vendor, &legacy);
+    env.storage().persistent().remove(&legacy_key);
+}
+
+// ── Buyer escrow index, sharded into fixed-size pages ───────────────────────
+
+/// Appends `escrow_id` to `buyer`'s paged escrow index.
+pub fn append_buyer_escrow_index(env: &Env, buyer: &Address, escrow_id: u64) {
+    migrate_legacy_buyer_index(env, buyer);
+    let count = read_index_count(env, &DataKey::BuyerEscrowCount(buyer.clone()));
+    let page_key = DataKey::BuyerEscrow(buyer.clone(), count / crate::ESCROW_INDEX_PAGE_SIZE);
+    let mut page: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&page_key)
+        .unwrap_or(Vec::new(env));
+    page.push_back(escrow_id);
+    env.storage().persistent().set(&page_key, &page);
+    extend_ttl_for_key(env, &page_key);
+
+    let count_key = DataKey::BuyerEscrowCount(buyer.clone());
+    env.storage().persistent().set(&count_key, &(count + 1));
+    extend_ttl_for_key(env, &count_key);
+}
+
+/// Total number of escrow ids indexed for `buyer`.
+pub fn read_buyer_escrow_count(env: &Env, buyer: &Address) -> u32 {
+    read_index_count(env, &DataKey::BuyerEscrowCount(buyer.clone()))
+}
+
+/// Reads every escrow id indexed for `buyer`, reassembling the pages in order.
+pub fn read_buyer_escrow_index(env: &Env, buyer: &Address) -> Vec<u64> {
+    let count = read_buyer_escrow_count(env, buyer);
+    if count == 0 {
+        return read_legacy_buyer_index(env, buyer);
+    }
+    let mut result = Vec::new(env);
+    let mut page_idx = 0;
+    while page_idx < page_count(count) {
+        let key = DataKey::BuyerEscrow(buyer.clone(), page_idx);
+        if let Some(page) = env.storage().persistent().get::<DataKey, Vec<u64>>(&key) {
+            for id in page.iter() {
+                result.push_back(id);
+            }
+            extend_ttl_for_key(env, &key);
+        }
+        page_idx += 1;
+    }
+    result
+}
+
+/// Overwrites `buyer`'s index with `escrow_ids`, re-sharding it into pages.
+pub fn write_buyer_escrow_index(env: &Env, buyer: &Address, escrow_ids: &Vec<u64>) {
+    clear_pages(
+        env,
+        |page| DataKey::BuyerEscrow(buyer.clone(), page),
+        read_buyer_escrow_count(env, buyer),
+    );
+    write_pages(
+        env,
+        |page| DataKey::BuyerEscrow(buyer.clone(), page),
+        &DataKey::BuyerEscrowCount(buyer.clone()),
+        escrow_ids,
+    );
+}
+
+fn read_legacy_buyer_index(env: &Env, buyer: &Address) -> Vec<u64> {
+    let key = DataKey::BuyerEscrowIndex(buyer.clone());
+    let result: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env));
+    if env.storage().persistent().has(&key) {
+        extend_ttl_for_key(env, &key);
+    }
+    result
+}
+
+/// Moves a pre-paging `BuyerEscrowIndex(addr)` vector into the paged layout on
+/// first write.
+fn migrate_legacy_buyer_index(env: &Env, buyer: &Address) {
+    if read_buyer_escrow_count(env, buyer) != 0 {
+        return;
+    }
+    let legacy_key = DataKey::BuyerEscrowIndex(buyer.clone());
+    if !env.storage().persistent().has(&legacy_key) {
+        return;
+    }
+    let legacy: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&legacy_key)
+        .unwrap_or(Vec::new(env));
+    write_buyer_escrow_index(env, buyer, &legacy);
+    env.storage().persistent().remove(&legacy_key);
+}
+
+/// Removes every page belonging to an index whose previous entry count was
+/// `count`, so a rewrite can't leave stale tail pages behind.
+fn clear_pages(env: &Env, page_key: impl Fn(u32) -> DataKey, count: u32) {
+    if count == 0 {
+        return;
+    }
+    let mut page_idx = 0;
+    while page_idx < page_count(count) {
+        env.storage().persistent().remove(&page_key(page_idx));
+        page_idx += 1;
+    }
+}
+
+/// Writes `ids` into fixed-size pages and stores the total count under
+/// `count_key`.
+fn write_pages(env: &Env, page_key: impl Fn(u32) -> DataKey, count_key: &DataKey, ids: &Vec<u64>) {
+    let total = ids.len();
+    let mut i = 0;
+    let mut page_idx = 0;
+    while i < total {
+        let mut page = Vec::new(env);
+        let mut in_page = 0;
+        while in_page < crate::ESCROW_INDEX_PAGE_SIZE && i < total {
+            if let Some(id) = ids.get(i) {
+                page.push_back(id);
+            }
+            i += 1;
+            in_page += 1;
+        }
+        let key = page_key(page_idx);
+        env.storage().persistent().set(&key, &page);
+        extend_ttl_for_key(env, &key);
+        page_idx += 1;
+    }
+    env.storage().persistent().set(count_key, &total);
+    extend_ttl_for_key(env, count_key);
+}
+
+pub fn write_timelock_proposal(env: &Env, operation: u32, proposal: &TimelockProposal) {
+    let key = DataKey::TimelockOp(operation);
+    env.storage().instance().set(&key, proposal);
+    extend_instance_ttl(env);
+}
+
+pub fn read_timelock_proposal(env: &Env, operation: u32) -> Option<TimelockProposal> {
+    let key = DataKey::TimelockOp(operation);
+    let result: Option<TimelockProposal> = env.storage().instance().get(&key);
+    if result.is_some() {
+        extend_instance_ttl(env);
+    }
+    result
+}
+
+pub fn remove_timelock_proposal(env: &Env, operation: u32) {
+    let key = DataKey::TimelockOp(operation);
+    if env.storage().instance().has(&key) {
+        env.storage().instance().remove(&key);
+    }
 }
 
 #[cfg(test)]
@@ -228,34 +795,32 @@ mod tests {
     }
 
     #[test]
-    fn paged_buyer_and_vendor_indexes_are_isolated_at_rollover() {
+    fn unified_key_enum_no_collision_between_buyer_and_vendor() {
         let env = Env::default();
         let contract_id = env.register(Escrow, ());
-        let user = Address::generate(&env);
+        let addr = Address::generate(&env);
+
+        let mut vendor_ids = Vec::new(&env);
+        vendor_ids.push_back(10u64);
+
+        let mut buyer_ids = Vec::new(&env);
+        buyer_ids.push_back(20u64);
+
         env.as_contract(&contract_id, || {
-            for id in 1..=20u64 {
-                append_buyer_escrow(&env, &user, id);
-                append_vendor_escrow(&env, &user, id + 100);
-            }
+            write_vendor_escrow_index(&env, &addr, &vendor_ids);
+            write_buyer_escrow_index(&env, &addr, &buyer_ids);
         });
 
-        let (buyers, vendors, buyer_count, vendor_count) = env.as_contract(&contract_id, || {
-            (
-                (read_paged_index(&env, &user, 0, true), read_paged_index(&env, &user, 1, true)),
-                (read_paged_index(&env, &user, 0, false), read_paged_index(&env, &user, 1, false)),
-                read_paged_index_count(&env, &user, true),
-                read_paged_index_count(&env, &user, false),
-            )
-        });
-        assert_eq!(buyers.0.len(), 10);
-        assert_eq!(buyers.1.len(), 10);
-        assert_eq!(vendors.0.len(), 10);
-        assert_eq!(vendors.1.len(), 10);
-        assert_eq!(buyers.0.get(0), Some(1));
-        assert_eq!(buyers.1.get(0), Some(11));
-        assert_eq!(vendors.0.get(0), Some(101));
-        assert_eq!(vendors.1.get(0), Some(111));
-        assert_eq!(buyer_count, 20);
-        assert_eq!(vendor_count, 20);
+        let got_vendor = env.as_contract(&contract_id, || read_vendor_escrow_index(&env, &addr));
+        let got_buyer = env.as_contract(&contract_id, || read_buyer_escrow_index(&env, &addr));
+
+        assert_eq!(
+            got_vendor, vendor_ids,
+            "VendorEscrowIndex and BuyerEscrowIndex must not collide for the same address"
+        );
+        assert_eq!(
+            got_buyer, buyer_ids,
+            "BuyerEscrowIndex must be independent of VendorEscrowIndex"
+        );
     }
 }

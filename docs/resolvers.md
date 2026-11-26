@@ -1,50 +1,52 @@
 # Resolver schemes
 
-TrustLink stores one resolver address per escrow. The resolver is consulted
-only for disputes; normal delivery confirmation and time-based release do not
-require resolver approval. Choose the resolver account with the same care as
-the escrow parties because a compromised resolver can decide a disputed
-escrow's payout.
+TrustLink supports a single resolver, an M-of-N committee, and a primary/backup
+fallback. The resolver set is chosen when the escrow is created. A resolver
+decision does not pay out immediately: it records a `Release` or `Refund`
+resolution and moves the escrow to `PendingFinalization`.
 
 ## Single resolver
 
-The simplest scheme is one trusted address. `resolve_dispute` authenticates
-that address and selects either `Release` (pay the payees) or `Refund` (pay the
-buyer). After the resolver decision, the escrow enters `PendingFinalization`
-while the appeal window is open; `finalize_dispute` completes the payout after
-the window, unless a permitted appeal reopens the dispute.
+`ResolverSet::Single` is the backward-compatible 1-of-1 scheme. The one
+resolver may call `resolve_dispute(escrow_id, resolution)` (or the equivalent
+`vote` entry point) while the escrow is `Disputed`. The decision enters
+`PendingFinalization`; `finalize_dispute` can settle it only after the 24-hour
+appeal window has elapsed.
 
 ## Multi resolver: M-of-N vote
 
-An M-of-N resolver is normally a separate contract or account abstraction that
-collects votes from N members and exposes one resolver address to TrustLink.
-TrustLink sees only that address, so the vote threshold and membership rules
-must be enforced by the resolver layer before it signs the on-chain decision.
-Document and monitor membership changes, quorum, replacement, and signer
-authentication outside the escrow contract.
+`ResolverSet::Multi` records one current vote per resolver. The resolver list
+must contain unique addresses, the threshold must satisfy `0 < M <= N`, and
+resolvers cannot be the buyer or seller. Votes for `Release` and `Refund` are
+tallied separately; either outcome reaching M moves the escrow to
+`PendingFinalization`.
 
-## Fallback resolver and deadline gating
+Calling `vote` again updates that resolver's existing vote rather than counting
+the resolver twice. `get_resolver_votes` exposes the current votes. A split
+vote can remain below quorum, but it is not a permanent lock: after
+`DISPUTE_DEADLOCK_WINDOW` (7 days), anyone may call
+`resolve_deadlocked_dispute`, which uses simple majority and resolves a tie as
+`Refund`. If no resolver has voted, or the dispute remains unresolved until
+the admin-configured dispute timeout (30 days by default), either buyer or
+seller may call `claim_dispute_timeout` to create a `Refund` resolution.
 
-A fallback design can use a primary resolver and a backup resolver. The
-fallback layer should expose the primary while it is healthy and allow the
-backup only after a configured deadline. The on-chain record contains the
-resolver address and dispute deadline; it does not automatically switch
-between two arbitrary addresses. A fallback contract must therefore enforce
-its own `can_resolve_now`/deadline policy before invoking the escrow.
+## Fallback deadline gating
 
-Fallbacks must not bypass the escrow's dispute deadline, appeal window, or
-`PendingFinalization` checks. A resolver decision is not final until the appeal
-window has elapsed and `finalize_dispute` is called.
+`ResolverSet::Fallback` has a primary and backup. The primary may resolve at
+any time. The backup becomes authorized only when
+`ledger.timestamp() >= dispute_deadline`; this is an absolute ledger timestamp
+chosen at creation, not a duration restarted when a dispute is raised or
+appealed. The deadline is bounded at creation so an unresponsive primary cannot
+set an unbounded handover delay. Fallback still uses the 1-of-1 threshold: the
+first authorized resolver to act moves the escrow to `PendingFinalization`.
 
 ## Deadlock risk
 
-Resolver schemes can deadlock when the primary is unavailable, the backup is
-not authorized, fewer than M members remain, or a vote never reaches quorum.
-Mitigate this with an explicit deadline, a tested backup path, bounded signer
-rotation, and monitoring for disputes approaching their deadline. Without a
-live authorized path, funds can remain locked in `Disputed` or
-`PendingFinalization` even though the escrow contract itself is functioning.
-
-See [the multi-resolver scheme](../MULTI_RESOLVER_SCHEME.md),
-[the architecture overview](../ARCHITECTURE.md), and the
-[state-machine specification](state-machine.md).
+M-of-N schemes can stall when votes are split or no resolver acts. The contract
+provides the deadlock and timeout recovery paths above, but operators should
+still choose a reachable threshold and monitor resolver availability. An
+appeal by the buyer or seller while `PendingFinalization` is active clears the
+resolution, increments `appeal_count`, and clears Multi votes for a fresh round;
+the same resolver rules then apply again. See
+[MULTI_RESOLVER_SCHEME.md](../MULTI_RESOLVER_SCHEME.md) and
+[ARCHITECTURE.md](../ARCHITECTURE.md).
