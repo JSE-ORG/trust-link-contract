@@ -30,8 +30,9 @@ pub use crate::events::{
     emit_basket_escrow_created, emit_refund_requested, emit_refund_approved,
 };
 pub use crate::types::{
-    ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus, EscrowData, EscrowState,
-    FeeConfig, PublicContractConfig, ResolutionType, EscrowInput, Payee,
+    BoundedHistory, ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus,
+    EscrowData, EscrowState, FeeConfig, MAX_HISTORY_ENTRIES, PublicContractConfig,
+    ResolutionType, EscrowInput, Payee,
 };
 
 /// Maximum escrow fee in basis points (300 = 3%).
@@ -156,22 +157,33 @@ fn require_admin_caller(env: &Env, caller: &Address) -> Result<Address, Contract
     Ok(admin)
 }
 
-fn default_fee_config() -> FeeConfig {
-    FeeConfig {
-        protocol_fee_bps: 0,
-        arbitration_fee_bps: 0,
-    }
-}
-
 fn read_fee_config(env: &Env) -> FeeConfig {
-    env.storage()
-        .instance()
-        .get(&DataKey::FeeConfig)
-        .unwrap_or_else(default_fee_config)
+    if let Some(config) = env.storage().instance().get(&DataKey::FeeConfig) {
+        return config;
+    }
+
+    FeeConfig {
+        protocol_fee_bps: env
+            .storage()
+            .instance()
+            .get(&DataKey::DefaultFeeBps)
+            .unwrap_or(0),
+        arbitration_fee_bps: env
+            .storage()
+            .instance()
+            .get(&DataKey::ArbitrationFee)
+            .unwrap_or(0),
+    }
 }
 
 fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
     env.storage().instance().set(&DataKey::FeeConfig, fee_config);
+    env.storage()
+        .instance()
+        .set(&DataKey::DefaultFeeBps, &fee_config.protocol_fee_bps);
+    env.storage()
+        .instance()
+        .set(&DataKey::ArbitrationFee, &fee_config.arbitration_fee_bps);
 }
 
 fn is_token_allowlist_enabled(env: &Env) -> bool {
@@ -373,13 +385,23 @@ fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractError> {
 fn append_state_history(env: &Env, id: u64, state: &EscrowState) {
     let key = DataKey::EscrowStateHistory(id);
     let ext = get_ttl_extension(env);
-    let mut history: Vec<(EscrowState, u64)> = env
+    let mut history: BoundedHistory = env
         .storage()
         .persistent()
         .get(&key)
-        .unwrap_or_else(|| Vec::new(env));
+        .unwrap_or_else(|| BoundedHistory { entries: Vec::new(env) });
 
-    history.push_back((state.clone(), env.ledger().timestamp()));
+    // Keep the state code in the high byte and the timestamp in 56 bits. The
+    // bounded vector makes the persistent footprint independent of lifecycle
+    // transition count; the oldest entry is discarded FIFO-style at capacity.
+    if history.entries.len() >= MAX_HISTORY_ENTRIES {
+        let mut retained = Vec::new(env);
+        for i in 1..history.entries.len() {
+            retained.push_back(history.entries.get(i).unwrap());
+        }
+        history.entries = retained;
+    }
+    history.entries.push_back(pack_state_history_entry(state, env.ledger().timestamp()));
     env.storage().persistent().set(&key, &history);
     env.storage().persistent().extend_ttl(&key, ext / 2, ext);
 }
@@ -387,16 +409,72 @@ fn append_state_history(env: &Env, id: u64, state: &EscrowState) {
 fn load_state_history(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
     let key = DataKey::EscrowStateHistory(id);
     let ext = get_ttl_extension(env);
-    let history = env
+    let history: BoundedHistory = env
         .storage()
         .persistent()
         .get(&key)
-        .unwrap_or_else(|| Vec::new(env));
+        .unwrap_or_else(|| BoundedHistory { entries: Vec::new(env) });
 
-    if !history.is_empty() {
+    if !history.entries.is_empty() {
         env.storage().persistent().extend_ttl(&key, ext / 2, ext);
     }
-    history
+    let mut decoded = Vec::new(env);
+    for packed in history.entries.iter() {
+        decoded.push_back(unpack_state_history_entry(packed));
+    }
+    decoded
+}
+
+fn pack_state_history_entry(state: &EscrowState, timestamp: u64) -> u64 {
+    let code = match state {
+        EscrowState::Pending => 0,
+        EscrowState::Funded => 1,
+        EscrowState::Shipped => 2,
+        EscrowState::Completed => 3,
+        EscrowState::Disputed => 4,
+        EscrowState::RefundRequested => 5,
+        EscrowState::Refunded => 6,
+        EscrowState::Canceled => 7,
+        EscrowState::PendingFinalization => 8,
+    };
+    (code << 56) | (timestamp & ((1u64 << 56) - 1))
+}
+
+fn unpack_state_history_entry(packed: u64) -> (EscrowState, u64) {
+    let state = match packed >> 56 {
+        0 => EscrowState::Pending,
+        1 => EscrowState::Funded,
+        2 => EscrowState::Shipped,
+        3 => EscrowState::Completed,
+        4 => EscrowState::Disputed,
+        5 => EscrowState::RefundRequested,
+        6 => EscrowState::Refunded,
+        7 => EscrowState::Canceled,
+        _ => EscrowState::PendingFinalization,
+    };
+    (state, packed & ((1u64 << 56) - 1))
+}
+
+fn compact_user_index(env: &Env, user: &Address, buyer: bool, page_count: u64) {
+    let mut all = Vec::new(env);
+    for page in 0..page_count {
+        for id in storage::read_paged_index(env, user, page as u32, buyer).iter() {
+            all.push_back(id);
+        }
+    }
+    for page in 0..page_count {
+        let key = if buyer { DataKey::BuyerEscrow(user.clone(), page as u32) } else { DataKey::VendorEscrow(user.clone(), page as u32) };
+        env.storage().persistent().remove(&key);
+    }
+    for (offset, id) in all.iter().enumerate() {
+        let page = (offset as u64) / storage::PAGE_SIZE;
+        let key = if buyer { DataKey::BuyerEscrow(user.clone(), page as u32) } else { DataKey::VendorEscrow(user.clone(), page as u32) };
+        let mut ids: Vec<u64> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
+        ids.push_back(id);
+        env.storage().persistent().set(&key, &ids);
+    }
+    let count_key = if buyer { DataKey::BuyerEscrowCount(user.clone()) } else { DataKey::VendorEscrowCount(user.clone()) };
+    env.storage().persistent().set(&count_key, &all.len());
 }
 
 fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
@@ -1002,16 +1080,7 @@ impl Escrow {
             .ok_or(ContractError::ArithmeticOverflow)?;
 
         // Index the buyer for lookup.
-        let mut buyer_escrows: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
-            .unwrap_or(Vec::new(&env));
-        buyer_escrows.push_back(escrow_id);
-        let buyer_key = DataKey::BuyerEscrowIndex(buyer.clone());
-        let ext = get_ttl_extension(&env);
-        env.storage().persistent().set(&buyer_key, &buyer_escrows);
-        env.storage().persistent().extend_ttl(&buyer_key, ext / 2, ext);
+        storage::append_buyer_escrow(&env, &buyer, escrow_id);
 
         save_escrow(&env, escrow_id, &escrow);
         emit_escrow_funded(&env, escrow_id, buyer, escrow.amount);
@@ -1952,9 +2021,7 @@ impl Escrow {
 
         save_escrow(&env, escrow_id, &escrow);
 
-        let mut vendor_escrows = storage::read_vendor_escrow_index(&env, &seller);
-        vendor_escrows.push_back(escrow_id);
-        storage::write_vendor_escrow_index(&env, &seller, &vendor_escrows);
+        storage::append_vendor_escrow(&env, &seller, escrow_id);
 
         increment_counter(&env, &DataKey::TotalCreated)?;
         emit_basket_escrow_created(&env, escrow_id, seller, tokens.len() as u32);
@@ -1981,12 +2048,16 @@ impl Escrow {
 
     /// Retrieves all escrow IDs associated with a specific buyer.
     pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
-        if let Some(ids) = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BuyerEscrowIndex(buyer.clone()))
-        {
-            return ids;
+        let count = storage::read_paged_index_count(&env, &buyer, true);
+        if count > 0 {
+            let mut result = Vec::new(&env);
+            for page in 0..((count + storage::PAGE_SIZE - 1) / storage::PAGE_SIZE) {
+                let ids = storage::read_paged_index(&env, &buyer, page as u32, true);
+                for id in ids.iter() {
+                    result.push_back(id);
+                }
+            }
+            return result;
         }
         let mut result = Vec::new(&env);
         let counter: u64 = env
@@ -2006,7 +2077,55 @@ impl Escrow {
 
     /// Retrieves all escrow IDs associated with a specific vendor.
     pub fn get_escrows_by_vendor(env: Env, vendor: Address) -> Vec<u64> {
-        storage::read_vendor_escrow_index(&env, &vendor)
+        let count = storage::read_paged_index_count(&env, &vendor, false);
+        if count == 0 {
+            return storage::read_vendor_escrow_index(&env, &vendor);
+        }
+        let mut result = Vec::new(&env);
+        for page in 0..((count + storage::PAGE_SIZE - 1) / storage::PAGE_SIZE) {
+            let ids = storage::read_paged_index(&env, &vendor, page as u32, false);
+            for id in ids.iter() {
+                result.push_back(id);
+            }
+        }
+        result
+    }
+
+    /// Remove terminal escrows from one user index page. The user must
+    /// authorize the call; limiting work to one page bounds CPU and storage
+    /// metering. At most PAGE_SIZE entries are inspected per invocation.
+    pub fn prune_user_escrow_index(
+        env: Env,
+        user: Address,
+        page_index: u32,
+    ) -> Result<u32, ContractError> {
+        user.require_auth();
+        let buyer_pages = (storage::read_paged_index_count(&env, &user, true) + storage::PAGE_SIZE - 1) / storage::PAGE_SIZE;
+        let vendor_pages = (storage::read_paged_index_count(&env, &user, false) + storage::PAGE_SIZE - 1) / storage::PAGE_SIZE;
+        let mut total_removed = 0u32;
+        for buyer in [true, false] {
+            let page = storage::read_paged_index(&env, &user, page_index, buyer);
+            if page.is_empty() {
+                continue;
+            }
+            let mut retained = Vec::new(&env);
+            let mut removed = 0u32;
+            for escrow_id in page.iter() {
+                let terminal = load_escrow(&env, escrow_id)
+                    .map(|escrow| matches!(escrow.state, EscrowState::Completed | EscrowState::Refunded | EscrowState::Canceled))
+                    .unwrap_or(true);
+                if terminal { removed += 1; } else { retained.push_back(escrow_id); }
+            }
+            let key = if buyer { DataKey::BuyerEscrow(user.clone(), page_index) } else { DataKey::VendorEscrow(user.clone(), page_index) };
+            let count_key = if buyer { DataKey::BuyerEscrowCount(user.clone()) } else { DataKey::VendorEscrowCount(user.clone()) };
+            env.storage().persistent().set(&key, &retained);
+            let count: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
+            env.storage().persistent().set(&count_key, &count.saturating_sub(removed as u64));
+            total_removed += removed;
+        }
+        compact_user_index(&env, &user, true, buyer_pages);
+        compact_user_index(&env, &user, false, vendor_pages);
+        Ok(total_removed)
     }
 
     /// Returns on-chain counters for escrow lifecycle events.

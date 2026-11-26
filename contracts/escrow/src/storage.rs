@@ -1,6 +1,12 @@
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
-use crate::{EscrowData, FeeConfig};
+use crate::{DataKey, EscrowData, FeeConfig};
+
+/// Number of escrow IDs stored in each user index page. Page zero contains IDs
+/// `[0, PAGE_SIZE)`, page one `[PAGE_SIZE, 2 * PAGE_SIZE)`, and so on. Buyer
+/// and vendor pages use different DataKey variants, so equal addresses and
+/// page numbers can never alias.
+pub const PAGE_SIZE: u64 = 10;
 
 /// Default TTL extension (in ledgers) for persistent storage entries.
 /// This matches the value used in lib.rs to ensure consistent behavior.
@@ -118,6 +124,56 @@ pub fn read_buyer_escrow_index(env: &Env, buyer: &Address) -> Vec<u64> {
         .unwrap_or(Vec::new(env))
 }
 
+fn append_paged_index(env: &Env, user: &Address, escrow_id: u64, buyer: bool) {
+    let count_key = if buyer {
+        DataKey::BuyerEscrowCount(user.clone())
+    } else {
+        DataKey::VendorEscrowCount(user.clone())
+    };
+    let count: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
+    let page = count / PAGE_SIZE;
+    let page_key = if buyer {
+        DataKey::BuyerEscrow(user.clone(), page as u32)
+    } else {
+        DataKey::VendorEscrow(user.clone(), page as u32)
+    };
+    let mut ids: Vec<u64> = env.storage().persistent().get(&page_key).unwrap_or(Vec::new(env));
+    ids.push_back(escrow_id);
+    env.storage().persistent().set(&page_key, &ids);
+    env.storage().persistent().set(&count_key, &(count + 1));
+    let ext = get_ttl_extension(env);
+    env.storage().persistent().extend_ttl(&page_key, ext / 2, ext);
+    env.storage().persistent().extend_ttl(&count_key, ext / 2, ext);
+}
+
+/// Append to the buyer namespace and its independent counter.
+pub fn append_buyer_escrow(env: &Env, buyer: &Address, escrow_id: u64) {
+    append_paged_index(env, buyer, escrow_id, true);
+}
+
+/// Append to the vendor namespace and its independent counter.
+pub fn append_vendor_escrow(env: &Env, vendor: &Address, escrow_id: u64) {
+    append_paged_index(env, vendor, escrow_id, false);
+}
+
+pub fn read_paged_index(env: &Env, user: &Address, page: u32, buyer: bool) -> Vec<u64> {
+    let key = if buyer {
+        DataKey::BuyerEscrow(user.clone(), page)
+    } else {
+        DataKey::VendorEscrow(user.clone(), page)
+    };
+    env.storage().persistent().get(&key).unwrap_or(Vec::new(env))
+}
+
+pub fn read_paged_index_count(env: &Env, user: &Address, buyer: bool) -> u64 {
+    let key = if buyer {
+        DataKey::BuyerEscrowCount(user.clone())
+    } else {
+        DataKey::VendorEscrowCount(user.clone())
+    };
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +225,37 @@ mod tests {
 
         assert_eq!(read_vendors, vendor_ids);
         assert_eq!(read_buyers, buyer_ids);
+    }
+
+    #[test]
+    fn paged_buyer_and_vendor_indexes_are_isolated_at_rollover() {
+        let env = Env::default();
+        let contract_id = env.register(Escrow, ());
+        let user = Address::generate(&env);
+        env.as_contract(&contract_id, || {
+            for id in 1..=20u64 {
+                append_buyer_escrow(&env, &user, id);
+                append_vendor_escrow(&env, &user, id + 100);
+            }
+        });
+
+        let (buyers, vendors, buyer_count, vendor_count) = env.as_contract(&contract_id, || {
+            (
+                (read_paged_index(&env, &user, 0, true), read_paged_index(&env, &user, 1, true)),
+                (read_paged_index(&env, &user, 0, false), read_paged_index(&env, &user, 1, false)),
+                read_paged_index_count(&env, &user, true),
+                read_paged_index_count(&env, &user, false),
+            )
+        });
+        assert_eq!(buyers.0.len(), 10);
+        assert_eq!(buyers.1.len(), 10);
+        assert_eq!(vendors.0.len(), 10);
+        assert_eq!(vendors.1.len(), 10);
+        assert_eq!(buyers.0.get(0), Some(1));
+        assert_eq!(buyers.1.get(0), Some(11));
+        assert_eq!(vendors.0.get(0), Some(101));
+        assert_eq!(vendors.1.get(0), Some(111));
+        assert_eq!(buyer_count, 20);
+        assert_eq!(vendor_count, 20);
     }
 }

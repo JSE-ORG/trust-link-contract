@@ -22,6 +22,14 @@ pub enum DataKey {
     TotalRefunded,
     FeeConfig,
     BuyerEscrowIndex(Address),
+    /// Paged buyer index: page numbers are independent from vendor pages.
+    BuyerEscrow(Address, u32),
+    /// Number of active entries in the buyer index for an address.
+    BuyerEscrowCount(Address),
+    /// Paged vendor index: page numbers are independent from buyer pages.
+    VendorEscrow(Address, u32),
+    /// Number of active entries in the vendor index for an address.
+    VendorEscrowCount(Address),
     TokenAllowlistEnabled,
     TokenAllowlist,
     PlatformFeeBps,
@@ -154,4 +162,14 @@ pub enum EscrowState {
     Refunded,
     Canceled,
     PendingFinalization,
+}
+
+/// Maximum number of packed state transitions retained per escrow.
+pub const MAX_HISTORY_ENTRIES: u32 = 10;
+
+/// Compact, bounded state history. Each entry is `(state_code << 56) | timestamp`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundedHistory {
+    pub entries: Vec<u64>,
 }
