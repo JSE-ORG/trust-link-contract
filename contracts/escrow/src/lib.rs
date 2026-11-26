@@ -1,5 +1,11 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
+#![allow(dead_code)]
+#![allow(
+    clippy::doc_markdown,
+    clippy::single_match_else,
+    clippy::useless_conversion
+)]
 #![cfg_attr(
     not(test),
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
