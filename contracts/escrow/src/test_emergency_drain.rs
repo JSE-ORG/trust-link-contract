@@ -6,7 +6,16 @@ use soroban_sdk::{
     token, Address, Env, IntoVal, Vec,
 };
 
-fn setup(env: &Env) -> (EscrowClient, Address, Address, Address, Address, Address) {
+fn setup(
+    env: &Env,
+) -> (
+    EscrowClient<'_>,
+    Address,
+    Address,
+    Address,
+    Address,
+    Address,
+) {
     env.mock_all_auths();
     let admin = Address::generate(env);
     let fee_collector = Address::generate(env);
@@ -73,9 +82,10 @@ fn emergency_drain_succeeds_when_paused_and_both_sign() {
     // full amount returned to buyer
     assert_eq!(buyer_balance_after - buyer_balance_before, 500_i128);
 
-    // escrow state is now Refunded — cannot drain again
+    // escrow state is now Refunded — cannot drain again, dedicated code
+    // (was InvalidState).
     let result = client.try_emergency_drain(&1_u64);
-    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+    assert_eq!(result, Err(Ok(ContractError::EscrowAlreadyRefunded)));
 }
 
 // ── Cannot drain in terminal / pre-fund states ───────────────────────────────
@@ -165,7 +175,64 @@ fn emergency_drain_fails_on_completed_escrow() {
 
     client.pause_contract(&admin);
 
-    // Completed escrow — cannot drain
+    // Completed escrow — cannot drain, dedicated code (was InvalidState).
     let result = client.try_emergency_drain(&id);
+    assert_eq!(result, Err(Ok(ContractError::EscrowAlreadyCompleted)));
+}
+
+// ── Issue #1204: PendingFinalization cannot be drained ──────────────────────
+
+#[test]
+fn emergency_drain_fails_on_pending_finalization() {
+    let env = Env::default();
+    let (client, admin, _seller, buyer, resolver, token) = setup(&env);
+
+    client.raise_dispute(
+        &buyer,
+        &1_u64,
+        &soroban_sdk::symbol_short!("OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
+    );
+    client.resolve_dispute(&resolver, &1_u64, &crate::ResolutionType::Release);
+    assert_eq!(
+        client.get_escrow(&1_u64).state,
+        crate::EscrowState::PendingFinalization
+    );
+
+    client.pause_contract(&admin);
+    let before = token::Client::new(&env, &token).balance(&buyer);
+
+    let result = client.try_emergency_drain(&1_u64);
     assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+
+    // Nothing moved and the state is untouched.
+    assert_eq!(token::Client::new(&env, &token).balance(&buyer), before);
+    assert_eq!(
+        client.get_escrow(&1_u64).state,
+        crate::EscrowState::PendingFinalization
+    );
+}
+
+#[test]
+fn emergency_drain_still_works_on_disputed_escrow() {
+    let env = Env::default();
+    let (client, admin, _seller, buyer, _resolver, token) = setup(&env);
+
+    client.raise_dispute(
+        &buyer,
+        &1_u64,
+        &soroban_sdk::symbol_short!("OTHER"),
+        &soroban_sdk::Bytes::from_slice(&env, b"desc"),
+        &soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
+    );
+    client.pause_contract(&admin);
+    let before = token::Client::new(&env, &token).balance(&buyer);
+
+    client.emergency_drain(&1_u64);
+
+    assert_eq!(
+        token::Client::new(&env, &token).balance(&buyer) - before,
+        500
+    );
 }

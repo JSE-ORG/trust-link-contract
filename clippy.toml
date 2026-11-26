@@ -1,0 +1,6 @@
+# Time-based logic (deadlines, windows, timelocks, timeouts) must use
+# `env.ledger().timestamp()`. Ledger close times vary, so a sequence number is
+# not a reliable clock; mixing the two is a source of deadline bugs.
+disallowed-methods = [
+    { path = "soroban_sdk::ledger::Ledger::sequence", reason = "use env.ledger().timestamp() for time-based logic" },
+]

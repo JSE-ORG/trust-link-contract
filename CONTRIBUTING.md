@@ -105,12 +105,13 @@ make setup
 
 This installs a pre-commit hook that automatically checks:
 
-- **Formatting**: `cargo fmt --all -- --check`
-- **Lints**: `cargo clippy --all-targets --all-features -- -D warnings`
+- **Formatting**: `make fmt-check` (`cargo fmt --all -- --check`)
+- **Lints**: `make clippy` — the canonical lint gate, identical to CI (see [Building & Testing](#building--testing))
+- **Malware Guard**: `make malware-check` (`node scripts/scan-malware.mjs`) — fast local check for obfuscation, secrets, and committed binaries
 
 Commits will be rejected if either check fails.
 
-Run `cargo fmt --all` to fix formatting issues.
+Run `make fmt` to fix formatting issues.
 
 ### Option A — Dev Container (recommended, zero manual setup)
 
@@ -258,7 +259,7 @@ Branch naming conventions:
 
 **General Rust**
 - Run `cargo fmt --all` before every commit — CI rejects unformatted code.
-- Run `cargo clippy --lib -- -D warnings` — fix all warnings, never suppress them without a comment.
+- Run `make clippy` (`clippy::pedantic` with `-D warnings`) — fix all warnings, never suppress them without a comment.
 - Prefer explicit error returns over `unwrap()` — use `ContractError` variants from `errors.rs`.
 - Comment non-obvious logic. If you had to think about it for more than 30 seconds, leave a comment.
 
@@ -282,6 +283,28 @@ if escrow.state != EscrowState::Funded {
 }
 ```
 
+### Panic-Free Contract Code Policy
+
+**All non-test contract code must be panic-free.** Panics are unrecoverable, produce no meaningful error codes, and abort the contract execution. This breaks the escrow state machine and leaves users' funds in an undefined state.
+
+**Forbidden in production code:**
+- `panic!()`
+- `unwrap()` on `Option<T>` or `Result<T, E>`
+- `expect()` on `Option<T>` or `Result<T, E>`
+
+**What to do instead:**
+- For mandatory values (non-negotiable preconditions): use explicit validation and return `Err(ContractError::...)` before any unsafe operation.
+- For fallible operations: handle the `Result` explicitly with `match` or propagate the error up with `?`.
+- For `Option<T>` with a reasonable default: use `.unwrap_or()` or `.unwrap_or_else()`.
+
+**Enforcement:**
+Non-test contract code enforces this via `#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic))]` at the crate root. CI enforces this on every commit via `make clippy` — any use of these patterns in non-test code will fail the build.
+The canonical `make clippy` gate includes `clippy::unwrap_used`, `clippy::expect_used`, and `clippy::panic` lints at warning level, surfaced as hard errors by the `-D warnings` flag (see `CLIPPY_PANIC_FREE` in the `Makefile`). CI and the pre-commit hook both run `make clippy`, so any new `unwrap()`, `expect()`, or `panic!()` in non-test code fails the build before it merges.
+
+(`clippy::unwrap_used` is used rather than the narrower `clippy::unwrap_in_result` — the latter only fires on `Result::unwrap()` calls inside a function that itself returns `Result`, and silently misses `Option::unwrap()` entirely.)
+
+Because `make clippy` runs `cargo clippy --lib`, which never compiles `#[cfg(test)]` or `#[cfg(any(test, feature = "testutils"))]` items, these lints structurally cannot fire on test code — no `#[allow]` escape hatch is needed for tests. Test code (files in `contracts/escrow/tests/` and `src/test_*.rs` modules under `#[cfg(test)]`) may use `unwrap()` and `panic!()` for clarity.
+
 ---
 
 ## Building & Testing
@@ -292,7 +315,7 @@ All commands are run from the repository root. Use the `make` shortcuts or the r
 # Format (check only — no changes)
 make fmt-check
 
-# Lint — zero warnings allowed
+# Lint — the canonical lint gate (zero warnings allowed)
 make clippy
 
 # Standard (lib) build — cross-platform
@@ -301,28 +324,53 @@ make build
 # WASM build (the deployable artifact)
 make build-wasm
 
-# Run the full test suite — all must pass
+# Unit tests (lib target) — fast local loop
 make test
+
+# Every test target: unit tests + the integration suites in contracts/escrow/tests/
+make test-all
 
 # Or use raw cargo commands:
 cargo fmt --all
-cargo clippy --lib -- -D warnings
+cargo clippy --lib -- -D warnings -W clippy::pedantic   # = make clippy
 cargo build --lib --release
 cargo build --target wasm32v1-none --release
-cargo test --lib
+cargo test --lib                                         # = make test
+cargo test --tests --features trustlink-escrow/testutils # = make test-all
 
 # Run a single test or a module
 cargo test --lib test_full_escrow_flow
 cargo test --lib -- --nocapture   # show println! output
 
-# Run all CI checks in sequence
+# Other checks that CI runs
+make fuzz-check      # type-check the fuzz targets (separate workspace)
+make xtask-test      # fmt + clippy + test the developer CLI
+make indexer-test    # typecheck + test the event indexer (run npm ci first)
+make malware-check   # scan for obfuscated code, secrets, and committed binaries
+
+# Run the core checks in sequence
 make check
 
 # Optional: optimized wasm via wasm-opt (requires binaryen)
 ./build.sh
 ```
 
-These checks — `fmt`, `clippy`, `test`, and `build-wasm` — are exactly what the CI pipeline runs, so running them locally before pushing means no CI surprises. All commands use `--lib` targets for cross-platform compatibility.
+### Which command is canonical?
+
+- **Linting:** `make clippy` — the pre-commit hook runs it, CI runs it, and it is the only clippy scope that gates this repository (`cargo clippy --lib -- -D warnings -W clippy::pedantic` with the documented Soroban allow-list in the Makefile). If you see any other clippy invocation in a script or doc, it is not a gate.
+- **Tests:** `make test` for the fast unit-only loop; `make test-all` runs every test target (unit + integration) and is what CI enforces before merge. The integration tests in `contracts/escrow/tests/` declare `required-features = ["testutils"]` in `contracts/escrow/Cargo.toml`, so bare `cargo test --tests` **skips** them with a note instead of failing — pass the feature (or use `make test-all`) to run them.
+- **End-to-End Tests (`make e2e`):** The repository provides shell-based end-to-end scripts in `e2e/` (`01_setup_and_deploy.sh` through `04_cancel_path.sh`). These scripts execute against a live Stellar network (requiring the `stellar` CLI, `jq`, and either `make testnet` or public testnet). `make e2e` is **excluded from CI** because public testnet / Friendbot introduces rate limits and network flakiness, while local devnet containers introduce heavy CI spin-up latency. Instead, full multi-step protocol flows are deterministically covered in CI by `make test-all` (`contracts/escrow/tests/*`). Contributors can run `make e2e` locally against devnet or testnet.
+
+These checks — `fmt`, `clippy`, `test`, `test-all`, `fuzz-check`, `xtask-test`, `indexer-test`, `snapshot-drift`, and `build-wasm` — are exactly what the CI pipeline runs, so running them locally before pushing means no CI surprises. The lib-target build/test commands work on any platform (Windows, Linux, macOS).
+
+### Malware Guard & PR Checks
+
+To ensure code security and protect against supply-chain attacks, pull requests run automated checks:
+
+- **Fast, blocking checks**: Secret scanning (`gitleaks`), custom pattern scanning (`make malware-check`), workflow linting (`actionlint`), and lockfile integrity checks.
+- **Diff-based & contributor friendly**: Checks inspect only your changes on PRs. An existing CVE or advisory on an untouched dependency will never block your PR.
+- **Advisory scans**: Dependency vulnerability scans (`osv-scanner`) and filesystem scans (`trivy`) run in non-blocking / warning-only mode on PRs to prevent spurious failures. Full repository audits and ClamAV scans run on the nightly schedule.
+- **Handling False Positives**: If a legitimate change trips a pattern (e.g. test fixture or documentation string), add a narrow exemption to [`.malware-guard-allowlist.json`](.malware-guard-allowlist.json) or [`.gitleaks.toml`](.gitleaks.toml). See [SECURITY.md](SECURITY.md) for full details.
 
 ---
 
@@ -368,10 +416,11 @@ git commit -m "docs(storage): clarify TTL behaviour for instance storage keys"
 Run the same checks CI runs:
 
 ```bash
-cargo fmt --all --check
-cargo clippy --lib -- -D warnings
-cargo build --target wasm32v1-none --release
-cargo test --lib
+make fmt-check
+make clippy
+make build-wasm
+make test-all
+make malware-check
 
 # Sanity-check the WASM binary size hasn't ballooned unexpectedly
 ls -lh target/wasm32v1-none/release/trustlink_escrow.wasm
@@ -386,6 +435,7 @@ When you open a PR, the description must include:
 - [ ] **Tests** — What test cases did you add or modify?
 - [ ] **Breaking changes** — Does this change the contract ABI? (requires extra review)
 - [ ] **Issue reference** — `Closes #123` or `Relates to #123`
+- [ ] **Fee constants & audit scope** — When changing fee constants in `contracts/escrow/src/lib.rs` (`MAX_ESCROW_FEE_BPS`, `MAX_ARBITRATION_FEE_BPS`, `MAX_COMBINED_FEE_BPS`, `MAX_PLATFORM_FEE_BPS`), update the canonical values and source line links in [`AUDIT_SCOPE.md`](AUDIT_SCOPE.md) together with [`ERROR_CODES.md`](ERROR_CODES.md). Do not introduce duplicate audit scope files (e.g. under `audit/`).
 
 ### PR Template
 
@@ -426,6 +476,7 @@ Closes #
 - Does the storage model make sense (cost, TTL)?
 - Are events emitted for state changes the backend oracle needs to observe?
 - Is the WASM binary size increase justified?
+- Are fee constant changes synchronized with canonical [`AUDIT_SCOPE.md`](AUDIT_SCOPE.md) and [`ERROR_CODES.md`](ERROR_CODES.md)?
 
 ---
 
@@ -433,8 +484,16 @@ Closes #
 
 Tests use the `soroban_sdk::testutils` environment. There are two places tests live:
 
-- **Unit / focused tests** — files named `test_*.rs` in `contracts/escrow/src/`, each registered with `mod test_*;` in `lib.rs`. Most tests live here, grouped by feature (fees, disputes, auth, TTL, …).
-- **Integration tests** — files in `contracts/escrow/tests/` (`happy_path.rs`, `edge_cases.rs`, `auth_audit.rs`) that exercise full end-to-end flows.
+- **Unit / focused tests** — files named `test_*.rs` in `contracts/escrow/src/`, each registered with `mod test_*;` in `lib.rs`. Most tests live here, grouped by feature (fees, disputes, auth, TTL, …). Run with `make test` (or `cargo test --lib`).
+- **Integration tests** — files in `contracts/escrow/tests/` (`happy_path.rs`, `edge_cases.rs`, `auth_audit.rs`, `cancel_events.rs`, `missing_features_integration.rs`) that exercise full end-to-end flows. Run with `make test-all` (or `cargo test --tests --features trustlink-escrow/testutils`).
+- **End-to-end (e2e) tests** — scripts in `e2e/` (`01_setup_and_deploy.sh` through `04_cancel_path.sh`) that interact with a live network (`local` or `testnet`) using `stellar` CLI and `jq`. Run with `make e2e` after spinning up devnet with `make testnet`. Excluded from CI to eliminate flaky external network dependencies.
+
+> **Why the feature flag?** The integration tests call admin entry points that the
+> contract compiles only under `#[cfg(any(test, feature = "testutils"))]`. Each
+> file therefore declares `required-features = ["testutils"]` in
+> `contracts/escrow/Cargo.toml`, so a bare `cargo test --tests` skips them with a
+> note instead of failing to compile. `make test-all` passes the feature and runs
+> everything — that is the command CI enforces.
 
 ### Test Structure
 
@@ -448,8 +507,20 @@ mod tests {
         let env = Env::default();
         // ... set up contract, vendor, buyer, token ...
 
-        // 1. Create escrow
-        let escrow_id = client.create_escrow(&vendor, &buyer, &token, &amount, &window);
+        // 1. Create escrow — the 9-argument interface:
+        //    (seller_or_payees, buyer, resolver, token, amount,
+        //     fee_bps, resolver_fee_bps, shipping_window, notes)
+        let escrow_id = client.create_escrow(
+            &vendor,      // seller_or_payees: an Address or a Vec<Payee>
+            &Some(buyer), // buyer: Option<Address> — None leaves it open to fund
+            &resolver,
+            &token,
+            &amount,
+            &50,          // fee_bps
+            &50,          // resolver_fee_bps
+            &3600,        // shipping_window, in seconds
+            &None,        // notes: Option<String>
+        );
 
         // 2. Buyer funds
         client.fund_escrow(&escrow_id);
@@ -496,7 +567,8 @@ code produces no `git diff`). To update snapshots after changing contract
 behaviour, events, or storage keys:
 
 ```bash
-cargo test --lib -p trustlink-escrow
+make test      # regenerates unit-test snapshots
+make test-all  # also regenerates the integration-test snapshots
 git status                       # review the snapshot diffs
 git diff contracts/escrow/test_snapshots/   # confirm only intended changes
 git add contracts/escrow/test_snapshots/
@@ -511,8 +583,9 @@ snapshots no longer reflect the code and the PR's snapshot diff reveals the
 drift. Always regenerate snapshots in the same PR that changes behaviour, and
 review the diff — an unexpected snapshot change often means an accidental
 behaviour change. CI treats the committed snapshots as the source of truth:
-stale or omitted snapshots are caught when the regenerated output differs from
-what is committed.
+stale or omitted snapshots are caught by the [`snapshot-drift`](.github/workflows/ci.yml)
+CI job when the regenerated output differs from what is committed under
+`contracts/escrow/test_snapshots/`.
 
 **No Git LFS required.** Snapshots are plain, human-readable JSON text files
 (a few tens of kilobytes). Commit them with normal `git add`; do **not** route

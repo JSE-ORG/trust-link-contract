@@ -79,10 +79,14 @@ fuzz_target!(|data: &[u8]| {
     }
 
     let executor = h.actor(r.u8());
-    let _ = h.client.try_execute_set_arbitration_fee(&executor);
+    let _ = h
+        .client
+        .try_execute_set_arbitration_fee(&executor, &fee_bps);
 
     // A cancelled or already-executed operation must not execute again.
     if r.bool() {
-        let _ = h.client.try_execute_set_arbitration_fee(&executor);
+        let _ = h
+            .client
+            .try_execute_set_arbitration_fee(&executor, &fee_bps);
     }
 });

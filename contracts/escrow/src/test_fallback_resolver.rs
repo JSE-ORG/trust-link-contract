@@ -7,6 +7,10 @@ use soroban_sdk::{
     token, Address, BytesN, Env, IntoVal, String, Symbol, Vec,
 };
 
+/// Primary resolver's guaranteed exclusive window (matches the contract's
+/// `MIN_FALLBACK_DEADLINE_OFFSET`).
+const OFFSET: u64 = crate::MIN_FALLBACK_DEADLINE_OFFSET;
+
 struct Setup {
     env: Env,
     contract_id: Address,
@@ -50,13 +54,13 @@ fn setup() -> Setup {
 
 /// Creates a fallback-resolver escrow, funds it, marks it shipped, and
 /// raises a dispute, leaving the ledger timestamp unchanged (i.e. still
-/// before the fallback's `dispute_deadline`, which is set to `now + 100`).
+/// before the fallback's `dispute_deadline`, which is set to `now + OFFSET`).
 /// Returns the escrow id.
 fn create_funded_shipped_disputed(setup: &Setup) -> u64 {
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
     let amount = 1000_i128;
     let now = setup.env.ledger().timestamp();
-    let fallback_deadline = now + 100;
+    let fallback_deadline = now + OFFSET;
 
     let escrow_id = client.create_escrow_with_fallback(
         &setup.seller,
@@ -76,11 +80,11 @@ fn create_funded_shipped_disputed(setup: &Setup) -> u64 {
     client.mark_shipped(
         &setup.seller,
         &escrow_id,
-        &String::from_str(&setup.env, "TRK"),
+        &soroban_sdk::String::from_str(&setup.env, "TRK"),
     );
 
-    let reason = Symbol::new(&setup.env, "reason");
-    let description = String::from_str(&setup.env, "desc");
+    let reason = Symbol::new(&setup.env, "OTHER");
+    let description = soroban_sdk::Bytes::from_slice(&setup.env, b"desc");
     let evidence_hash = BytesN::from_array(&setup.env, &[0xab; 32]);
     client.raise_dispute(
         &setup.buyer,
@@ -99,7 +103,7 @@ fn test_create_escrow_with_fallback_success() {
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
 
     let amount = 1000_i128;
-    let dispute_deadline = 3600_u64;
+    let dispute_deadline = setup.env.ledger().timestamp() + OFFSET;
     let shipping_window = 7200_u64;
 
     let id = client.create_escrow_with_fallback(
@@ -148,9 +152,9 @@ fn backup_resolver_can_resolve_dispute_after_deadline() {
 
     // #661 — the backup may only resolve once the fallback's dispute_deadline
     // has passed. `create_funded_shipped_disputed` sets that deadline to
-    // `now + 100`; advance well past it.
+    // `now + OFFSET`; advance well past it.
     let t = setup.env.ledger().timestamp();
-    setup.env.ledger().set_timestamp(t + 200);
+    setup.env.ledger().set_timestamp(t + OFFSET + 100);
 
     let result = client.try_resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Refund);
     assert!(result.is_ok());
@@ -164,13 +168,13 @@ fn backup_resolver_authorized_exactly_at_deadline() {
     // #661 boundary: `can_resolve_now` gates the backup with
     // `now >= dispute_deadline`, so the backup is authorized *at* the deadline
     // instant, not one second later. `create_funded_shipped_disputed` sets the
-    // deadline to `now + 100` and the default test ledger starts at t = 0.
+    // deadline to `now + OFFSET` and the default test ledger starts at t = 0.
     let setup = setup();
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
 
     let escrow_id = create_funded_shipped_disputed(&setup);
 
-    setup.env.ledger().set_timestamp(100);
+    setup.env.ledger().set_timestamp(OFFSET);
 
     let result = client.try_resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Refund);
     assert!(result.is_ok());
@@ -250,10 +254,14 @@ fn single_resolver_set_is_unaffected_by_fallback_deadline_logic() {
 
     client.fund_escrow(&escrow_id, &buyer);
     env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
-    client.mark_shipped(&seller, &escrow_id, &String::from_str(&env, "TRK-SINGLE"));
+    client.mark_shipped(
+        &seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&env, "TRK-SINGLE"),
+    );
 
-    let reason = Symbol::new(&env, "defective");
-    let description = String::from_str(&env, "Item is defective");
+    let reason = Symbol::new(&env, "DEFECTIVE");
+    let description = soroban_sdk::Bytes::from_slice(&env, b"Item is defective");
     let evidence = BytesN::from_array(&env, &[0xef; 32]);
     client.raise_dispute(&buyer, &escrow_id, &reason, &description, &evidence);
 
@@ -281,7 +289,7 @@ fn resolve_non_disputed_escrow_fails() {
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
 
     let amount = 1000_i128;
-    let dispute_deadline = 3600_u64;
+    let dispute_deadline = setup.env.ledger().timestamp() + OFFSET;
     let escrow_id = client.create_escrow_with_fallback(
         &setup.seller,
         &Some(setup.buyer.clone()),
@@ -321,12 +329,25 @@ fn backup_resolver_vote_allowed_after_deadline() {
     let escrow_id = create_funded_shipped_disputed(&setup);
 
     let t = setup.env.ledger().timestamp();
-    setup.env.ledger().set_timestamp(t + 200);
+    setup.env.ledger().set_timestamp(t + OFFSET + 100);
 
     client.vote(&setup.backup, &escrow_id, &ResolutionType::Release);
 
     let escrow = client.get_escrow(&escrow_id);
     assert_eq!(escrow.state, EscrowState::PendingFinalization);
+}
+
+#[test]
+fn backup_resolver_vote_rejected_before_deadline() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    // Timeline is BEFORE the deadline (which is now + OFFSET).
+    // The backup should NOT be allowed to vote yet.
+    let result = client.try_vote(&setup.backup, &escrow_id, &ResolutionType::Release);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
 }
 
 #[test]
@@ -404,7 +425,7 @@ fn test_fallback_creation_role_conflicts() {
         &0_u32,
         &3600_u64,
     );
-    assert_eq!(res, Err(Ok(ContractError::ConflictingRoles)));
+    assert_eq!(res, Err(Ok(ContractError::DuplicateResolver)));
 }
 
 #[test]
@@ -463,6 +484,84 @@ fn test_fallback_creation_amount_and_fee_boundaries() {
 }
 
 #[test]
+fn test_fallback_creation_dispute_deadline_bounds() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let now = 1_000_000_u64;
+    setup.env.ledger().set_timestamp(now);
+    let max_deadline = now + crate::MAX_FALLBACK_DEADLINE_OFFSET;
+    let min_deadline = now + OFFSET;
+
+    let create = |deadline: u64| {
+        client.try_create_escrow_with_fallback(
+            &setup.seller,
+            &Some(setup.buyer.clone()),
+            &setup.primary,
+            &setup.backup,
+            &deadline,
+            &setup.token,
+            &1000_i128,
+            &0_u32,
+            &3600_u64,
+        )
+    };
+
+    // A deadline the backup could never reach is rejected.
+    assert_eq!(
+        create(u64::MAX),
+        Err(Ok(ContractError::InvalidFallbackDeadline))
+    );
+    assert_eq!(
+        create(max_deadline + 1),
+        Err(Ok(ContractError::InvalidFallbackDeadline))
+    );
+
+    // Both ends of the valid window are accepted.
+    assert!(create(max_deadline).is_ok());
+    assert!(create(min_deadline).is_ok());
+}
+
+#[test]
+fn test_fallback_creation_rejects_past_zero_and_too_early_deadlines() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let now = 1_000_000_u64;
+    setup.env.ledger().set_timestamp(now);
+
+    let create = |deadline: u64| {
+        client.try_create_escrow_with_fallback(
+            &setup.seller,
+            &Some(setup.buyer.clone()),
+            &setup.primary,
+            &setup.backup,
+            &deadline,
+            &setup.token,
+            &1000_i128,
+            &0_u32,
+            &3600_u64,
+        )
+    };
+
+    // Zero, past, and "right now" deadlines would co-authorize the backup
+    // immediately and are rejected.
+    assert_eq!(create(0), Err(Ok(ContractError::InvalidFallbackDeadline)));
+    assert_eq!(
+        create(now - 1),
+        Err(Ok(ContractError::InvalidFallbackDeadline))
+    );
+    assert_eq!(create(now), Err(Ok(ContractError::InvalidFallbackDeadline)));
+
+    // Anything shorter than the minimum exclusive window is rejected.
+    assert_eq!(
+        create(now + OFFSET - 1),
+        Err(Ok(ContractError::InvalidFallbackDeadline))
+    );
+
+    // Exactly `now + MIN_FALLBACK_DEADLINE_OFFSET` is accepted.
+    assert!(create(now + OFFSET).is_ok());
+}
+
+#[test]
 fn test_fallback_primary_resolves_refund_and_finalizes() {
     let setup = setup();
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
@@ -492,16 +591,16 @@ fn test_fallback_backup_resolves_release_and_finalizes() {
 
     let escrow_id = create_funded_shipped_disputed(&setup);
 
-    // Advance past fallback dispute_deadline (now + 100)
+    // Advance past fallback dispute_deadline (now + OFFSET)
     let t = setup.env.ledger().timestamp();
-    setup.env.ledger().set_timestamp(t + 101);
+    setup.env.ledger().set_timestamp(t + OFFSET + 1);
 
     client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Release);
 
     let escrow = client.get_escrow(&escrow_id);
     assert_eq!(escrow.state, EscrowState::PendingFinalization);
 
-    setup.env.ledger().set_timestamp(t + 101 + 86401);
+    setup.env.ledger().set_timestamp(t + OFFSET + 1 + 86401);
     client.finalize_dispute(&setup.seller, &escrow_id);
 
     let escrow_after = client.get_escrow(&escrow_id);
@@ -518,17 +617,17 @@ fn test_fallback_backup_exact_deadline_boundary() {
 
     let escrow_id = create_funded_shipped_disputed(&setup);
     let now = setup.env.ledger().timestamp();
-    // In create_funded_shipped_disputed, fallback deadline is now + 100
+    // In create_funded_shipped_disputed, fallback deadline is now + OFFSET
 
     // 1 second before deadline:
-    setup.env.ledger().set_timestamp(now + 99);
+    setup.env.ledger().set_timestamp(now + OFFSET - 1);
     assert_eq!(
         client.try_resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Release),
         Err(Ok(ContractError::NotAuthorized))
     );
 
     // Exactly at deadline:
-    setup.env.ledger().set_timestamp(now + 100);
+    setup.env.ledger().set_timestamp(now + OFFSET);
     assert!(client
         .try_resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Release)
         .is_ok());
@@ -573,7 +672,7 @@ fn test_fallback_appeal_flow_reopens_dispute() {
 
     // Advance time past fallback deadline:
     let now = setup.env.ledger().timestamp();
-    setup.env.ledger().set_timestamp(now + 200);
+    setup.env.ledger().set_timestamp(now + OFFSET + 100);
 
     // Backup resolver now resolves as Refund
     client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Refund);
@@ -583,7 +682,7 @@ fn test_fallback_appeal_flow_reopens_dispute() {
     );
 
     // Finalize after appeal window
-    setup.env.ledger().set_timestamp(now + 200 + 86401);
+    setup.env.ledger().set_timestamp(now + OFFSET + 100 + 86401);
     client.finalize_dispute(&setup.buyer, &escrow_id);
     assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Refunded);
 
@@ -670,4 +769,94 @@ fn test_fallback_co_signed_release_success() {
 
     let tc = token::Client::new(&setup.env, &setup.token);
     assert_eq!(tc.balance(&setup.seller), amount);
+}
+
+/// Backup resolves in round 1, the dispute is appealed, and the primary
+/// re-resolves in round 2. Nothing from round 1 (votes, resolution, resolver
+/// attribution) may leak into round 2.
+#[test]
+fn test_fallback_backup_resolves_appeal_clears_votes_primary_reresolves() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    // Move past the fallback deadline so the backup is authorized.
+    let now = setup.env.ledger().timestamp();
+    setup.env.ledger().set_timestamp(now + 200);
+
+    // Round 1: backup resolves Refund.
+    client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Refund);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+    let votes = client.get_resolver_votes(&escrow_id);
+    assert_eq!(votes.len(), 1);
+    assert_eq!(votes.get(0).unwrap().resolver, setup.backup);
+    let dispute = client.get_dispute(&escrow_id).unwrap();
+    assert_eq!(dispute.resolved_by, Some(setup.backup.clone()));
+    assert_eq!(dispute.get_resolution(), Some(ResolutionType::Refund));
+
+    // Seller appeals inside the appeal window.
+    client.appeal_dispute(&setup.seller, &escrow_id);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Disputed);
+
+    // The vote cache and the recorded resolution are fully reset.
+    assert_eq!(client.get_resolver_votes(&escrow_id).len(), 0);
+    let dispute = client.get_dispute(&escrow_id).unwrap();
+    assert_eq!(dispute.resolution, 0);
+    assert_eq!(dispute.resolved_by, None);
+    assert_eq!(dispute.resolved_at, 0);
+    assert_eq!(dispute.appeal_count, 1);
+
+    // Round 2: the primary re-resolves (opposite outcome) without being blocked.
+    client.resolve_dispute(&setup.primary, &escrow_id, &ResolutionType::Release);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
+    let votes = client.get_resolver_votes(&escrow_id);
+    assert_eq!(votes.len(), 1);
+    let vote = votes.get(0).unwrap();
+    assert_eq!(vote.resolver, setup.primary);
+    assert_eq!(vote.resolution, ResolutionType::Release);
+    let dispute = client.get_dispute(&escrow_id).unwrap();
+    assert_eq!(dispute.resolved_by, Some(setup.primary.clone()));
+    assert_eq!(dispute.get_resolution(), Some(ResolutionType::Release));
+
+    // Finalize round 2: the seller is paid, not the buyer.
+    setup
+        .env
+        .ledger()
+        .set_timestamp(setup.env.ledger().timestamp() + 86401);
+    client.finalize_dispute(&setup.seller, &escrow_id);
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Completed);
+}
+
+/// The resolver who ruled in round 1 is not blocked from ruling again in
+/// round 2: after an appeal the backup may re-resolve, and the primary remains
+/// authorized as well.
+#[test]
+fn test_fallback_round1_resolver_can_reresolve_after_appeal() {
+    let setup = setup();
+    let client = EscrowClient::new(&setup.env, &setup.contract_id);
+    let escrow_id = create_funded_shipped_disputed(&setup);
+
+    let now = setup.env.ledger().timestamp();
+    setup.env.ledger().set_timestamp(now + 200);
+
+    client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Refund);
+    client.appeal_dispute(&setup.buyer, &escrow_id);
+    assert_eq!(client.get_resolver_votes(&escrow_id).len(), 0);
+
+    // Backup rules again in round 2.
+    client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Release);
+    let votes = client.get_resolver_votes(&escrow_id);
+    assert_eq!(votes.len(), 1);
+    assert_eq!(votes.get(0).unwrap().resolver, setup.backup);
+    assert_eq!(votes.get(0).unwrap().resolution, ResolutionType::Release);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::PendingFinalization
+    );
 }

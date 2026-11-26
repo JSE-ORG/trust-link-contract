@@ -37,7 +37,10 @@ pub fn run_gas_profile(extra: &[String]) -> Result<(), String> {
         }
     }
 
-    let mut base_args: Vec<String> = DEFAULT_GAS_TEST_ARGS.iter().map(|s| s.to_string()).collect();
+    let mut base_args: Vec<String> = DEFAULT_GAS_TEST_ARGS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     base_args.extend(filtered_extra);
 
     println!("==> Running gas-profile tests (package=trustlink-escrow)");
@@ -51,8 +54,8 @@ pub fn run_gas_profile(extra: &[String]) -> Result<(), String> {
         print_table(&report, category_filter.as_deref());
     }
     if let Some(p) = out_path {
-        let json = serde_json::to_string_pretty(&report)
-            .map_err(|e| format!("serialize report: {e}"))?;
+        let json =
+            serde_json::to_string_pretty(&report).map_err(|e| format!("serialize report: {e}"))?;
         fs::write(&p, &json).map_err(|e| format!("write {p}: {e}"))?;
         println!("Wrote JSON gas report to: {p}");
     }

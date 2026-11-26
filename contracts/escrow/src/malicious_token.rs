@@ -10,11 +10,19 @@
 //! (`transfer`, plus `balance`/`mint` for assertions) and, depending on the
 //! configured [`Attack`], misbehaves while the escrow is mid-execution:
 //!
-//! * [`Attack::Fail`] — always panics, modelling a broken / hostile token.
+//! * [`Attack::Fail`] — always panics, modelling a broken / hostile token
+//!   (`FailingToken`).
+//! * [`Attack::FailForRecipient`] — panics only when paying a configured
+//!   recipient, modelling a token that blacklists one address
+//!   (`FailingToken`).
 //! * [`Attack::BurnBudget`] — runs a long metered loop, modelling an
 //!   "infinite-gas" token that tries to wedge the call.
+//! * [`Attack::FeeOnTransfer`] — debits the sender in full but credits the
+//!   recipient one stroop less, modelling a fee-on-transfer token that
+//!   silently under-funds a basket.
 //! * `Attack::Reenter*` — calls back into the still-executing escrow, modelling
-//!   a classic re-entrancy attack (target configured via [`set_reentry`]).
+//!   a classic re-entrancy attack (`ReentrantToken`; target configured via
+//!   [`set_reentry`]).
 //!
 //! Soroban's host forbids re-entrancy and meters every host call, so each of
 //! these aborts the *entire* invocation atomically. The accompanying tests in
@@ -36,14 +44,21 @@ pub enum Attack {
     None,
     /// Panic unconditionally, simulating a broken or hostile token.
     Fail,
+    /// Panic only when the recipient matches the configured blocked address.
+    FailForRecipient,
     /// Burn the CPU budget with a long metered loop ("infinite gas").
     BurnBudget,
+    /// Debit the sender the full `amount` but credit the recipient one stroop
+    /// less, modelling a fee-on-transfer token that under-funds the escrow.
+    FeeOnTransfer,
     /// Re-enter `confirm_delivery(actor, escrow_id)` during the transfer.
     ReenterConfirm,
     /// Re-enter `fund_escrow(escrow_id, actor)` during the transfer.
     ReenterFund,
     /// Re-enter `cancel_escrow(actor, escrow_id)` during the transfer.
     ReenterCancel,
+    /// Re-enter `mutual_cancel(escrow_id)` during the transfer.
+    ReenterMutualCancel,
 }
 
 /// Re-entrancy target: which escrow to call back into, as whom, for which id.
@@ -61,6 +76,7 @@ enum Key {
     Balance(Address),
     Attack,
     Reentry,
+    BlockedRecipient,
 }
 
 #[contract]
@@ -83,6 +99,13 @@ impl MaliciousToken {
                 escrow_id,
             },
         );
+    }
+
+    /// Configure the recipient that `Attack::FailForRecipient` rejects.
+    pub fn set_blocked_recipient(env: Env, recipient: Address) {
+        env.storage()
+            .instance()
+            .set(&Key::BlockedRecipient, &recipient);
     }
 
     /// Credit `amount` to `to` (test-only minting helper).
@@ -115,6 +138,12 @@ impl MaliciousToken {
         match attack {
             Attack::None => {}
             Attack::Fail => panic!("malicious token: transfer rejected"),
+            Attack::FailForRecipient => {
+                let blocked: Option<Address> = env.storage().instance().get(&Key::BlockedRecipient);
+                if blocked.as_ref() == Some(&to) {
+                    panic!("malicious token: recipient blocked");
+                }
+            }
             Attack::BurnBudget => {
                 // Each `sha256` is a metered host call. Under a constrained CPU
                 // budget (set by the test) this exhausts the budget long before
@@ -132,7 +161,7 @@ impl MaliciousToken {
                 // Re-entering the still-executing escrow is forbidden by the
                 // host: this call traps, reverting the whole transfer.
                 let r = Self::reentry(&env);
-                EscrowClient::new(&env, &r.escrow).confirm_delivery(&r.actor, &r.escrow_id);
+                EscrowClient::new(&env, &r.escrow).confirm_delivery(&r.actor, &r.escrow_id, &false);
             }
             Attack::ReenterFund => {
                 let r = Self::reentry(&env);
@@ -141,6 +170,17 @@ impl MaliciousToken {
             Attack::ReenterCancel => {
                 let r = Self::reentry(&env);
                 EscrowClient::new(&env, &r.escrow).cancel_escrow(&r.actor, &r.escrow_id);
+            }
+            Attack::ReenterMutualCancel => {
+                let r = Self::reentry(&env);
+                EscrowClient::new(&env, &r.escrow).mutual_cancel(&r.escrow_id);
+            }
+            Attack::FeeOnTransfer => {
+                // Take the full amount from the sender but credit one stroop
+                // less to the recipient, then return without the plain
+                // `do_transfer` below (which would credit the full amount).
+                Self::do_transfer_with_fee(&env, &from, &to, amount, 1);
+                return;
             }
         }
 
@@ -174,5 +214,25 @@ impl MaliciousToken {
         env.storage()
             .persistent()
             .set(&to_key, &(to_balance + amount));
+    }
+
+    /// Like [`Self::do_transfer`] but credits the recipient `amount - fee`
+    /// while still debiting the sender the full `amount`. Models a
+    /// fee-on-transfer token.
+    fn do_transfer_with_fee(env: &Env, from: &Address, to: &Address, amount: i128, fee: i128) {
+        let from_key = Key::Balance(from.clone());
+        let from_balance: i128 = env.storage().persistent().get(&from_key).unwrap_or(0);
+        if from_balance < amount {
+            panic!("malicious token: insufficient balance");
+        }
+        env.storage()
+            .persistent()
+            .set(&from_key, &(from_balance - amount));
+
+        let to_key = Key::Balance(to.clone());
+        let to_balance: i128 = env.storage().persistent().get(&to_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&to_key, &(to_balance + (amount - fee)));
     }
 }

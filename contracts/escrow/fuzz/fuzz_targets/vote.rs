@@ -41,7 +41,7 @@ fuzz_target!(|data: &[u8]| {
     }
 
     let reason = h.dispute_reason(&mut r);
-    let description = r.ascii_string(&h.env, 32);
+    let description = r.bytes(&h.env, 32);
     let evidence_hash = soroban_sdk::BytesN::from_array(&h.env, &r.bytes32());
     let _ = h
         .client

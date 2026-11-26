@@ -73,10 +73,15 @@ stellar contract invoke \
   --source-account alice \
   --id CACA...BABA \
   -- create_escrow \
-  --seller G... \
+  --seller_or_payees G... \
+  --buyer G... \
+  --resolver G... \
   --token CACA...TOKEN \
   --amount 1000 \
-  --shipping_window 3600
+  --fee_bps 50 \
+  --resolver_fee_bps 50 \
+  --shipping_window 3600 \
+  --notes "release smoke test"
 ```
 
 ### 5. Security Review

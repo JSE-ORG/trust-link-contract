@@ -135,6 +135,25 @@ psql $DATABASE_URL -c \
     WHERE escrow_id = 12345"
 ```
 
+### Basket escrows (`basket_escrows.token_count`)
+
+The contract's `get_basket_tokens(escrow_id)` view returns `Option<Vec<TokenEntry>>`,
+and the indexer's `basket_escrows.token_count` column is derived from it. The
+three outcomes are **not** interchangeable:
+
+| `get_basket_tokens` | Meaning | `basket_escrows` row |
+|---|---|---|
+| `None` | Escrow id does not exist | Do **not** insert a row |
+| `Some([])` | Existing **single-token** escrow (`create_escrow*`) | `token_count = 0`, or omit the row |
+| `Some([TokenEntry, …])` | **Basket** escrow (`create_basket_escrow`) | `token_count = len()` |
+
+`None` is "missing escrow"; `Some([])` is "escrow exists, not a basket". Do not
+treat an empty `Vec` as a missing escrow or as a zero-token basket — the primary
+token/amount live on the `EscrowData` record, not in the basket list. See
+`docs/INTEGRATION_GUIDE.md` ("Reading basket tokens") for the client-side
+contract. `BasketEscrowCreated` events already carry `token_count` directly, so
+event-driven ingestion should prefer that field over re-reading the view.
+
 ### Replay API
 
 `src/replay.ts` is both a CLI and an importable module — importing it does not

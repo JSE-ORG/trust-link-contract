@@ -61,3 +61,49 @@ fn test_get_escrows_by_ids_order_and_missing() {
     assert!(maybe3.is_some());
     assert_eq!(maybe3.unwrap().amount, 300_i128);
 }
+
+#[test]
+fn test_get_escrows_by_ids_truncates_beyond_cap_and_keeps_none_slots() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    let real_id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 100, 0, 3600,
+    );
+
+    // Slot 0 is real, slots 1..cap are missing, and two extra ids past the cap
+    // (one of them real) must be dropped by the documented truncate policy.
+    let cap = crate::MAX_IDS_PER_QUERY;
+    let mut ids = Vec::new(&env);
+    ids.push_back(real_id);
+    for i in 1..cap {
+        ids.push_back(10_000 + u64::from(i));
+    }
+    ids.push_back(real_id);
+    ids.push_back(20_000_u64);
+    assert_eq!(ids.len(), cap + 2);
+
+    let results = client.get_escrows_by_ids(&ids);
+    assert_eq!(results.len(), cap);
+    assert_eq!(results.get(0).unwrap().unwrap().amount, 100_i128);
+    for i in 1..cap {
+        assert!(results.get(i).unwrap().is_none());
+    }
+
+    // Exactly `cap` ids is not truncated.
+    let mut exact = Vec::new(&env);
+    for _ in 0..cap {
+        exact.push_back(real_id);
+    }
+    assert_eq!(client.get_escrows_by_ids(&exact).len(), cap);
+
+    // Empty input yields an empty result.
+    assert_eq!(client.get_escrows_by_ids(&Vec::new(&env)).len(), 0);
+}

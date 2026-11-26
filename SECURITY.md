@@ -35,6 +35,39 @@
 
 ---
 
+## Emergency Pause Model — Asymmetric Governance (#1243)
+
+TrustLink deliberately implements **asymmetric governance** for the pause circuit-breaker:
+
+| Operation | Path | Delay |
+|---|---|---|
+| `pause_contract` | Immediate — admin calls directly | **None** |
+| `unpause_contract` (default) | Immediate — admin calls directly | None |
+| `unpause_contract` (strict mode) | Must use `queue_unpause_contract` → `execute_unpause_contract` | 24 h timelock |
+
+### Rationale
+
+A contract pause is a defensive action taken under time pressure during an active incident. Any delay between detecting a vulnerability and pausing the contract increases the attack surface. `pause_contract` is therefore an **immediate circuit-breaker** that takes effect in the same transaction with no queue/execute step.
+
+Resuming operations after a pause is a different risk profile: it should only happen after the root cause has been identified and fixed. The timelocked unpause policy enforces that review window.
+
+### Enabling Strict Mode
+
+```rust
+// Admin enables strict governance — unpause now requires the timelock.
+client.set_timelocked_unpause_only(&admin, &true);
+
+// Direct unpause now returns ContractError::DirectUnpauseBlocked.
+// Use the timelocked path instead:
+client.queue_unpause_contract(&admin);
+// ... wait for the configured timelock delay (default 24 h) ...
+client.execute_unpause_contract(&admin);
+```
+
+Strict mode is **disabled by default** to preserve backward compatibility. Operators who require stronger governance guarantees should enable it immediately after deployment.
+
+---
+
 ## For Deployers / Operators
 
 ### Pre-Deployment
@@ -58,10 +91,19 @@
    - Verify initialization via get_fee_config query
    - NEVER call initialize twice
 
-4. **Token Whitelisting** (recommended)
+4. **Token Allowlisting — REQUIRED before mainnet** ⚠️
+   - The on-chain allowlist (`DataKey::TokenAllowlistEnabled`) defaults to
+     **disabled**, so *any* SEP-41 token can be used until you enable it. Every
+     payout is an external call into the token contract, so a hostile token can
+     re-enter the escrow while settlement is in flight. Do not expose real value
+     to a contract that has not been locked down.
+   - Immediately after `initialize()`, call `set_token_allowlist_enabled(true)`
+     (or queue/execute the timelocked `SetTokenAllowlistEnabled` operation)
+   - Register each audited token with `add_allowed_token` and verify via
+     `get_allowed_tokens`; creation with any other token then fails with
+     `TokenNotAllowed`
    - Audit all tokens before use
-   - Maintain allowlist of supported tokens
-   - Reject malicious tokens with false transfer callbacks
+   - Reject malicious tokens with false transfer callbacks / reentrancy hooks
    - Document token audit results
 
 ### Post-Deployment
@@ -304,6 +346,62 @@ Before mainnet deployment:
 - [ ] Deployment checklist
 
 ### Sign-Off Date: ___________
+
+---
+
+## Malware Guard & Supply Chain Security
+
+To protect against malicious code injection, compromised dependencies, and accidental secret disclosure, this repository enforces automated malware and supply-chain gates in local git hooks and CI (`.github/workflows/malware-guard.yml`).
+
+### Local Checks
+
+Run the custom scanner locally across the tree at any time:
+
+```bash
+make malware-check
+# or directly:
+node scripts/scan-malware.mjs
+```
+
+The pre-commit hook installed via `make setup` executes `make malware-check` automatically before allowing commits. It runs in under 2 seconds and uses only Node.js standard library (no extra npm dependencies required).
+
+### What the Guard Inspects
+
+1. **Obfuscation & Dynamic Execution**: Flags dynamic code execution (`eval` / dynamic Function constructor), character-code string synthesis, and suspiciously long base64 payloads.
+2. **Reverse Shells & Exfiltration**: Flags download-and-execute one-liners (piped curl/wget to shell), network socket redirection, and reverse-shell indicators.
+3. **Key Material & Credentials**: Detects private key headers, references to SSH private key files, and mnemonic recovery phrases.
+4. **Dangerous npm Lifecycle Scripts**: Scans `package.json` files for high-risk commands inside `preinstall`, `install`, `postinstall`, or `prepare`.
+5. **Committed Binaries**: Enforces zero committed native binaries (PE, ELF, Mach-O, or compiled WASM modules).
+6. **Cargo Integrity**: Disallows unapproved git dependencies and patch overrides, and checks for process execution in `build.rs`.
+
+### PR Gate vs. Nightly Deep Scans
+
+To keep contributor feedback fast and deterministic without failing PRs on upstream vulnerabilities in untouched code:
+
+| Scanner | PR Scope | Push / Nightly Scope | PR Blocking? |
+|---|---|---|---|
+| **Secret Scan (gitleaks)** | Changed commits (`base..head`) | Full git history | **Yes** (blocking) |
+| **Custom Patterns (`scan-malware.mjs`)** | Changed files only | Full repository tree | **Yes** (blocking) |
+| **Workflow Lint (`actionlint` + `zizmor`)** | Workflow syntax & security | Workflow files | **Yes** (syntax blocks; zizmor advisory) |
+| **Lockfile Integrity** | `npm ci --ignore-scripts`, `cargo metadata` | Full lockfile validation | **Yes** (blocking) |
+| **Dependencies (`osv-scanner`)** | PR diff | Full audit | **Warn-only on PR** (non-blocking) |
+| **Filesystem Scan (`trivy`)** | PR diff | Full filesystem | **Warn-only on PR** (non-blocking) |
+| **Antivirus (`ClamAV`)** | *Skipped on PR* | Nightly deep scan | Scheduled only |
+
+### Suppressing False Positives (Allowlist Process)
+
+When a legitimate file matches a heuristic (e.g. documentation discussing seed phrases or test files testing base64 encodings):
+
+1. **Custom Scanner**: Add a targeted rule exemption in [`.malware-guard-allowlist.json`](.malware-guard-allowlist.json):
+   ```json
+   {
+     "rules": {
+       "seed-phrase": ["docs/EXAMPLE.md"]
+     }
+   }
+   ```
+2. **Secret Scanner**: Add an explicit path pattern to the `[[allowlists]]` section in [`.gitleaks.toml`](.gitleaks.toml).
+3. All allowlist changes are strictly guarded by `.github/CODEOWNERS` and require maintainer review.
 
 ---
 

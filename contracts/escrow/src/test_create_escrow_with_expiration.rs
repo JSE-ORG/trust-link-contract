@@ -159,3 +159,65 @@ fn ship_after_expiry_returns_escrow_expired() {
     );
     assert_eq!(result, Err(Ok(ContractError::EscrowExpired)));
 }
+
+fn has_pending_expiry(env: &Env, client: &EscrowClient, escrow_id: u64) -> bool {
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .has(&crate::DataKey::PendingExpiry(escrow_id))
+    })
+}
+
+#[test]
+fn cancel_pending_escrow_removes_pending_expiry() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    let (client, seller, _buyer, resolver, token_addr) = setup(&env);
+
+    let escrow_id = client.create_escrow_with_expiration(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+        &Some(1_000_000 + 3600),
+        &0_u64,
+    );
+    assert!(has_pending_expiry(&env, &client, escrow_id));
+
+    client.cancel_escrow(&seller, &escrow_id);
+
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Canceled);
+    assert!(!has_pending_expiry(&env, &client, escrow_id));
+}
+
+#[test]
+fn auto_cancel_pending_removes_pending_expiry() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    let (client, seller, _buyer, resolver, token_addr) = setup(&env);
+
+    // Expiry must fall after the 7-day pending window, otherwise the escrow
+    // expires before auto_cancel_pending becomes callable.
+    let escrow_id = client.create_escrow_with_expiration(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+        &Some(1_000_000 + crate::PENDING_EXPIRY_WINDOW + 3600),
+        &0_u64,
+    );
+    assert!(has_pending_expiry(&env, &client, escrow_id));
+
+    env.ledger()
+        .set_timestamp(1_000_000 + crate::PENDING_EXPIRY_WINDOW + 1);
+    client.auto_cancel_pending(&escrow_id);
+
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Canceled);
+    assert!(!has_pending_expiry(&env, &client, escrow_id));
+}

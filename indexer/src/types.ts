@@ -189,7 +189,13 @@ export interface EscrowCompletedPayload {
   schema_version: number;
   escrow_id: string | number;
   recipient: string;
+  /**
+   * Gross escrowed amount **before** the protocol fee — not the amount paid to
+   * `recipient`. Use {@link deriveNetAmount} with `fee_bps` to derive the net
+   * payout.
+   */
   amount: string;
+  /** Protocol fee rate in basis points that was applied to `amount`. */
   fee_bps: number;
   timestamp: string | number;
   prev_state: string;
@@ -236,12 +242,68 @@ export interface DisputeResolvedPayload {
   resolver: string;
   resolution: string;
   recipient: string;
+  /**
+   * Escrow balance after arbitration/resolver fees and **before** platform and
+   * protocol fees — not the amount paid to `recipient`. Use
+   * {@link deriveDisputeNetAmount} to derive the final payout.
+   */
   amount: string;
   arbitration_fee: string;
   resolver_fee: string;
+  platform_fee: string;
   timestamp: string | number;
   prev_state: string;
   new_state: string;
+}
+
+/** Basis-point denominator used by the escrow contract. */
+export const BASIS_POINTS = 10_000n;
+
+/** A contract amount, decoded as a decimal string, JS number, or bigint. */
+export type AmountValue = string | number | bigint;
+
+/**
+ * Computes the floored protocol fee for a gross amount, matching the on-chain
+ * `calculate_fee` (`floor(amount * feeBps / 10_000)`).
+ */
+export function deriveFee(gross: AmountValue, feeBps: number): bigint {
+  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > Number(BASIS_POINTS)) {
+    throw new RangeError(`feeBps must be an integer in [0, ${BASIS_POINTS}], got ${feeBps}`);
+  }
+  const amount = BigInt(gross);
+  if (amount < 0n) {
+    throw new RangeError(`amount must be non-negative, got ${gross}`);
+  }
+  return (amount * BigInt(feeBps)) / BASIS_POINTS;
+}
+
+/**
+ * Derives the net recipient payout from a gross `EscrowCompleted` amount and
+ * its `fee_bps`: `net = gross - floor(gross * feeBps / 10_000)`.
+ */
+export function deriveNetAmount(gross: AmountValue, feeBps: number): bigint {
+  const amount = BigInt(gross);
+  return amount - deriveFee(amount, feeBps);
+}
+
+/**
+ * Derives the final recipient payout for a `DisputeResolved` payload.
+ *
+ * `amount` is already net of arbitration/resolver fees but gross of the
+ * platform and protocol fees. The protocol fee is charged on the original
+ * principal, reconstructed as `amount + arbitration_fee + resolver_fee`.
+ */
+export function deriveDisputeNetAmount(
+  payload: Pick<
+    DisputeResolvedPayload,
+    "amount" | "arbitration_fee" | "resolver_fee" | "platform_fee"
+  >,
+  feeBps: number,
+): bigint {
+  const amount = BigInt(payload.amount);
+  const feeBasis =
+    amount + BigInt(payload.arbitration_fee) + BigInt(payload.resolver_fee);
+  return amount - BigInt(payload.platform_fee) - deriveFee(feeBasis, feeBps);
 }
 
 export interface DisputePendingPayload {

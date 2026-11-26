@@ -65,8 +65,11 @@ TrustLink is a three-party escrow contract with seller, buyer, and resolver role
 **Mitigation**:
 - ✅ Fee calculation uses `checked_mul` / `checked_div` in helpers
 - ✅ Overflow returns `ArithmeticError`
-- ✅ Fee cap: max 1000 BPS (10%) enforced on initialization
-- ✅ Arbitration fee capped per-escrow at creation
+- ✅ Per-escrow fee and resolver-fee validation returns [`FeeExceedsMax` (7)](ERROR_CODES.md)
+- ✅ Platform-fee validation returns [`PlatformFeeExceedsMax` (32)](ERROR_CODES.md)
+- ✅ Protocol-fee validation returns [`ProtocolFeeExceedsMax` (58)](ERROR_CODES.md)
+- ✅ Arbitration fee has its separate cap and error code [`ArbitrationFeeExceedsMax` (59)](ERROR_CODES.md)
+- ✅ The protocol and arbitration fee settings also share a combined cap
 - ✅ Amounts validated > 0 at creation
 
 **Residual Risk**: Very Low. Checked arithmetic throughout.
@@ -85,12 +88,17 @@ TrustLink is a three-party escrow contract with seller, buyer, and resolver role
 
 **Mitigation**:
 - ✅ Dispute window: 172800s (2 days) from funding
+- ✅ `raise_dispute` checks `now < dispute_deadline` (enforced at `instructions.rs:raise_dispute`)
 - ✅ Shipped state from `mark_shipped` call
 - ✅ `auto_release` checks `funded_at + shipping_window <= now`
 - ✅ Dispute raises new dispute window, separate from shipping window
 - ✅ Can auto-release even with expired dispute window if no active dispute
 
-**Residual Risk**: Low. Separate windows; shipping window is hardcoded.
+**Error Code References**: See [ERROR_CODES.md](ERROR_CODES.md):
+- Code 13 (`DeliveryBeforeDisputeWindow`) — `auto_release` called before `dispute_deadline` passes
+- Code 24 (`DisputeWindowStillOpen`) — `confirm_delivery` called before `dispute_deadline`, or `raise_dispute` called after `dispute_deadline`
+
+**Residual Risk**: Low. Separate windows; shipping window is an explicit caller-supplied parameter validated against `MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW` (1s to ~2 years) at escrow creation (`contracts/escrow/src/lib.rs:230-234`, `contracts/escrow/src/internal.rs:312-317`, `contracts/escrow/src/internal.rs:1317`, `contracts/escrow/src/instructions.rs:1362`), preventing 0-length or unbounded windows.
 
 ---
 
@@ -229,12 +237,12 @@ proof.
 - Funds stuck in contract
 
 **Mitigation**:
-- ✅ Fee cap enforced: max 1000 BPS (10%) on initialization
-- ✅ Arbitration fee capped at 1000 BPS per-escrow
-- ✅ Even with max fees: payout = 100 - 10 - ~0.1 = ~89.9 (positive)
+- ✅ Arbitration fee alone is capped at `MAX_ARBITRATION_FEE_BPS` = 500 BPS (5%) — [`ArbitrationFeeExceedsMax` (59)](ERROR_CODES.md)
+- ✅ Protocol + arbitration fees combined are capped at `MAX_COMBINED_FEE_BPS` = 1,000 BPS (10%) — [`FeeExceedsMax` (7)](ERROR_CODES.md)
+- ✅ Even with max fees: payout = 100 - 5 - ~0.5 = ~94.5 (positive)
 - ✅ Fee configuration immutable per-escrow once created
 
-**Residual Risk**: Very Low. Fee caps are hard-coded.
+**Residual Risk**: Very Low. Fee caps are hard-coded (`contracts/escrow/src/lib.rs` — `MAX_ARBITRATION_FEE_BPS`, `MAX_COMBINED_FEE_BPS`).
 
 ---
 
@@ -277,6 +285,66 @@ proof.
 
 ---
 
+### THREAT 14: Unauthorized Timelock Execution
+
+**Scenario**: A timelocked admin operation is executed early, with altered parameters, under the wrong operation, on the wrong contract, or after its proposer lost the admin role.
+
+**Attack Vector**:
+- Admin A calls `queue_set_arbitration_fee(500)`, queuing a proposal
+- Admin A is rotated out; Admin B takes over
+- Someone calls `execute_set_arbitration_fee(500)` after the delay
+- Unintended fee change executed without the current admin's approval
+
+**Mitigation**:
+- ✅ **Execution is permissionless by design (#1235)**: any address — the admin or a keeper bot — may execute a mature proposal. The admin's authorization was captured at queue time; the executor only signs for itself (`caller.require_auth()`), so the `executor` recorded in `TimelockExecuted` is authentic.
+- ✅ `now >= proposal.ready_at`, else `TimelockNotElapsed`
+- ✅ `proposal.proposer` must be the **current** admin, else `NotAuthorized`. Proposals from a rotated-out admin are orphaned and can never execute; the new admin cancels them and queues their own.
+- ✅ Parameters are checked against a **domain-separated** hash (#1236): `sha256(params.to_xdr() || contract_address.to_xdr() || (operation as u32).to_xdr())`. A proposal cannot be executed with other parameters, under another operation with an identical parameter vector, or replayed into another contract instance (`InvalidProposalHash`).
+- ✅ Selected admin entry points (`queue_upgrade`, `execute_upgrade`, fee setters) can be paused individually with `pause_action` (#1237), which also blocks keeper execution of those operations. See `ADMIN.md`.
+
+**Permission Model**:
+- `queue_<operation>`: Callable by current admin only; creates a proposal with proposer = caller
+- `execute_<operation>`: **Callable by anyone**, after `ready_at`, while the proposer is still the admin, with the exact queued parameters
+- `cancel_timelock_op`: Callable by current admin only; requires `caller.require_auth()` plus `caller == admin`
+
+**Residual Risk**: Very Low. Keepers can only choose *when* (after `ready_at`) a change the current admin already approved goes live; they cannot change what it does.
+
+### THREAT 14a: Timelock Delay Collapse
+
+**Scenario**: An attacker with temporary access to the admin key shortens the timelock delay so a malicious upgrade can go through before anyone reacts.
+
+**Mitigation** (#1238):
+- ✅ `queue_set_timelock_delay` rejects delays below `MIN_TIMELOCK_DELAY_SECONDS` (12h) or above `MAX_TIMELOCK_DELAY_SECONDS` (30d) with `InvalidTimelockDelay`
+- ✅ A delay change waits `max(current_delay, new_delay)`. Reducing 24h → 12h still waits the full current 24h; executing early reverts with `TimelockNotElapsed`
+- ✅ Proposals already queued keep their `ready_at`, so a reduction cannot shorten an in-flight countdown
+- ✅ Every queue step emits `TimelockQueued`, giving monitoring the full current delay to react (cancel the proposal, rotate the key, or `pause_action("execute_upgrade")`)
+
+**Residual Risk**: Low. An attacker holding the key for longer than the current delay can still shorten it, but only after a publicly visible countdown of the full current delay.
+
+---
+
+### THREAT 15: Unauthorized Timelock Cancellation
+
+**Scenario**: Non-admin user cancels a pending timelock proposal.
+
+**Attack Vector**:
+- Admin queues `queue_set_admin(new_admin)`
+- Attacker calls `cancel_timelock_op(SetAdmin)` before delay expires
+- Proposal cancelled; new admin never takes effect
+
+**Mitigation**:
+- ✅ `cancel_timelock_op` checks `caller == admin` via `require_admin(&env)` (see `admin.rs:802-815`)
+- ✅ Only current admin can cancel pending proposals
+- ✅ Non-admin callers rejected with `NotAuthorized` error
+- ✅ Allows legitimate admin to cancel accidental or superseded proposals
+
+**Permission Model**:
+- `cancel_timelock_op`: Callable by current admin only; requires `caller.require_auth()`
+
+**Residual Risk**: Very Low. Admin check enforced at entry.
+
+---
+
 ## Threat Matrix
 
 | Threat | Impact | Likelihood | Mitigation | Risk |
@@ -294,6 +362,9 @@ proof.
 | Fee > amount | Medium | Very Low | Fee caps | Very Low |
 | Multiple disputes | High | Very Low | State machine | Very Low |
 | Early confirmation | Medium | Low | By design | Low |
+| Unauthorized timelock execution | High | Very Low | Current-admin proposer check + domain-separated hash | Very Low |
+| Timelock delay collapse | High | Low | Delay change waits max(current, new) | Low |
+| Unauthorized timelock cancellation | High | Very Low | Admin check | Very Low |
 
 ## Assumptions & Trust Model
 

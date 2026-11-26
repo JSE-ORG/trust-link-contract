@@ -1,0 +1,61 @@
+# Same temporary Soroban exception as deny.toml and the security workflow.
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0387"
+reason = "Soroban uses elliptic-curve 0.13, which requires crypto-bigint 0.5; remove when a compatible fixed version is available."
+
+# Temporary risk acceptance; reassess before expiry.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+effectiveUntil = 2027-02-01
+reason = "Unmaintained transitive dependency; review replacement or upgrade before expiry."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"
+effectiveUntil = 2027-02-01
+reason = "Unmaintained transitive dependency; review replacement or upgrade before expiry."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0574"
+effectiveUntil = 2027-02-01
+reason = "Heapless 0.8 is required by the Soroban dependency chain; risk accepted temporarily pending a compatible fixed upgrade."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0575"
+effectiveUntil = 2027-02-01
+reason = "Heapless 0.8 is required by the Soroban dependency chain; risk accepted temporarily pending a compatible fixed upgrade."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0576"
+effectiveUntil = 2027-02-01
+reason = "Heapless 0.8 is required by the Soroban dependency chain; risk accepted temporarily pending a compatible fixed upgrade."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0577"
+effectiveUntil = 2027-02-01
+reason = "Heapless 0.8 is required by the Soroban dependency chain; risk accepted temporarily pending a compatible fixed upgrade."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0578"
+effectiveUntil = 2027-02-01
+reason = "Heapless 0.8 is required by the Soroban dependency chain; risk accepted temporarily pending a compatible fixed upgrade."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0579"
+effectiveUntil = 2027-02-01
+reason = "Heapless 0.8 is required by the Soroban dependency chain; risk accepted temporarily pending a compatible fixed upgrade."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0580"
+effectiveUntil = 2027-02-01
+reason = "Heapless 0.8 is required by the Soroban dependency chain; risk accepted temporarily pending a compatible fixed upgrade."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0581"
+effectiveUntil = 2027-02-01
+reason = "Heapless 0.8 is required by the Soroban dependency chain; risk accepted temporarily pending a compatible fixed upgrade."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0582"
+effectiveUntil = 2027-02-01
+reason = "Heapless 0.8 is required by the Soroban dependency chain; risk accepted temporarily pending a compatible fixed upgrade."

@@ -42,7 +42,7 @@ pub fn run_gas_profile_network(extra: &[String]) -> Result<(), String> {
             stdout
                 .trim()
                 .split('\n')
-                .last()
+                .next_back()
                 .unwrap_or("")
                 .trim()
                 .to_string()
@@ -53,71 +53,71 @@ pub fn run_gas_profile_network(extra: &[String]) -> Result<(), String> {
     }
     println!("    Contract ID: {cid}");
 
-    let stellar_invoke =
-        |func: &str, json_args: &[&str], label: &str| -> Result<NetworkGasTx, String> {
-            let mut cmd_args = vec![
-                "contract".to_string(),
-                "invoke".to_string(),
-                "--id".to_string(),
-                cid.clone(),
-                "--network".to_string(),
-                network.clone(),
-                "--source".to_string(),
-                source.clone(),
-                "--".to_string(),
-                func.to_string(),
-            ];
-            for a in json_args {
-                cmd_args.push((*a).to_string());
-            }
-            let output = Command::new("stellar")
-                .args(&cmd_args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .output()
-                .map_err(|e| format!("launch stellar: {e}"))?;
-            let status_ok = output.status.success();
-            let combined = format!(
-                "{}\n{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            if !status_ok {
-                eprintln!("warn: stellar invoke {label} failed; skipping:\n{combined}");
-                return Ok(NetworkGasTx {
-                    operation: label.to_string(),
-                    tx_hash: "ERROR".to_string(),
-                    fee_charged: "ERROR".to_string(),
-                    cpu_instructions: None,
-                    ram_bytes: None,
-                    ledger_reads: None,
-                    ledger_writes: None,
-                });
-            }
-            let tx_hash = combined
-                .lines()
-                .find(|l| {
-                    l.contains("Transaction Hash") || l.contains("txHash") || l.contains("hash")
-                })
-                .and_then(|l| l.split(':').nth(1))
-                .map(|s| s.trim().to_string())
-                .unwrap_or_else(|| "UNKNOWN".to_string());
-            let fee = combined
-                .lines()
-                .find(|l| l.contains("Fee") || l.contains("feeCharged"))
-                .and_then(|l| l.split(':').nth(1))
-                .map(|s| s.trim().to_string())
-                .unwrap_or_else(|| "N/A".to_string());
-            Ok(NetworkGasTx {
+    let stellar_invoke = |func: &str,
+                          json_args: &[&str],
+                          label: &str|
+     -> Result<NetworkGasTx, String> {
+        let mut cmd_args = vec![
+            "contract".to_string(),
+            "invoke".to_string(),
+            "--id".to_string(),
+            cid.clone(),
+            "--network".to_string(),
+            network.clone(),
+            "--source".to_string(),
+            source.clone(),
+            "--".to_string(),
+            func.to_string(),
+        ];
+        for a in json_args {
+            cmd_args.push((*a).to_string());
+        }
+        let output = Command::new("stellar")
+            .args(&cmd_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|e| format!("launch stellar: {e}"))?;
+        let status_ok = output.status.success();
+        let combined = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if !status_ok {
+            eprintln!("warn: stellar invoke {label} failed; skipping:\n{combined}");
+            return Ok(NetworkGasTx {
                 operation: label.to_string(),
-                tx_hash,
-                fee_charged: fee,
+                tx_hash: "ERROR".to_string(),
+                fee_charged: "ERROR".to_string(),
                 cpu_instructions: None,
                 ram_bytes: None,
                 ledger_reads: None,
                 ledger_writes: None,
-            })
-        };
+            });
+        }
+        let tx_hash = combined
+            .lines()
+            .find(|l| l.contains("Transaction Hash") || l.contains("txHash") || l.contains("hash"))
+            .and_then(|l| l.split(':').nth(1))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "UNKNOWN".to_string());
+        let fee = combined
+            .lines()
+            .find(|l| l.contains("Fee") || l.contains("feeCharged"))
+            .and_then(|l| l.split(':').nth(1))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+        Ok(NetworkGasTx {
+            operation: label.to_string(),
+            tx_hash,
+            fee_charged: fee,
+            cpu_instructions: None,
+            ram_bytes: None,
+            ledger_reads: None,
+            ledger_writes: None,
+        })
+    };
 
     let mut txs = Vec::new();
 
@@ -135,7 +135,7 @@ pub fn run_gas_profile_network(extra: &[String]) -> Result<(), String> {
     .unwrap_or_else(|_| source.clone());
     let admin = admin_addr_output
         .lines()
-        .last()
+        .next_back()
         .unwrap_or(&source)
         .trim()
         .to_string();
@@ -152,7 +152,11 @@ pub fn run_gas_profile_network(extra: &[String]) -> Result<(), String> {
         "get_escrow_count (view)",
     )?);
     txs.push(stellar_invoke("get_stats", &[], "get_stats (view)")?);
-    txs.push(stellar_invoke("get_fee_config", &[], "get_fee_config (view)")?);
+    txs.push(stellar_invoke(
+        "get_fee_config",
+        &[],
+        "get_fee_config (view)",
+    )?);
 
     let now_report = NetworkGasReport {
         generated_at: SystemTime::now()

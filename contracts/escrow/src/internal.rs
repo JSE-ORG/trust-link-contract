@@ -2,8 +2,26 @@
 //! and queries modules: storage read/write, validation, fee math, and
 //! resolver-vote tallying. Not part of the contract's public interface.
 
+use crate::types::BoundedPayees;
 use crate::*;
 use soroban_sdk::{token, Address, Env, String, Symbol, Vec};
+
+/// Maps an escrow's terminal state to the most specific rejection error, or
+/// returns `fallback` for states that have no dedicated code.
+///
+/// Call sites read as `return Err(terminal_state_error(&escrow.state,
+/// ContractError::InvalidState));` so that an action rejected because the
+/// escrow is already `Completed`/`Refunded` surfaces `EscrowAlreadyCompleted`/
+/// `EscrowAlreadyRefunded` instead of a generic `InvalidState`. Every other
+/// state (including the other terminals, `Canceled` and `Expired`) keeps the
+/// caller-supplied `fallback`.
+pub(crate) fn terminal_state_error(state: &EscrowState, fallback: ContractError) -> ContractError {
+    match state {
+        EscrowState::Completed => ContractError::EscrowAlreadyCompleted,
+        EscrowState::Refunded => ContractError::EscrowAlreadyRefunded,
+        _ => fallback,
+    }
+}
 
 pub(crate) fn load_resolver_votes(env: &Env, escrow_id: u64) -> Vec<ResolverVote> {
     use crate::DataKey;
@@ -21,9 +39,11 @@ pub(crate) fn save_resolver_votes(env: &Env, escrow_id: u64, votes: &Vec<Resolve
         .set(&DataKey::ResolverVotes(escrow_id), votes);
     // Extend TTL for votes
     let ext = get_ttl_extension(env);
-    env.storage()
-        .persistent()
-        .extend_ttl(&DataKey::ResolverVotes(escrow_id), ext / 2, ext);
+    env.storage().persistent().extend_ttl(
+        &DataKey::ResolverVotes(escrow_id),
+        ext / TTL_THRESHOLD_DIVISOR,
+        ext,
+    );
 }
 
 /// Add or update a vote from a resolver
@@ -64,41 +84,11 @@ pub(crate) fn add_or_update_vote(
     votes
 }
 
-/// Tally votes and determine if resolution should be executed
-/// Returns the winning resolution if threshold is met
+/// Tally votes and determine if resolution should be executed.
+/// Returns the winning resolution if threshold is met.
 ///
-/// # Deadlock Scenario (Issue #707 / related: #667)
-///
-/// **Known Issue**: Voting can permanently deadlock when split votes prevent
-/// either side from reaching the threshold.  Example: `threshold=3` with
-/// 3 resolvers, getting 1 Release + 1 Refund + 1 abstention — neither side
-/// reaches 3.  Worse, if `threshold=N` (unanimous) and every resolver has
-/// voted but votes are split (e.g. 2 Release + 1 Refund with `threshold=3`),
-/// no additional votes are possible and funds remain frozen in `Disputed`
-/// indefinitely.
-///
-/// **Recommended on-chain escape hatches** (to be implemented in a future
-/// upgrade — at least one of the following):
-///
-/// 1. **Admin override**: Allow the platform admin to force a resolution after
-///    the dispute has been in a deadlocked state for a configurable timeout
-///    (e.g. 30 days).  This path should go through the existing 24-hour
-///    timelock to prevent abuse.
-///
-/// 2. **Expiration-based majority-rules fallback**: Once all `N` resolvers have
-///    cast votes *and* a configurable deadline has passed without threshold
-///    being reached, automatically resolve in favour of whichever side holds
-///    the simple majority of votes cast (or trigger a Refund by default when
-///    perfectly tied).
-///
-/// 3. **Escalation mechanism**: Allow either party to escalate a deadlocked
-///    dispute to a higher-authority arbitrator (e.g. a DAO governance vote)
-///    that can break the tie.
-///
-/// Until one of these paths is added, operators should configure thresholds
-/// carefully (e.g. avoid `threshold == N` for `N > 1`) and document the
-/// deadlock risk in user-facing material.  This is a known limitation of the
-/// current M-of-N voting system.
+/// See [`crate::types::MultiResolver`] for the deadlock risk this threshold
+/// check is subject to, and the escape hatches that bound it.
 pub(crate) fn tally_votes(
     votes: &Vec<ResolverVote>,
     threshold: u32,
@@ -107,53 +97,110 @@ pub(crate) fn tally_votes(
         return Ok(None);
     }
 
-    let mut release_count = 0u32;
-    let mut refund_count = 0u32;
+    // Release and Refund keep their historical precedence; a `Split` only
+    // wins when resolvers cast the *same* `Split(bps)` (exact match) in
+    // numbers that reach the threshold.
+    for candidate in [ResolutionType::Release, ResolutionType::Refund] {
+        if count_votes_for(votes, &candidate)? >= threshold {
+            return Ok(Some(candidate));
+        }
+    }
 
     for i in 0..votes.len() {
         if let Some(vote) = votes.get(i) {
-            match vote.resolution {
-                ResolutionType::Release => {
-                    release_count = release_count
-                        .checked_add(1)
-                        .ok_or(ContractError::ArithmeticError)?;
-                }
-                ResolutionType::Refund => {
-                    refund_count = refund_count
-                        .checked_add(1)
-                        .ok_or(ContractError::ArithmeticError)?;
-                }
+            if matches!(vote.resolution, ResolutionType::Split(_))
+                && count_votes_for(votes, &vote.resolution)? >= threshold
+            {
+                return Ok(Some(vote.resolution));
             }
         }
     }
 
-    if release_count >= threshold {
-        Ok(Some(ResolutionType::Release))
-    } else if refund_count >= threshold {
-        Ok(Some(ResolutionType::Refund))
-    } else {
-        Ok(None)
-    }
+    Ok(None)
 }
 
+/// Number of recorded votes that exactly match `resolution`.
+fn count_votes_for(
+    votes: &Vec<ResolverVote>,
+    resolution: &ResolutionType,
+) -> Result<u32, ContractError> {
+    let mut count = 0u32;
+    for vote in votes.iter() {
+        if &vote.resolution == resolution {
+            count = count.checked_add(1).ok_or(ContractError::ArithmeticError)?;
+        }
+    }
+    Ok(count)
+}
+
+/// Simple-majority fallback used once a multi-resolver vote has been
+/// deadlocked past `DISPUTE_DEADLOCK_WINDOW`. Returns whichever side holds
+/// strictly more votes; a perfect tie (including a vote set with no clear
+/// winner) resolves to `Refund`, which is the conservative default because it
+/// returns the escrowed principal to the buyer rather than paying it out.
+pub(crate) fn tally_votes_majority(votes: &Vec<ResolverVote>) -> ResolutionType {
+    // The leader is the resolution with the strictly highest number of
+    // identical votes (`Split(a)` and `Split(b)` are distinct options). Any
+    // tie for the lead falls back to `Refund`.
+    let mut leader = ResolutionType::Refund;
+    let mut leader_count = 0u32;
+    let mut tied = false;
+
+    for vote in votes.iter() {
+        let count = count_votes_for(votes, &vote.resolution).unwrap_or(u32::MAX);
+        if count > leader_count {
+            leader = vote.resolution.clone();
+            leader_count = count;
+            tied = false;
+        } else if count == leader_count && vote.resolution != leader {
+            tied = true;
+        }
+    }
+
+    if tied {
+        ResolutionType::Refund
+    } else {
+        leader
+    }
+}
+#[allow(dead_code)]
 pub(crate) fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
-    let paused: bool = env
-        .storage()
-        .instance()
-        .get(&DataKey::Paused)
-        .unwrap_or(false);
+    let paused = crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_PAUSED
+        != 0;
     if paused {
         return Err(ContractError::ContractPaused);
     }
     Ok(())
 }
 
-pub(crate) fn ensure_action_not_paused(env: &Env, action: Symbol) -> Result<(), ContractError> {
-    let paused: bool = env
+/// Rejects a privileged admin entry point that has been individually paused
+/// with `pause_action(Symbol::new(env, action))` (#1237), returning
+/// `ContractPaused`.
+///
+/// Unlike [`ensure_action_not_paused`], this deliberately ignores the global
+/// pause flag: a global pause halts user flows during an incident, and the
+/// admin must still be able to ship a fix (upgrade, fee correction) while it
+/// is in force. Admin operations are only blocked when paused one by one.
+/// `pause_action`/`unpause_action` themselves are never guarded, so a paused
+/// admin action can always be re-enabled. The full list of guarded symbols
+/// is documented in `ADMIN.md` ("Pausable admin actions").
+pub(crate) fn ensure_admin_action_not_paused(env: &Env, action: &str) -> Result<(), ContractError> {
+    let action_paused: bool = env
         .storage()
         .instance()
-        .get(&DataKey::Paused)
+        .get(&DataKey::ActionPaused(Symbol::new(env, action)))
         .unwrap_or(false);
+    if action_paused {
+        return Err(ContractError::ContractPaused);
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_action_not_paused(env: &Env, action: Symbol) -> Result<(), ContractError> {
+    let paused = crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_PAUSED
+        != 0;
     if paused {
         return Err(ContractError::ContractPaused);
     }
@@ -183,24 +230,16 @@ pub(crate) fn require_admin_caller(env: &Env, caller: &Address) -> Result<Addres
     Ok(admin)
 }
 
-pub(crate) fn default_fee_config() -> FeeConfig {
-    FeeConfig {
-        protocol_fee_bps: 0,
-        arbitration_fee_bps: 0,
-    }
+pub(crate) fn read_fee_config(env: &Env) -> FeeConfig {
+    crate::storage::read_fee_config(env)
 }
 
-pub(crate) fn read_fee_config(env: &Env) -> FeeConfig {
-    env.storage()
-        .instance()
-        .get(&DataKey::FeeConfig)
-        .unwrap_or_else(default_fee_config)
+pub(crate) fn read_global_config(env: &Env) -> GlobalConfig {
+    crate::storage::read_global_config(env)
 }
 
 pub(crate) fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
-    env.storage()
-        .instance()
-        .set(&DataKey::FeeConfig, fee_config);
+    crate::storage::write_fee_config(env, fee_config);
 }
 
 pub(crate) fn contains(list: &soroban_sdk::Vec<Address>, target: &Address) -> bool {
@@ -212,50 +251,90 @@ pub(crate) fn contains(list: &soroban_sdk::Vec<Address>, target: &Address) -> bo
     false
 }
 
+/// Returns whether the token allowlist is currently enforced.
+///
+/// # Security: the allowlist is **off** unless an operator turns it on
+///
+/// The flag defaults to `false`, so out of the box *any* SEP-41 contract can
+/// be used as an escrow token. That is a deliberate backward-compatibility
+/// default, **not** a safe production setting: every payout in this contract is
+/// an external call into the token contract (`payout`, `distribute_to_payees`,
+/// `payout_basket_tokens`, fee transfers), and a hostile token can re-enter the
+/// escrow, burn the budget, or misreport balances while settlement is in
+/// flight. Escrows created against an untrusted token therefore inherit that
+/// token's risk.
+///
+/// # Deployer requirement (do this before accepting real value)
+///
+/// 1. Call
+///    [`Escrow::set_token_allowlist_enabled`](crate::Escrow::set_token_allowlist_enabled)
+///    with `enabled = true` (admin-only; the timelocked pair
+///    `queue_set_token_allowlist_enabled` /
+///    `execute_set_token_allowlist_enabled` is available when the change should
+///    be delayed).
+/// 2. Add every vetted token with
+///    [`Escrow::add_allowed_token`](crate::Escrow::add_allowed_token), and
+///    verify the result with
+///    [`Escrow::get_allowed_tokens`](crate::Escrow::get_allowed_tokens).
+/// 3. Only then open the contract to users.
+///
+/// Once enabled, [`is_token_allowed`] rejects any token that is not present in
+/// the allowlist with [`ContractError::TokenNotAllowed`], and the check is
+/// applied on every escrow-creation path (`create_escrow`,
+/// `create_escrow_with_expiration`, `batch_create_escrow`,
+/// `create_basket_escrow`). See `SECURITY.md` ("Token Allowlisting") for the
+/// full deployment checklist.
 pub(crate) fn is_token_allowlist_enabled(env: &Env) -> bool {
-    env.storage()
-        .instance()
-        .get(&DataKey::TokenAllowlistEnabled)
-        .unwrap_or(false)
+    crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED
+        != 0
 }
 
+/// Enforces the token allowlist when it is enabled, otherwise accepts any token.
+///
+/// When [`is_token_allowlist_enabled`] is `true`, `token` must be present in the
+/// admin-managed allowlist ([`DataKey::TokenAllowlist`]) or the call fails with
+/// [`ContractError::TokenNotAllowed`]. When the flag is `false` the check is a
+/// no-op and every token is accepted — see the security notes on
+/// [`is_token_allowlist_enabled`] for why operators should enable it before
+/// mainnet.
 pub(crate) fn is_token_allowed(env: &Env, token: &Address) -> Result<(), ContractError> {
     if !is_token_allowlist_enabled(env) {
         return Ok(());
     }
-    let allowlist: soroban_sdk::Map<Address, bool> = env
+    // The allowlist is persisted as a `Vec<Address>` by `add_allowed_token` /
+    // `remove_allowed_token` and the timelocked variants. Reading it as a
+    // `Map<Address, bool>` (the historical mistake) traps with a
+    // `ConversionError` the moment the key is present, so the allowlist could
+    // never actually be enforced. Read the same shape the writers use and reuse
+    // the linear `contains` helper (Issue #1052).
+    let allowlist: soroban_sdk::Vec<Address> = env
         .storage()
         .instance()
         .get(&DataKey::TokenAllowlist)
-        .unwrap_or(soroban_sdk::Map::new(env));
-    if allowlist.contains_key(token.clone()) {
+        .unwrap_or(soroban_sdk::Vec::new(env));
+    if contains(&allowlist, token) {
         return Ok(());
     }
     Err(ContractError::TokenNotAllowed)
 }
 
 pub(crate) fn read_platform_fee_bps(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::PlatformFeeBps)
-        .unwrap_or(0)
+    crate::storage::read_global_config(env).platform_fee_bps
 }
 
 pub(crate) fn write_platform_fee_bps(env: &Env, fee_bps: u32) {
-    env.storage()
-        .instance()
-        .set(&DataKey::PlatformFeeBps, &fee_bps);
+    crate::storage::update_global_config(env, |c| c.platform_fee_bps = fee_bps);
 }
 
 pub(crate) fn read_treasury(env: &Env) -> Result<Address, ContractError> {
-    env.storage()
-        .instance()
-        .get(&DataKey::Treasury)
+    crate::storage::read_global_config(env)
+        .treasury
         .ok_or(ContractError::NotInitialized)
 }
 
 pub(crate) fn write_treasury(env: &Env, treasury: &Address) {
-    env.storage().instance().set(&DataKey::Treasury, treasury);
+    crate::storage::update_global_config(env, |c| c.treasury = Some(treasury.clone()));
 }
 
 pub(crate) fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
@@ -265,18 +344,34 @@ pub(crate) fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError>
     Ok(())
 }
 
-/// Validates resolver set to ensure no conflicts with seller/buyer.
+/// Rejects shipping windows outside `MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW`.
+///
+/// A zero window allows an immediate dispute with no shipping time, while an
+/// unbounded value (e.g. `u64::MAX`) would lock funds indefinitely.
+pub(crate) fn validate_shipping_window(shipping_window: u64) -> Result<(), ContractError> {
+    if !(MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW).contains(&shipping_window) {
+        return Err(ContractError::InvalidShippingWindow);
+    }
+    Ok(())
+}
+
+/// Validates resolver set to ensure no conflicts with seller/buyer, and for a
+/// `Fallback` set that the backup's `dispute_deadline` lies between
+/// `MIN_FALLBACK_DEADLINE_OFFSET` and `MAX_FALLBACK_DEADLINE_OFFSET` past the
+/// current ledger timestamp.
 pub(crate) fn validate_resolvers(
     resolvers: &ResolverSet,
-    seller: &Address,
-    buyer: &Option<Address>,
+    payees: &BoundedPayees,
+    buyer: Option<&Address>,
 ) -> Result<(), ContractError> {
-    // Ensure resolvers are distinct from seller and buyer
-    if resolvers.contains(seller) {
-        return Err(ContractError::ConflictingRoles);
+    // Ensure resolvers are distinct from every payee and the buyer.
+    for payee in payees.inner.iter() {
+        if resolvers.contains(&payee.address) {
+            return Err(ContractError::ConflictingRoles);
+        }
     }
 
-    if let Some(ref b) = buyer {
+    if let Some(b) = buyer {
         if resolvers.contains(b) {
             return Err(ContractError::ConflictingRoles);
         }
@@ -293,13 +388,33 @@ pub(crate) fn validate_resolvers(
         let mut seen = soroban_sdk::Vec::new(m.resolvers.env());
         for resolver in m.resolvers.iter() {
             if contains(&seen, &resolver) {
-                return Err(ContractError::ConflictingRoles);
+                return Err(ContractError::DuplicateResolver);
             }
             seen.push_back(resolver);
         }
     } else if let ResolverSet::Fallback(f) = resolvers {
         if f.primary == f.backup {
-            return Err(ContractError::ConflictingRoles);
+            return Err(ContractError::DuplicateResolver);
+        }
+
+        let now = f.primary.env().ledger().timestamp();
+
+        // A deadline in the past (or too close to now) would co-authorize the
+        // backup immediately, defeating the primary's exclusive window.
+        let min_deadline = now
+            .checked_add(MIN_FALLBACK_DEADLINE_OFFSET)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if f.dispute_deadline < min_deadline {
+            return Err(ContractError::InvalidFallbackDeadline);
+        }
+
+        // An unbounded deadline (e.g. u64::MAX) would never admit the backup,
+        // leaving disputed funds locked if the primary stops responding.
+        let max_deadline = now
+            .checked_add(MAX_FALLBACK_DEADLINE_OFFSET)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        if f.dispute_deadline > max_deadline {
+            return Err(ContractError::InvalidFallbackDeadline);
         }
     }
 
@@ -313,29 +428,45 @@ pub(crate) fn validate_resolver_fee_bps(fee_bps: u32) -> Result<(), ContractErro
     Ok(())
 }
 
-pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), ContractError> {
-    if payees.is_empty() {
+pub(crate) fn validate_payees(env: &Env, payees: &BoundedPayees) -> Result<(), ContractError> {
+    if payees.inner.is_empty() {
         return Err(ContractError::InvalidAddress);
     }
 
+    if payees.inner.len() > crate::types::MAX_PAYEES {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    let zero = crate::zero_address(env);
     let mut total_bps: u32 = 0;
-    for i in 0..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+    for i in 0..payees.inner.len() {
+        let payee = payees
+            .inner
+            .get(i)
+            .ok_or(ContractError::PayeeIndexOutOfBounds)?;
         let bps = payee.bps;
 
-        // Check for overflow
-        total_bps = total_bps
+        // Reject zero-share payees so every payee strictly increases the cumulative sum.
+        if bps == 0 {
+            return Err(ContractError::PayeeBpsMismatch);
+        }
+
+        // Enforce strict monotonicity and prevent arithmetic wrap/overflow.
+        let next_total = total_bps
             .checked_add(bps)
             .ok_or(ContractError::ArithmeticError)?;
+        if next_total <= total_bps || next_total > BASIS_POINTS {
+            return Err(ContractError::PayeeBpsMismatch);
+        }
+        total_bps = next_total;
 
         // Validate each payee address is not zero
-        let zero = crate::zero_address(env);
         if payee.address == zero {
             return Err(ContractError::InvalidAddress);
         }
     }
 
-    if total_bps != 10_000 {
+    if total_bps != BASIS_POINTS {
         return Err(ContractError::PayeeBpsMismatch);
     }
 
@@ -344,12 +475,12 @@ pub(crate) fn validate_payees(env: &Env, payees: &Vec<Payee>) -> Result<(), Cont
 
 pub(crate) fn validate_arbitration_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
     if fee_bps > MAX_ARBITRATION_FEE_BPS {
-        return Err(ContractError::FeeExceedsMax);
+        return Err(ContractError::ArbitrationFeeExceedsMax);
     }
     Ok(())
 }
 
-/// Validates that the combined protocol + arbitration fees don't exceed MAX_COMBINED_FEE_BPS.
+/// Validates that the combined protocol + arbitration fees don't exceed `MAX_COMBINED_FEE_BPS`.
 ///
 /// This prevents the attack where an admin sets both fees to their maximum values,
 /// draining entire escrows through fees.
@@ -361,6 +492,26 @@ pub(crate) fn validate_combined_fees(
         .checked_add(arbitration_fee_bps)
         .ok_or(ContractError::ArithmeticError)?;
     if combined > MAX_COMBINED_FEE_BPS {
+        return Err(ContractError::FeeExceedsMax);
+    }
+    Ok(())
+}
+
+/// Validates that the cumulative sum of all concurrent fee rates
+/// (`protocol_fee_bps + platform_fee_bps + arbitration_fee_bps + resolver_fee_bps`)
+/// does not exceed `MAX_TOTAL_FEE_BPS` (2,500 = 25%).
+pub(crate) fn validate_total_fee_bps(
+    protocol_fee_bps: u32,
+    platform_fee_bps: u32,
+    arbitration_fee_bps: u32,
+    resolver_fee_bps: u32,
+) -> Result<(), ContractError> {
+    let total = protocol_fee_bps
+        .checked_add(platform_fee_bps)
+        .and_then(|s| s.checked_add(arbitration_fee_bps))
+        .and_then(|s| s.checked_add(resolver_fee_bps))
+        .ok_or(ContractError::FeeCalculationOverflow)?;
+    if total > crate::MAX_TOTAL_FEE_BPS {
         return Err(ContractError::FeeExceedsMax);
     }
     Ok(())
@@ -378,7 +529,7 @@ pub(crate) fn validate_combined_fees(
 /// - it may not be a no-op change (`SameAddress`).
 ///
 /// Returns the current collector so the caller can emit
-/// `fee_collector_updated`.
+/// `fee_collector_pending`.
 pub(crate) fn validate_fee_collector_change(
     env: &Env,
     new_collector: &Address,
@@ -392,11 +543,9 @@ pub(crate) fn validate_fee_collector_change(
         return Err(ContractError::InvalidAddress);
     }
 
-    let old_collector: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::FeeCollector)
-        .ok_or(ContractError::NotAuthorized)?;
+    let old_collector: Address = crate::storage::read_global_config(env)
+        .fee_collector
+        .ok_or(ContractError::NotInitialized)?;
 
     if *new_collector == old_collector {
         return Err(ContractError::SameAddress);
@@ -405,14 +554,47 @@ pub(crate) fn validate_fee_collector_change(
     Ok(old_collector)
 }
 
-/// Updates the arbitration fee. Requires admin auth.
-/// Validates that arbitration fee + current protocol fee doesn't exceed combined cap.
+/// Validates a proposed new treasury and returns the current one.
+///
+/// Mirrors the fee collector invariant checks, but uses the treasury role that
+/// receives platform fees and therefore must not be changed by a typo or an
+/// accidental admin input. The active treasury is kept unchanged until the new
+/// address explicitly calls `accept_treasury`.
+pub(crate) fn validate_treasury_change(
+    env: &Env,
+    new_treasury: &Address,
+) -> Result<Address, ContractError> {
+    if *new_treasury == crate::zero_address(env) {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    let admin = require_admin(env)?;
+    if *new_treasury == admin {
+        return Err(ContractError::InvalidAddress);
+    }
+
+    let old_treasury: Address = crate::storage::read_global_config(env)
+        .treasury
+        .ok_or(ContractError::NotInitialized)?;
+
+    if *new_treasury == old_treasury {
+        return Err(ContractError::SameAddress);
+    }
+
+    Ok(old_treasury)
+}
+
+/// Updates the arbitration fee. Validates that arbitration fee + current
+/// protocol fee doesn't exceed combined cap.
+///
+/// Doges not call `caller.require_auth()` — both callers (`set_arbitration_fee`,
+/// `execute_set_arbitration_fee`) authenticate `caller` at their own top, per
+/// the standardized require_auth-at-entry-point convention.
 pub(crate) fn update_arbitration_fee(
     env: &Env,
     caller: &Address,
     fee_bps: u32,
 ) -> Result<u32, ContractError> {
-    caller.require_auth();
     let admin = require_admin(env)?;
     if caller != &admin {
         return Err(ContractError::NotAuthorized);
@@ -421,6 +603,13 @@ pub(crate) fn update_arbitration_fee(
     let mut config = read_fee_config(env);
     // Validate that new arbitration fee + existing protocol fee doesn't exceed combined cap
     validate_combined_fees(config.protocol_fee_bps, fee_bps)?;
+    let global_config = read_global_config(env);
+    validate_total_fee_bps(
+        config.protocol_fee_bps,
+        global_config.platform_fee_bps,
+        fee_bps,
+        0,
+    )?;
     let old_fee = config.arbitration_fee_bps;
     config.arbitration_fee_bps = fee_bps;
     write_fee_config(env, &config);
@@ -453,108 +642,345 @@ pub(crate) fn save_escrow(
 ) {
     let key = DataKey::Escrow(id);
     let ext = get_ttl_extension(env);
-    let state_changed = match prev_state {
-        Some(prev) => *prev != escrow.state,
-        None => {
-            let previous: Option<EscrowData> = env.storage().persistent().get(&key);
-            previous
-                .as_ref()
-                .map(|existing| existing.state != escrow.state)
-                .unwrap_or(true)
-        }
+    let state_changed = if let Some(prev) = prev_state {
+        *prev != escrow.state
+    } else {
+        let previous: Option<EscrowData> = env.storage().persistent().get(&key);
+        previous
+            .as_ref()
+            .is_none_or(|existing| existing.state != escrow.state)
     };
 
     env.storage().persistent().set(&key, escrow);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
 
     if state_changed {
         append_state_history(env, id, &escrow.state);
     }
 }
 
+/// Decodes a stored escrow, back-filling fee snapshot fields added after the
+/// entry was written. Legacy funded escrows default to the current global
+/// rates so behavior matches pre-snapshot deployments until they are rewritten.
+fn decode_escrow(env: &Env, mut raw: soroban_sdk::Map<Symbol, soroban_sdk::Val>) -> EscrowData {
+    use soroban_sdk::{IntoVal, TryFromVal};
+
+    let config = crate::storage::read_global_config(env);
+    let platform_key = Symbol::new(env, "platform_fee_bps");
+    if !raw.contains_key(platform_key.clone()) {
+        let funded = raw
+            .get(Symbol::new(env, "packed_timestamps"))
+            .and_then(|v| u64::try_from_val(env, &v).ok())
+            .is_some_and(|ts| ts != 0);
+        let default_platform = if funded { config.platform_fee_bps } else { 0 };
+        raw.set(platform_key, default_platform.into_val(env));
+    }
+    let arbitration_key = Symbol::new(env, "arbitration_fee_bps");
+    if !raw.contains_key(arbitration_key.clone()) {
+        let funded = raw
+            .get(Symbol::new(env, "packed_timestamps"))
+            .and_then(|v| u64::try_from_val(env, &v).ok())
+            .is_some_and(|ts| ts != 0);
+        let default_arbitration = if funded {
+            config.arbitration_fee_bps
+        } else {
+            0
+        };
+        raw.set(arbitration_key, default_arbitration.into_val(env));
+    }
+    let val: soroban_sdk::Val = raw.into_val(env);
+    EscrowData::try_from_val(env, &val)
+        .unwrap_or_else(|_| soroban_sdk::panic_with_error!(env, ContractError::EscrowNotFound))
+}
+
 pub(crate) fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractError> {
     let key = DataKey::Escrow(id);
-    let escrow: EscrowData = env
+    let raw: soroban_sdk::Map<Symbol, soroban_sdk::Val> = env
         .storage()
         .persistent()
         .get(&key)
         .ok_or(ContractError::EscrowNotFound)?;
+    let escrow = decode_escrow(env, raw);
     let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
     Ok(escrow)
+}
+
+/// Number of low bits of a packed history entry given to the timestamp; the
+/// remaining high bits hold the `EscrowState` discriminant. 56 bits of Unix
+/// seconds vastly outlives any escrow, so this loses no practical range
+/// while letting each history entry be stored as a single `u64` instead of
+/// a `(EscrowState, u64)` tuple.
+const HISTORY_TIMESTAMP_BITS: u32 = 56;
+const HISTORY_TIMESTAMP_MASK: u64 = (1u64 << HISTORY_TIMESTAMP_BITS) - 1;
+
+fn pack_history_entry(state: &EscrowState, timestamp: u64) -> u64 {
+    (u64::from(state.to_history_code()) << HISTORY_TIMESTAMP_BITS)
+        | (timestamp & HISTORY_TIMESTAMP_MASK)
+}
+
+fn unpack_history_entry(packed: u64) -> (EscrowState, u64) {
+    let code = (packed >> HISTORY_TIMESTAMP_BITS) as u8;
+    (
+        EscrowState::from_history_code(code),
+        packed & HISTORY_TIMESTAMP_MASK,
+    )
+}
+
+fn decode_history(env: &Env, packed: &Vec<u64>) -> Vec<(EscrowState, u64)> {
+    let mut result = Vec::new(env);
+    for entry in packed.iter() {
+        result.push_back(unpack_history_entry(entry));
+    }
+    result
 }
 
 pub(crate) fn append_state_history(env: &Env, id: u64, state: &EscrowState) {
     let key = DataKey::EscrowStateHistory(id);
     let ext = get_ttl_extension(env);
-    let mut history: Vec<(EscrowState, u64)> = env
+    let mut history: Vec<u64> = env
         .storage()
         .persistent()
         .get(&key)
         .unwrap_or_else(|| Vec::new(env));
 
-    history.push_back((state.clone(), env.ledger().timestamp()));
+    history.push_back(pack_history_entry(state, env.ledger().timestamp()));
     while history.len() > MAX_STATE_HISTORY_ENTRIES {
         history.pop_front();
     }
     env.storage().persistent().set(&key, &history);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
 pub(crate) fn load_state_history(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
     let key = DataKey::EscrowStateHistory(id);
     let ext = get_ttl_extension(env);
-    let history = env
+    let packed: Vec<u64> = env
         .storage()
         .persistent()
         .get(&key)
         .unwrap_or_else(|| Vec::new(env));
 
-    if !history.is_empty() {
-        env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    if !packed.is_empty() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
     }
-    history
+    decode_history(env, &packed)
+}
+
+/// Load state history without extending TTL - used by query functions that
+/// should not have side effects on storage rent.
+pub(crate) fn load_state_history_no_ttl(env: &Env, id: u64) -> Vec<(EscrowState, u64)> {
+    let key = DataKey::EscrowStateHistory(id);
+    let packed: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+    decode_history(env, &packed)
 }
 
 pub(crate) fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
     let key = DataKey::Dispute(id);
     let ext = get_ttl_extension(env);
     env.storage().persistent().set(&key, dispute);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
+}
+
+/// Decodes a stored dispute, back-filling fields added after the entry was
+/// written. A `#[contracttype]` struct is stored as a map keyed by field name
+/// and fails to decode when a key is missing, so any absent
+/// `resolution_reason` (defaults to `None`) or `resolution_memo` (defaults to
+/// empty) is inserted before converting. Current-format entries are untouched.
+fn decode_dispute(env: &Env, mut raw: soroban_sdk::Map<Symbol, soroban_sdk::Val>) -> DisputeData {
+    use soroban_sdk::{IntoVal, TryFromVal};
+
+    let reason_key = Symbol::new(env, "resolution_reason");
+    if !raw.contains_key(reason_key.clone()) {
+        let none: Option<Symbol> = None;
+        raw.set(reason_key, none.into_val(env));
+    }
+    let memo_key = Symbol::new(env, "resolution_memo");
+    if !raw.contains_key(memo_key.clone()) {
+        raw.set(memo_key, soroban_sdk::Bytes::new(env).into_val(env));
+    }
+    let val: soroban_sdk::Val = raw.into_val(env);
+    DisputeData::try_from_val(env, &val)
+        .unwrap_or_else(|_| soroban_sdk::panic_with_error!(env, ContractError::DisputeNotFound))
 }
 
 pub(crate) fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
     let key = DataKey::Dispute(id);
-    let dispute: DisputeData = env
+    // Read as a raw field map so entries serialized before `resolution_reason`
+    // / `resolution_memo` existed still decode (see `decode_dispute`).
+    let raw: soroban_sdk::Map<Symbol, soroban_sdk::Val> = env
         .storage()
         .persistent()
         .get(&key)
         .ok_or(ContractError::DisputeNotFound)?;
+    let dispute = decode_dispute(env, raw);
     let ext = get_ttl_extension(env);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
     Ok(dispute)
 }
 
-pub(crate) fn save_basket_tokens(env: &Env, escrow_id: u64, tokens: &soroban_sdk::Vec<TokenEntry>) {
-    let key = DataKey::BasketTokens(escrow_id);
+/// Persists a basket as a single capacity-bounded XDR value (issue #1232).
+///
+/// Writes go to the V2 key so that existing deployments keep reading their
+/// legacy `BasketTokens(u64)` vectors unchanged until [`load_basket_tokens`]
+/// migrates them on first access.
+pub(crate) fn save_basket_tokens(env: &Env, escrow_id: u64, tokens: &BoundedBasket) {
+    let key = DataKey::BasketTokensV2(escrow_id);
     let ext = get_ttl_extension(env);
     env.storage().persistent().set(&key, tokens);
-    env.storage().persistent().extend_ttl(&key, ext / 2, ext);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
 }
 
-pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> soroban_sdk::Vec<TokenEntry> {
-    let key = DataKey::BasketTokens(escrow_id);
-    match env.storage().persistent().get(&key) {
-        Some(tokens) => {
-            let ext = get_ttl_extension(env);
-            env.storage().persistent().extend_ttl(&key, ext / 2, ext);
-            tokens
-        }
-        None => soroban_sdk::Vec::new(env),
+/// Loads a basket, transparently migrating the legacy unbounded-vector layout.
+///
+/// The V2 key takes precedence. When only the legacy key exists, its value is
+/// decoded as `Vec<TokenEntry>`, wrapped in a [`BoundedBasket`], written under
+/// V2 and the stale key removed. This keeps deployed state readable without an
+/// explicit migration transaction.
+pub(crate) fn load_basket_tokens(env: &Env, escrow_id: u64) -> BoundedBasket {
+    let key = DataKey::BasketTokensV2(escrow_id);
+    let ext = get_ttl_extension(env);
+    if let Some(basket) = env.storage().persistent().get(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
+        return basket;
+    }
+
+    let legacy_key = DataKey::BasketTokens(escrow_id);
+    if !env.storage().persistent().has(&legacy_key) {
+        // No basket data at all (single-token escrow): do not write a V2
+        // entry — that would add a storage write to every funding.
+        return BoundedBasket::new(soroban_sdk::Vec::new(env));
+    }
+    let legacy: soroban_sdk::Vec<TokenEntry> = env
+        .storage()
+        .persistent()
+        .get(&legacy_key)
+        .unwrap_or_else(|| soroban_sdk::Vec::new(env));
+    // `new` asserts capacity: a legacy basket larger than the hard ceiling
+    // cannot exist, and silently dropping entries would lose funds.
+    let basket = BoundedBasket::new(legacy);
+    env.storage().persistent().set(&key, &basket);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
+    env.storage().persistent().remove(&legacy_key);
+    basket
+}
+
+/// Drops any pending admin delivery proposal (`propose_record_delivery`).
+/// A proposal can only exist while the escrow is `Shipped` with no recorded
+/// delivery, so every transition out of `Shipped` other than
+/// `record_delivery` (which consumes it) must call this, or the entry is
+/// orphaned in persistent storage. A no-op when no proposal exists.
+pub(crate) fn clear_delivery_proposal(env: &Env, escrow_id: u64) {
+    let key = DataKey::DeliveryProposal(escrow_id);
+    if env.storage().persistent().has(&key) {
+        env.storage().persistent().remove(&key);
+        crate::events::emit_delivery_proposal_cancelled(env, escrow_id);
     }
 }
 
-pub(crate) use crate::helpers::payout::transfer_with_protocol_fee;
+/// Tops up the TTL of every persistent entry owned by `escrow_id`, and of the
+/// contract instance, to the full configured extension without reading or
+/// writing any value. Backs the permissionless `extend_escrow_ttl` entry point.
+///
+/// The opportunistic extensions on reads and writes only fire once an entry's
+/// TTL drops below `ext / TTL_THRESHOLD_DIVISOR`; here the caller is
+/// explicitly paying rent to keep a dormant escrow alive, so every entry is
+/// extended to `ext` regardless. Entries the escrow never created (e.g.
+/// `Dispute` on an undisputed escrow) are skipped. Entries that have already
+/// been archived cannot be revived this way and need a `RestoreFootprint`
+/// operation first.
+pub(crate) fn extend_escrow_ttl(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    let persistent = env.storage().persistent();
+    let escrow_key = DataKey::Escrow(escrow_id);
+    if !persistent.has(&escrow_key) {
+        return Err(ContractError::EscrowNotFound);
+    }
+
+    let ext = get_ttl_extension(env);
+    persistent.extend_ttl(&escrow_key, ext, ext);
+    for key in [
+        DataKey::EscrowStateHistory(escrow_id),
+        DataKey::Dispute(escrow_id),
+        DataKey::Messages(escrow_id),
+        DataKey::PendingExpiry(escrow_id),
+        DataKey::ResolverVotes(escrow_id),
+        DataKey::BasketTokens(escrow_id),
+        DataKey::DeliveryProposal(escrow_id),
+    ] {
+        if persistent.has(&key) {
+            persistent.extend_ttl(&key, ext, ext);
+        }
+    }
+
+    // Paged messages are stored one key per entry, so extend the count and each
+    // message key individually — otherwise a dormant escrow's thread would be
+    // the one part of its storage allowed to expire.
+    let count_key = DataKey::MessageCount(escrow_id);
+    if persistent.has(&count_key) {
+        persistent.extend_ttl(&count_key, ext, ext);
+    }
+    let count: u32 = persistent.get(&count_key).unwrap_or(0);
+    let mut index = 0;
+    while index < count {
+        let key = DataKey::Message(escrow_id, index);
+        if persistent.has(&key) {
+            persistent.extend_ttl(&key, ext, ext);
+        }
+        index += 1;
+    }
+
+    // The escrow is unusable if the instance (config, fee collector, and the
+    // contract code it pins) is archived, so keep that alive too.
+    env.storage().instance().extend_ttl(ext, ext);
+    Ok(())
+}
+
+pub(crate) use crate::helpers::payout::{payout, transfer_with_protocol_fee};
+
+/// Transfers `amount` of `token_addr` from `from` to `to`.
+///
+/// This is the only place in the contract that constructs a `token::Client`
+/// and calls `transfer` — every escrow funding, refund, payout, and fee
+/// transfer routes through this one call site, so there is exactly one spot
+/// to audit for the actual cross-contract token transfer, and no call site
+/// can drift from the others' argument order or shape.
+///
+/// This is a thin, direction-agnostic wrapper: unlike [`payout`], it does not
+/// skip non-positive amounts or fix `from`/`to` to the contract's own
+/// address, since it also serves the "collect from caller" direction used by
+/// `fund_escrow`/`fund_basket_escrow`. Callers paying *out* of the contract
+/// should prefer [`payout`], which wraps this with that zero-skip behavior.
+pub(crate) fn transfer_helper(
+    env: &Env,
+    token_addr: &Address,
+    from: &Address,
+    to: &Address,
+    amount: i128,
+) {
+    token::Client::new(env, token_addr).transfer(from, to, &amount);
+}
 
 /// Distributes the specified `amount` among the `payees` proportionally based on their BPS shares.
 ///
@@ -569,43 +995,110 @@ pub(crate) use crate::helpers::payout::transfer_with_protocol_fee;
 pub(crate) fn distribute_to_payees(
     env: &Env,
     token_addr: &Address,
-    payees: &Vec<Payee>,
+    payees: &BoundedPayees,
     amount: i128,
+    escrow_id: Option<u64>,
 ) -> Result<(), ContractError> {
     if amount < 0 {
         return Err(ContractError::InvalidAmount);
     }
 
-    let token_client = token::Client::new(env, token_addr);
-    let contract_addr = env.current_contract_address();
-
+    // ROUNDING / TRUNCATION PROOF — read before "fixing" anything here.
+    //
+    // Notation: A = `amount` (>= 0), b_i = `payees[i].bps`, N = payees.len(),
+    // with the creation-time invariant sum(b_i for i in 0..N) == 10_000.
+    //
+    // For every non-primary payee (i >= 1) we pay the floor of its exact share:
+    //
+    //     p_i = floor(A * b_i / 10_000)
+    //
+    // Write A * b_i = 10_000 * p_i + r_i with 0 <= r_i < 10_000, so each p_i
+    // under-pays its exact share by r_i / 10_000, i.e. by strictly less than
+    // one stroop. (A and b_i are non-negative, so `/` truncating toward zero
+    // is the same as floor here.)
+    //
+    // The primary payee then receives everything that is left:
+    //
+    //     p_0 = A - sum(p_i for i in 1..N)
+    //
+    // 1. Exact sum: sum(p_i for i in 0..N) == A *by construction* — p_0 is
+    //    defined as the complement. No dust stays in the contract and nothing
+    //    is over-paid, regardless of the bps values.
+    // 2. Non-negative: sum(p_i, i>=1) <= sum(A * b_i / 10_000, i>=1)
+    //    = A * (10_000 - b_0) / 10_000 <= A, so p_0 >= 0 and `remaining`
+    //    never goes negative.
+    // 3. Bounded bias: p_0 - A * b_0 / 10_000 = sum(r_i / 10_000, i>=1)
+    //    < N - 1, so the primary payee gains less than one stroop per
+    //    non-primary payee, and never less than its own exact share.
+    //
+    // Invariants future edits MUST preserve:
+    // - Do NOT compute p_0 as `A * b_0 / 10_000` too. Flooring every share
+    //   independently leaves up to N-1 stroops stranded in the contract and
+    //   breaks the exact-sum invariant that settlement/tests rely on.
+    // - Do NOT switch to round-half-up / ceiling for i >= 1. Rounding up can
+    //   make sum(p_i, i>=1) exceed A - floor(A * b_0 / 10_000), shorting the
+    //   primary payee below its own share, and in edge cases could exceed A.
+    // - Multiply before dividing. `A / 10_000 * b_i` truncates A first and
+    //   loses up to 9_999 * b_i / 10_000 stroops per payee.
+    // - Keep `checked_*` arithmetic: A * b_i can overflow i128 for extreme
+    //   amounts, and that must surface as `ArithmeticError`, not wrap.
     let mut remaining = amount;
 
-    // Calculate amounts for all payees except the first
-    for i in 1..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
-        let payee_amount = amount
-            .checked_mul(payee.bps as i128)
-            .ok_or(ContractError::ArithmeticError)?
-            .checked_div(10_000)
-            .ok_or(ContractError::ArithmeticError)?;
+    // Pay payees 1..N their floored share (p_i above), tracking what's left.
+    for i in 1..payees.inner.len() {
+        let payee = payees
+            .inner
+            .get(i)
+            .ok_or(ContractError::PayeeIndexOutOfBounds)?;
+        let payee_amount = crate::helpers::payout::floored_payee_share(amount, payee.bps)?;
 
-        if payee_amount > 0 {
-            token_client.transfer(&contract_addr, &payee.address, &payee_amount);
+        if payee_amount == 0 {
+            if let Some(escrow_id) = escrow_id {
+                crate::events::emit_payee_share_skipped(
+                    env,
+                    escrow_id,
+                    payee.address.clone(),
+                    payee.bps,
+                    amount,
+                );
+            }
+            continue;
         }
 
+        crate::helpers::payout::payout(env, token_addr, &payee.address, payee_amount);
+
+        // By point 2 above this never underflows below zero; checked_sub is a
+        // belt-and-braces guard against a violated bps-sum invariant.
         remaining = remaining
             .checked_sub(payee_amount)
             .ok_or(ContractError::ArithmeticError)?;
     }
 
-    // First payee gets the remainder (rounding goes to first payee)
-    let first_payee = payees.get(0).ok_or(ContractError::IndexOutOfBounds)?;
+    // p_0 = A - sum(p_i, i>=1): the primary payee's exact share plus all the
+    // truncation dust (< N-1 stroops). This line is what makes the payout sum
+    // to exactly `amount`.
+    let first_payee = payees
+        .inner
+        .get(0)
+        .ok_or(ContractError::PayeeIndexOutOfBounds)?;
     if remaining > 0 {
-        token_client.transfer(&contract_addr, &first_payee.address, &remaining);
+        crate::helpers::payout::payout(env, token_addr, &first_payee.address, remaining);
     }
 
     Ok(())
+}
+
+/// Returns `true` when a stored basket entry must be moved value-for-value:
+/// it is not the escrow's primary token and it carries a positive amount.
+///
+/// `fund_escrow` (buyer → contract) and `payout_basket_tokens` (contract →
+/// recipient) are the two legs of a basket escrow and MUST apply the same
+/// skip rule. If they disagreed, a duplicated primary entry could be funded
+/// twice and paid out twice. Sharing this one predicate makes the two loops
+/// structurally identical instead of relying on two hand-copied comparisons
+/// (Issue #1053).
+pub(crate) fn is_transferable_basket_entry(entry: &TokenEntry, primary_token: &Address) -> bool {
+    &entry.token != primary_token && entry.amount > 0
 }
 
 /// Transfer all non-primary basket tokens to a recipient after the primary
@@ -620,28 +1113,175 @@ pub(crate) fn distribute_to_payees(
 /// by value, so the primary token is never double-paid regardless of the order
 /// the basket was originally saved.  This makes the function safe even if the
 /// token list is ever persisted in a different order.
+///
+/// # Fees (Issue #1219)
+///
+/// `fee_bps` selects the fee treatment:
+/// - `Some(fee_bps)` — a release/settlement path. Each secondary token has the
+///   protocol fee (`fee_bps`) and, when a treasury is configured, the platform
+///   fee (global `platform_fee_bps`) deducted before the remainder is paid to
+///   `recipient`; the fees go to the fee collector and treasury respectively.
+/// - `None` — a refund path (`cancel_escrow`, `mutual_cancel`,
+///   `emergency_drain`, `reclaim_expired`, …). Every basket token is returned
+///   to the buyer in full, with no fee deduction.
 pub(crate) fn payout_basket_tokens(
     env: &Env,
     escrow_id: u64,
     recipient: &Address,
+    fee_bps: Option<u32>,
 ) -> Result<(), ContractError> {
     let escrow = load_escrow(env, escrow_id)?;
     let primary_token = &escrow.token;
     let basket_tokens = load_basket_tokens(env, escrow_id);
-    let contract_addr = env.current_contract_address();
+
+    // Resolve the fee destinations once, only on fee-charging paths. `None`
+    // means every entry is paid gross (refund path).
+    let fee_context = if let Some(fee_bps) = fee_bps {
+        let config = crate::storage::read_global_config(env);
+        let fee_collector = crate::storage::require_fee_collector(env)?;
+        Some((
+            fee_bps,
+            escrow.platform_fee_bps,
+            fee_collector,
+            config.treasury,
+        ))
+    } else {
+        None
+    };
+
     for i in 0..basket_tokens.len() {
         let entry = basket_tokens
             .get(i)
-            .ok_or(ContractError::IndexOutOfBounds)?;
-        // Skip the primary token — it is always paid out by the calling function.
-        if &entry.token == primary_token {
+            .ok_or(ContractError::BasketIndexOutOfBounds)?;
+        // Skip the primary token — it is always paid out by the calling
+        // function. Shared with `fund_escrow` so both legs skip the same
+        // entries (Issue #1053).
+        if !is_transferable_basket_entry(&entry, primary_token) {
             continue;
         }
-        if entry.amount > 0 {
-            token::Client::new(env, &entry.token).transfer(
-                &contract_addr,
-                recipient,
-                &entry.amount,
+        let (net_amount, fee) = match &fee_context {
+            Some((fee_bps, platform_fee_bps, fee_collector, treasury)) => {
+                crate::helpers::payout::transfer_basket_with_fees(
+                    env,
+                    escrow_id,
+                    &entry.token,
+                    recipient,
+                    entry.amount,
+                    *fee_bps,
+                    *platform_fee_bps,
+                    fee_collector,
+                    treasury.as_ref(),
+                )?
+            }
+            None => {
+                crate::helpers::payout::payout(env, &entry.token, recipient, entry.amount);
+                (entry.amount, 0)
+            }
+        };
+        crate::events::emit_basket_token_payout(
+            env,
+            escrow_id,
+            entry.token.clone(),
+            recipient.clone(),
+            net_amount,
+            fee,
+        );
+    }
+    Ok(())
+}
+
+/// Pays out every non-primary basket token for a `Split(split_bps)` dispute
+/// resolution: fees are deducted per entry (as in [`payout_basket_tokens`]) and
+/// the net of each entry is divided between `payee` and `buyer`.
+pub(crate) fn payout_basket_tokens_split(
+    env: &Env,
+    escrow_id: u64,
+    payee: &Address,
+    buyer: &Address,
+    split_bps: u32,
+    fee_bps: u32,
+) -> Result<(), ContractError> {
+    let escrow = load_escrow(env, escrow_id)?;
+    let primary_token = &escrow.token;
+    let basket_tokens = load_basket_tokens(env, escrow_id);
+
+    let config = crate::storage::read_global_config(env);
+    let fee_collector = crate::storage::require_fee_collector(env)?;
+
+    for i in 0..basket_tokens.len() {
+        let entry = basket_tokens
+            .get(i)
+            .ok_or(ContractError::BasketIndexOutOfBounds)?;
+        if !is_transferable_basket_entry(&entry, primary_token) {
+            continue;
+        }
+        crate::helpers::payout::transfer_basket_split_with_fees(
+            env,
+            &entry.token,
+            payee,
+            buyer,
+            entry.amount,
+            split_bps,
+            fee_bps,
+            escrow.platform_fee_bps,
+            &fee_collector,
+            config.treasury.as_ref(),
+        )?;
+    }
+    Ok(())
+}
+
+/// Distributes every non-primary basket token across `payees` in proportion to
+/// their basis points.
+///
+/// This is the multi-payee counterpart to [`payout_basket_tokens`]: instead of
+/// sending 100% of each secondary token to one address, it reuses
+/// [`distribute_to_payees`] so every payee receives its configured share and
+/// any rounding dust is awarded to the primary payee. Used by the release
+/// paths (`confirm_delivery`, `auto_release`, `co_signed_release`, and a
+/// `Release` dispute resolution); refund paths keep the single-recipient
+/// behaviour.
+pub(crate) fn distribute_basket_tokens(
+    env: &Env,
+    escrow_id: u64,
+    payees: &BoundedPayees,
+    fee_bps: u32,
+) -> Result<(), ContractError> {
+    let escrow = load_escrow(env, escrow_id)?;
+    let primary_token = &escrow.token;
+    let basket_tokens = load_basket_tokens(env, escrow_id);
+
+    let config = crate::storage::read_global_config(env);
+
+    for i in 0..basket_tokens.len() {
+        let entry = basket_tokens
+            .get(i)
+            .ok_or(ContractError::BasketIndexOutOfBounds)?;
+        if !is_transferable_basket_entry(&entry, primary_token) {
+            continue;
+        }
+        let protocol_fee = crate::helpers::payout::calculate_fee(entry.amount, fee_bps)?;
+        let platform_fee = match config.treasury.as_ref() {
+            Some(_) => {
+                crate::helpers::payout::calculate_fee(entry.amount, escrow.platform_fee_bps)?
+            }
+            None => 0,
+        };
+        let net_amount = entry
+            .amount
+            .checked_sub(protocol_fee)
+            .ok_or(ContractError::AmountCalculationOverflow)?
+            .checked_sub(platform_fee)
+            .ok_or(ContractError::AmountCalculationOverflow)?;
+        distribute_to_payees(env, &entry.token, payees, net_amount, Some(escrow_id))?;
+        crate::storage::add_accumulated_fee(env, &entry.token, protocol_fee)?;
+        if let Some(treasury_addr) = config.treasury.as_ref() {
+            crate::helpers::payout::payout_platform_fee(
+                env,
+                escrow_id,
+                &entry.token,
+                treasury_addr,
+                platform_fee,
             );
         }
     }
@@ -673,7 +1313,10 @@ pub(crate) fn ensure_auto_release_eligible(
     escrow_id: u64,
 ) -> Result<(), ContractError> {
     if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-        return Err(ContractError::InvalidState);
+        return Err(terminal_state_error(
+            &escrow.state,
+            ContractError::InvalidState,
+        ));
     }
 
     if load_dispute(env, escrow_id).is_ok() {
@@ -692,13 +1335,14 @@ pub(crate) fn ensure_auto_release_eligible(
     } else if escrow.state == EscrowState::Shipped {
         return Err(ContractError::DeliveryNotRecorded);
     } else {
-        if now < escrow.dispute_deadline {
+        if now < (escrow.packed_timestamps & 0xFFFF_FFFF) {
             return Err(ContractError::DeliveryBeforeDisputeWindow);
         }
+        let funded_at = escrow.packed_timestamps >> 32;
         let shipped_or_funded_at = if escrow.shipped_at > 0 {
             escrow.shipped_at
         } else {
-            escrow.funded_at
+            funded_at
         };
         let window_elapsed_at = shipped_or_funded_at
             .checked_add(escrow.shipping_window)
@@ -717,8 +1361,9 @@ pub(crate) fn ensure_auto_release_eligible(
 ///
 /// Takes the protocol fee off the top (paid to the fee collector), splits the
 /// remainder across `escrow.payees`, forwards any non-primary basket tokens to
-/// the primary payee, then flips the escrow to `Completed` and bumps the
-/// completed-escrow counter.
+/// the primary payee (minus protocol/platform fees, see
+/// [`payout_basket_tokens`]), then flips the escrow to `Completed` and bumps
+/// the completed-escrow counter.
 ///
 /// `fee_bps` is passed in rather than read here because the callers source it
 /// differently — `auto_release` uses the current global protocol fee,
@@ -733,49 +1378,60 @@ pub(crate) fn settle_escrow_to_payees(
     escrow_id: u64,
     fee_bps: u32,
 ) -> Result<(EscrowState, Address), ContractError> {
-    let fee_collector: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::FeeCollector)
-        .ok_or(ContractError::NotInitialized)?;
-
     let first_payee_addr = escrow
         .payees
+        .inner
         .get(0)
-        .ok_or(ContractError::IndexOutOfBounds)?
+        .ok_or(ContractError::PayeeIndexOutOfBounds)?
         .address
         .clone();
-
-    let (protocol_fee, net_amount) =
-        crate::helpers::payout::calculate_protocol_fee(escrow.amount, fee_bps)?;
-    if protocol_fee > 0 {
-        token::Client::new(env, &escrow.token).transfer(
-            &env.current_contract_address(),
-            &fee_collector,
-            &protocol_fee,
-        );
-    }
-    distribute_to_payees(env, &escrow.token, &escrow.payees, net_amount)?;
-    payout_basket_tokens(env, escrow_id, &first_payee_addr)?;
 
     let prev_state = escrow.state.clone();
     escrow.state = EscrowState::Completed;
     save_escrow(env, escrow_id, escrow, Some(&prev_state));
-    increment_counter(env, &DataKey::TotalCompleted)?;
+    record_escrow_completed(env, escrow_id)?;
+    // A delivery proposal can only exist while the escrow is Shipped, so every
+    // completion transition must drop it or the entry is orphaned in storage.
+    clear_delivery_proposal(env, escrow_id);
+
+    let (protocol_fee, net_amount) =
+        crate::helpers::payout::calculate_protocol_fee(escrow.amount, fee_bps)?;
+
+    // ── INTERACTIONS (external token transfers) ──
+    //
+    // The `Completed` transition, the lifecycle counters, and the delivery
+    // proposal cleanup are all persisted above, so a malicious or re-entrant
+    // token invoked mid-transfer cannot observe an escrow that is still
+    // `Funded`/`Shipped` while its funds are already moving. A re-entrant call
+    // into `cancel_escrow`, `raise_dispute`, or `auto_release` therefore sees a
+    // terminal `Completed` escrow and is rejected.
+    if protocol_fee > 0 {
+        crate::storage::require_fee_collector(env)?;
+        crate::storage::add_accumulated_fee(env, &escrow.token, protocol_fee)?;
+    }
+    distribute_to_payees(
+        env,
+        &escrow.token,
+        &escrow.payees,
+        net_amount,
+        Some(escrow_id),
+    )?;
+    payout_basket_tokens(env, escrow_id, &first_payee_addr, Some(fee_bps))?;
 
     Ok((prev_state, first_payee_addr))
 }
 
-/// Check if an escrow has an active PendingExpiry scheduled (Issue #811).
+/// Check if an escrow has an active `PendingExpiry` scheduled (Issue #811).
 /// This function only checks expiry for escrows still in Pending state; the
-/// PendingExpiry key is semantically bound to Pending lifetime. Callers must
-/// ensure they remove DataKey::PendingExpiry when transitioning away from Pending
-/// (e.g., in fund_escrow, fund_basket_escrow, reclaim_expired). Without removal,
+/// `PendingExpiry` key is semantically bound to Pending lifetime. Callers must
+/// ensure they remove `DataKey::PendingExpiry` when transitioning away from Pending
+/// (`fund_escrow`, `fund_basket_escrow`, `reclaim_expired`, `cancel_escrow`,
+/// `auto_cancel_pending`). Without removal,
 /// this check will incorrectly reject valid operations on funded escrows.
 pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
     let escrow = load_escrow(env, escrow_id)?;
 
-    // Check custom expiration stored in EscrowData
+    // Check custom expiration stored in Escrow
     if let Some(expires_at) = escrow.expires_at {
         if env.ledger().timestamp() >= expires_at {
             return Err(ContractError::EscrowExpired);
@@ -795,19 +1451,202 @@ pub(crate) fn ensure_not_expired(env: &Env, escrow_id: u64) -> Result<(), Contra
     Ok(())
 }
 
-pub(crate) fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
-    let current: u64 = env.storage().instance().get(key).unwrap_or(0);
-    let next = current
-        .checked_add(1)
-        .ok_or(ContractError::ArithmeticError)?;
-    env.storage().instance().set(key, &next);
+/// Return the canonical deadline for an unfunded escrow's blanket expiry.
+///
+/// Keeping this arithmetic in one helper ensures funding and permissionless
+/// auto-cancellation use the same overflow behavior and window definition.
+pub(crate) fn pending_expiry_deadline(created_at: u64) -> Result<u64, ContractError> {
+    created_at
+        .checked_add(crate::PENDING_EXPIRY_WINDOW)
+        .ok_or(ContractError::ArithmeticOverflow)
+}
+
+/// Persist an explicit pending-expiry schedule and keep it alive for the
+/// configured contract TTL. Creation paths call this after saving the escrow.
+pub(crate) fn save_pending_expiry(env: &Env, escrow_id: u64, expires_at: u64, grace_period: u64) {
+    let schedule = crate::ExpirySchedule {
+        expires_at,
+        grace_period,
+    };
+    let key = DataKey::PendingExpiry(escrow_id);
+    let ext = get_ttl_extension(env);
+    env.storage().persistent().set(&key, &schedule);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
+}
+
+/// Check that a pending escrow has not expired before funding.
+/// Covers custom expiration (`escrow.expires_at`), explicit `PendingExpiry` schedule
+/// (via [`ensure_not_expired`]), and the blanket `PENDING_EXPIRY_WINDOW` after creation.
+/// Shared by `fund_escrow` and `fund_basket_escrow` (Issues #1096, #1169, #1170).
+pub(crate) fn ensure_funding_not_expired(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    ensure_not_expired(env, escrow_id)?;
+
+    let now = env.ledger().timestamp();
+    let created_at = escrow_created_at(env, escrow_id);
+    let blanket_deadline = pending_expiry_deadline(created_at)?;
+    if now > blanket_deadline {
+        return Err(ContractError::EscrowExpired);
+    }
     Ok(())
 }
 
+/// Counter kind discriminants used by [`increment_sharded_counter`] and
+/// [`read_sharded_counter_total`]. Keep stable: they are persisted in storage.
+pub(crate) const COUNTER_KIND_CREATED: u32 = 0;
+pub(crate) const COUNTER_KIND_COMPLETED: u32 = 1;
+/// Counts **unique escrows** that have ever been disputed, not dispute
+/// proceedings. It is incremented exactly once per escrow, by `raise_dispute`
+/// (which only accepts an escrow that is not yet disputed). `appeal_dispute`
+/// moves an escrow `PendingFinalization -> Disputed` again but deliberately
+/// does **not** touch this counter, so `ContractStats::total_disputed` is never
+/// inflated by appeal cycles. Appeal volume is tracked separately by
+/// [`COUNTER_KIND_APPEALS`].
+pub(crate) const COUNTER_KIND_DISPUTED: u32 = 2;
+pub(crate) const COUNTER_KIND_REFUNDED: u32 = 3;
+/// Counts appeal cycles across the contract: incremented once for every
+/// successful `appeal_dispute`. Monotonically increasing; an escrow appealed
+/// `n` times contributes `n`. Complements [`COUNTER_KIND_DISPUTED`] (unique
+/// disputed escrows). New counter, so it has no legacy singleton key.
+pub(crate) const COUNTER_KIND_APPEALS: u32 = 4;
+
+/// Records a *completion* of `escrow_id`.
+///
+/// Every path that transitions an escrow to `Completed` — the shared
+/// [`settle_escrow_to_payees`] helper used by `confirm_delivery` and
+/// `auto_release`, `co_signed_release`, and a `finalize_dispute` Release — must
+/// go through this single helper so `TotalCompleted` advances by exactly one
+/// per completed escrow.
+///
+/// The legacy singleton key (`DataKey::TotalCompleted`) is deliberately **not**
+/// written here. [`read_counter_total`] still sums it as pre-sharding history,
+/// so writing it alongside the shard would double-count every completion (one
+/// from the legacy value, one from the shard) and make the counters disagree
+/// depending on which path completed the escrow.
+pub(crate) fn record_escrow_completed(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    increment_sharded_counter(env, COUNTER_KIND_COMPLETED, escrow_id)
+}
+
+/// Records a *refund* of `escrow_id`.
+///
+/// Single helper for the same reason as [`record_escrow_completed`]: every
+/// refund path — `cancel_escrow`, `finalize_dispute` Refund,
+/// `cancel_pending_finalization`, `recovery_withdraw`, and `emergency_drain` —
+/// advances the sharded `TotalRefunded` counter by exactly one, with no legacy
+/// dual-write. `emergency_drain` calling this exactly once per drain is what
+/// keeps `get_stats().total_refunded` consistent with the number of drains.
+pub(crate) fn record_escrow_refunded(env: &Env, escrow_id: u64) -> Result<(), ContractError> {
+    increment_sharded_counter(env, COUNTER_KIND_REFUNDED, escrow_id)
+}
+
+/// Increments lifecycle counter `kind` in one of `crate::COUNTER_SHARDS`
+/// persistent-storage buckets, chosen from `seed` (the escrow id). Spreading
+/// writers across distinct keys avoids the serialization a single global
+/// instance-storage counter imposes on every escrow transition.
+pub(crate) fn increment_sharded_counter(
+    env: &Env,
+    kind: u32,
+    seed: u64,
+) -> Result<(), ContractError> {
+    // The remainder is < COUNTER_SHARDS (a u32), so the conversion never fails.
+    let bucket = u32::try_from(seed % u64::from(crate::COUNTER_SHARDS)).unwrap_or(0);
+    let key = DataKey::ShardedCounter(kind, bucket);
+    let current: u64 = env.storage().persistent().get(&key).unwrap_or(0);
+    let next = current
+        .checked_add(1)
+        .ok_or(ContractError::ArithmeticError)?;
+    env.storage().persistent().set(&key, &next);
+    let ext = get_ttl_extension(env);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
+    Ok(())
+}
+
+/// Sums every shard of lifecycle counter `kind`. Read-only: does not extend
+/// TTL, since these are analytics counters rather than escrow-critical state.
+pub(crate) fn read_sharded_counter_total(env: &Env, kind: u32) -> u64 {
+    let mut total: u64 = 0;
+    for bucket in 0..crate::COUNTER_SHARDS {
+        let key = DataKey::ShardedCounter(kind, bucket);
+        let value: u64 = env.storage().persistent().get(&key).unwrap_or(0);
+        total = total.saturating_add(value);
+    }
+    total
+}
+
+/// Total for a lifecycle counter: the legacy singleton value (written by
+/// deployments before sharding) plus the sum of its shards, so pre-existing
+/// statistics are preserved across the upgrade.
+pub(crate) fn read_counter_total(env: &Env, kind: u32, legacy_key: &DataKey) -> u64 {
+    let legacy: u64 = env.storage().instance().get(legacy_key).unwrap_or(0);
+    legacy.saturating_add(read_sharded_counter_total(env, kind))
+}
+
+/// Reads the admin-configured maximum dispute duration, falling back to
+/// [`crate::DEFAULT_DISPUTE_TIMEOUT`] when the admin has not set one.
+pub(crate) fn read_dispute_timeout(env: &Env) -> u64 {
+    crate::storage::read_global_config(env).dispute_timeout
+}
+
+pub(crate) fn write_dispute_timeout(env: &Env, timeout: u64) {
+    crate::storage::update_global_config(env, |c| c.dispute_timeout = timeout);
+}
+
+/// Reads the appeal fee in basis points charged to the appellant on
+/// `appeal_dispute` (issue #913). Defaults to
+/// [`crate::DEFAULT_APPEAL_FEE_BPS`] (0 = disabled) until the admin sets one
+/// with `set_appeal_fee`.
+pub(crate) fn read_appeal_fee_bps(env: &Env) -> u32 {
+    crate::storage::read_global_config(env).appeal_fee_bps
+}
+
+pub(crate) fn write_appeal_fee_bps(env: &Env, fee_bps: u32) {
+    crate::storage::update_global_config(env, |c| c.appeal_fee_bps = fee_bps);
+}
+
+/// Validates an appeal fee: `0` disables the fee, otherwise it must lie in
+/// `MIN_APPEAL_FEE_BPS..=MAX_APPEAL_FEE_BPS` so a nominal fee cannot be used
+/// to keep griefing effectively free.
+pub(crate) fn validate_appeal_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
+    if fee_bps == 0 {
+        return Ok(());
+    }
+    if fee_bps < crate::MIN_APPEAL_FEE_BPS {
+        return Err(ContractError::AppealFeeBelowMinimum);
+    }
+    if fee_bps > crate::MAX_APPEAL_FEE_BPS {
+        return Err(ContractError::AppealFeeExceedsMax);
+    }
+    Ok(())
+}
+
+/// Returns whether recovery mode is enabled (issue #914). When true,
+/// `recovery_withdraw` lets buyers reclaim custodied funds without going
+/// through the standard state machine, e.g. after a sunset or an
+/// unpatchable vulnerability. Defaults to false.
+pub(crate) fn is_recovery_mode(env: &Env) -> bool {
+    crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE
+        != 0
+}
+
+pub(crate) fn write_recovery_mode(env: &Env, enabled: bool) {
+    crate::storage::update_global_config(env, |c| {
+        if enabled {
+            c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE;
+        } else {
+            c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE;
+        }
+    });
+}
+
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 pub(crate) fn create_escrow_internal(
     env: &Env,
-    payees: Vec<Payee>,
+    payees: BoundedPayees,
     buyer: Option<Address>,
     resolver: Address,
     token: Address,
@@ -815,15 +1654,26 @@ pub(crate) fn create_escrow_internal(
     fee_bps: u32,
     resolver_fee_bps: u32,
     shipping_window: u64,
-    notes: Option<String>,
+    notes: String,
     expires_at: Option<u64>,
     grace_period: u64,
 ) -> Result<u64, ContractError> {
-    if payees.is_empty() {
+    // Does not call `payees[0].require_auth()` — every caller (`create_escrow`,
+    // `create_escrow_with_expiration`, `batch_create_escrow`) authenticates
+    // the seller/first payee at its own top, per the standardized
+    // require_auth-at-entry-point convention. Do not call this helper from a
+    // new entry point without adding that check there first.
+    if payees.inner.is_empty() {
         return Err(ContractError::InvalidAddress);
     }
-    let first_payee = payees.get(0).ok_or(ContractError::IndexOutOfBounds)?;
-    first_payee.address.require_auth();
+    // Authentication is the entry point's responsibility: `create_escrow`,
+    // `create_escrow_with_expiration`, and `batch_create_escrow` each call
+    // `payees[0].require_auth()` (or `seller.require_auth()`) at their top
+    // before delegating here. Requiring it again inside this helper would be a
+    // second `require_auth` for the same address in the same invocation, which
+    // the host rejects with `Error(Auth, ExistingValue)` ("frame is already
+    // authorized"). Do not call this helper from a new entry point without
+    // adding that check there first.
 
     ensure_action_not_paused(env, Symbol::new(env, "CREATE"))?;
 
@@ -831,42 +1681,50 @@ pub(crate) fn create_escrow_internal(
         return Err(ContractError::InvalidAmount);
     }
 
-    let max_amount = env
-        .storage()
-        .instance()
-        .get(&DataKey::MaxAmount)
-        .unwrap_or(MAX_ESCROW_AMOUNT);
-    if amount > max_amount {
+    let global_config = read_global_config(env);
+    if amount > global_config.max_amount {
         return Err(ContractError::AmountExceedsMaximum);
     }
 
-    let min_amount = env
-        .storage()
-        .instance()
-        .get(&DataKey::MinAmount)
-        .unwrap_or(MIN_ESCROW_AMOUNT);
-    if amount < min_amount {
+    if amount < global_config.min_amount {
         return Err(ContractError::AmountBelowMinimum);
     }
 
-    if !(MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW).contains(&shipping_window) {
-        return Err(ContractError::InvalidShippingWindow);
+    validate_shipping_window(shipping_window)?;
+
+    if grace_period > crate::MAX_GRACE_PERIOD {
+        return Err(ContractError::GracePeriodTooLong);
     }
+
+    let vendor = payees
+        .inner
+        .get(0)
+        .ok_or(ContractError::PayeeIndexOutOfBounds)?
+        .address
+        .clone();
+    let fee_bps = fee_bps.saturating_sub(crate::storage::merchant_fee_discount_bps(env, &vendor));
 
     validate_escrow_fee_bps(fee_bps)?;
     validate_resolver_fee_bps(resolver_fee_bps)?;
+    validate_total_fee_bps(
+        fee_bps,
+        global_config.platform_fee_bps,
+        global_config.arbitration_fee_bps,
+        resolver_fee_bps,
+    )?;
     validate_payees(env, &payees)?;
 
-    // Validate notes length if present
-    if let Some(ref n) = notes {
-        if n.len() > MAX_NOTES_LEN {
-            return Err(ContractError::InputTooLong);
-        }
+    // Validate notes length
+    if notes.len() > MAX_NOTES_LEN {
+        return Err(ContractError::InputTooLong);
     }
 
     // Security: resolver must be distinct from all payees and buyer
-    for i in 0..payees.len() {
-        let payee = payees.get(i).ok_or(ContractError::IndexOutOfBounds)?;
+    for i in 0..payees.inner.len() {
+        let payee = payees
+            .inner
+            .get(i)
+            .ok_or(ContractError::PayeeIndexOutOfBounds)?;
         if resolver == payee.address {
             return Err(ContractError::ConflictingRoles);
         }
@@ -883,11 +1741,9 @@ pub(crate) fn create_escrow_internal(
     }
 
     // Issue #393: resolver registry — reject unknown resolvers in strict mode
-    if env
-        .storage()
-        .instance()
-        .get::<DataKey, bool>(&DataKey::ResolverStrict)
-        .unwrap_or(false)
+    if crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
+        != 0
     {
         let approved: soroban_sdk::Vec<Address> = env
             .storage()
@@ -919,9 +1775,10 @@ pub(crate) fn create_escrow_internal(
         amount,
         fee_bps,
         resolver_fee_bps,
+        platform_fee_bps: 0,
+        arbitration_fee_bps: 0,
         shipping_window,
-        funded_at: 0,
-        dispute_deadline: 0,
+        packed_timestamps: 0,
         state: EscrowState::Pending,
         shipped_at: 0,
         delivered_at: None,
@@ -934,15 +1791,14 @@ pub(crate) fn create_escrow_internal(
     save_escrow(env, escrow_id, &escrow, None);
 
     let first_payee_addr = payees
+        .inner
         .get(0)
-        .ok_or(ContractError::IndexOutOfBounds)?
+        .ok_or(ContractError::PayeeIndexOutOfBounds)?
         .address
         .clone();
-    let mut vendor_escrows = storage::read_vendor_escrow_index(env, &first_payee_addr);
-    vendor_escrows.push_back(escrow_id);
-    storage::write_vendor_escrow_index(env, &first_payee_addr, &vendor_escrows);
+    storage::append_vendor_escrow_index(env, &first_payee_addr, escrow_id);
 
-    increment_counter(env, &DataKey::TotalCreated)?;
+    increment_sharded_counter(env, COUNTER_KIND_CREATED, escrow_id)?;
     emit_escrow_created(
         env,
         escrow_id,
@@ -953,13 +1809,47 @@ pub(crate) fn create_escrow_internal(
         escrow.fee_bps,
         escrow.resolver_fee_bps,
         escrow.shipping_window,
+        escrow.expires_at,
         crate::EscrowState::Pending,
     );
     Ok(escrow_id)
 }
 
-/// Execute the resolution transition when threshold is met.
-/// Deducts arbitration and resolver fees, transitions to PendingFinalization.
+/// Resolvers whose recorded vote matches `final_resolution`, in vote order.
+/// The finalizing voter (`caller`) is always included: it is the sole winner
+/// when no recorded vote matches (and the dust recipient otherwise).
+fn winning_resolvers(
+    env: &Env,
+    votes: &Vec<ResolverVote>,
+    final_resolution: &ResolutionType,
+    caller: &Address,
+) -> Vec<Address> {
+    let mut winners: Vec<Address> = Vec::new(env);
+    for vote in votes.iter() {
+        if &vote.resolution == final_resolution && !winners.contains(&vote.resolver) {
+            winners.push_back(vote.resolver.clone());
+        }
+    }
+    if winners.is_empty() {
+        winners.push_back(caller.clone());
+    }
+    winners
+}
+
+/// Execute the resolution transition once a resolution has been determined.
+/// Transitions the escrow to `PendingFinalization`.
+///
+/// When `charge_fees` is true, the arbitration and resolver fees are computed
+/// and *provisionally* recorded in `DisputeData` (together with the winning
+/// resolvers). `escrow.amount` is reduced by the provisional fees so the
+/// payout math stays consistent, but **no external token transfer happens
+/// here**: the contract's token balance is unchanged until `finalize_dispute`
+/// settles the fees atomically with the principal payout. `PendingFinalization`
+/// is not terminal (the parties can appeal), so paying fees out early would
+/// leak them irreversibly. An appeal clears the provisional allocations and
+/// restores `escrow.amount`; the next round records fresh allocations for the
+/// final resolver. Timeout fallbacks pass `charge_fees = false`, since no
+/// resolver actually decided the outcome.
 pub(crate) fn execute_resolution_transition(
     env: &Env,
     escrow_id: u64,
@@ -967,23 +1857,21 @@ pub(crate) fn execute_resolution_transition(
     caller: Address,
     final_resolution: ResolutionType,
     votes: Vec<ResolverVote>,
+    charge_fees: bool,
+    reason: Option<Symbol>,
+    memo: soroban_sdk::Bytes,
 ) -> Result<(), ContractError> {
-    // Load the dispute record up front. After an appeal the escrow returns to
-    // `Disputed` and this transition runs again — but the arbitration and
-    // resolver fees are charged to the escrow **once per dispute**, not once
-    // per appeal round. A non-zero fee on the dispute record means a prior
-    // round already deducted and paid it out (`clear_resolution` deliberately
-    // preserves these two fields), so this round reuses the recorded amounts
-    // and skips the deduction, the accounting bump, and the transfers.
     let mut dispute_data = load_dispute(env, escrow_id)?;
-    let fees_already_charged = dispute_data.arbitration_fee > 0 || dispute_data.resolver_fee > 0;
 
-    let (arbitration_fee, resolver_fee) = if fees_already_charged {
-        (dispute_data.arbitration_fee, dispute_data.resolver_fee)
-    } else {
-        let arbitration_fee_bps = read_fee_config(env).arbitration_fee_bps;
+    let (arbitration_fee, resolver_fee) = if charge_fees {
+        // Guard order (issue #1065):
+        // 1. Compute each fee with checked math (`calculate_fee`).
+        // 2. Reject a combined fee larger than the escrow amount *before* any
+        //    state mutation. This is the semantic guard that keeps the payout
+        //    non-negative.
+        // 3. Only then deduct both fees with `checked_sub` below.
         let arbitration_fee =
-            crate::helpers::payout::calculate_fee(escrow.amount, arbitration_fee_bps)?;
+            crate::helpers::payout::calculate_fee(escrow.amount, escrow.arbitration_fee_bps)?;
         let resolver_fee =
             crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?;
 
@@ -995,72 +1883,46 @@ pub(crate) fn execute_resolution_transition(
         }
 
         (arbitration_fee, resolver_fee)
+    } else {
+        (0, 0)
     };
 
     let prev_state = escrow.state.clone();
     let mut updated_escrow = escrow;
 
-    if !fees_already_charged {
-        updated_escrow.amount = updated_escrow
-            .amount
-            .checked_sub(arbitration_fee)
-            .ok_or(ContractError::ArithmeticError)?;
-        updated_escrow.amount = updated_escrow
-            .amount
-            .checked_sub(resolver_fee)
-            .ok_or(ContractError::ArithmeticError)?;
-
-        // Update Accounting
-        let total_key = DataKey::TotalArbitrationFees(updated_escrow.token.clone());
-        let current_total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
-        env.storage().instance().set(
-            &total_key,
-            &current_total
-                .checked_add(arbitration_fee)
-                .ok_or(ContractError::ArithmeticError)?,
-        );
-
-        let fee_collector: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeCollector)
-            .ok_or(ContractError::NotInitialized)?;
-
-        if arbitration_fee > 0 {
-            token::Client::new(env, &updated_escrow.token).transfer(
-                &env.current_contract_address(),
-                &fee_collector,
-                &arbitration_fee,
-            );
-        }
-
-        // Pay resolver fee immediately
-        if resolver_fee > 0 {
-            token::Client::new(env, &updated_escrow.token).transfer(
-                &env.current_contract_address(),
-                &caller,
-                &resolver_fee,
-            );
-        }
-    }
+    updated_escrow.amount = updated_escrow
+        .amount
+        .checked_sub(arbitration_fee)
+        .ok_or(ContractError::ArithmeticError)?
+        .checked_sub(resolver_fee)
+        .ok_or(ContractError::ArithmeticError)?;
 
     // Store resolution in dispute data and transition to PendingFinalization
     let now = env.ledger().timestamp();
+    if now < dispute_data.disputed_at {
+        return Err(ContractError::TimestampInvariantViolated);
+    }
     let appeal_deadline = now
         .checked_add(APPEAL_WINDOW)
         .ok_or(ContractError::ArithmeticError)?;
 
     dispute_data.set_resolution(final_resolution.clone());
+    dispute_data.set_resolution_note(reason.clone(), memo);
     dispute_data.resolved_by = Some(caller.clone());
     dispute_data.resolved_at = now;
     dispute_data.arbitration_fee = arbitration_fee;
     dispute_data.resolver_fee = resolver_fee;
+    dispute_data.compensated_resolvers = winning_resolvers(env, &votes, &final_resolution, &caller);
+    // `fees_charged` is only set to `true` by `finalize_dispute`.
 
     updated_escrow.state = EscrowState::PendingFinalization;
 
+    // ── EFFECTS (state mutations) ──
     save_escrow(env, escrow_id, &updated_escrow, Some(&prev_state));
     save_dispute(env, escrow_id, &dispute_data);
     save_resolver_votes(env, escrow_id, &votes);
+
+    // No INTERACTIONS: fee payouts are deferred to `finalize_dispute`.
 
     emit_dispute_pending_finalization(
         env,
@@ -1069,6 +1931,7 @@ pub(crate) fn execute_resolution_transition(
         final_resolution,
         updated_escrow.amount,
         appeal_deadline,
+        reason,
     );
     Ok(())
 }
@@ -1076,6 +1939,88 @@ pub(crate) fn execute_resolution_transition(
 pub(crate) fn escrow_created_at(env: &Env, escrow_id: u64) -> u64 {
     load_state_history(env, escrow_id)
         .get(0)
-        .map(|(_, ts)| ts)
-        .unwrap_or(0)
+        .map_or(0, |(_, ts)| ts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{BoundedPayees, Payee};
+    use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+
+    #[test]
+    fn validate_payees_rejects_zero_bps_and_non_monotonic_sum() {
+        let env = Env::default();
+        let p1 = Address::generate(&env);
+        let p2 = Address::generate(&env);
+
+        let mut list = Vec::new(&env);
+        list.push_back(Payee {
+            address: p1.clone(),
+            bps: 10_000,
+        });
+        list.push_back(Payee {
+            address: p2.clone(),
+            bps: 0,
+        });
+        assert_eq!(
+            validate_payees(&env, &BoundedPayees { inner: list }),
+            Err(ContractError::PayeeBpsMismatch)
+        );
+    }
+
+    #[test]
+    fn validate_payees_rejects_overflow() {
+        let env = Env::default();
+        let p1 = Address::generate(&env);
+        let p2 = Address::generate(&env);
+
+        let mut list = Vec::new(&env);
+        list.push_back(Payee {
+            address: p1,
+            bps: 5_000,
+        });
+        list.push_back(Payee {
+            address: p2,
+            bps: u32::MAX,
+        });
+        assert_eq!(
+            validate_payees(&env, &BoundedPayees { inner: list }),
+            Err(ContractError::ArithmeticError)
+        );
+    }
+
+    #[test]
+    fn validate_payees_accepts_strictly_monotonic_10000() {
+        let env = Env::default();
+        let p1 = Address::generate(&env);
+        let p2 = Address::generate(&env);
+
+        let mut list = Vec::new(&env);
+        list.push_back(Payee {
+            address: p1,
+            bps: 6_000,
+        });
+        list.push_back(Payee {
+            address: p2,
+            bps: 4_000,
+        });
+        assert_eq!(
+            validate_payees(&env, &BoundedPayees { inner: list }),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn validate_total_fee_bps_enforces_global_cap() {
+        assert_eq!(validate_total_fee_bps(1_000, 500, 500, 500), Ok(()));
+        assert_eq!(
+            validate_total_fee_bps(1_000, 501, 500, 500),
+            Err(ContractError::FeeExceedsMax)
+        );
+        assert_eq!(
+            validate_total_fee_bps(u32::MAX, 1, 0, 0),
+            Err(ContractError::FeeCalculationOverflow)
+        );
+    }
 }

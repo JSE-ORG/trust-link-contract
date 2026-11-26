@@ -9,11 +9,6 @@ cargo-fuzz = true
 
 [workspace]
 
-# The vendored `paste` replacement lives at the repository root, three levels up
-# from this manifest (contracts/escrow/fuzz).
-[patch.crates-io]
-paste = { path = "../../../vendor/pastey" }
-
 [[bin]]
 name = "create_escrow"
 path = "fuzz_targets/create_escrow.rs"

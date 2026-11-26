@@ -125,6 +125,13 @@ When a release does change the layout:
    batch per call and record progress, so the migration cannot exceed the
    transaction resource budget.
 
+### Migration history
+
+| Step | Change |
+|---|---|
+| v0 -> v1 | Stamps `StorageVersion`; no data rewritten. |
+| v1 -> v2 | Folds the per-setting admin keys (`FeeCollector`, `Treasury`, `FeeConfig`, `PlatformFeeBps`, `AppealFeeBps`, `MinAmount`, `MaxAmount`, `DisputeTimeout`, `TtlExtensionLedgers`, `Paused`, `TokenAllowlistEnabled`, `ResolverStrict`, `RecoveryMode`) into one `DataKey::GlobalConfig` entry and deletes them. Until `migrate` runs, `read_global_config` falls back to the old keys, so an upgraded-but-unmigrated contract keeps working. |
+
 ## What the tests cover
 
 `contracts/escrow/src/test_upgrade_migration.rs` verifies that:
@@ -134,7 +141,9 @@ When a release does change the layout:
 - `migrate` on an unversioned deployment leaves `EscrowData` byte-identical;
 - a migrated escrow continues through its lifecycle normally;
 - `migrate` is idempotent — a retried call is rejected, not applied twice;
-- a non-admin caller is rejected and storage is left unchanged.
+- a non-admin caller is rejected and storage is left unchanged;
+- v1 per-setting config keys are readable before `migrate`, folded into
+  `GlobalConfig` by it, and not lost when a setter runs before `migrate`.
 
 The "old deployment" is reproduced by removing `DataKey::StorageVersion` from
 instance storage, which is exactly what a pre-versioning build's storage looks

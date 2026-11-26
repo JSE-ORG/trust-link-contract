@@ -21,7 +21,7 @@ fuzz_target!(|data: &[u8]| {
         &h.env,
         DISPUTE_REASONS[(r.u8() as usize) % DISPUTE_REASONS.len()],
     );
-    let description = r.ascii_string(&h.env, 64);
+    let description = r.bytes(&h.env, 64);
     let evidence_hash = BytesN::from_array(&h.env, &r.bytes32());
     let _ = h
         .client

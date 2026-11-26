@@ -18,7 +18,7 @@ fn test_get_escrows_by_seller_empty() {
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
     let seller = Address::generate(&env);
 
-    let escrows = client.get_escrows_by_seller(&seller);
+    let escrows = client.get_escrows_by_seller(&seller, &0_u64, &50_u64);
     assert_eq!(escrows.len(), 0);
 }
 
@@ -52,7 +52,7 @@ fn test_get_escrows_by_seller_single() {
         &None::<String>,
     );
 
-    let escrows = client.get_escrows_by_seller(&seller);
+    let escrows = client.get_escrows_by_seller(&seller, &0_u64, &50_u64);
     assert_eq!(escrows.len(), 1);
     assert_eq!(escrows.get(0).unwrap(), id);
 }
@@ -126,12 +126,12 @@ fn test_get_escrows_by_seller_multiple() {
         &None::<String>,
     );
 
-    let s1_escrows = client.get_escrows_by_seller(&seller1);
+    let s1_escrows = client.get_escrows_by_seller(&seller1, &0_u64, &50_u64);
     assert_eq!(s1_escrows.len(), 2);
     assert_eq!(s1_escrows.get(0).unwrap(), id1);
     assert_eq!(s1_escrows.get(1).unwrap(), id2);
 
-    let s2_escrows = client.get_escrows_by_seller(&seller2);
+    let s2_escrows = client.get_escrows_by_seller(&seller2, &0_u64, &50_u64);
     assert_eq!(s2_escrows.len(), 1);
     assert_eq!(s2_escrows.get(0).unwrap(), id3);
 }
@@ -166,8 +166,8 @@ fn test_get_escrows_by_seller_matches_vendor() {
         &None::<String>,
     );
 
-    let by_seller = client.get_escrows_by_seller(&seller);
-    let by_vendor = client.get_escrows_by_vendor(&seller);
+    let by_seller = client.get_escrows_by_seller(&seller, &0_u64, &50_u64);
+    let by_vendor = client.get_escrows_by_vendor(&seller, &0_u64, &50_u64);
     assert_eq!(by_seller, by_vendor);
 }
 
@@ -179,6 +179,6 @@ fn test_get_escrows_by_seller_unknown_returns_empty() {
     let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
     let unknown = Address::generate(&env);
 
-    let escrows = client.get_escrows_by_seller(&unknown);
+    let escrows = client.get_escrows_by_seller(&unknown, &0_u64, &50_u64);
     assert_eq!(escrows.len(), 0);
 }

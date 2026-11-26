@@ -82,9 +82,13 @@ export class EscrowBatch {
     return this.push("withdraw_fees", [caller, token, to, amount]);
   }
 
-  /** Batch `create_escrow(payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow)`. */
+  /**
+   * Batch `create_escrow(payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow, notes)`.
+   *
+   * `payees` accepts either a single seller address or a `Payee[]` split.
+   */
   create_escrow(
-    payees: Payee[],
+    payees: AddressLike | Payee[],
     buyer: AddressLike | null,
     resolver: AddressLike,
     token: AddressLike,
@@ -92,8 +96,9 @@ export class EscrowBatch {
     feeBps: number,
     resolverFeeBps: number,
     shippingWindow: bigint,
+    notes: string | null = null,
   ): this {
-    return this.push("create_escrow", [payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow]);
+    return this.push("create_escrow", [payees, buyer, resolver, token, amount, feeBps, resolverFeeBps, shippingWindow, notes]);
   }
 
   /** Batch `fund_escrow(escrowId, buyer)`. */
@@ -167,7 +172,7 @@ export class EscrowBatch {
     return this.push("rotate_resolver", [caller, escrowId, newResolver]);
   }
 
-  /** Batch `create_basket_escrow(seller, buyer, resolver, tokens, amounts, feeBps, shippingWindow)`. */
+  /** Batch `create_basket_escrow(seller, buyer, resolver, tokens, amounts, feeBps, shippingWindow, notes, expiresAt, gracePeriod)`. */
   create_basket_escrow(
     seller: AddressLike,
     buyer: AddressLike | null,
@@ -176,6 +181,9 @@ export class EscrowBatch {
     amounts: readonly bigint[],
     feeBps: number,
     shippingWindow: bigint,
+    notes: string | null = null,
+    expiresAt: bigint | null = null,
+    gracePeriod: bigint = 0n,
   ): this {
     return this.push("create_basket_escrow", [
       seller,
@@ -185,6 +193,9 @@ export class EscrowBatch {
       amounts,
       feeBps,
       shippingWindow,
+      notes,
+      expiresAt,
+      gracePeriod,
     ]);
   }
 

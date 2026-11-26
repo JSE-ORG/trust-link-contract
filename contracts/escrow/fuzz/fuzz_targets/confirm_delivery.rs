@@ -27,6 +27,11 @@ fuzz_target!(|data: &[u8]| {
 
     let caller = h.actor(r.u8());
     let target_id = r.target_id(escrow_id);
+    // Fuzz both sides of the shipping-window waiver: `false` exercises the
+    // dispute-window guard, `true` the immediate-release path.
+    let waive_shipping_window = r.bool();
 
-    let _ = h.client.try_confirm_delivery(&caller, &target_id);
+    let _ = h
+        .client
+        .try_confirm_delivery(&caller, &target_id, &waive_shipping_window);
 });

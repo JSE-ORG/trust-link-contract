@@ -182,3 +182,18 @@ fn post_message_enforces_cap() {
         Err(Ok(ContractError::TooManyMessages))
     );
 }
+
+/// Issue #1069: get_messages for a non-existent escrow returns
+/// `EscrowNotFound`, distinct from a valid escrow with no messages (empty Vec).
+#[test]
+fn get_messages_distinguishes_missing_escrow_from_empty_thread() {
+    let f = fixture();
+
+    assert_eq!(
+        f.client().try_get_messages(&999_u64, &0, &10),
+        Err(Ok(ContractError::EscrowNotFound))
+    );
+
+    let messages_no_msgs = f.client().get_messages(&f.escrow_id, &0, &10);
+    assert_eq!(messages_no_msgs.len(), 0);
+}

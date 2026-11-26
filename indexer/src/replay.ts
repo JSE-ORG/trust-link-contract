@@ -70,14 +70,14 @@
  * Pass `{ closePoolWhenDone: false }` to replay several fixtures in one process.
  */
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { cursorOf, formatCursor, loadFixture, planReplay } from "./replay-fixture.js";
+export { findResumeIndex, formatCursor, loadFixture } from "./replay-fixture.js";
 
 import { getPool, closePool } from "./db.js";
 import { readCursor } from "./cursor.js";
 import { ingestBatch } from "./ingest.js";
-import { cursorAfter, type RawEvent, type Cursor } from "./types.js";
 
 /** Bundled fixture used when the CLI is invoked without a path. */
 export const DEFAULT_FIXTURE = fileURLToPath(
@@ -96,109 +96,6 @@ export interface ReplayOptions {
   /** Sink for progress messages. Defaults to `console.log`. */
   log?: (message: string) => void;
 }
-
-// ---------------------------------------------------------------------------
-// Fixture loading
-// ---------------------------------------------------------------------------
-
-/** Cursor position of one event, for ordering comparisons. */
-function cursorOf(event: RawEvent): Cursor {
-  return {
-    ledger_sequence: event.ledger_sequence,
-    tx_index: event.tx_index,
-    event_index: event.event_index,
-  };
-}
-
-/** Render a cursor as `ledger/tx/event`, the form used throughout the logs. */
-function formatCursor(cursor: Cursor): string {
-  return `${cursor.ledger_sequence}/${cursor.tx_index}/${cursor.event_index}`;
-}
-
-/**
- * Validate that `value` has the positional fields every event needs.
- *
- * Payload contents are deliberately not checked here — `processEvent` owns
- * that, including the `schema_version` guard.
- */
-function assertRawEvent(value: unknown, index: number): asserts value is RawEvent {
-  if (value === null || typeof value !== "object") {
-    throw new Error(`Fixture entry ${index} is not an object`);
-  }
-  const event = value as Record<string, unknown>;
-
-  for (const field of ["ledger_sequence", "tx_index", "event_index"] as const) {
-    if (!Number.isInteger(event[field])) {
-      throw new Error(`Fixture entry ${index} has a non-integer "${field}"`);
-    }
-  }
-  if (typeof event["contract_id"] !== "string") {
-    throw new Error(`Fixture entry ${index} has no "contract_id" string`);
-  }
-  if (!Array.isArray(event["topics"]) || event["topics"].length === 0) {
-    throw new Error(`Fixture entry ${index} has no "topics" array`);
-  }
-  if (event["payload"] === null || typeof event["payload"] !== "object") {
-    throw new Error(`Fixture entry ${index} has no "payload" object`);
-  }
-}
-
-/**
- * Read and validate a fixture file.
- *
- * @param filePath Path to a JSON array of {@link RawEvent}; relative paths
- *   resolve against the current working directory.
- * @returns The events, in fixture order.
- * @throws If the file is not a JSON array, an entry is missing a positional
- *   field, or the entries are not sorted strictly ascending by cursor.
- */
-export function loadFixture(filePath: string): RawEvent[] {
-  const abs = resolve(filePath);
-  const raw = JSON.parse(readFileSync(abs, "utf-8")) as unknown;
-
-  if (!Array.isArray(raw)) {
-    throw new Error(`Fixture at ${abs} must be a JSON array`);
-  }
-
-  raw.forEach(assertRawEvent);
-  const events = raw as RawEvent[];
-
-  // Strictly ascending: equal cursors would mean duplicate events, which the
-  // `events` UNIQUE constraint would silently drop on the second occurrence.
-  for (let i = 1; i < events.length; i++) {
-    const prev = cursorOf(events[i - 1]!);
-    const curr = cursorOf(events[i]!);
-    if (!cursorAfter(curr, prev)) {
-      throw new Error(
-        `Fixture at ${abs} is not sorted: entry ${i} (${formatCursor(curr)}) ` +
-          `does not come after entry ${i - 1} (${formatCursor(prev)}). ` +
-          `Events must ascend by (ledger_sequence, tx_index, event_index).`,
-      );
-    }
-  }
-
-  return events;
-}
-
-/**
- * Index of the first event strictly after `cursor` — where a resumed run picks
- * up.
- *
- * Returns `events.length` when every event is already committed, which the
- * caller treats as "nothing to do".
- *
- * @example
- * ```ts
- * findResumeIndex(events, { ledger_sequence: 0, tx_index: 0, event_index: 0 }); // 0
- * ```
- */
-export function findResumeIndex(events: RawEvent[], cursor: Cursor): number {
-  for (let i = 0; i < events.length; i++) {
-    if (cursorAfter(cursorOf(events[i]!), cursor)) return i;
-  }
-  return events.length;
-}
-
 // ---------------------------------------------------------------------------
 // Replay
 // ---------------------------------------------------------------------------
@@ -229,24 +126,23 @@ export async function replay(
 
   try {
     const cursor = await readCursor(pool);
-    const startIdx = findResumeIndex(events, cursor);
+    const plan = planReplay(events, cursor);
 
-    if (startIdx === events.length) {
+    if (plan.pending.length === 0) {
       log("[replay] all events already ingested — nothing to do");
       return 0;
     }
 
-    if (startIdx > 0) {
+    if (plan.startIndex > 0) {
       log(
         `[replay] resuming after ${formatCursor(cursor)} — ` +
-          `skipping ${startIdx} already-committed event(s)`,
+          `skipping ${plan.startIndex} already-committed event(s)`,
       );
     }
 
-    const pending = events.slice(startIdx);
-    const applied = await ingestBatch(pool, pending);
+    const applied = await ingestBatch(pool, plan.pending);
 
-    const last = cursorOf(pending[pending.length - 1]!);
+    const last = cursorOf(plan.pending[plan.pending.length - 1]!);
     log(`[replay] done — applied ${applied} events, final cursor ${formatCursor(last)}`);
     return applied;
   } finally {
@@ -260,7 +156,7 @@ export async function replay(
 
 /** Path to the bundled fixture, relative to this module (`indexer/fixtures/events.json`). */
 function defaultFixturePath(): string {
-  return new URL("../fixtures/events.json", import.meta.url).pathname;
+  return DEFAULT_FIXTURE;
 }
 
 // Run when invoked directly (mirrors the `isMain` guard in ingest.ts) — this
@@ -277,4 +173,4 @@ if (isMain) {
   });
 }
 
-export { findResumeIndex, defaultFixturePath };
+export { defaultFixturePath };
