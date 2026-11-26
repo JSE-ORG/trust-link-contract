@@ -832,12 +832,10 @@ fn resolve_dispute_rejects_resolver_in_shipped_state() {
 }
 
 // ─── Section 6: Terminal-state errors (Completed vs Refunded) ────────────────
-// A lifecycle guard that used to return the generic InvalidState /
-// InvalidStateTransition now returns EscrowAlreadyCompleted / EscrowAlreadyRefunded
-// once the escrow has actually settled, across every module that guards on
-// escrow state (instructions.rs, disputes.rs, lib.rs, internal.rs, admin.rs).
-// Section 5 above pins the generic codes for every *other* wrong state, so
-// together they prove `terminal_state_error` only sharpens these two cases.
+// Most lifecycle guards use EscrowAlreadyCompleted / EscrowAlreadyRefunded
+// after settlement. Section 5 pins the generic errors for their other wrong
+// states. Issue #1270 specifies that auto_release instead returns InvalidState
+// for every non-Shipped state other than Completed.
 
 #[test]
 fn mark_shipped_rejects_completed_escrow() {
@@ -1009,7 +1007,7 @@ fn auto_release_rejects_refunded_escrow() {
     let (id, _, _, _) = refunded(&ctx);
     assert_eq!(
         ctx.client.try_auto_release(&id),
-        Err(Ok(ContractError::EscrowAlreadyRefunded))
+        Err(Ok(ContractError::InvalidState))
     );
 }
 

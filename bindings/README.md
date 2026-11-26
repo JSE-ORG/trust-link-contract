@@ -129,8 +129,10 @@ on `EscrowClient` (hover in your editor).
 | `mark_shipped(caller, escrowId, trackingId)` | Seller records shipment |
 | `record_delivery(caller, escrowId)` | Records delivery, starts the auto-release window |
 | `confirm_delivery(caller, escrowId)` | Buyer accepts delivery, releases funds |
-| `auto_release(escrowId)` | Anyone releases funds once the windows elapse |
+| `auto_release(escrowId)` | Anyone releases funds once the windows elapse; retry after completion returns `EscrowAlreadyCompleted` without another payout/event |
 | `cancel_escrow(caller, escrowId)` / `mutual_cancel(escrowId)` | Cancel an escrow |
+| `propose_mutual_cancel(caller, escrowId, ttlSeconds)` / `accept_mutual_cancel(caller, escrowId)` | Propose and accept an asynchronous cancellation; acceptance is valid through the proposal expiry timestamp |
+| `batch_reclaim_expired(escrowIds)` | Independently attempt expired refunds; returns successful IDs, accepts at most 20, and each successful reclaim still requires buyer authorization |
 | `request_refund(caller, escrowId)` / `approve_refund(caller, escrowId)` | Buyer/seller refund handshake |
 | `raise_dispute(caller, escrowId, reason, description, evidenceHash)` | Buyer opens a dispute |
 | `resolve_dispute(caller, escrowId, resolution)` | Resolver settles the dispute |

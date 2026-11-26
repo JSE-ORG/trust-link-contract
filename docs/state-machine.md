@@ -31,7 +31,6 @@ stateDiagram-v2
     Funded --> Shipped: mark_shipped
     Funded --> RefundRequested: request_refund
     Funded --> Disputed: raise_dispute
-    Funded --> Completed: auto_release
     Funded --> Expired: reclaim_expired
 
     RefundRequested --> Refunded: mutual_cancel
@@ -106,15 +105,16 @@ stateDiagram-v2
 - Ledger timestamp must be before `dispute_deadline`.
 - Dispute evidence hash is stored as `BytesN<32>`.
 
-### `Funded -> Completed` and `Shipped -> Completed`
+### `Shipped -> Completed`
 
 - `confirm_delivery` requires buyer authorization, the escrow to be `Shipped`,
   and `ledger.timestamp >= dispute_deadline`. Calling it while the dispute
   window is still open returns `DisputeWindowStillOpen`; calling it from
   `Funded` returns `InvalidStateTransition`.
-- `auto_release` requires no signer, rejects escrows with an active dispute, and
-  requires the configured release windows to have elapsed. It accepts both
-  `Funded` (seller never shipped) and `Shipped` escrows.
+- `auto_release` requires no signer, a `Shipped` escrow with recorded delivery,
+  no active dispute, and the configured release window to have elapsed. A
+  `Funded` escrow returns `InvalidState`; keepers must not attempt automatic
+  settlement until the seller has shipped and delivery has been recorded.
 - Completion transfers the payout to the seller using protocol fee logic.
 
 ### `Funded -> RefundRequested`
@@ -148,12 +148,39 @@ stateDiagram-v2
 - Clears the resolution and increments appeal count.
 - Returns to `Disputed` state for fresh resolution.
 
-### `Pending/Funded/Shipped -> Expired`
+### `Pending -> Canceled`
+
+- Anyone may call `auto_cancel_pending` after the configured `expires_at` for a
+  scheduled pending escrow; an earlier call returns `InvalidState`.
+- Without an explicit schedule, the default `PENDING_EXPIRY_WINDOW` applies.
+- Successful cancellation removes pending-expiry data and emits
+  `EscrowAutoCanceled`.
+
+### `Funded/Shipped -> Expired`
 
 - Buyer calls `reclaim_expired` after expiration deadline has passed.
-- Requires `expires_at + grace_period` to have elapsed.
+- For funded or shipped escrows, `expires_at` is the reclaim deadline; the
+  pending funding grace period does not delay a refund.
 - Returns funds to buyer if escrow was funded.
 - No refund for `Pending` escrows (never funded).
+
+Keepers may call `batch_reclaim_expired` with up to 20 escrow IDs. Each reclaim
+is isolated: expired funded/shipped escrows that successfully refund are
+returned in the result list; missing, ineligible, or already-settled IDs are
+skipped. A batch larger than 20 fails with `MulticallBatchTooLarge`. A
+successful reclaim still requires authorization from that escrow's buyer; the
+batch entry point does not bypass buyer consent.
+
+### Asynchronous mutual cancellation
+
+- Either the buyer or primary payee may call `propose_mutual_cancel` with a
+  `ttl_seconds` while the escrow is `Funded` or `Shipped`.
+- The other party may call `accept_mutual_cancel` through `expires_at`
+  (inclusive). Acceptance refunds the buyer, transitions to `Canceled`, and
+  removes the proposal. Missing or expired proposals return
+  `NoCancelProposal` or `CancelProposalExpired`.
+- A new proposal replaces the previous proposal. The existing `mutual_cancel`
+  entry point remains available for same-transaction authorization.
 
 ### `Disputed -> Completed` and `Disputed -> Refunded`
 
@@ -166,6 +193,10 @@ stateDiagram-v2
 ## Invariants
 
 - `Completed`, `Refunded`, `Canceled`, and `Expired` are terminal states.
+- Repeating `auto_release` after `Completed` returns
+  `EscrowAlreadyCompleted` and emits no second `AutoReleased` event.
+- `auto_release` returns `InvalidState` for every non-`Shipped` state other than
+  `Completed`; a failed call emits no `AutoReleased` event.
 - Self-transitions are invalid.
 - `Pending` escrows cannot be disputed or completed.
 - `Canceled` escrows cannot be funded later.

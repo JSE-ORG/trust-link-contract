@@ -58,8 +58,20 @@ fn balance(env: &Env, token: &Address, who: &Address) -> i128 {
     tc.balance(who)
 }
 
+fn ship_and_record_delivery(fix: &TestFixture, seller: &Address, escrow_id: u64) {
+    fix.client.mark_shipped(
+        seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&fix.env, "TRACK-RELEASE"),
+    );
+    fix.client.propose_record_delivery(&fix.admin, &escrow_id);
+    let proposed_at = fix.env.ledger().timestamp();
+    fix.env.ledger().set_timestamp(proposed_at + 86_400);
+    fix.client.record_delivery(&fix.admin, &escrow_id);
+}
+
 #[test]
-fn test_auto_release_success_after_shipping_window() {
+fn test_auto_release_rejects_funded_after_shipping_window() {
     let fix = setup_fixture();
     let amount = 10_000_i128;
     let shipping_window = 3600_u64;
@@ -84,16 +96,17 @@ fn test_auto_release_success_after_shipping_window() {
         .ledger()
         .set_timestamp(now + 172_800 + shipping_window + 10);
 
-    fix.client.auto_release(&escrow_id);
-
-    let escrow = fix.client.get_escrow(&escrow_id);
-    assert_eq!(escrow.state, EscrowState::Completed);
-    assert_eq!(balance(&fix.env, &fix.token, &fix.seller), amount);
-    assert_eq!(balance(&fix.env, &fix.token, &fix.client.address), 0);
+    assert_eq!(
+        fix.client.try_auto_release(&escrow_id),
+        Err(Ok(ContractError::InvalidState))
+    );
+    assert_eq!(fix.client.get_escrow(&escrow_id).state, EscrowState::Funded);
+    assert_eq!(balance(&fix.env, &fix.token, &fix.seller), 0);
+    assert_eq!(balance(&fix.env, &fix.token, &fix.client.address), amount);
 }
 
 #[test]
-fn test_auto_release_exact_timestamp_boundary_funded() {
+fn test_auto_release_rejects_funded_at_shipping_window_boundary() {
     let fix = setup_fixture();
     let amount = 5_000_i128;
     // Set a shipping window longer than the default dispute window (172_800)
@@ -115,34 +128,13 @@ fn test_auto_release_exact_timestamp_boundary_funded() {
     fix.env.ledger().set_timestamp(funded_time);
     fix.client.fund_escrow(&escrow_id, &fix.buyer);
 
-    // 1 second before dispute deadline (funded_time + 172_800 = 272_800):
-    fix.env.ledger().set_timestamp(272_799);
-    assert_eq!(
-        fix.client.try_auto_release(&escrow_id),
-        Err(Ok(ContractError::DeliveryBeforeDisputeWindow))
-    );
-
-    // At dispute deadline (272_800), but before shipping window (funded_time + 200_000 = 300_000):
-    fix.env.ledger().set_timestamp(272_800);
-    assert_eq!(
-        fix.client.try_auto_release(&escrow_id),
-        Err(Ok(ContractError::ShippingWindowNotElapsed))
-    );
-
-    // 1 second before shipping window elapsed:
-    fix.env.ledger().set_timestamp(299_999);
-    assert_eq!(
-        fix.client.try_auto_release(&escrow_id),
-        Err(Ok(ContractError::ShippingWindowNotElapsed))
-    );
-
-    // Exactly at shipping window elapsed:
     fix.env.ledger().set_timestamp(300_000);
-    assert!(fix.client.try_auto_release(&escrow_id).is_ok());
-
-    let escrow = fix.client.get_escrow(&escrow_id);
-    assert_eq!(escrow.state, EscrowState::Completed);
-    assert_eq!(balance(&fix.env, &fix.token, &fix.seller), amount);
+    assert_eq!(
+        fix.client.try_auto_release(&escrow_id),
+        Err(Ok(ContractError::InvalidState))
+    );
+    assert_eq!(fix.client.get_escrow(&escrow_id).state, EscrowState::Funded);
+    assert_eq!(balance(&fix.env, &fix.token, &fix.seller), 0);
 }
 
 #[test]
@@ -165,20 +157,7 @@ fn test_auto_release_with_delivered_at_and_boundary() {
     mint(&fix.env, &fix.token, &fix.buyer, amount);
     fix.client.fund_escrow(&escrow_id, &fix.buyer);
 
-    fix.env
-        .ledger()
-        .set_timestamp(fix.env.ledger().timestamp() + 10);
-    fix.client.mark_shipped(
-        &fix.seller,
-        &escrow_id,
-        &soroban_sdk::String::from_str(&fix.env, "TRACK123"),
-    );
-
-    // Propose delivery and record delivery after 24h timelock
-    fix.client.propose_record_delivery(&fix.admin, &escrow_id);
-    let prop_time = fix.env.ledger().timestamp();
-    fix.env.ledger().set_timestamp(prop_time + 86_400);
-    fix.client.record_delivery(&fix.admin, &escrow_id);
+    ship_and_record_delivery(&fix, &fix.seller, escrow_id);
 
     let delivered_at = fix.env.ledger().timestamp();
     // DELIVERY_RELEASE_WINDOW is 172_800
@@ -248,11 +227,25 @@ fn test_auto_release_called_while_funded_is_rejected() {
     mint(&fix.env, &fix.token, &fix.buyer, amount);
     fix.client.fund_escrow(&escrow_id, &fix.buyer);
 
-    // Escrow is Funded but not Shipped - auto_release should reject with DeliveryBeforeDisputeWindow.
+    // Escrow is Funded but not Shipped.
     assert_eq!(
         fix.client.try_auto_release(&escrow_id),
-        Err(Ok(ContractError::DeliveryBeforeDisputeWindow)),
+        Err(Ok(ContractError::InvalidState)),
     );
+    let binding = fix
+        .env
+        .events()
+        .all()
+        .filter_by_contract(&fix.client.address);
+    let events = binding.events();
+    assert!(!events.iter().any(|event| match &event.body {
+        soroban_sdk::xdr::ContractEventBody::V0(v0) => {
+            Val::try_from_val(&fix.env, &v0.data)
+                .ok()
+                .and_then(|data| crate::AutoReleased::try_from_val(&fix.env, &data).ok())
+                .is_some()
+        }
+    }));
 }
 
 #[test]
@@ -291,9 +284,9 @@ fn test_auto_release_multi_payees_distribution() {
     mint(&fix.env, &fix.token, &fix.buyer, amount);
     fix.client.fund_escrow(&escrow_id, &fix.buyer);
 
-    fix.env
-        .ledger()
-        .set_timestamp(fix.env.ledger().timestamp() + 200_000);
+    ship_and_record_delivery(&fix, &payee1, escrow_id);
+    let delivered_at = fix.client.get_escrow(&escrow_id).delivered_at.unwrap();
+    fix.env.ledger().set_timestamp(delivered_at + 172_800);
     fix.client.auto_release(&escrow_id);
 
     assert_eq!(balance(&fix.env, &fix.token, &payee1), 5000);
@@ -334,9 +327,9 @@ fn test_auto_release_basket_escrow_payout() {
 
     fix.client.fund_basket_escrow(&escrow_id, &fix.buyer);
 
-    fix.env
-        .ledger()
-        .set_timestamp(fix.env.ledger().timestamp() + 200_000);
+    ship_and_record_delivery(&fix, &fix.seller, escrow_id);
+    let delivered_at = fix.client.get_escrow(&escrow_id).delivered_at.unwrap();
+    fix.env.ledger().set_timestamp(delivered_at + 172_800);
     fix.client.auto_release(&escrow_id);
 
     let escrow = fix.client.get_escrow(&escrow_id);
@@ -367,9 +360,9 @@ fn test_auto_release_permissionless_caller() {
     mint(&fix.env, &fix.token, &fix.buyer, amount);
     fix.client.fund_escrow(&escrow_id, &fix.buyer);
 
-    fix.env
-        .ledger()
-        .set_timestamp(fix.env.ledger().timestamp() + 200_000);
+    ship_and_record_delivery(&fix, &fix.seller, escrow_id);
+    let delivered_at = fix.client.get_escrow(&escrow_id).delivered_at.unwrap();
+    fix.env.ledger().set_timestamp(delivered_at + 172_800);
 
     // Completely random 3rd party caller can trigger auto_release
     let res = fix.client.try_auto_release(&escrow_id);
@@ -398,9 +391,9 @@ fn test_auto_release_emits_event() {
     mint(&fix.env, &fix.token, &fix.buyer, amount);
     fix.client.fund_escrow(&escrow_id, &fix.buyer);
 
-    fix.env
-        .ledger()
-        .set_timestamp(fix.env.ledger().timestamp() + 200_000);
+    ship_and_record_delivery(&fix, &fix.seller, escrow_id);
+    let delivered_at = fix.client.get_escrow(&escrow_id).delivered_at.unwrap();
+    fix.env.ledger().set_timestamp(delivered_at + 172_800);
     fix.client.auto_release(&escrow_id);
 
     let all_events = fix.env.events().all();
@@ -415,6 +408,57 @@ fn test_auto_release_emits_event() {
         }
     });
     assert!(auto_released_found, "AutoReleased event must be emitted");
+}
+
+#[test]
+fn test_auto_release_completed_is_idempotent_and_emits_no_duplicate_event() {
+    let fix = setup_fixture();
+    let amount = 2_500_i128;
+    let escrow_id = fix.client.create_escrow_with_expiration(
+        &fix.seller,
+        &Some(fix.buyer.clone()),
+        &fix.resolver,
+        &fix.token,
+        &amount,
+        &0_u32,
+        &3600_u64,
+        &Some(300_000_u64),
+        &0_u64,
+    );
+    mint(&fix.env, &fix.token, &fix.buyer, amount);
+    fix.client.fund_escrow(&escrow_id, &fix.buyer);
+    ship_and_record_delivery(&fix, &fix.seller, escrow_id);
+    let delivered_at = fix.client.get_escrow(&escrow_id).delivered_at.unwrap();
+    fix.env.ledger().set_timestamp(delivered_at + 172_800);
+    fix.client.auto_release(&escrow_id);
+    fix.env.ledger().set_timestamp(300_000);
+
+    let count_events = || {
+        fix.env
+            .events()
+            .all()
+            .filter_by_contract(&fix.client.address)
+            .events()
+            .iter()
+            .filter(|event| match &event.body {
+                soroban_sdk::xdr::ContractEventBody::V0(v0) => {
+                    Val::try_from_val(&fix.env, &v0.data)
+                        .ok()
+                        .and_then(|data| crate::AutoReleased::try_from_val(&fix.env, &data).ok())
+                        .is_some()
+                }
+            })
+            .count()
+    };
+    let event_count = count_events();
+
+    assert_eq!(
+        fix.client.try_auto_release(&escrow_id),
+        Err(Ok(ContractError::EscrowAlreadyCompleted))
+    );
+    assert_eq!(count_events(), event_count);
+    assert_eq!(balance(&fix.env, &fix.token, &fix.seller), amount);
+    assert_eq!(balance(&fix.env, &fix.token, &fix.client.address), 0);
 }
 
 #[test]

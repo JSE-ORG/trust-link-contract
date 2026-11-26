@@ -232,6 +232,36 @@ describe("auto_release", () => {
   });
 });
 
+describe("asynchronous mutual cancellation", () => {
+  it("serializes proposal and acceptance arguments", () => {
+    const { transport, calls } = makeMockTransport();
+    const client = new EscrowClient(transport);
+    client.propose_mutual_cancel(BUYER, ESCROW_ID, 7200n);
+    client.accept_mutual_cancel(SELLER, ESCROW_ID);
+    assert.deepEqual(calls, [
+      {
+        method: "propose_mutual_cancel",
+        args: [BUYER, ESCROW_ID, 7200n],
+      },
+      {
+        method: "accept_mutual_cancel",
+        args: [SELLER, ESCROW_ID],
+      },
+    ]);
+  });
+});
+
+describe("batch_reclaim_expired", () => {
+  it("serializes the ID list and returns successfully reclaimed IDs", () => {
+    const ids = [1n, 2n, 3n];
+    const { transport, calls } = makeMockTransport(ids);
+    const client = new EscrowClient(transport);
+    assert.deepEqual(client.batch_reclaim_expired(ids), ids);
+    assert.equal(calls[0].method, "batch_reclaim_expired");
+    assert.deepEqual(calls[0].args, [ids]);
+  });
+});
+
 describe("get_escrow", () => {
   it("invokes 'get_escrow' and returns EscrowData", () => {
     const { transport, calls } = makeMockTransport(MOCK_ESCROW);

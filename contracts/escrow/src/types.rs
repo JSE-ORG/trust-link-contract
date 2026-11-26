@@ -127,6 +127,17 @@ pub enum DataKey {
     InvalidatedTimelockOp(u32),
     /// Per-merchant protocol fee discount (basis points subtracted at escrow creation).
     MerchantFeeTier(Address),
+    /// Two-step mutual-cancel offer for an escrow.
+    CancelProposal(u64),
+}
+
+/// An asynchronous mutual-cancel offer, valid through `expires_at`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CancelProposal {
+    pub proposer: Address,
+    pub proposed_at: u64,
+    pub expires_at: u64,
 }
 
 /// A token-amount pair for multi-token basket escrows.

@@ -25,7 +25,7 @@ TrustLink is a three-party escrow contract with seller, buyer, and resolver role
 - ✅ All state-modifying functions require `require_auth()` for specific roles
 - ✅ Buyer auth checked before state reads in `confirm_delivery`
 - ✅ Resolver validated against stored `escrow.resolver` before payout
-- ✅ `auto_release` validates shipping window elapsed and state is Funded/Shipped
+- ✅ `auto_release` requires Shipped state, recorded delivery, and elapsed delivery-release window
 - ✅ Role separation enforced: buyer ≠ seller ≠ resolver
 
 **Residual Risk**: Low. Auth checks are preconditions.
@@ -90,12 +90,12 @@ TrustLink is a three-party escrow contract with seller, buyer, and resolver role
 - ✅ Dispute window: 172800s (2 days) from funding
 - ✅ `raise_dispute` checks `now < dispute_deadline` (enforced at `instructions.rs:raise_dispute`)
 - ✅ Shipped state from `mark_shipped` call
-- ✅ `auto_release` checks `funded_at + shipping_window <= now`
+- ✅ `auto_release` requires Shipped state, recorded delivery, and an elapsed delivery-release window
 - ✅ Dispute raises new dispute window, separate from shipping window
 - ✅ Can auto-release even with expired dispute window if no active dispute
 
 **Error Code References**: See [ERROR_CODES.md](ERROR_CODES.md):
-- Code 13 (`DeliveryBeforeDisputeWindow`) — `auto_release` called before `dispute_deadline` passes
+- Code 13 (`DeliveryBeforeDisputeWindow`) — legacy; `auto_release` now returns `InvalidState` for non-Shipped states
 - Code 24 (`DisputeWindowStillOpen`) — `confirm_delivery` called before `dispute_deadline`, or `raise_dispute` called after `dispute_deadline`
 
 **Residual Risk**: Low. Separate windows; shipping window is an explicit caller-supplied parameter validated against `MIN_SHIPPING_WINDOW..=MAX_SHIPPING_WINDOW` (1s to ~2 years) at escrow creation (`contracts/escrow/src/lib.rs:230-234`, `contracts/escrow/src/internal.rs:312-317`, `contracts/escrow/src/internal.rs:1317`, `contracts/escrow/src/instructions.rs:1362`), preventing 0-length or unbounded windows.
@@ -169,7 +169,7 @@ TrustLink is a three-party escrow contract with seller, buyer, and resolver role
 **Scenario**: Validator manipulates ledger timestamp to bypass time-based guards.
 
 **Attack Vector**:
-- Auto-release requires `env.ledger().timestamp() > funded_at + shipping_window`
+- Auto-release requires Shipped state, recorded delivery, and the delivery-release window to elapse
 - Attacker controls validator; sets timestamp backwards
 - Triggers auto-release prematurely
 

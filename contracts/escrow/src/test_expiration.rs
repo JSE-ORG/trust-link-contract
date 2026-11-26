@@ -1,9 +1,11 @@
 #![cfg(test)]
 
-use crate::{ContractError, Escrow, EscrowClient, EscrowState, ResolutionType};
+use crate::{
+    ContractError, Escrow, EscrowClient, EscrowState, ResolutionType, MAX_MULTICALL_BATCH_SIZE,
+};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    token, Address, BytesN, Env, Symbol,
+    token, Address, BytesN, Env, Symbol, Vec,
 };
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, Address) {
@@ -280,5 +282,104 @@ fn test_reclaim_expired_grace_period_boundary() {
         token::Client::new(&env, &token).balance(&contract_id),
         0,
         "contract should hold zero tokens after reclaim"
+    );
+}
+
+#[test]
+fn test_batch_reclaim_expired_refunds_five_escrows() {
+    let (env, _admin, seller, buyer, resolver, token, contract_id) = setup_env();
+    let client = EscrowClient::new(&env, &contract_id);
+    let mut ids = Vec::new(&env);
+
+    for _ in 0..5 {
+        let id = client.create_escrow_with_expiration(
+            &seller,
+            &None::<Address>,
+            &resolver,
+            &token,
+            &1_000_i128,
+            &0_u32,
+            &3600_u64,
+            &Some(10_u64),
+            &0_u64,
+        );
+        mint_tokens(&env, &token, &buyer, 1_000);
+        client.fund_escrow(&id, &buyer);
+        ids.push_back(id);
+    }
+
+    env.ledger().set_timestamp(10);
+    let reclaimed = client.batch_reclaim_expired(&ids);
+    assert_eq!(reclaimed, ids);
+    assert_eq!(token::Client::new(&env, &token).balance(&buyer), 5_000);
+    assert_eq!(token::Client::new(&env, &token).balance(&contract_id), 0);
+    for id in reclaimed {
+        assert_eq!(client.get_escrow(&id).state, EscrowState::Expired);
+    }
+}
+
+#[test]
+fn test_batch_reclaim_expired_skips_ineligible_escrows() {
+    let (env, _admin, seller, buyer, resolver, token, contract_id) = setup_env();
+    let client = EscrowClient::new(&env, &contract_id);
+    let expired = client.create_escrow_with_expiration(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+        &Some(10_u64),
+        &0_u64,
+    );
+    let active = client.create_escrow_with_expiration(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+        &Some(20_u64),
+        &0_u64,
+    );
+    mint_tokens(&env, &token, &buyer, 2_000);
+    client.fund_escrow(&expired, &buyer);
+    client.fund_escrow(&active, &buyer);
+    env.ledger().set_timestamp(10);
+
+    let mut ids = Vec::new(&env);
+    ids.push_back(expired);
+    ids.push_back(active);
+    ids.push_back(u64::MAX);
+    let reclaimed = client.batch_reclaim_expired(&ids);
+
+    assert_eq!(reclaimed.len(), 1);
+    assert_eq!(reclaimed.get(0), Some(expired));
+    assert_eq!(client.get_escrow(&expired).state, EscrowState::Expired);
+    assert_eq!(client.get_escrow(&active).state, EscrowState::Funded);
+    assert_eq!(token::Client::new(&env, &token).balance(&buyer), 1_000);
+    assert_eq!(token::Client::new(&env, &token).balance(&contract_id), 1_000);
+}
+
+#[test]
+fn test_batch_reclaim_expired_enforces_maximum_size() {
+    let (env, _admin, _seller, _buyer, _resolver, _token, contract_id) = setup_env();
+    let client = EscrowClient::new(&env, &contract_id);
+    let mut at_limit = Vec::new(&env);
+    for id in 0..MAX_MULTICALL_BATCH_SIZE {
+        at_limit.push_back(u64::from(id));
+    }
+    assert!(client.batch_reclaim_expired(&at_limit).is_empty());
+
+    let mut ids = Vec::new(&env);
+    for id in 0..=MAX_MULTICALL_BATCH_SIZE {
+        ids.push_back(u64::from(id));
+    }
+
+    assert_eq!(
+        client.try_batch_reclaim_expired(&ids),
+        Err(Ok(ContractError::MulticallBatchTooLarge))
     );
 }

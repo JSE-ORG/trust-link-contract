@@ -169,8 +169,14 @@ fn emergency_drain_fails_on_completed_escrow() {
     );
     client.fund_escrow(&id, &buyer);
 
-    // advance ledger past shipping + dispute windows so auto_release is possible
-    env.ledger().set_timestamp(500_000);
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRK-EMERGENCY"),
+    );
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
+    let delivered_at = client.get_escrow(&id).delivered_at.unwrap();
+    env.ledger().set_timestamp(delivered_at + 172_801);
     client.auto_release(&id);
 
     client.pause_contract(&admin);

@@ -353,7 +353,8 @@ export class EscrowClient {
    * and the delivery-release window has elapsed with no dispute. Anyone may
    * call it (e.g. a keeper bot).
    *
-   * @throws `DeliveryNotRecorded`, `ShippingWindowNotElapsed`, `InvalidState`.
+   * @throws `DeliveryNotRecorded`, `ShippingWindowNotElapsed`, `InvalidState`,
+   *   `EscrowAlreadyCompleted` on retries after a successful settlement.
    */
   auto_release(escrowId: bigint): Call<void> {
     return this.transport.invoke("auto_release", [escrowId]);
@@ -377,6 +378,41 @@ export class EscrowClient {
    */
   mutual_cancel(escrowId: bigint): Call<void> {
     return this.transport.invoke("mutual_cancel", [escrowId]);
+  }
+
+  /**
+   * Opens a mutual-cancel offer as the buyer or primary payee. The other party
+   * may accept it through `now + ttlSeconds` (inclusive). A new offer replaces
+   * the previous one.
+   *
+   * @throws `ArithmeticOverflow`, `InvalidState`, `NotAuthorized`.
+   */
+  propose_mutual_cancel(
+    caller: AddressLike,
+    escrowId: bigint,
+    ttlSeconds: bigint,
+  ): Call<void> {
+    return this.transport.invoke("propose_mutual_cancel", [caller, escrowId, ttlSeconds]);
+  }
+
+  /**
+   * Accepts the other party's live mutual-cancel offer and refunds the buyer.
+   *
+   * @throws `NoCancelProposal`, `CancelProposalExpired`, `NotAuthorized`, `InvalidState`.
+   */
+  accept_mutual_cancel(caller: AddressLike, escrowId: bigint): Call<void> {
+    return this.transport.invoke("accept_mutual_cancel", [caller, escrowId]);
+  }
+
+  /**
+   * Permissionlessly attempts each expired escrow independently. Returns only
+   * IDs whose refund succeeded; ineligible/missing IDs are skipped. Maximum
+   * batch size: 20. Each successful reclaim still requires buyer authorization.
+   *
+   * @throws `MulticallBatchTooLarge`.
+   */
+  batch_reclaim_expired(escrowIds: readonly bigint[]): Call<bigint[]> {
+    return this.transport.invoke("batch_reclaim_expired", [escrowIds]);
   }
 
   /**

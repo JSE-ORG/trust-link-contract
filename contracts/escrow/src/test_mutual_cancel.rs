@@ -3,7 +3,7 @@
 //! funded or shipped escrow that requires both the seller and the buyer to sign.
 
 use soroban_sdk::{
-    testutils::{Address as _, MockAuth, MockAuthInvoke},
+    testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke},
     Address, BytesN, Env, IntoVal, Symbol,
 };
 
@@ -217,4 +217,69 @@ fn test_mutual_cancel_rejected_when_disputed() {
     let res = client.try_mutual_cancel(&id);
     assert!(matches!(res, Err(Ok(ContractError::InvalidState))));
     assert_eq!(client.get_escrow(&id).state, EscrowState::Disputed);
+}
+
+#[test]
+fn test_async_mutual_cancel_accepts_at_ttl_boundary_and_refunds_buyer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(100_000);
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
+
+    client.propose_mutual_cancel(&buyer, &id, &7200);
+    env.ledger().set_timestamp(107_200);
+    client.accept_mutual_cancel(&seller, &id);
+
+    let tc = soroban_sdk::token::Client::new(&env, &token);
+    assert_eq!(tc.balance(&buyer), 1000);
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Canceled);
+    assert!(!env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .has(&crate::DataKey::CancelProposal(id))
+    }));
+}
+
+#[test]
+fn test_async_mutual_cancel_rejects_expired_offers() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
+
+    assert_eq!(
+        client.try_accept_mutual_cancel(&seller, &id),
+        Err(Ok(ContractError::NoCancelProposal))
+    );
+    client.propose_mutual_cancel(&buyer, &id, &10);
+    let stranger = Address::generate(&env);
+    assert_eq!(
+        client.try_accept_mutual_cancel(&stranger, &id),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+    env.ledger().set_timestamp(11);
+    assert_eq!(
+        client.try_accept_mutual_cancel(&seller, &id),
+        Err(Ok(ContractError::CancelProposalExpired))
+    );
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Funded);
+    assert_eq!(
+        soroban_sdk::token::Client::new(&env, &token).balance(&buyer),
+        0
+    );
 }

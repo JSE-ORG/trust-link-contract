@@ -26,10 +26,10 @@ mod queries;
 pub use crate::errors::ContractError;
 pub use crate::events::*;
 pub use crate::types::{
-    BoundedBasket, ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus,
-    Escrow as EscrowData, EscrowInput, EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee,
-    PublicContractConfig, ResolutionType, ResolverSet, ResolverVote, TimelockOperation,
-    TimelockProposal, TokenBalanceInfo, TokenEntry, BASKET_CAPACITY,
+    BoundedBasket, CancelProposal, ContractConfig, ContractStats, DataKey, DisputeData,
+    DisputeStatus, Escrow as EscrowData, EscrowInput, EscrowState, ExpirySchedule, FeeConfig,
+    GlobalConfig, Payee, PublicContractConfig, ResolutionType, ResolverSet, ResolverVote,
+    TimelockOperation, TimelockProposal, TokenBalanceInfo, TokenEntry, BASKET_CAPACITY,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
@@ -210,14 +210,14 @@ pub const MAX_EVIDENCE_ENTRIES: u32 = 5;
 /// risking a mid-transaction abort.
 pub const MAX_BASKET_SIZE: u32 = 20;
 
-/// Maximum number of calls accepted in a single `multicall` batch.
+/// Maximum number of calls accepted in a single `multicall` or reclaim batch.
 ///
 /// Each entry dispatches a full contract call, so an unbounded batch lets a
 /// caller construct a transaction that exhausts the instruction or read/write
 /// limits and aborts midway. Capping the batch keeps a multicall within budget
 /// and fails fast (with `MulticallBatchTooLarge`) instead of running out of
-/// resources partway through.
-pub const MAX_MULTICALL_BATCH_SIZE: u32 = 10;
+/// resources partway through. `batch_reclaim_expired` uses the same limit.
+pub const MAX_MULTICALL_BATCH_SIZE: u32 = 20;
 
 /// Number of escrow ids stored per page of a buyer/vendor index entry.
 ///

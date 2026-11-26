@@ -173,6 +173,13 @@ export const contractAbi = {
     { name: "fund_basket_escrow", inputs: ["escrow_id", "buyer"], output: "void" },
     { name: "cancel_escrow", inputs: ["caller", "escrow_id"], output: "void" },
     { name: "mutual_cancel", inputs: ["escrow_id"], output: "void" },
+    {
+      name: "propose_mutual_cancel",
+      inputs: ["caller", "escrow_id", "ttl_seconds"],
+      output: "void",
+    },
+    { name: "accept_mutual_cancel", inputs: ["caller", "escrow_id"], output: "void" },
+    { name: "reclaim_expired", inputs: ["escrow_id"], output: "void" },
     { name: "mark_shipped", inputs: ["caller", "escrow_id", "tracking_id"], output: "void" },
     { name: "record_delivery", inputs: ["caller", "escrow_id"], output: "void" },
     { name: "confirm_delivery", inputs: ["caller", "escrow_id"], output: "void" },
@@ -225,6 +232,7 @@ export const contractAbi = {
     // -----------------------------------------------------------------------
     // Batching
     // -----------------------------------------------------------------------
+    { name: "batch_reclaim_expired", inputs: ["escrow_ids"], output: "Vec<u64>" },
     { name: "multicall", inputs: ["calls"], output: "Vec<Val>" },
 
     // -----------------------------------------------------------------------

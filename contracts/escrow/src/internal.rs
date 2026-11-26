@@ -1296,27 +1296,20 @@ pub(crate) fn distribute_basket_tokens(
 /// reasoned about (and tested) on their own.
 ///
 /// Returns `Ok(())` only when every condition holds:
-/// - the escrow is `Funded` or `Shipped` (`InvalidState` otherwise);
+/// - the escrow is `Shipped` (`InvalidState` otherwise);
 /// - no dispute has been raised (`InvalidState`);
 /// - the applicable no-dispute window has fully elapsed:
 ///   - delivery recorded: `now >= delivered_at + DELIVERY_RELEASE_WINDOW`,
 ///     else `ShippingWindowNotElapsed`;
-///   - `Shipped` but no recorded delivery: `DeliveryNotRecorded` (delivery must
-///     be recorded first);
-///   - otherwise the buyer's dispute window must have opened
-///     (`DeliveryBeforeDisputeWindow`) and the shipping window measured from
-///     `shipped_at` — or `funded_at` if the escrow was never shipped — must
-///     have elapsed (`ShippingWindowNotElapsed`).
+///   - no recorded delivery: `DeliveryNotRecorded` (delivery must be recorded
+///     first).
 pub(crate) fn ensure_auto_release_eligible(
     env: &Env,
     escrow: &EscrowData,
     escrow_id: u64,
 ) -> Result<(), ContractError> {
-    if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-        return Err(terminal_state_error(
-            &escrow.state,
-            ContractError::InvalidState,
-        ));
+    if escrow.state != EscrowState::Shipped {
+        return Err(ContractError::InvalidState);
     }
 
     if load_dispute(env, escrow_id).is_ok() {
@@ -1332,24 +1325,8 @@ pub(crate) fn ensure_auto_release_eligible(
         if now < eligible_at {
             return Err(ContractError::ShippingWindowNotElapsed);
         }
-    } else if escrow.state == EscrowState::Shipped {
-        return Err(ContractError::DeliveryNotRecorded);
     } else {
-        if now < (escrow.packed_timestamps & 0xFFFF_FFFF) {
-            return Err(ContractError::DeliveryBeforeDisputeWindow);
-        }
-        let funded_at = escrow.packed_timestamps >> 32;
-        let shipped_or_funded_at = if escrow.shipped_at > 0 {
-            escrow.shipped_at
-        } else {
-            funded_at
-        };
-        let window_elapsed_at = shipped_or_funded_at
-            .checked_add(escrow.shipping_window)
-            .ok_or(ContractError::ArithmeticError)?;
-        if now < window_elapsed_at {
-            return Err(ContractError::ShippingWindowNotElapsed);
-        }
+        return Err(ContractError::DeliveryNotRecorded);
     }
 
     Ok(())

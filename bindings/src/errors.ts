@@ -88,7 +88,11 @@ export const enum ErrorCode {
   InvalidWasmHash = 78,
   NoPendingTreasury = 79,
   DuplicateResolver = 80,
-  EvidenceLimitReached = 81,
+  DirectUnpauseBlocked = 81,
+  InvalidSplitBps = 82,
+  EvidenceLimitReached = 83,
+  NoCancelProposal = 84,
+  CancelProposalExpired = 85,
 }
 
 /** Human-readable message for every contract error code. */
@@ -196,7 +200,7 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.ArbitrationFeeExceedsMax]:
     "The arbitration fee exceeds its configured hard cap.",
   [ErrorCode.MulticallBatchTooLarge]:
-    "The multicall batch exceeds the maximum allowed size.",
+    "The batch exceeds the maximum allowed size.",
   [ErrorCode.NotAuthorizedBuyer]:
     "Caller is not the escrow's buyer for this buyer-only operation.",
   [ErrorCode.NotAuthorizedSeller]:
@@ -237,8 +241,16 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "No pending treasury is set for accept_treasury.",
   [ErrorCode.DuplicateResolver]:
     "The same address appears more than once in the resolver configuration.",
+  [ErrorCode.DirectUnpauseBlocked]:
+    "Use the timelocked unpause flow while timelocked-only mode is enabled.",
+  [ErrorCode.InvalidSplitBps]:
+    "A split resolution exceeds 10,000 basis points.",
   [ErrorCode.EvidenceLimitReached]:
     "The escrow's dispute evidence log has reached its maximum number of entries.",
+  [ErrorCode.NoCancelProposal]:
+    "No asynchronous mutual-cancel offer exists for this escrow.",
+  [ErrorCode.CancelProposalExpired]:
+    "The asynchronous mutual-cancel offer has expired.",
 };
 
 /**

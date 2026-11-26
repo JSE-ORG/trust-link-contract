@@ -4,7 +4,7 @@ extern crate std;
 
 use crate::test_helpers::{advance_time, mint_token, setup_contract};
 use crate::{Escrow, EscrowClient, Payee, ResolutionType};
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{Address, Env, IntoVal, String as SorobanString, Vec};
 
 #[derive(Clone, Debug)]
@@ -427,7 +427,7 @@ fn gas_profile_co_signed_release() {
 fn gas_profile_auto_release() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_contract_id, client, _admin, _fc) = setup_contract(&env);
+    let (_contract_id, client, admin, _fc) = setup_contract(&env);
 
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
@@ -445,7 +445,10 @@ fn gas_profile_auto_release() {
         &100_u32,
     );
     client.fund_escrow(&id, &buyer);
-    advance_time(&env, 172_800 + 3600 + 1);
+    client.mark_shipped(&seller, &id, &SorobanString::from_str(&env, "TRK-GAS-AUTO"));
+    crate::test_helpers::record_delivery_timelocked(&env, &client, &admin, id);
+    let delivered_at = client.get_escrow(&id).delivered_at.unwrap();
+    env.ledger().set_timestamp(delivered_at + 172_801);
 
     reset_gas_meter(&env);
     client.auto_release(&id);

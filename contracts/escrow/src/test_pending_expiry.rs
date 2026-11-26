@@ -219,6 +219,36 @@ fn auto_cancel_pending_on_funded_escrow_returns_invalid_state() {
 }
 
 #[test]
+fn scheduled_pending_expiry_allows_cancel_only_at_or_after_deadline() {
+    let env = Env::default();
+    let (client, seller, _buyer, resolver, _fee_collector, token_addr) = setup(&env);
+    let escrow_id = client.create_escrow_with_expiration(
+        &seller,
+        &None::<Address>,
+        &resolver,
+        &token_addr,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+        &Some(10_u64),
+        &5_u64,
+    );
+
+    env.ledger().set_timestamp(9);
+    assert_eq!(
+        client.try_auto_cancel_pending(&escrow_id),
+        Err(Ok(ContractError::InvalidState))
+    );
+
+    env.ledger().set_timestamp(10);
+    client.auto_cancel_pending(&escrow_id);
+    assert_eq!(
+        client.get_escrow(&escrow_id).state,
+        EscrowState::Canceled
+    );
+}
+
+#[test]
 fn test_ensure_funding_not_expired_helper_exercised_via_both_fund_paths() {
     // Issue #1170: Verify that ensure_funding_not_expired canonical helper
     // governs both fund_escrow and fund_basket_escrow across:

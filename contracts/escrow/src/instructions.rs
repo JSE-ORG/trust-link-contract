@@ -408,11 +408,41 @@ impl Escrow {
         Ok(())
     }
 
+    /// Reclaims each eligible escrow independently, returning the IDs whose
+    /// refunds succeeded. Invalid, unexpired, or already-settled escrows are
+    /// skipped; a failed nested reclaim rolls back without aborting other IDs.
+    /// The batch is capped at `MAX_MULTICALL_BATCH_SIZE`. Each successful
+    /// reclaim still requires authorization from that escrow's buyer.
+    pub fn batch_reclaim_expired(
+        env: Env,
+        escrow_ids: Vec<u64>,
+    ) -> Result<Vec<u64>, ContractError> {
+        ensure_action_not_paused(&env, Symbol::new(&env, "RECLAIM"))?;
+        if escrow_ids.len() > crate::MAX_MULTICALL_BATCH_SIZE {
+            return Err(ContractError::MulticallBatchTooLarge);
+        }
+
+        let mut reclaimed = Vec::new(&env);
+        let contract_id = env.current_contract_address();
+        let function = Symbol::new(&env, "reclaim_expired");
+        for escrow_id in escrow_ids {
+            let mut args = Vec::new(&env);
+            args.push_back(escrow_id.into_val(&env));
+            let result =
+                env.try_invoke_contract::<(), ContractError>(&contract_id, &function, args);
+            if matches!(result, Ok(Ok(()))) {
+                reclaimed.push_back(escrow_id);
+            }
+        }
+        Ok(reclaimed)
+    }
+
     /// Cancels a `Pending` escrow that was never funded within
-    /// `PENDING_EXPIRY_WINDOW` of its creation. Callable by anyone.
+    /// `PENDING_EXPIRY_WINDOW` of its creation. For an escrow with an explicit
+    /// expiry, cancellation is allowed at or after `expires_at`; otherwise
+    /// the default pending timeout applies. Callable by anyone.
     pub fn auto_cancel_pending(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_action_not_paused(&env, Symbol::new(&env, "auto_cancel_pending"))?;
-        crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
 
         if escrow.state != EscrowState::Pending {
@@ -422,10 +452,17 @@ impl Escrow {
             ));
         }
 
-        let created_at = escrow_created_at(&env, escrow_id);
-        let deadline = pending_expiry_deadline(created_at)?;
-        if env.ledger().timestamp() <= deadline {
-            return Err(ContractError::ShippingWindowNotElapsed);
+        let now = env.ledger().timestamp();
+        if let Some(expires_at) = escrow.expires_at {
+            if now < expires_at {
+                return Err(ContractError::InvalidState);
+            }
+        } else {
+            let created_at = escrow_created_at(&env, escrow_id);
+            let deadline = pending_expiry_deadline(created_at)?;
+            if now <= deadline {
+                return Err(ContractError::ShippingWindowNotElapsed);
+            }
         }
 
         let prev_state = escrow.state.clone();
@@ -1038,6 +1075,9 @@ impl Escrow {
         let prev_state = escrow.state.clone();
         escrow.state = EscrowState::Canceled;
         save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::CancelProposal(escrow_id));
         clear_delivery_proposal(&env, escrow_id);
 
         payout(&env, &escrow.token, &buyer, escrow.amount);
@@ -1051,6 +1091,131 @@ impl Escrow {
             buyer,
             prev_state,
             crate::EscrowState::Canceled,
+        );
+        Ok(())
+    }
+
+    /// Opens an asynchronous mutual-cancel offer. `caller` must be the buyer
+    /// or primary payee. The offer is acceptable through its `expires_at`
+    /// timestamp, inclusive; a later offer replaces any existing offer for
+    /// this escrow.
+    pub fn propose_mutual_cancel(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        ttl_seconds: u64,
+    ) -> Result<(), ContractError> {
+        ensure_action_not_paused(&env, Symbol::new(&env, "propose_mutual_cancel"))?;
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
+        let escrow = load_escrow(&env, escrow_id)?;
+        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
+        }
+
+        let buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
+        let seller = escrow
+            .payees
+            .inner
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address;
+        if caller != buyer && caller != seller {
+            return Err(ContractError::NotAuthorized);
+        }
+        caller.require_auth();
+
+        let now = env.ledger().timestamp();
+        let expires_at = now
+            .checked_add(ttl_seconds)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        let key = DataKey::CancelProposal(escrow_id);
+        let proposal = crate::CancelProposal {
+            proposer: caller,
+            proposed_at: now,
+            expires_at,
+        };
+        let ttl = get_ttl_extension(&env);
+        env.storage().persistent().set(&key, &proposal);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, ttl / 2, ttl);
+        Ok(())
+    }
+
+    /// Accepts the other party's unexpired mutual-cancel offer, refunds the
+    /// buyer, transitions the escrow to `Canceled`, and removes the offer.
+    /// Returns `NoCancelProposal` when no offer exists,
+    /// `CancelProposalExpired` after its inclusive expiry boundary, and
+    /// `NotAuthorized` unless `caller` is the counterparty.
+    pub fn accept_mutual_cancel(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+    ) -> Result<(), ContractError> {
+        ensure_action_not_paused(&env, Symbol::new(&env, "accept_mutual_cancel"))?;
+        let mut escrow = load_escrow(&env, escrow_id)?;
+        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+            return Err(terminal_state_error(
+                &escrow.state,
+                ContractError::InvalidState,
+            ));
+        }
+
+        let key = DataKey::CancelProposal(escrow_id);
+        let proposal: crate::CancelProposal = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::NoCancelProposal)?;
+        let now = env.ledger().timestamp();
+        if now > proposal.expires_at {
+            return Err(ContractError::CancelProposalExpired);
+        }
+
+        let buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
+        let seller = escrow
+            .payees
+            .inner
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address;
+        let counterparty = if proposal.proposer == buyer {
+            seller.clone()
+        } else if proposal.proposer == seller {
+            buyer.clone()
+        } else {
+            return Err(ContractError::InvalidState);
+        };
+        if caller != counterparty {
+            return Err(ContractError::NotAuthorized);
+        }
+        caller.require_auth();
+
+        let prev_state = escrow.state.clone();
+        escrow.state = EscrowState::Canceled;
+        save_escrow(&env, escrow_id, &escrow, Some(&prev_state));
+        env.storage().persistent().remove(&key);
+        clear_delivery_proposal(&env, escrow_id);
+
+        payout(&env, &escrow.token, &buyer, escrow.amount);
+        payout_basket_tokens(&env, escrow_id, &buyer, None)?;
+
+        emit_escrow_canceled(
+            &env,
+            escrow_id,
+            seller,
+            buyer,
+            prev_state,
+            EscrowState::Canceled,
         );
         Ok(())
     }
@@ -1460,18 +1625,26 @@ impl Escrow {
     }
 
     /// Releases funds to the payees once the shipping/delivery window has
-    /// elapsed with no dispute raised. Callable by anyone. Reverts with
-    /// `InvalidState` if the escrow is not `Funded`/`Shipped` or has an open
-    /// dispute, `DeliveryNotRecorded` if `Shipped` with no `delivered_at`,
-    /// `DeliveryBeforeDisputeWindow` if the buyer's dispute window hasn't
-    /// opened yet, or `ShippingWindowNotElapsed` if the relevant window
-    /// (delivery-release or shipping) hasn't elapsed. Deducts the protocol
+    /// elapsed with no dispute raised. Callable by anyone, but only for
+    /// `Shipped` escrows. Reverts with `EscrowAlreadyCompleted` for completed
+    /// escrows and `InvalidState` for every other non-Shipped state or if the
+    /// escrow has an open dispute. Returns `DeliveryNotRecorded` if delivery
+    /// has not been recorded, or `ShippingWindowNotElapsed` if the
+    /// delivery-release window has not elapsed. Deducts the protocol
     /// fee, distributes the remainder across `payees`, and transitions the
-    /// escrow to `Completed`. Emits `auto_released`.
+    /// escrow to `Completed`. Repeated calls on a completed escrow return
+    /// `EscrowAlreadyCompleted` before settlement work and emit no event.
+    /// Emits `auto_released` only after a successful settlement.
     pub fn auto_release(env: Env, escrow_id: u64) -> Result<(), ContractError> {
         ensure_action_not_paused(&env, Symbol::new(&env, "auto_release"))?;
-        crate::internal::ensure_not_expired(&env, escrow_id)?;
         let mut escrow = load_escrow(&env, escrow_id)?;
+        if escrow.state == EscrowState::Completed {
+            return Err(ContractError::EscrowAlreadyCompleted);
+        }
+        if escrow.state != EscrowState::Shipped {
+            return Err(ContractError::InvalidState);
+        }
+        crate::internal::ensure_not_expired(&env, escrow_id)?;
 
         ensure_auto_release_eligible(&env, &escrow, escrow_id)?;
 

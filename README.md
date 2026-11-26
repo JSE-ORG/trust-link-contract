@@ -33,7 +33,6 @@ stateDiagram-v2
 
     Funded --> Shipped : mark_shipped
     Funded --> Completed : confirm_delivery
-    Funded --> Completed : auto_release
     Funded --> Disputed : raise_dispute
     Funded --> RefundRequested : request_refund
 
@@ -56,8 +55,7 @@ Key rules:
 - **Shipped → Completed**: buyer confirms delivery (after `dispute_deadline`), funds release to seller.
 - **Funded or Shipped → Disputed**: buyer raises dispute (before `dispute_deadline`).
 - **Funded or Shipped → RefundRequested**: buyer requests refund, which must be approved by seller.
-- **Shipped → Completed (auto)**: anyone triggers after `shipped_at + shipping_window` AND `dispute_deadline` elapses.
-- **Funded → Completed (auto)**: anyone triggers after `funded_at + shipping_window` AND `dispute_deadline` elapses.
+- **Shipped → Completed (auto)**: anyone triggers after delivery is recorded and the delivery-release window elapses. `auto_release` on any non-Shipped state returns `InvalidState`; a completed escrow returns `EscrowAlreadyCompleted`.
 - **Disputed → PendingFinalization**: resolver (or M-of-N multi-resolvers) decide outcome.
 - **PendingFinalization → Completed/Refunded**: anyone finalizes the dispute after 24-hour appeal window elapses.
 - **PendingFinalization → Disputed**: either party can appeal before finalization, resetting the resolution.
@@ -76,7 +74,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete state machine with guard
 | `confirm_delivery(escrow_id)` | buyer | Transfers tokens from contract to seller, state ? `Completed`. |
 | `raise_dispute(escrow_id)` | buyer | Freezes funds, state ? `Disputed`. Works from `Funded` or `Shipped`. |
 | `resolve_dispute(escrow_id, release_to_seller)` | resolver | Transfers to seller or refunds buyer. |
-| `auto_release(escrow_id)` | anyone | After `shipped_at + window`, releases to seller. |
+| `auto_release(escrow_id)` | anyone | Requires `Shipped` state, recorded delivery, and the delivery-release window to elapse; non-Shipped states return `InvalidState`, while completed escrows return `EscrowAlreadyCompleted`. |
 | `cancel_escrow(escrow_id)` | seller | Only in `Pending` state (no funds moved). |
 | `get_escrow(escrow_id) ? EscrowData` | none | Read-only view. |
 
@@ -541,10 +539,8 @@ MIT ? TrustLink Contributors
 
 7. **Auto-release**
    - `auto_release` is permissionless.
-   - Allowed from `Funded` or `Shipped`.
-   - Requires:
-     - ledger time past dispute deadline,
-     - ledger time past `funded_at + shipping_window`.
+   - Allowed only from `Shipped` after delivery is recorded and the delivery-release window elapses.
+   - Returns `InvalidState` from non-Shipped states, except `Completed`, which returns `EscrowAlreadyCompleted`.
    - Transfers payout to the seller.
    - State becomes `Completed`.
 
@@ -882,9 +878,9 @@ Whether clients use this function depends on the deployment; the contract also p
 #### `auto_release(escrow_id)`
 
 - **Auth:** none.
-- **Guards:** escrow state in `Funded` or `Shipped`, and time checks for both:
-  - dispute deadline closed,
-  - shipping window elapsed (`funded_at + shipping_window`).
+- **Guards:** escrow is `Shipped`, delivery is recorded, no dispute is active,
+  and the delivery-release window (`delivered_at + DELIVERY_RELEASE_WINDOW`)
+  has elapsed.
 - **Effects:** transfers net amount to seller, sets `state = Completed`, emits `AutoReleased`.
 
 ### 8.5 Read-only views

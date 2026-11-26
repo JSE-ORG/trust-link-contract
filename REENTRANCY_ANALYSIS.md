@@ -461,7 +461,7 @@ Pending ──fund_escrow──► Funded ──confirm_delivery──► Comple
 
 - **resolve_dispute (Disputed → Completed/Refunded):** Makes a token transfer. Similar reasoning: the state machine prevents further transitions from terminal states.
 
-- **auto_release (Funded → Completed):** Makes a token transfer. The state machine prevents re-execution on the same escrow ID.
+- **auto_release (Shipped → Completed):** Makes a token transfer. The state machine prevents re-execution on the same escrow ID.
 
 ### No Callback Patterns
 

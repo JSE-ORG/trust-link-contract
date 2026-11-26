@@ -208,4 +208,8 @@ pub enum ContractError {
     /// Returned by `submit_dispute_evidence` when the escrow's evidence log
     /// already holds `MAX_EVIDENCE_ENTRIES` entries.
     EvidenceLimitReached = 83,
+    /// Returned when `accept_mutual_cancel` is called without a pending offer.
+    NoCancelProposal = 84,
+    /// Returned when an asynchronous mutual-cancel offer has expired.
+    CancelProposalExpired = 85,
 }

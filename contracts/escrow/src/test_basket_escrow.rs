@@ -515,11 +515,16 @@ fn payout_pays_each_basket_token_to_seller() {
     c.admin.mint(&fx.buyer, &200);
     client.fund_basket_escrow(&escrow_id, &fx.buyer);
 
-    // Advance past the dispute + shipping windows so auto_release is allowed.
+    client.mark_shipped(
+        &fx.seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&fx.env, "TRK-BASKET-AUTO"),
+    );
+    crate::test_helpers::record_delivery_timelocked(&fx.env, &client, &fx.admin, escrow_id);
     let escrow = client.get_escrow(&escrow_id);
     fx.env
         .ledger()
-        .set_timestamp(escrow.dispute_deadline() + SHIPPING_WINDOW + 1);
+        .set_timestamp(escrow.delivered_at.unwrap() + 172_801);
     client.auto_release(&escrow_id);
 
     // With protocol fee at its default 0, the seller receives every token in
@@ -1337,10 +1342,16 @@ fn fund_and_payout_skip_primary_token_by_value_in_agreement() {
 
     // Payout: the primary is paid by the caller's transfer, the loop pays only
     // the secondary — neither token is paid twice.
+    client.mark_shipped(
+        &fx.seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&fx.env, "TRK-BASKET-PRIMARY"),
+    );
+    crate::test_helpers::record_delivery_timelocked(&fx.env, &client, &fx.admin, escrow_id);
     let escrow = client.get_escrow(&escrow_id);
     fx.env
         .ledger()
-        .set_timestamp(escrow.dispute_deadline() + SHIPPING_WINDOW + 1);
+        .set_timestamp(escrow.delivered_at.unwrap() + 172_801);
     client.auto_release(&escrow_id);
 
     assert_eq!(primary.token.balance(&fx.seller), primary_amount);

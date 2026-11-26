@@ -18,7 +18,6 @@ stateDiagram-v2
 
     Funded --> Shipped : mark_shipped
     Funded --> Completed : confirm_delivery (after dispute_deadline)
-    Funded --> Completed : auto_release (after dispute_deadline + shipping_window)
     Funded --> Disputed : raise_dispute (before dispute_deadline)
     Funded --> RefundRequested : request_refund
 
@@ -50,11 +49,10 @@ stateDiagram-v2
 | `Pending` | `Expired` | `reclaim_expired` | `now > expiration` (if set) |
 | `Funded` | `Shipped` | `mark_shipped` | Seller authorizes |
 | `Funded` | `Completed` | `confirm_delivery` | Buyer authorizes, `now >= dispute_deadline` |
-| `Funded` | `Completed` | `auto_release` | Permissionless, `now >= dispute_deadline`, `now >= funded_at + shipping_window` |
 | `Funded` | `Disputed` | `raise_dispute` | Buyer authorizes, `now < dispute_deadline` |
 | `Funded` | `RefundRequested` | `request_refund` | Buyer authorizes |
 | `Shipped` | `Completed` | `confirm_delivery` | Buyer authorizes, `now >= dispute_deadline` |
-| `Shipped` | `Completed` | `auto_release` | Permissionless, `now >= dispute_deadline`, `now >= shipped_at + shipping_window` |
+| `Shipped` | `Completed` | `auto_release` | Permissionless, delivery recorded, `now >= delivered_at + DELIVERY_RELEASE_WINDOW`, no active dispute |
 | `Shipped` | `Disputed` | `raise_dispute` | Buyer authorizes, `now < dispute_deadline` |
 | `RefundRequested` | `Refunded` | `approve_refund` | Seller authorizes |
 | `RefundRequested` | `Funded` | `deny_refund` | Seller authorizes |
@@ -66,11 +64,10 @@ stateDiagram-v2
 **Terminal States:** `Completed`, `Refunded`, `Canceled`, `Expired` — no further transitions are possible.
 
 **Guard Condition Details** (see `contracts/escrow/src/instructions.rs`):
-- `auto_release` timing: lines 1157-1181
-  - For `Funded` escrows: requires `now >= dispute_deadline` AND `now >= funded_at + shipping_window`
-  - For `Shipped` escrows: requires `now >= dispute_deadline` AND `now >= shipped_at + shipping_window`
-  - Returns error code 13 (`DeliveryBeforeDisputeWindow`) if `dispute_deadline` not yet passed
-  - Returns error code 9 (`ShippingWindowNotElapsed`) if `shipping_window` not yet elapsed
+- `auto_release` requires `Shipped` state, recorded delivery, and no active
+  dispute. It returns `InvalidState` for non-Shipped states (except
+  `Completed`, which returns `EscrowAlreadyCompleted`) and
+  `ShippingWindowNotElapsed` until `delivered_at + DELIVERY_RELEASE_WINDOW`.
 - `confirm_delivery` timing: lines 1016+
   - Requires `now >= dispute_deadline`
   - Returns error code 24 (`DisputeWindowStillOpen`) if called too early
