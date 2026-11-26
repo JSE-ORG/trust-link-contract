@@ -295,7 +295,8 @@ impl Escrow {
 
     /// Get the resolver votes for a disputed escrow (for multi-resolver voting tracking)
     pub fn get_resolver_votes(env: Env, escrow_id: u64) -> Vec<ResolverVote> {
-        load_resolver_votes(&env, escrow_id)
+        let votes = load_resolver_votes(&env, escrow_id);
+        crate::storage::approved_resolver_votes(&env, &votes)
     }
 
     /// Pays out a resolved dispute once its appeal window has elapsed.
@@ -856,7 +857,8 @@ impl Escrow {
             return Err(ContractError::DisputeNotDeadlocked);
         }
 
-        let votes = load_resolver_votes(&env, escrow_id);
+        let votes =
+            crate::storage::approved_resolver_votes(&env, &load_resolver_votes(&env, escrow_id));
         if votes.is_empty() {
             return Err(ContractError::NoResolverVotes);
         }

@@ -51,7 +51,9 @@ non-user-facing repository maintenance.
 
 ### Fixed
 
-- Nothing yet.
+- Strict resolver mode now checks current registry approval on every dispute
+  resolution and vote, immediately blocking resolvers removed during an active
+  dispute, and excludes de-listed resolvers' previous votes from the quorum.
 
 ### Security
 

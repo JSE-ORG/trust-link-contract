@@ -1,7 +1,9 @@
 #![cfg(test)]
 
 use crate::{ContractError, Escrow, EscrowClient, Payee};
-use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal, Vec};
+use soroban_sdk::{
+    testutils::Address as _, token, Address, Bytes, BytesN, Env, IntoVal, Symbol, Vec,
+};
 
 fn setup(env: &Env) -> (Address, Address, Address, Address, Address, Address) {
     env.mock_all_auths();
@@ -150,6 +152,47 @@ fn remove_unknown_resolver_returns_error() {
 
     let result = client.try_remove_approved_resolver(&admin, &resolver);
     assert_eq!(result, Err(Ok(ContractError::InvalidAddress)));
+}
+
+#[test]
+fn removed_resolver_cannot_vote_during_active_dispute_in_strict_mode() {
+    let env = Env::default();
+    let (client, admin, _fee_collector, seller, buyer, resolver, token_address) = init_client(&env);
+
+    client.add_approved_resolver(&admin, &resolver);
+    client.set_resolver_strict(&admin, &true);
+    let payees = make_payees(&env, &seller);
+    let payees_val = payees.into_val(&env);
+    let escrow_id = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token_address,
+        &100_i128,
+        &0_u32,
+        &3600_u64,
+    );
+
+    token::StellarAssetClient::new(&env, &token_address).mint(&buyer, &100_i128);
+    client.fund_escrow(&escrow_id, &buyer);
+    client.mark_shipped(
+        &seller,
+        &escrow_id,
+        &soroban_sdk::String::from_str(&env, "TRACK"),
+    );
+    client.raise_dispute(
+        &buyer,
+        &escrow_id,
+        &Symbol::new(&env, "OTHER"),
+        &Bytes::from_slice(&env, b"dispute"),
+        &BytesN::from_array(&env, &[1_u8; 32]),
+    );
+
+    client.remove_approved_resolver(&admin, &resolver);
+    assert_eq!(
+        client.try_vote(&resolver, &escrow_id, &crate::ResolutionType::Release),
+        Err(Ok(ContractError::UnauthorizedResolver))
+    );
 }
 
 // ── Strict mode + escrow creation ───────────────────────────────────────────
