@@ -1,0 +1,17 @@
+query AllResolverVotes($contractId: String!) {
+  resolver_votes: eventsByContractId(
+    contractId: $contractId
+    topic1: "AAAADwAAABZyZXNvbHZlcl92b3RlX3JlY29yZGVk" # Symbol("resolver_vote_recorded")
+    first: 100
+  ) {
+    nodes {
+      ledger
+      txHash
+      data
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}

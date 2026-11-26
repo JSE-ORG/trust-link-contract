@@ -1,0 +1,180 @@
+# Mercury GraphQL — Escrows by Participant
+#
+# Run against the Mercury GraphQL endpoint:
+#   https://api.mercurydata.app/graphql
+#
+# Authentication: Bearer token obtained from POST /auth/login
+#
+# A "participant" is any address that appears as topic_3 in an escrow event:
+#   - Seller  → Escrow:Created, Escrow:Shipped, Escrow:Canceled, Escrow:Released
+#   - Buyer   → Escrow:Funded, Dispute:Raised, Refund:Requested
+#   - Resolver→ Dispute:Resolved, Dispute:Pending
+#
+# Mercury stores topic_3 as an XDR-encoded ScVal (AccountId wrapped in ScAddress).
+# Pass the address as an XDR base64 string.  Generate it with:
+#   stellar xdr encode --type ScVal --input json \
+#     '{"type":"address","value":{"type":"account","account_id":"G..."}}'
+#
+# Variables:
+#   $address  String!  — XDR base64 ScVal of the participant address
+
+# ---------------------------------------------------------------------------
+# Fragment shared by all escrow event queries
+# ---------------------------------------------------------------------------
+fragment EscrowEventFields on ContractEvent {
+  ledger
+  txHash
+  contractId
+  topic1   # Symbol("Escrow" | "Dispute" | "Refund")
+  topic2   # Symbol("Created" | "Funded" | ...)
+  topic3   # XDR ScVal — participant address (if present)
+  data     # XDR base64 — decoded payload (see docs/events.md)
+  ingestedAt
+}
+
+# ---------------------------------------------------------------------------
+# 1. All events where the participant is the seller
+#    (Created, Shipped, Canceled, Released all carry seller in topic3)
+# ---------------------------------------------------------------------------
+query EscrowsAsSeller($contractId: String!, $address: String!) {
+  escrowCreated: eventsByContractId(
+    contractId: $contractId
+    topic1: "AAAADwAAAAZFc2Nyb3c="    # Symbol("Escrow")
+    topic2: "AAAADwAAAAdDcmVhdGVk"    # Symbol("Created")
+    topic3: $address
+    orderBy: LEDGER_ASC
+  ) {
+    nodes { ...EscrowEventFields }
+    pageInfo { hasNextPage endCursor }
+  }
+
+  escrowCanceled: eventsByContractId(
+    contractId: $contractId
+    topic1: "AAAADwAAAAZFc2Nyb3c="
+    topic2: "AAAADwAAAAdDYW5jZWxlZA="  # Symbol("Canceled")
+    topic3: $address
+    orderBy: LEDGER_ASC
+  ) {
+    nodes { ...EscrowEventFields }
+    pageInfo { hasNextPage endCursor }
+  }
+
+  autoReleased: eventsByContractId(
+    contractId: $contractId
+    topic1: "AAAADwAAAAZFc2Nyb3c="
+    topic2: "AAAADwAAAAhSZWxlYXNlZA="  # Symbol("Released")
+    topic3: $address
+    orderBy: LEDGER_ASC
+  ) {
+    nodes { ...EscrowEventFields }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 2. All events where the participant is the buyer
+#    (Funded carries buyer in topic3; DisputeRaised also carries buyer)
+# ---------------------------------------------------------------------------
+query EscrowsAsBuyer($contractId: String!, $address: String!) {
+  escrowFunded: eventsByContractId(
+    contractId: $contractId
+    topic1: "AAAADwAAAAZFc2Nyb3c="
+    topic2: "AAAADwAAAAZGdW5kZWQ="     # Symbol("Funded")
+    topic3: $address
+    orderBy: LEDGER_ASC
+  ) {
+    nodes { ...EscrowEventFields }
+    pageInfo { hasNextPage endCursor }
+  }
+
+  disputeRaised: eventsByContractId(
+    contractId: $contractId
+    topic1: "AAAADwAAAAdEaXNwdXRl"     # Symbol("Dispute")
+    topic2: "AAAADwAAAAZSYWlzZWQ="     # Symbol("Raised")
+    topic3: $address
+    orderBy: LEDGER_ASC
+  ) {
+    nodes { ...EscrowEventFields }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 3. All events where the participant is the resolver
+# ---------------------------------------------------------------------------
+query EscrowsAsResolver($contractId: String!, $address: String!) {
+  disputeResolved: eventsByContractId(
+    contractId: $contractId
+    topic1: "AAAADwAAAAdEaXNwdXRl"
+    topic2: "AAAADwAAAAhSZXNvbHZlZA="  # Symbol("Resolved")
+    topic3: $address
+    orderBy: LEDGER_ASC
+  ) {
+    nodes { ...EscrowEventFields }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 4. Convenience: all roles combined
+#    Client-side union of seller + buyer + resolver queries.
+#    Mercury does not support multi-field OR at the event level in a single
+#    query, so run all three named queries above and merge the escrow_id sets.
+# ---------------------------------------------------------------------------
+query AllEscrowsForParticipant($contractId: String!, $address: String!) {
+  asSeller_created: eventsByContractId(
+    contractId: $contractId
+    topic1: "AAAADwAAAAZFc2Nyb3c="
+    topic2: "AAAADwAAAAdDcmVhdGVk"
+    topic3: $address
+    first: 100
+  ) {
+    nodes { ...EscrowEventFields }
+    pageInfo { hasNextPage endCursor }
+  }
+
+  asBuyer_funded: eventsByContractId(
+    contractId: $contractId
+    topic1: "AAAADwAAAAZFc2Nyb3c="
+    topic2: "AAAADwAAAAZGdW5kZWQ="
+    topic3: $address
+    first: 100
+  ) {
+    nodes { ...EscrowEventFields }
+    pageInfo { hasNextPage endCursor }
+  }
+
+  asResolver_resolved: eventsByContractId(
+    contractId: $contractId
+    topic1: "AAAADwAAAAdEaXNwdXRl"
+    topic2: "AAAADwAAAAhSZXNvbHZlZA="
+    topic3: $address
+    first: 100
+  ) {
+    nodes { ...EscrowEventFields }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 5. Paginated full event history for a single escrow ID
+#    Decode the data field from XDR to read schema_version and payload fields.
+# ---------------------------------------------------------------------------
+query EscrowHistory($contractId: String!, $escrowIdXdr: String!) {
+  eventsByContractId(
+    contractId: $contractId
+    # escrow_id appears in the data payload, not in topics — use topic1 filter
+    # to limit scope, then filter by escrow_id client-side after XDR decode.
+    topic1: "AAAADwAAAAZFc2Nyb3c="
+    first: 50
+    orderBy: LEDGER_ASC
+  ) {
+    nodes {
+      ledger
+      txHash
+      topic2
+      data
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}

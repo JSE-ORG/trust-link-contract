@@ -14,3 +14,10 @@ rust-toolchain.toml @trustlink-core
 # CI/CD and security
 .github/ @trustlink-core
 SECURITY.md @trustlink-core
+
+# Subdirectories and components
+bindings/ @trustlink-js-team
+indexer/ @trustlink-js-team
+docs/ @trustlink-core
+scripts/ @trustlink-core
+e2e/ @trustlink-core

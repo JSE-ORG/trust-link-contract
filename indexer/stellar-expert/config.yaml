@@ -1,0 +1,118 @@
+# Stellar Expert Indexer Configuration — TrustLink Escrow
+#
+# Stellar Expert exposes a public REST API for Soroban contract events.
+# No account or subscription is required for read access.
+#
+# API base:  https://api.stellar.expert/explorer/{network}
+# Docs:      https://stellar.expert/openapi.html
+#
+# This file documents the API parameters used by the TrustLink indexer.
+# See queries/escrows_by_participant.http for ready-to-run examples.
+
+api:
+  base_url: "https://api.stellar.expert/explorer"
+  network: "testnet"          # "public" for mainnet
+  # No auth required for public endpoints. For higher rate limits,
+  # contact support@stellar.expert for an API key.
+  # api_key: "${STELLAR_EXPERT_API_KEY}"
+
+contract:
+  id: "${CONTRACT_ID}"
+
+# ---------------------------------------------------------------------------
+# Event endpoint: GET /contract-events
+#
+# Query params:
+#   contract   string  required  — contract ID (StrKey C...)
+#   order      asc|desc          — sort direction (default: desc)
+#   limit      int (1-200)       — page size (default: 10)
+#   cursor     string            — opaque pagination cursor from previous page
+#   topic0     string            — hex-encoded XDR ScVal to filter by topic[0]
+#   topic1     string            — hex-encoded XDR ScVal to filter by topic[1]
+#   topic2     string            — hex-encoded XDR ScVal to filter by topic[2]
+#   topic3     string            — hex-encoded XDR ScVal to filter by topic[3]
+#
+# Response shape:
+#   {
+#     "_links": { "next": { "href": "?cursor=..." } },
+#     "_embedded": {
+#       "records": [
+#         {
+#           "id":         "0000...",
+#           "paging_token": "...",
+#           "transaction_hash": "abc...",
+#           "ledger":     12345,
+#           "timestamp":  "2024-01-01T00:00:00Z",
+#           "contract_id": "C...",
+#           "type":       "contract",
+#           "topic":      ["<hex XDR>", "<hex XDR>", "<hex XDR>"],
+#           "value":      "<hex XDR>"
+#         }
+#       ]
+#     }
+#   }
+#
+# Decode topics and value with stellar-sdk:
+#   import { xdr, scValToNative } from '@stellar/stellar-sdk'
+#   const decoded = scValToNative(xdr.ScVal.fromXDR(record.value, 'hex'))
+# ---------------------------------------------------------------------------
+
+events:
+  endpoint: "/contract-events"
+  default_page_size: 100
+  max_page_size: 200
+
+# ---------------------------------------------------------------------------
+# Topic hex values for TrustLink events
+# Generate with: stellar xdr encode --type ScVal \
+#   --input json '{"type":"symbol","value":"<SymbolName>"}'
+#
+# Topic position mapping:
+#   topic[0] = primary category  (Escrow, Dispute, Resolver, …)
+#   topic[1] = action            (Created, Funded, Raised, …)
+#   topic[2] = participant addr  (seller, buyer, resolver) — when present
+# ---------------------------------------------------------------------------
+
+topic_hex:
+  # Primary category symbols
+  Escrow:   "0000000f00000006457363726f77"
+  Dispute:  "0000000f000000074469737075746500"
+  Resolver: "0000000f000000085265736f6c7665720000"
+  Refund:   "0000000f0000000652656675 6e64"
+  Contract: "0000000f00000008436f6e74726163740000"
+  Admin:    "0000000f0000000541646d696e"
+  Fee:      "0000000f0000000346656500"
+  Message:  "0000000f000000074d65737361676500"
+  Basket:   "0000000f000000064261736b6574"
+
+  # Action symbols
+  Created:   "0000000f000000074372656174656400"
+  Funded:    "0000000f00000006"
+  Shipped:   "0000000f0000000753686970706564"
+  Delivered: "0000000f0000000944656c697665726564"
+  Completed: "0000000f000000094c6f6d706c65746564"
+  Canceled:  "0000000f000000074361636e63656c6564"
+  Released:  "0000000f000000085265 6c656173656400"
+  Raised:    "0000000f00000006526169 73656400"
+  Resolved:  "0000000f000000085265736f6c766564"
+  Rotated:   "0000000f000000075 26f7461746564"
+  Pending:   "0000000f00000007506 56e64696e6700"
+  Appealed:  "0000000f00000008417070 65616c6564"
+  Requested: "0000000f000000095265717565737465 6400"
+  Approved:  "0000000f000000084170 70726f766564"
+  Init:      "0000000f000000044 96e697400"
+  Paused:    "0000000f0000000650617573656400"
+  Unpaused:  "0000000f000000085 56e706175736564"
+  Updated:   "0000000f000000075 56e646174656400"
+  Withdrawn: "0000000f000000095769746864726177 6e"
+  Allowlist: "0000000f0000000941 6c6c6f776c697374"
+  Toggled:   "0000000f0000000754 6f67676c656400"
+
+# ---------------------------------------------------------------------------
+# Pagination: use cursor from _links.next to walk all pages.
+# The indexer/src/ingest.ts live-polling loop drives pagination automatically.
+# ---------------------------------------------------------------------------
+
+pagination:
+  strategy: "cursor"
+  cursor_field: "paging_token"

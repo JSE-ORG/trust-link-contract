@@ -1,0 +1,99 @@
+name: Fuzz
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  schedule:
+    # Nightly deep run at 03:17 UTC.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Seconds to run each fuzz target'
+        required: false
+        default: '60'
+
+env:
+  CARGO_TERM_COLOR: always
+  # cargo-fuzz requires nightly for the sanitizer flags. This overrides the
+  # stable channel pinned by rust-toolchain.toml.
+  RUSTUP_TOOLCHAIN: nightly
+
+jobs:
+  fuzz:
+    name: build + smoke-run fuzz targets
+    runs-on: ubuntu-latest
+    # A rotten fuzz target is a build failure, so this job must not be skipped
+    # silently; the nightly schedule reuses it with a longer duration.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        run: |
+          rustup toolchain install nightly --profile minimal --component rust-src
+          rustup default nightly
+
+      - name: Cache cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            contracts/escrow/fuzz/target
+          key: fuzz-${{ runner.os }}-${{ hashFiles('contracts/escrow/fuzz/Cargo.toml', 'contracts/escrow/Cargo.toml') }}
+          restore-keys: fuzz-${{ runner.os }}-
+
+      - name: Install cargo-fuzz
+        run: |
+          if ! command -v cargo-fuzz >/dev/null 2>&1; then
+            cargo install cargo-fuzz --locked
+          fi
+          cargo fuzz --version
+
+      # Acceptance: every target must still compile against the current ABI.
+      - name: Build all fuzz targets
+        working-directory: contracts/escrow
+        run: cargo fuzz build --release
+
+      - name: Determine run duration
+        id: duration
+        run: |
+          if [ -n "${{ github.event.inputs.duration }}" ]; then
+            echo "seconds=${{ github.event.inputs.duration }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "seconds=900" >> "$GITHUB_OUTPUT"
+          else
+            echo "seconds=60" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run fuzz targets
+        working-directory: contracts/escrow
+        env:
+          MAX_TOTAL_TIME: ${{ steps.duration.outputs.seconds }}
+        run: |
+          set -euo pipefail
+          status=0
+          for target in $(cargo fuzz list); do
+            echo "::group::fuzzing ${target} for ${MAX_TOTAL_TIME}s"
+            if ! cargo fuzz run --release "${target}" -- \
+                -max_total_time="${MAX_TOTAL_TIME}" \
+                -rss_limit_mb=4096; then
+              echo "::error title=Fuzz failure::${target} found a crash"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "${status}"
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: contracts/escrow/fuzz/artifacts/
+          if-no-files-found: ignore

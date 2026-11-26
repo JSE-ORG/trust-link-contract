@@ -64,10 +64,10 @@ The contract is paused via `pause_contract()` and a mutating function was called
 
 ### Which Rust toolchain is required?
 
-The project targets `wasm32-unknown-unknown` for on-chain deployment and uses stable Rust. Install the target with:
+The project targets `wasm32v1-none` for on-chain deployment and uses stable Rust. Install the target with:
 
 ```bash
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32v1-none
 ```
 
 Tests run against the native target so no extra toolchain setup is needed just to run `cargo test`.

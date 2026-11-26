@@ -8,6 +8,11 @@ publish = false
 crate-type = ["lib", "cdylib"]
 doctest = false
 
+[features]
+# Exposes the Soroban test utilities (contract registration, mock auth) to
+# downstream native consumers such as the fuzz harnesses in `fuzz/`.
+testutils = ["soroban-sdk/testutils"]
+
 [dependencies]
 soroban-sdk = { workspace = true }
 

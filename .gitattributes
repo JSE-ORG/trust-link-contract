@@ -1,0 +1,15 @@
+* text=auto eol=lf
+
+*.rs text
+*.toml text
+*.md text
+*.yml text
+*.yaml text
+*.json text
+*.txt text
+*.sh text eol=lf
+*.bat text eol=crlf
+*.wasm binary
+*.png binary
+*.jpg binary
+*.ico binary

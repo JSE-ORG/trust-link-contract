@@ -1,0 +1,64 @@
+pub mod errors;
+pub mod events;
+pub mod helpers;
+pub mod storage;
+pub mod types;
+pub use crate::errors::ContractError;
+pub use crate::events::{
+pub use crate::types::{
+pub const MIN_ESCROW_AMOUNT: i128 = 1;
+pub const MAX_TRACKING_ID_LEN: u32 = 64;
+pub const MAX_DESCRIPTION_LEN: u32 = 256;
+pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 10_000;
+pub fn transition_state(
+pub struct Escrow;
+    pub fn initialize(env: Env, admin: Address, default_fee_bps: u32) {
+fn ensure_not_paused(env: &Env) -> Result<(), ContractError> {
+fn require_admin(env: &Env) -> Address {
+fn default_fee_config() -> FeeConfig {
+fn read_fee_config(env: &Env) -> FeeConfig {
+fn write_fee_config(env: &Env, fee_config: &FeeConfig) {
+fn validate_escrow_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
+fn validate_config_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
+fn update_default_fee(env: &Env, caller: &Address, fee_bps: u32) -> Result<u32, ContractError> {
+fn update_protocol_fee(env: &Env, caller: &Address, fee_bps: u32) -> Result<u32, ContractError> {
+fn update_arbitration_fee(env: &Env, caller: &Address, fee_bps: u32) -> Result<u32, ContractError> {
+fn get_ttl_extension(env: &Env) -> u32 {
+fn save_escrow(env: &Env, id: u64, escrow: &EscrowData) {
+fn push_buyer_escrow(env: &Env, buyer: &Address, escrow_id: u64) {
+fn load_escrow(env: &Env, id: u64) -> Result<EscrowData, ContractError> {
+fn save_dispute(env: &Env, id: u64, dispute: &DisputeData) {
+fn load_dispute(env: &Env, id: u64) -> Result<DisputeData, ContractError> {
+fn deduct_and_transfer(env: &Env, token_addr: &Address, recipient: &Address, amount: i128, fee_bps: u32) -> Result<(), ContractError> {
+fn transfer_with_protocol_fee(
+fn increment_counter(env: &Env, key: &DataKey) -> Result<(), ContractError> {
+    pub fn initialize(
+    pub fn set_fee(env: Env, admin: Address, new_fee_bps: u32) {
+    pub fn is_paused(env: Env) -> bool {
+    pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
+    pub fn set_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+    pub fn set_protocol_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+    pub fn set_ttl_extension(env: Env, caller: Address, ledgers: u32) -> Result<(), ContractError> {
+    pub fn withdraw_fees(
+    pub fn create_escrow(
+    pub fn cancel_escrow(env: Env, caller: Address, escrow_id: u64) -> Result<(), ContractError> {
+    pub fn fund_escrow(env: Env, escrow_id: u32, buyer: Address) {
+    pub fn fund_escrow(env: Env, escrow_id: u64, buyer: Address) -> Result<(), ContractError> {
+    pub fn confirm_delivery(env: Env, escrow_id: u32) -> i128 {
+    pub fn get_escrow(env: Env, escrow_id: u32) -> EscrowData {
+    pub fn resolve_dispute(env: Env, caller: Address, escrow_id: u64, resolution: ResolutionType) -> Result<(), ContractError> {
+    pub fn set_arbitration_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+    pub fn get_arbitration_fee(env: Env) -> u32 {
+    pub fn get_total_arbitration_fees(env: Env, token: Address) -> i128 {
+    pub fn auto_release(env: Env, escrow_id: u64) -> Result<(), ContractError> {
+    pub fn get_escrow(env: Env, escrow_id: u64) -> Result<EscrowData, ContractError> {
+    pub fn get_dispute(env: Env, escrow_id: u64) -> Option<DisputeData> {
+    pub fn get_escrows_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
+    pub fn get_escrows_by_vendor(env: Env, vendor: Address) -> Vec<u64> {
+    pub fn get_stats(env: Env) -> ContractStats {
+    pub fn get_fee_config(env: Env) -> FeeConfig {
+    /// Returns public-safe contract configuration (no admin or fee collector addresses).
+    pub fn get_public_config(env: Env) -> PublicContractConfig {
+    pub fn get_contract_config(env: Env) -> ContractConfig {
+    pub fn get_contract_config(env: Env) -> ContractConfig {
+    pub fn get_fee_config(env: Env) -> FeeConfig {
