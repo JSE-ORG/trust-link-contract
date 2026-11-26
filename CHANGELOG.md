@@ -17,6 +17,8 @@ non-user-facing repository maintenance.
   Indexers can use this field to detect breaking schema changes without inspecting
   topics.  The versioning policy and a per-version changelog table are documented
   in `docs/events.md`.
+- Added `co_signed_release_by_signature` for buyer-authorized Ed25519 releases
+  submitted by the primary payee.
 - Added a complete storage layout reference in `docs/storage.md` documenting
   every `DataKey`/`StorageKey` entry with its type, storage tier, and TTL
   strategy.
