@@ -133,6 +133,25 @@ fn test_multicall_two_get_escrow_calls() {
     assert_eq!(results.len(), 2);
 }
 
+#[test]
+fn test_multicall_rejects_nested_multicall() {
+    let (env, admin, _seller, _buyer, _resolver, _token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let mut calls: Vec<ContractCall> = Vec::new(&env);
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "multicall"),
+        args: Vec::new(&env),
+    });
+
+    assert_eq!(
+        client.try_multicall(&calls),
+        Err(Ok(ContractError::InvalidOperation)),
+    );
+}
+
 /// `batch_create_escrow` has no explicit batch-size cap (unlike `multicall`,
 /// which enforces `MAX_MULTICALL_BATCH_SIZE`), so a large batch is only ever
 /// exercised at the gas-profile scale of 10. This stress-tests a much larger

@@ -217,7 +217,7 @@ pub const MAX_BASKET_SIZE: u32 = 20;
 /// limits and aborts midway. Capping the batch keeps a multicall within budget
 /// and fails fast (with `MulticallBatchTooLarge`) instead of running out of
 /// resources partway through.
-pub const MAX_MULTICALL_BATCH_SIZE: u32 = 10;
+pub const MAX_MULTICALL_BATCH_SIZE: u32 = 20;
 
 /// Number of escrow ids stored per page of a buyer/vendor index entry.
 ///

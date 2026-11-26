@@ -2355,7 +2355,7 @@ impl Escrow {
     /// paused, and with `MulticallBatchTooLarge` when the batch exceeds
     /// `MAX_MULTICALL_BATCH_SIZE` — an unbounded batch could otherwise be used
     /// to exhaust the transaction's instruction or read/write limits and abort
-    /// midway.
+    /// midway. Nested `multicall` calls are rejected with `InvalidOperation`.
     // `s_get_*` / `s_set_*` pairs mirror the public function names they match.
     #[allow(clippy::similar_names)]
     pub fn multicall(env: Env, calls: Vec<ContractCall>) -> Result<Vec<Val>, ContractError> {
@@ -2382,8 +2382,15 @@ impl Escrow {
         let s_get_arbitration_fee = Symbol::new(&env, "get_arbitration_fee");
         let s_rotate_resolver = Symbol::new(&env, "rotate_resolver");
         let s_cancel_escrow = Symbol::new(&env, "cancel_escrow");
+        let s_multicall = Symbol::new(&env, "multicall");
 
         for call in calls {
+            if call.function == soroban_sdk::symbol_short!("multicall")
+                || call.function == s_multicall
+            {
+                return Err(ContractError::InvalidOperation);
+            }
+
             let res_val: Val = if call.function == s_fund_escrow {
                 dispatch_fund_escrow(&env, &call.args)?
             } else if call.function == s_get_escrow {
