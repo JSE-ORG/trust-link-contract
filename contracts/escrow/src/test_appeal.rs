@@ -467,7 +467,7 @@ fn appeal_fee_disabled_skips_fee_transfer() {
 /// balance is constant from resolution through appeal until finalization, and
 /// the resolver fee goes to the resolver of the final round.
 #[test]
-fn resolve_appeal_reresolve_with_new_resolver_defers_and_pays_final_resolver() {
+fn resolve_appeal_reresolve_defers_and_pays_final_resolver() {
     let setup = setup_funded_escrow_with_resolver_fee(200);
     let client = EscrowClient::new(&setup.env, &setup.contract_id);
     let token_client = token::Client::new(&setup.env, &setup.token);
@@ -495,13 +495,12 @@ fn resolve_appeal_reresolve_with_new_resolver_defers_and_pays_final_resolver() {
     assert_eq!(dispute.compensated_resolvers.len(), 0);
     assert_eq!(client.get_escrow(&setup.escrow_id).amount, AMOUNT);
 
-    // Re-resolve with a different resolver.
-    let new_resolver = Address::generate(&setup.env);
-    client.rotate_resolver(&setup.admin, &setup.escrow_id, &new_resolver);
-    client.resolve_dispute(&new_resolver, &setup.escrow_id, &ResolutionType::Release);
+    // Re-resolve with the existing resolver; rotation is no longer permitted
+    // after shipment.
+    client.resolve_dispute(&setup.resolver, &setup.escrow_id, &ResolutionType::Release);
     assert_eq!(token_client.balance(&setup.contract_id), AMOUNT);
     let dispute = client.get_dispute(&setup.escrow_id).unwrap();
-    assert_eq!(dispute.resolved_by, Some(new_resolver.clone()));
+    assert_eq!(dispute.resolved_by, Some(setup.resolver.clone()));
     assert_eq!(dispute.arbitration_fee, 50);
     assert_eq!(dispute.resolver_fee, 20);
 
@@ -509,12 +508,11 @@ fn resolve_appeal_reresolve_with_new_resolver_defers_and_pays_final_resolver() {
         .env
         .ledger()
         .set_timestamp(setup.env.ledger().timestamp() + 86_401);
-    client.finalize_dispute(&new_resolver, &setup.escrow_id);
+    client.finalize_dispute(&setup.resolver, &setup.escrow_id);
 
     // Arbitration fee, resolver fee and the net payout (this escrow has no
     // protocol fee) are all settled together at finalization.
-    assert_eq!(token_client.balance(&new_resolver), 20);
-    assert_eq!(token_client.balance(&setup.resolver), 0);
+    assert_eq!(token_client.balance(&setup.resolver), 20);
     assert_eq!(token_client.balance(&setup.fee_collector), 50);
     assert_eq!(token_client.balance(&setup.seller), 1_000 - 50 - 20);
     assert_eq!(token_client.balance(&setup.contract_id), 0);

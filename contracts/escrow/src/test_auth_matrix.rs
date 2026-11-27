@@ -930,7 +930,7 @@ fn rotate_resolver_rejects_completed_escrow() {
     let new_resolver = Address::generate(&env);
     assert_eq!(
         ctx.client.try_rotate_resolver(&seller, &id, &new_resolver),
-        Err(Ok(ContractError::EscrowAlreadyCompleted))
+        Err(Ok(ContractError::InvalidState))
     );
 }
 
@@ -942,7 +942,7 @@ fn rotate_resolver_rejects_refunded_escrow() {
     let new_resolver = Address::generate(&env);
     assert_eq!(
         ctx.client.try_rotate_resolver(&seller, &id, &new_resolver),
-        Err(Ok(ContractError::EscrowAlreadyRefunded))
+        Err(Ok(ContractError::InvalidState))
     );
 }
 
