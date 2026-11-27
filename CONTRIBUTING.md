@@ -6,7 +6,7 @@ We welcome contributions of all kinds: bug fixes, new features, tests, documenta
 
 ---
 
-## ⚡ Quick Start (≈ 10 minutes)
+## ⚡ Quick Start (≈ 10 minutes) 
 
 If you already have Rust installed, you can go from zero to a passing test run with the commands below. The detailed explanation of each step follows in the sections later.
 
