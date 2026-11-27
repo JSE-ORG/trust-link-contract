@@ -932,4 +932,5 @@ pub struct TimelockProposal {
     pub params_hash: BytesN<32>,
     pub queued_at: u64,
     pub ready_at: u64,
+    pub expires_at: u64,
 }

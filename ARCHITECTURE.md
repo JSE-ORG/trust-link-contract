@@ -366,6 +366,7 @@ All admin-level mutations (fee changes, upgrades, resolver registry changes, pau
    - `caller.require_auth()` — the *executor* signs for its own address, so the recorded executor is authentic
    - a proposal is queued for the operation, else `InvalidState`
    - `now >= proposal.ready_at`, else `TimelockNotElapsed`
+   - `now < proposal.expires_at`, else `TimelockProposalExpired` (the grace window is 7 days after `ready_at`)
    - `proposal.proposer` is the **current** admin, else `NotAuthorized` (a proposal from a rotated-out admin never executes)
    - `compute_proposal_hash(operation, params)` equals `proposal.params_hash`, else `InvalidProposalHash`
    - Deletes the proposal record, applies the operation, and emits `TimelockExecuted { proposer, executor, params, .. }`. `executor == proposer` means the admin executed it; `executor != proposer` means a keeper did.

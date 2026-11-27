@@ -208,4 +208,7 @@ pub enum ContractError {
     /// Returned by `submit_dispute_evidence` when the escrow's evidence log
     /// already holds `MAX_EVIDENCE_ENTRIES` entries.
     EvidenceLimitReached = 83,
+    /// Returned when execution is attempted after a timelock proposal's
+    /// post-ready grace period has elapsed.
+    TimelockProposalExpired = 84,
 }
