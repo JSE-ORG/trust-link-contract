@@ -361,3 +361,89 @@ fn test_multicall_duplicate_fund_escrow_reverts() {
     let token_client = token::StellarAssetClient::new(&env, &token);
     assert_eq!(token_client.balance(&buyer), 2_000);
 }
+
+/// A failure in the third operation reverts mutations from the first two
+/// operations, including the token transfer performed by funding.
+#[test]
+fn test_multicall_third_failure_reverts_entire_batch() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let payees = single_payee(&env, &seller);
+    let id = client.create_escrow_8(
+        &payees.into_val(&env),
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &1_000_i128,
+        &0_u32,
+        &3600_u64,
+    );
+    mint(&env, &token, &buyer, 1_000);
+
+    let mut fund_args = Vec::new(&env);
+    fund_args.push_back(id.into_val(&env));
+    fund_args.push_back(buyer.clone().into_val(&env));
+
+    let tracking = soroban_sdk::String::from_str(&env, "BATCH-TRK-ATOMIC");
+    let mut ship_args = Vec::new(&env);
+    ship_args.push_back(seller.clone().into_val(&env));
+    ship_args.push_back(id.into_val(&env));
+    ship_args.push_back(tracking.into_val(&env));
+
+    let mut get_args = Vec::new(&env);
+    get_args.push_back(id.into_val(&env));
+
+    let mut calls = Vec::new(&env);
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "fund_escrow"),
+        args: fund_args,
+    });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "mark_shipped"),
+        args: ship_args.clone(),
+    });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "mark_shipped"),
+        args: ship_args,
+    });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "get_escrow"),
+        args: get_args.clone(),
+    });
+    calls.push_back(ContractCall {
+        function: Symbol::new(&env, "get_escrow"),
+        args: get_args,
+    });
+
+    assert_eq!(
+        client.try_multicall(&calls),
+        Err(Ok(ContractError::InvalidState))
+    );
+    assert_eq!(client.get_escrow(&id).state, EscrowState::Pending);
+    let token_client = token::Client::new(&env, &token);
+    assert_eq!(token_client.balance(&buyer), 1_000);
+    assert_eq!(token_client.balance(&contract_id), 0);
+}
+
+#[test]
+fn test_multicall_rejects_nested_multicall() {
+    let (env, admin, _seller, _buyer, _resolver, _token, fee_collector) = setup_env();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let calls = soroban_sdk::vec![
+        &env,
+        ContractCall {
+            function: Symbol::new(&env, "multicall"),
+            args: Vec::new(&env),
+        }
+    ];
+    assert_eq!(
+        client.try_multicall(&calls),
+        Err(Ok(ContractError::NotAuthorized))
+    );
+}
