@@ -962,8 +962,8 @@ fn test_propose_record_delivery_then_raise_dispute_blocks_execute() {
     // 1. Admin proposes delivery while the escrow is Shipped — proposal is
     //    stored but the escrow stays in Shipped state.
     // 2. Buyer raises a dispute (still within the dispute window) — escrow
-    //    transitions to Disputed; the DeliveryProposal record is orphaned in
-    //    storage (raise_dispute does not clear it).
+    //    transitions to Disputed; save_escrow detects the Shipped→Disputed
+    //    transition and automatically purges the DeliveryProposal storage key.
     // 3. After the timelock would have elapsed, admin attempts record_delivery —
     //    must fail with InvalidState because the escrow is now Disputed, not
     //    Shipped. The timelock check is never reached.
@@ -1008,8 +1008,13 @@ fn test_propose_record_delivery_then_raise_dispute_blocks_execute() {
         &hash,
     );
 
-    // Escrow must now be Disputed; delivery proposal is orphaned in storage.
+    // Escrow must now be Disputed; the Shipped→Disputed transition in
+    // save_escrow automatically purges the DeliveryProposal storage key.
     assert_eq!(client.get_escrow(&id).state, EscrowState::Disputed);
+    assert!(
+        !has_delivery_proposal(&env, &client, id),
+        "DeliveryProposal key must be removed when escrow leaves Shipped"
+    );
 
     // Step 3: advance past the timelock (1_000 + 86_400 = 87_400) and attempt
     // to execute record_delivery — must fail with InvalidState because the
@@ -1024,6 +1029,82 @@ fn test_propose_record_delivery_then_raise_dispute_blocks_execute() {
     );
 
     // Escrow remains Disputed with no funds moved.
+    let escrow = client.get_escrow(&id);
+    assert_eq!(escrow.state, EscrowState::Disputed);
+    assert_eq!(escrow.delivered_at, None);
+}
+
+/// Part C of issue #1266: propose delivery, raise dispute, assert the proposal
+/// is purged from storage, then confirm record_delivery is rejected.
+///
+/// This test verifies the full lifecycle:
+/// - `save_escrow` purges `DeliveryProposal` on any Shipped→* transition.
+/// - `record_delivery` returns `InvalidState` on a non-Shipped escrow even
+///   when no proposal key exists in storage.
+#[test]
+fn test_delivery_proposal_purged_on_dispute_and_record_delivery_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = register_token(&env);
+    let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let resolver = Address::generate(&env);
+
+    // Create and fund an escrow, then ship it.
+    let id = create_funded_escrow(
+        &env, &client, &seller, &buyer, &resolver, &token, 1000, 0, 3600,
+    );
+    client.mark_shipped(
+        &seller,
+        &id,
+        &soroban_sdk::String::from_str(&env, "TRACK-1266"),
+    );
+
+    // Admin proposes delivery — proposal key now lives in persistent storage.
+    env.ledger().set_timestamp(1_000);
+    client.propose_record_delivery(&admin, &id);
+    assert!(
+        has_delivery_proposal(&env, &client, id),
+        "proposal must exist after propose_record_delivery"
+    );
+
+    // Buyer raises a dispute. save_escrow detects Shipped→Disputed and
+    // calls clear_delivery_proposal, removing the key.
+    env.ledger().set_timestamp(2_000);
+    client.raise_dispute(
+        &buyer,
+        &id,
+        &Symbol::new(&env, "DAMAGED"),
+        &soroban_sdk::Bytes::from_slice(&env, b"item arrived damaged"),
+        &soroban_sdk::BytesN::from_array(&env, &[0xAB; 32]),
+    );
+
+    // Assert the proposal storage key is gone.
+    assert_eq!(
+        client.get_escrow(&id).state,
+        EscrowState::Disputed,
+        "escrow must be Disputed"
+    );
+    assert!(
+        !has_delivery_proposal(&env, &client, id),
+        "DeliveryProposal key must be purged on Shipped->Disputed transition"
+    );
+
+    // Attempt record_delivery after the timelock window would have passed —
+    // must fail with InvalidState; the escrow is Disputed, not Shipped.
+    env.ledger()
+        .set_timestamp(1_000 + crate::DELIVERY_TIMELOCK + 1);
+    let result = client.try_record_delivery(&admin, &id);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::InvalidState)),
+        "record_delivery must be rejected on a Disputed escrow"
+    );
+
+    // No delivery timestamp was written and funds are intact.
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Disputed);
     assert_eq!(escrow.delivered_at, None);

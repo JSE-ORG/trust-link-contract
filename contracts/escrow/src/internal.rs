@@ -634,6 +634,14 @@ pub(crate) fn get_ttl_extension(env: &Env) -> u32 {
 /// `prev_state` to avoid a redundant persistent read of the same key that
 /// `load_escrow` already paid for. Pass `None` only when there is no prior
 /// escrow to compare against (e.g. first save on creation).
+///
+/// Any transition away from `Shipped` automatically purges the pending
+/// `DeliveryProposal` storage entry (if any). A proposal can only exist while
+/// an escrow is `Shipped`, so allowing one to survive a state change would let
+/// a stale proposal be executed after dispute resolution or cancellation.
+/// Call sites that already clear the proposal explicitly (e.g. `raise_dispute`,
+/// `confirm_delivery`) are unaffected: `clear_delivery_proposal` is a no-op
+/// when the key is absent.
 pub(crate) fn save_escrow(
     env: &Env,
     id: u64,
@@ -642,19 +650,29 @@ pub(crate) fn save_escrow(
 ) {
     let key = DataKey::Escrow(id);
     let ext = get_ttl_extension(env);
-    let state_changed = if let Some(prev) = prev_state {
-        *prev != escrow.state
+
+    // Determine whether this save represents a state change and, if so, from
+    // which previous state.  We capture the previous state here so we can
+    // decide whether to clear the delivery proposal without an extra read.
+    let (state_changed, leaving_shipped) = if let Some(prev) = prev_state {
+        let changed = *prev != escrow.state;
+        (changed, changed && *prev == EscrowState::Shipped)
     } else {
         let previous: Option<EscrowData> = env.storage().persistent().get(&key);
-        previous
-            .as_ref()
-            .is_none_or(|existing| existing.state != escrow.state)
+        let prev_opt = previous.as_ref().map(|e| &e.state);
+        let changed = prev_opt.is_none_or(|s| *s != escrow.state);
+        let was_shipped = prev_opt.is_some_and(|s| *s == EscrowState::Shipped);
+        (changed, changed && was_shipped)
     };
 
     env.storage().persistent().set(&key, escrow);
     env.storage()
         .persistent()
         .extend_ttl(&key, ext / TTL_THRESHOLD_DIVISOR, ext);
+
+    if leaving_shipped {
+        clear_delivery_proposal(env, id);
+    }
 
     if state_changed {
         append_state_history(env, id, &escrow.state);
