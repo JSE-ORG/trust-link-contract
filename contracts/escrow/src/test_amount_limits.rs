@@ -237,3 +237,153 @@ fn test_set_amount_limits_auth() {
     let res = client.try_set_amount_limits(&seller, &500, &5000);
     assert_eq!(res, Err(Ok(ContractError::NotAuthorized)));
 }
+
+// ── Circuit breaker: rolling 24-hour volume limits ────────────────────────────
+
+use soroban_sdk::{
+    testutils::Ledger,
+    token,
+};
+
+fn mint(env: &Env, token: &Address, to: &Address, amount: i128) {
+    token::StellarAssetClient::new(env, token).mint(to, &amount);
+}
+
+/// Helper: creates and funds one escrow for `amount`, returning the escrow id.
+fn create_and_fund(
+    env: &Env,
+    client: &EscrowClient,
+    seller: &Address,
+    buyer: &Address,
+    resolver: &Address,
+    token: &Address,
+    amount: i128,
+) -> u64 {
+    let mut payees = Vec::new(env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(env);
+    let escrow_id = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        resolver,
+        token,
+        &amount,
+        &0_u32,
+        &3_600_u64,
+    );
+    client.fund_escrow(&escrow_id, buyer);
+    escrow_id
+}
+
+/// Admin can configure a per-token daily volume limit and the circuit breaker
+/// fires once that limit is reached.
+#[test]
+fn test_daily_volume_limit_blocks_excess_funding() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    // Set a daily limit of 1_000 for our token.
+    client.set_daily_volume_limit(&admin, &token, &1_000_i128);
+
+    // Mint enough tokens for the buyer to cover all attempted deposits.
+    mint(&env, &token, &buyer, 10_000);
+
+    // First escrow of 600 — still under the limit.
+    create_and_fund(&env, &client, &seller, &buyer, &resolver, &token, 600);
+
+    // Second escrow of 400 — hits the limit exactly (600 + 400 = 1_000 ≤ 1_000).
+    create_and_fund(&env, &client, &seller, &buyer, &resolver, &token, 400);
+
+    // Third attempt of 1 — would push total to 1_001 which exceeds the limit.
+    let mut payees = Vec::new(&env);
+    payees.push_back(Payee {
+        address: seller.clone(),
+        bps: 10_000,
+    });
+    let payees_val = payees.into_val(&env);
+    let over_id = client.create_escrow_8(
+        &payees_val,
+        &Some(buyer.clone()),
+        &resolver,
+        &token,
+        &1_i128,
+        &0_u32,
+        &3_600_u64,
+    );
+    let result = client.try_fund_escrow(&over_id, &buyer);
+    assert_eq!(result, Err(Ok(ContractError::AmountExceedsMaximum)));
+}
+
+/// The volume counter resets automatically after the 24-hour window elapses,
+/// allowing new deposits up to the configured limit again.
+#[test]
+fn test_daily_volume_window_resets_after_24h() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0_u32);
+    client.set_daily_volume_limit(&admin, &token, &1_000_i128);
+
+    mint(&env, &token, &buyer, 10_000);
+
+    // Fill the daily limit in the first window.
+    create_and_fund(&env, &client, &seller, &buyer, &resolver, &token, 1_000);
+
+    // Advance ledger time by exactly 24 hours to roll the window.
+    env.ledger().with_mut(|li| {
+        li.timestamp += 86_400;
+    });
+
+    // Should succeed again: the window rolled and the accumulator is fresh.
+    create_and_fund(&env, &client, &seller, &buyer, &resolver, &token, 1_000);
+}
+
+/// When no daily volume limit is set for a token the circuit breaker is
+/// inactive and arbitrarily large deposits are accepted.
+#[test]
+fn test_no_daily_volume_limit_allows_any_deposit() {
+    let (env, admin, seller, buyer, resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0_u32);
+    // Deliberately do NOT call set_daily_volume_limit.
+
+    mint(&env, &token, &buyer, 10_000_000);
+
+    // A very large deposit should go through unchecked.
+    create_and_fund(&env, &client, &seller, &buyer, &resolver, &token, 5_000_000);
+}
+
+/// A non-admin caller cannot set the daily volume limit.
+#[test]
+fn test_set_daily_volume_limit_requires_admin() {
+    let (env, admin, seller, _buyer, _resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let result = client.try_set_daily_volume_limit(&seller, &token, &1_000_i128);
+    assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+}
+
+/// A zero or negative limit is rejected with `InvalidAmount`.
+#[test]
+fn test_set_daily_volume_limit_rejects_zero() {
+    let (env, admin, _seller, _buyer, _resolver, token, fee_collector) = setup_env();
+    let contract_id = env.register(crate::Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0_u32);
+
+    let result = client.try_set_daily_volume_limit(&admin, &token, &0_i128);
+    assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
+}

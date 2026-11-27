@@ -741,7 +741,88 @@ pub fn remove_timelock_proposal(env: &Env, operation: u32) {
     }
 }
 
-#[cfg(test)]
+// ── Daily volume circuit breaker ─────────────────────────────────────────────
+
+/// Duration of the rolling volume window in seconds (24 hours).
+const DAILY_WINDOW_SECONDS: u64 = 86_400;
+
+/// Reads the current [`DailyVolumeRecord`] for `token`, or returns a fresh
+/// zeroed record if none exists yet.
+pub fn read_daily_volume(env: &Env, token: &Address) -> crate::DailyVolumeRecord {
+    env.storage()
+        .instance()
+        .get(&DataKey::DailyVolume(token.clone()))
+        .unwrap_or(crate::DailyVolumeRecord {
+            window_start: 0,
+            accumulated_volume: 0,
+        })
+}
+
+/// Persists a [`DailyVolumeRecord`] for `token`.
+pub fn write_daily_volume(env: &Env, token: &Address, record: &crate::DailyVolumeRecord) {
+    env.storage()
+        .instance()
+        .set(&DataKey::DailyVolume(token.clone()), record);
+}
+
+/// Reads the admin-configured daily volume limit for `token`.
+/// Returns `None` when no limit has been set (circuit breaker disabled for
+/// that token).
+pub fn read_daily_volume_limit(env: &Env, token: &Address) -> Option<i128> {
+    env.storage()
+        .instance()
+        .get(&DataKey::DailyVolumeLimit(token.clone()))
+}
+
+/// Persists the daily volume limit for `token`.
+pub fn write_daily_volume_limit(env: &Env, token: &Address, limit: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::DailyVolumeLimit(token.clone()), &limit);
+}
+
+/// Checks whether adding `amount` to the rolling 24-hour volume for `token`
+/// would breach the configured limit, then atomically updates the record.
+///
+/// - If no limit is configured for `token`, this is a no-op (always passes).
+/// - If the current window has expired (`now >= window_start + 86_400`) the
+///   accumulator is reset to zero before the check.
+/// - Returns `Err(ContractError::AmountExceedsMaximum)` when the new
+///   cumulative total would exceed the limit.
+pub fn check_and_update_daily_volume(
+    env: &Env,
+    token: &Address,
+    amount: i128,
+) -> Result<(), crate::ContractError> {
+    let limit = match read_daily_volume_limit(env, token) {
+        Some(l) => l,
+        None => return Ok(()), // no limit configured — circuit breaker inactive
+    };
+
+    let now = env.ledger().timestamp();
+    let mut record = read_daily_volume(env, token);
+
+    // Roll the window if the 24-hour period has elapsed.
+    if now >= record.window_start.saturating_add(DAILY_WINDOW_SECONDS) {
+        record.window_start = now;
+        record.accumulated_volume = 0;
+    }
+
+    let new_volume = record
+        .accumulated_volume
+        .checked_add(amount)
+        .ok_or(crate::ContractError::ArithmeticOverflow)?;
+
+    if new_volume > limit {
+        return Err(crate::ContractError::AmountExceedsMaximum);
+    }
+
+    record.accumulated_volume = new_volume;
+    write_daily_volume(env, token, &record);
+    Ok(())
+}
+
+
 mod tests {
     use super::*;
     use crate::{Escrow, EscrowClient};

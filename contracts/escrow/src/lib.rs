@@ -32,10 +32,10 @@ mod queries;
 pub use crate::errors::ContractError;
 pub use crate::events::*;
 pub use crate::types::{
-    BoundedBasket, ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus,
-    Escrow as EscrowData, EscrowInput, EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee,
-    PublicContractConfig, ResolutionType, ResolverSet, ResolverVote, TimelockOperation,
-    TimelockProposal, TokenBalanceInfo, TokenEntry, BASKET_CAPACITY,
+    BoundedBasket, ContractConfig, ContractStats, DataKey, DailyVolumeRecord, DisputeData,
+    DisputeStatus, Escrow as EscrowData, EscrowInput, EscrowState, ExpirySchedule, FeeConfig,
+    GlobalConfig, Payee, PublicContractConfig, ResolutionType, ResolverSet, ResolverVote,
+    TimelockOperation, TimelockProposal, TokenBalanceInfo, TokenEntry, BASKET_CAPACITY,
 };
 
 /// A single call descriptor used by the `multicall` batching function.
