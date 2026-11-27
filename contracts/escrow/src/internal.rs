@@ -1260,13 +1260,12 @@ pub(crate) fn distribute_basket_tokens(
         if !is_transferable_basket_entry(&entry, primary_token) {
             continue;
         }
-        let protocol_fee = crate::helpers::payout::calculate_fee(entry.amount, fee_bps)?;
-        let platform_fee = match config.treasury.as_ref() {
-            Some(_) => {
-                crate::helpers::payout::calculate_fee(entry.amount, escrow.platform_fee_bps)?
-            }
-            None => 0,
-        };
+        let (protocol_fee, platform_fee) = crate::helpers::payout::calculate_basket_fees(
+            entry.amount,
+            fee_bps,
+            escrow.platform_fee_bps,
+            config.treasury.is_some(),
+        )?;
         let net_amount = entry
             .amount
             .checked_sub(protocol_fee)
@@ -1864,25 +1863,18 @@ pub(crate) fn execute_resolution_transition(
     let mut dispute_data = load_dispute(env, escrow_id)?;
 
     let (arbitration_fee, resolver_fee) = if charge_fees {
-        // Guard order (issue #1065):
+        // Guard order (issues #1065 / #1260):
         // 1. Compute each fee with checked math (`calculate_fee`).
-        // 2. Reject a combined fee larger than the escrow amount *before* any
-        //    state mutation. This is the semantic guard that keeps the payout
-        //    non-negative.
+        // 2. Bound the combined fee by the escrow amount *before* any state
+        //    mutation (the arbitration fee takes priority and the resolver fee
+        //    is capped at the remainder). This keeps the payout non-negative
+        //    even when both non-zero rates hit their 1-stroop minimums.
         // 3. Only then deduct both fees with `checked_sub` below.
-        let arbitration_fee =
-            crate::helpers::payout::calculate_fee(escrow.amount, escrow.arbitration_fee_bps)?;
-        let resolver_fee =
-            crate::helpers::payout::calculate_fee(escrow.amount, escrow.resolver_fee_bps)?;
-
-        let combined_fee = arbitration_fee
-            .checked_add(resolver_fee)
-            .ok_or(ContractError::ArithmeticError)?;
-        if combined_fee > escrow.amount {
-            return Err(ContractError::FeeExceedsMax);
-        }
-
-        (arbitration_fee, resolver_fee)
+        crate::helpers::payout::calculate_dispute_fees(
+            escrow.amount,
+            escrow.arbitration_fee_bps,
+            escrow.resolver_fee_bps,
+        )?
     } else {
         (0, 0)
     };

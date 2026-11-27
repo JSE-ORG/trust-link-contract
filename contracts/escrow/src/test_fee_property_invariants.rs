@@ -11,8 +11,10 @@
 //! `validate_escrow_fee_bps`/`validate_resolver_fee_bps` and the combined-fee
 //! cap in `lib.rs`):
 //!
-//! - `fee + net == amount` (no stroop is lost or created), and
-//! - the fee never exceeds `amount` and rounds toward zero (floor).
+//! - `fee + net == amount` (no stroop is lost or created),
+//! - the fee never exceeds `amount` and rounds toward zero (floor), except
+//!   that a non-zero rate on a non-zero amount collects a 1-stroop minimum
+//!   (issue #1260), and
 //!
 //! It exercises the boundary amounts called out in issue #822
 //! (`MAX_ESCROW_AMOUNT`, `0`, `1`) plus a deterministic pseudo-random sweep
@@ -65,9 +67,15 @@ fn assert_invariants(amount: i128, fee_bps: u32) {
     // those cases.
     if let Some(exact_numerator) = amount.checked_mul(fee_bps as i128) {
         let exact_floor = exact_numerator / (BASIS_POINTS as i128);
+        let expected = if exact_floor == 0 && amount > 0 && fee_bps > 0 {
+            1
+        } else {
+            exact_floor
+        };
         assert_eq!(
-            fee, exact_floor,
-            "fee must equal floor(amount * fee_bps / BASIS_POINTS)"
+            fee, expected,
+            "fee must equal max(1, floor(amount * fee_bps / BASIS_POINTS)) \
+             for a non-zero rate on a non-zero amount"
         );
     }
 }
@@ -221,10 +229,13 @@ mod prop {
             let fee = calculate_fee(amount, fee_bps).expect("calculate_fee must not overflow");
             let q = amount / (BASIS_POINTS as i128);
             let r = amount % (BASIS_POINTS as i128);
-            prop_assert_eq!(
-                fee,
-                q * (fee_bps as i128) + r * (fee_bps as i128) / (BASIS_POINTS as i128)
-            );
+            let proportional = q * (fee_bps as i128) + r * (fee_bps as i128) / (BASIS_POINTS as i128);
+            let expected = if proportional == 0 && amount > 0 && fee_bps > 0 {
+                1
+            } else {
+                proportional
+            };
+            prop_assert_eq!(fee, expected);
             prop_assert!((r * (fee_bps as i128)) % (BASIS_POINTS as i128) < BASIS_POINTS as i128);
         }
 

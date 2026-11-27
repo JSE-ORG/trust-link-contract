@@ -61,25 +61,38 @@ pub fn calculate_multi_payee_allocations(
 
 /// Computes the protocol fee for `amount` at `fee_bps` basis points.
 ///
-/// # Rounding policy: floor (round toward zero)
+/// # Rounding policy: floor (round toward zero) with a 1-stroop minimum
 ///
-/// The fee is `floor(amount * fee_bps / 10_000)`. Integer division truncates,
-/// so any sub-stroop remainder is dropped from the fee. Crucially, callers
-/// derive the payout as `net = amount - fee` (see [`calculate_protocol_fee`]),
-/// which means the truncated remainder is **not** lost — it stays in `net` and
-/// is paid to the recipient (seller on release, buyer on refund). The `fee` is
-/// forwarded directly to the configured fee collector rather than retained by
-/// the contract. The invariant `net + fee == amount` therefore always holds
+/// The proportional part of the fee is `floor(amount * fee_bps / 10_000)`.
+/// Integer division truncates, so any sub-stroop remainder is dropped from the
+/// fee. Crucially, callers derive the payout as `net = amount - fee` (see
+/// [`calculate_protocol_fee`]), which means the truncated remainder is **not**
+/// lost — it stays in `net` and is paid to the recipient (seller on release,
+/// buyer on refund). The invariant `net + fee == amount` therefore always holds
 /// and no stroop is ever stranded.
 ///
-/// Consequence of flooring: for amounts where `amount * fee_bps < 10_000` the
-/// fee rounds down to `0` and is effectively waived. The `MIN_ESCROW_AMOUNT`
-/// guard (`1_000_000` stroops) in `create_escrow` keeps escrows large enough that
-/// a non-zero `fee_bps` always yields a meaningful, non-zero fee.
+/// # Minimum-fee rule (issue #1260)
 ///
-/// Floor is chosen deliberately over ceiling/round-half-up: it guarantees the
-/// contract never owes more than it custodies and never over-collects fees at
-/// the recipient's expense.
+/// Flooring alone would let a non-zero `fee_bps` collect `0` on micro amounts
+/// (`amount * fee_bps < 10_000`), which makes fee evasion profitable by
+/// fragmenting payments into dust-sized escrows. To close that hole, when
+/// `fee_bps > 0` and `amount > 0` the fee is raised to at least **1 stroop**:
+///
+/// ```text
+/// fee = max(1, floor(amount * fee_bps / 10_000))   for fee_bps > 0, amount > 0
+/// fee = 0                                          for fee_bps == 0 or amount == 0
+/// ```
+///
+/// The minimum never breaks fee-boundedness: `fee_bps <= BASIS_POINTS` and
+/// `amount >= 1` imply the proportional fee is at most `amount`, and the
+/// 1-stroop floor is also at most `amount`, so `0 <= fee <= amount` and
+/// `net = amount - fee >= 0` always hold.
+///
+/// Note that callers which charge several independent fees on the same
+/// principal (protocol + platform, arbitration + resolver) must still ensure
+/// their *combined* fee does not exceed the principal; see
+/// [`calculate_basket_fees`] and the combined-fee guards in the settlement
+/// paths, which cap the secondary fee at the remaining balance.
 ///
 /// The computation is split (`amount / 10_000 * fee_bps` plus the remainder
 /// term) to avoid overflowing `i128` for large amounts.
@@ -108,9 +121,112 @@ pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, ContractError> 
         .checked_div(i128::from(BASIS_POINTS))
         .ok_or(ContractError::FeeCalculationOverflow)?;
 
-    part1
+    let fee = part1
         .checked_add(part2)
-        .ok_or(ContractError::FeeCalculationOverflow)
+        .ok_or(ContractError::FeeCalculationOverflow)?;
+
+    // Issue #1260: a non-zero rate on a non-zero principal must never round
+    // the fee down to zero, otherwise dust-sized escrows evade the fee.
+    if fee == 0 && amount > 0 && fee_bps > 0 {
+        return Ok(1);
+    }
+    Ok(fee)
+}
+
+/// Computes the protocol fee and the (optional) platform fee on the same
+/// `amount`, ensuring their sum never exceeds the principal.
+///
+/// Both fees use [`calculate_fee`], so each independently applies the 1-stroop
+/// minimum for a non-zero rate on a non-zero amount. On a micro amount that
+/// minimum can make the two fees add up to more than the principal (e.g. two
+/// 1-stroop fees on a 1-stroop balance). Because the contract cannot transfer
+/// more than it custodies, the platform fee — the secondary, treasury-directed
+/// fee — is capped at `amount - protocol_fee`, giving the protocol fee
+/// priority. The protocol fee alone is always `<= amount`, so the cap never
+/// underflows and the returned `(protocol_fee, platform_fee)` satisfies
+/// `protocol_fee + platform_fee <= amount`.
+pub fn calculate_basket_fees(
+    amount: i128,
+    fee_bps: u32,
+    platform_fee_bps: u32,
+    platform_fee_enabled: bool,
+) -> Result<(i128, i128), ContractError> {
+    calculate_settlement_fees(
+        amount,
+        amount,
+        fee_bps,
+        platform_fee_bps,
+        platform_fee_enabled,
+    )
+}
+
+/// Computes the protocol and platform fees on `fee_basis` and caps them at
+/// `available` — the balance actually held for this settlement.
+///
+/// The two rates are independent (no compounding), so on a micro amount their
+/// 1-stroop minimums can together exceed what is left to pay after an earlier
+/// fee (e.g. an arbitration fee already deducted the whole principal). To keep
+/// `protocol_fee + platform_fee <= available`, the protocol fee is capped first
+/// and the platform fee (treasury-directed and secondary) gets only what
+/// remains. Both returned values are therefore non-negative and their sum can
+/// never underflow a caller's `checked_sub`.
+pub fn calculate_settlement_fees(
+    fee_basis: i128,
+    available: i128,
+    fee_bps: u32,
+    platform_fee_bps: u32,
+    platform_fee_enabled: bool,
+) -> Result<(i128, i128), ContractError> {
+    if available < 0 {
+        return Err(ContractError::InvalidAmount);
+    }
+    let mut protocol_fee = calculate_fee(fee_basis, fee_bps)?;
+    if protocol_fee > available {
+        protocol_fee = available;
+    }
+    let mut platform_fee = if platform_fee_enabled {
+        calculate_fee(fee_basis, platform_fee_bps)?
+    } else {
+        0
+    };
+    let remaining = available - protocol_fee;
+    if platform_fee > remaining {
+        platform_fee = remaining;
+    }
+    Ok((protocol_fee, platform_fee))
+}
+
+/// Computes the arbitration fee and the resolver fee on the same principal,
+/// ensuring their sum never exceeds it.
+///
+/// Each fee independently applies the 1-stroop minimum from [`calculate_fee`].
+/// If both minimums land on a micro principal at once, the arbitration fee
+/// (protocol-level) takes priority and the resolver fee is capped at the
+/// remaining balance, so the caller's `checked_sub` deductions can never
+/// underflow and resolution cannot be blocked by the fee schedule.
+pub fn calculate_dispute_fees(
+    amount: i128,
+    arbitration_fee_bps: u32,
+    resolver_fee_bps: u32,
+) -> Result<(i128, i128), ContractError> {
+    // Defence in depth: every public entry point already validates these
+    // rates, but this helper is also reachable through internal calls. Reject
+    // an out-of-range stored rate rather than silently capping it, so a
+    // corrupt/legacy escrow cannot be settled at a fee above the schedule.
+    if arbitration_fee_bps > crate::MAX_ARBITRATION_FEE_BPS
+        || resolver_fee_bps > crate::MAX_ESCROW_FEE_BPS
+    {
+        return Err(ContractError::FeeExceedsMax);
+    }
+    let arbitration_fee = calculate_fee(amount, arbitration_fee_bps)?;
+    let mut resolver_fee = calculate_fee(amount, resolver_fee_bps)?;
+    let remaining = amount
+        .checked_sub(arbitration_fee)
+        .ok_or(ContractError::AmountCalculationOverflow)?;
+    if resolver_fee > remaining {
+        resolver_fee = remaining;
+    }
+    Ok((arbitration_fee, resolver_fee))
 }
 
 /// Splits `net` between the payee and the buyer for a `Split(split_bps)`
@@ -174,7 +290,8 @@ pub(crate) fn transfer_with_protocol_fee(
 /// `treasury`. This mirrors the fees charged on the escrow's primary token so
 /// a large secondary basket balance cannot be used to evade them (Issue
 /// #1219). Both fees are computed independently on the gross `amount` (no
-/// compounding), and `payout` skips any fee that rounds to zero.
+/// compounding) and capped so their sum cannot exceed it (see
+/// [`calculate_basket_fees`]).
 ///
 /// Returns `(net_amount, total_fee)`.
 pub(crate) fn transfer_basket_with_fees(
@@ -188,11 +305,8 @@ pub(crate) fn transfer_basket_with_fees(
     _fee_collector: &Address,
     treasury: Option<&Address>,
 ) -> Result<(i128, i128), ContractError> {
-    let protocol_fee = calculate_fee(amount, fee_bps)?;
-    let platform_fee = match treasury {
-        Some(_) => calculate_fee(amount, platform_fee_bps)?,
-        None => 0,
-    };
+    let (protocol_fee, platform_fee) =
+        calculate_basket_fees(amount, fee_bps, platform_fee_bps, treasury.is_some())?;
     let net_amount = amount
         .checked_sub(protocol_fee)
         .ok_or(ContractError::AmountCalculationOverflow)?
@@ -277,11 +391,8 @@ pub(crate) fn transfer_basket_split_with_fees(
     _fee_collector: &Address,
     treasury: Option<&Address>,
 ) -> Result<(), ContractError> {
-    let protocol_fee = calculate_fee(amount, fee_bps)?;
-    let platform_fee = match treasury {
-        Some(_) => calculate_fee(amount, platform_fee_bps)?,
-        None => 0,
-    };
+    let (protocol_fee, platform_fee) =
+        calculate_basket_fees(amount, fee_bps, platform_fee_bps, treasury.is_some())?;
     let net_amount = amount
         .checked_sub(protocol_fee)
         .ok_or(ContractError::AmountCalculationOverflow)?
@@ -435,14 +546,15 @@ mod tests {
         let recipient = Address::generate(&env);
         let fee_collector = Address::generate(&env);
 
-        // amount = 1 at 300 bps => fee = 0, net = 1. The zero fee transfer is
-        // skipped; only the positive net transfer reaches the token.
+        // amount = 1 at 300 bps => the 1-stroop minimum fee applies, so
+        // fee = 1 and net = 0. The zero net transfer is skipped; only the
+        // positive fee transfer reaches the token.
         let (fee, net) = env
             .as_contract(&contract_id, || {
                 transfer_with_protocol_fee(&env, &token, &recipient, &fee_collector, 1, 300)
             })
             .unwrap();
-        assert_eq!((fee, net), (0, 1));
+        assert_eq!((fee, net), (1, 0));
 
         // amount = 0 => fee = 0 and net = 0. No token transfer is attempted,
         // so the zero-rejecting token is never called.

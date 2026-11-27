@@ -388,28 +388,29 @@ impl Escrow {
             .ok_or(ContractError::ArithmeticError)?;
 
         let treasury = crate::storage::get_treasury_address(&env);
-        let platform_fee = if platform_fee_bps > 0 && treasury.is_some() {
-            crate::helpers::payout::calculate_fee(fee_basis, platform_fee_bps)?
-        } else {
-            0
-        };
 
         // The protocol fee is a flat percentage of the same principal and is
         // independent of the platform fee — no compounding on a reduced base.
-        let protocol_fee = crate::helpers::payout::calculate_fee(fee_basis, escrow.fee_bps)?;
+        // Both fees are capped at `escrow.amount` (the principal remaining
+        // after the provisional arbitration/resolver deductions) so the
+        // 1-stroop minimums from issue #1260 can never make the settled fees
+        // exceed the balance still held, which would strand the escrow.
+        let (protocol_fee, platform_fee) = crate::helpers::payout::calculate_settlement_fees(
+            fee_basis,
+            escrow.amount,
+            escrow.fee_bps,
+            platform_fee_bps,
+            platform_fee_bps > 0 && treasury.is_some(),
+        )?;
 
         // Net payout: the principal minus the provisional arbitration and
         // resolver fees (`escrow.amount` is already net of them), minus the
         // platform and protocol fees settled here.
-        let total_fees = platform_fee
-            .checked_add(protocol_fee)
-            .ok_or(ContractError::FeeCalculationOverflow)?;
-        if total_fees > escrow.amount {
-            return Err(ContractError::InsufficientBalance);
-        }
         let payout_amount = escrow
             .amount
-            .checked_sub(total_fees)
+            .checked_sub(protocol_fee)
+            .ok_or(ContractError::InsufficientBalance)?
+            .checked_sub(platform_fee)
             .ok_or(ContractError::InsufficientBalance)?;
 
         // ── EFFECTS (state mutations) — must precede all external calls (CEI) ──
@@ -742,26 +743,24 @@ impl Escrow {
 
         let mut dispute_data = dispute_data;
         let fee_config = read_global_config(&env);
-        let protocol_fee = crate::helpers::payout::calculate_fee(escrow.amount, escrow.fee_bps)?;
         let treasury = if escrow.platform_fee_bps > 0 {
             fee_config.treasury.clone()
         } else {
             None
         };
-        let platform_fee = if treasury.is_some() {
-            crate::helpers::payout::calculate_fee(escrow.amount, escrow.platform_fee_bps)?
-        } else {
-            0
-        };
-        let total_fees = protocol_fee
-            .checked_add(platform_fee)
-            .ok_or(ContractError::FeeCalculationOverflow)?;
-        if total_fees > escrow.amount {
-            return Err(ContractError::InsufficientBalance);
-        }
+        // Issue #1260: cap the protocol + platform fees at the principal so
+        // the 1-stroop minimums can never exceed the held balance.
+        let (protocol_fee, platform_fee) = crate::helpers::payout::calculate_basket_fees(
+            escrow.amount,
+            escrow.fee_bps,
+            escrow.platform_fee_bps,
+            treasury.is_some(),
+        )?;
         let payout_amount = escrow
             .amount
-            .checked_sub(total_fees)
+            .checked_sub(protocol_fee)
+            .ok_or(ContractError::InsufficientBalance)?
+            .checked_sub(platform_fee)
             .ok_or(ContractError::InsufficientBalance)?;
         if protocol_fee > 0 {
             crate::storage::require_fee_collector(&env)?;

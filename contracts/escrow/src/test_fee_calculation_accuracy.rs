@@ -62,11 +62,12 @@ fn test_fee_calculation_50_bps_minimum_amount() {
 
     let (fee, net) = result.unwrap();
 
-    // For 1 stroop: fee = 1 * 50 / 10000 = 0 (rounds down)
-    assert_eq!(fee, 0);
+    // For 1 stroop the proportional fee is 0, but a non-zero rate on a
+    // non-zero principal collects the 1-stroop minimum (issue #1260).
+    assert_eq!(fee, 1);
     // Verify net + fee = original amount (no rounding loss)
     assert_eq!(net + fee, amount);
-    assert_eq!(net, 1);
+    assert_eq!(net, 0);
 }
 
 #[test]
@@ -98,11 +99,12 @@ fn test_fee_calculation_100_bps_minimum_amount() {
 
     let (fee, net) = result.unwrap();
 
-    // For 1 stroop: fee = 1 * 100 / 10000 = 0 (rounds down)
-    assert_eq!(fee, 0);
+    // For 1 stroop the proportional fee is 0, but a non-zero rate on a
+    // non-zero principal collects the 1-stroop minimum (issue #1260).
+    assert_eq!(fee, 1);
     // Verify net + fee = original amount (no rounding loss)
     assert_eq!(net + fee, amount);
-    assert_eq!(net, 1);
+    assert_eq!(net, 0);
 }
 
 #[test]
@@ -134,11 +136,12 @@ fn test_fee_calculation_150_bps_minimum_amount() {
 
     let (fee, net) = result.unwrap();
 
-    // For 1 stroop: fee = 1 * 150 / 10000 = 0 (rounds down)
-    assert_eq!(fee, 0);
+    // For 1 stroop the proportional fee is 0, but a non-zero rate on a
+    // non-zero principal collects the 1-stroop minimum (issue #1260).
+    assert_eq!(fee, 1);
     // Verify net + fee = original amount (no rounding loss)
     assert_eq!(net + fee, amount);
-    assert_eq!(net, 1);
+    assert_eq!(net, 0);
 }
 
 #[test]
@@ -170,11 +173,12 @@ fn test_fee_calculation_200_bps_minimum_amount() {
 
     let (fee, net) = result.unwrap();
 
-    // For 1 stroop: fee = 1 * 200 / 10000 = 0 (rounds down)
-    assert_eq!(fee, 0);
+    // For 1 stroop the proportional fee is 0, but a non-zero rate on a
+    // non-zero principal collects the 1-stroop minimum (issue #1260).
+    assert_eq!(fee, 1);
     // Verify net + fee = original amount (no rounding loss)
     assert_eq!(net + fee, amount);
-    assert_eq!(net, 1);
+    assert_eq!(net, 0);
 }
 
 #[test]
@@ -206,11 +210,12 @@ fn test_fee_calculation_250_bps_minimum_amount() {
 
     let (fee, net) = result.unwrap();
 
-    // For 1 stroop: fee = 1 * 250 / 10000 = 0 (rounds down)
-    assert_eq!(fee, 0);
+    // For 1 stroop the proportional fee is 0, but a non-zero rate on a
+    // non-zero principal collects the 1-stroop minimum (issue #1260).
+    assert_eq!(fee, 1);
     // Verify net + fee = original amount (no rounding loss)
     assert_eq!(net + fee, amount);
-    assert_eq!(net, 1);
+    assert_eq!(net, 0);
 }
 
 #[test]
@@ -242,11 +247,12 @@ fn test_fee_calculation_300_bps_minimum_amount() {
 
     let (fee, net) = result.unwrap();
 
-    // For 1 stroop: fee = 1 * 300 / 10000 = 0 (rounds down)
-    assert_eq!(fee, 0);
+    // For 1 stroop the proportional fee is 0, but a non-zero rate on a
+    // non-zero principal collects the 1-stroop minimum (issue #1260).
+    assert_eq!(fee, 1);
     // Verify net + fee = original amount (no rounding loss)
     assert_eq!(net + fee, amount);
-    assert_eq!(net, 1);
+    assert_eq!(net, 0);
 }
 
 #[test]
@@ -570,41 +576,44 @@ fn test_dispute_allocations_zero_fee_no_fee_transfer() {
 }
 
 /// Tests that `calculate_fee` correctly floors sub-stroop remainders when
-/// `amount * fee_bps` is not evenly divisible by `BASIS_POINTS` (10_000).
+/// `amount * fee_bps` is not evenly divisible by `BASIS_POINTS` (10_000), with
+/// the 1-stroop minimum applied to non-zero rates on non-zero amounts.
 ///
 /// The algorithm splits the computation to avoid i128 overflow:
 ///
 /// ```text
 /// part1 = (amount / 10_000) * fee_bps          -- whole multiple contribution
 /// part2 = (amount % 10_000) * fee_bps / 10_000 -- remainder contribution (floored)
-/// fee   = part1 + part2
+/// fee   = part1 + part2                        -- raised to 1 if it is 0
 /// net   = amount - fee
 /// ```
 ///
 /// Because integer division truncates, any fractional stroop is dropped from
 /// `fee` and stays in `net`. The invariant `net + fee == amount` always holds,
-/// so no stroop is ever stranded in the contract.
+/// so no stroop is ever stranded in the contract. Where the floored fee would
+/// be 0, the minimum-fee rule (issue #1260) collects exactly 1 stroop instead.
 ///
 /// Cases chosen to expose the rounding boundary:
 ///
-/// | amount | fee_bps | exact fee | floored fee | dropped remainder |
-/// |--------|---------|-----------|-------------|-------------------|
-/// | 1      | 3       | 0.0003    | 0           | 0.0003 stroop     |
-/// | 3_333  | 3       | 0.9999    | 0           | 0.9999 stroop     | ← largest waived fee
-/// | 3_334  | 3       | 1.0002    | 1           | 0.0002 stroop     | ← first amount yielding 1 stroop
-/// | 9_999  | 3       | 2.9997    | 2           | 0.9997 stroop     | ← issue's stated example
-/// | 10_001 | 3       | 3.0003    | 3           | 0.0003 stroop     |
-/// | 99_997 | 3       | 29.9991   | 29          | 0.9991 stroop     |
+/// | amount | fee_bps | exact fee | fee (with minimum) | dropped remainder |
+/// |--------|---------|-----------|--------------------|-------------------|
+/// | 1      | 3       | 0.0003    | 1 (minimum)        | 0.9997 stroop     |
+/// | 3_333  | 3       | 0.9999    | 1 (minimum)        | 0.0001 stroop     | ← largest amount the minimum applies to
+/// | 3_334  | 3       | 1.0002    | 1                  | 0.0002 stroop     | ← first amount yielding 1 stroop proportionally
+/// | 9_999  | 3       | 2.9997    | 2                  | 0.9997 stroop     | ← issue's stated example
+/// | 10_001 | 3       | 3.0003    | 3                  | 0.0003 stroop     |
+/// | 99_997 | 3       | 29.9991   | 29                 | 0.9991 stroop     |
 #[test]
 fn test_fee_calculation_odd_amounts_sub_stroop_rounding_3bps() {
     // (amount, expected_fee, expected_net)
-    // Derived via: fee = floor(amount * 3 / 10_000), net = amount - fee.
+    // Derived via: fee = max(1, floor(amount * 3 / 10_000)), net = amount - fee.
     let cases: &[(i128, i128, i128)] = &[
-        // 1 * 3 / 10_000 = 0.0003 → fee = 0, all 1 stroop stays with recipient.
-        (1, 0, 1),
-        // 3_333 * 3 / 10_000 = 0.9999 → fee rounds down to 0 (largest waived fee at 3 bps).
-        (3_333, 0, 3_333),
-        // 3_334 * 3 / 10_000 = 1.0002 → fee = 1 (the first amount where 3 bps charges 1 stroop).
+        // 1 * 3 / 10_000 = 0.0003 → fee = 1 by the minimum-fee rule.
+        (1, 1, 0),
+        // 3_333 * 3 / 10_000 = 0.9999 → fee = 1 by the minimum-fee rule.
+        (3_333, 1, 3_332),
+        // 3_334 * 3 / 10_000 = 1.0002 → fee = 1 (the first amount where 3 bps
+        // charges 1 stroop proportionally).
         (3_334, 1, 3_333),
         // 9_999 * 3 / 10_000 = 2.9997 → fee = 2, 0.9997 sub-stroop dropped.
         // This is the canonical example from the issue description.
@@ -637,18 +646,28 @@ fn test_fee_calculation_odd_amounts_sub_stroop_rounding_3bps() {
              net={net}, fee={fee}, sum={}",
             net + fee
         );
-        // Rounding is always floor: fee must never exceed the exact rational value.
-        // Equivalently: fee * 10_000 <= amount * 3.
-        assert!(
-            fee * 10_000 <= amount * 3,
-            "fee {fee} exceeds exact rational value for amount={amount} @ 3 bps"
-        );
-        // The truncated remainder is strictly less than 1 stroop:
-        // fee * 10_000 + 10_000 > amount * 3  (i.e. fee+1 would over-charge)
-        assert!(
-            fee * 10_000 + 10_000 > amount * 3,
-            "incorrect fee floor for amount={amount} @ 3 bps: {fee}"
-        );
+        let exact_floor = amount * 3 / 10_000;
+        if exact_floor == 0 {
+            // The proportional fee truncates to zero; the minimum-fee rule
+            // substitutes exactly 1 stroop (issue #1260).
+            assert_eq!(
+                fee, 1,
+                "amount={amount} @ 3 bps must collect the 1-stroop minimum"
+            );
+        } else {
+            // Otherwise rounding is floor: the fee must never exceed the exact
+            // rational value. Equivalently: fee * 10_000 <= amount * 3.
+            assert!(
+                fee * 10_000 <= amount * 3,
+                "fee {fee} exceeds exact rational value for amount={amount} @ 3 bps"
+            );
+            // The truncated remainder is strictly less than 1 stroop:
+            // fee * 10_000 + 10_000 > amount * 3  (i.e. fee+1 would over-charge)
+            assert!(
+                fee * 10_000 + 10_000 > amount * 3,
+                "incorrect fee floor for amount={amount} @ 3 bps: {fee}"
+            );
+        }
     }
 }
 
