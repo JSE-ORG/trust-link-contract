@@ -1584,6 +1584,21 @@ pub(crate) fn read_counter_total(env: &Env, kind: u32, legacy_key: &DataKey) -> 
     legacy.saturating_add(read_sharded_counter_total(env, kind))
 }
 
+#[cfg(any(test, feature = "testutils"))]
+pub(crate) fn assert_contract_invariants(env: &Env) {
+    let created = read_counter_total(env, COUNTER_KIND_CREATED, &DataKey::TotalCreated);
+    let escrow_counter: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::EscrowCounter)
+        .unwrap_or(1);
+    assert_eq!(
+        created,
+        escrow_counter.saturating_sub(1),
+        "TotalCreated must equal the number of escrows created"
+    );
+}
+
 /// Reads the admin-configured maximum dispute duration, falling back to
 /// [`crate::DEFAULT_DISPUTE_TIMEOUT`] when the admin has not set one.
 pub(crate) fn read_dispute_timeout(env: &Env) -> u64 {
