@@ -136,12 +136,10 @@ fn same_address_rejected() {
 #[test]
 fn new_resolver_cannot_be_seller() {
     let fx = setup();
-    // resolver != seller (both generated independently), so passing seller as
-    // new_resolver hits the InvalidAddress guard, not SameAddress.
     let result = fx
         .client
         .try_rotate_resolver(&fx.admin, &fx.escrow_id, &fx.seller);
-    assert_eq!(result, Err(Ok(ContractError::InvalidAddress)));
+    assert_eq!(result, Err(Ok(ContractError::ConflictingRoles)));
 }
 
 #[test]
@@ -152,7 +150,44 @@ fn new_resolver_cannot_be_buyer() {
     let result = fx
         .client
         .try_rotate_resolver(&fx.seller, &fx.escrow_id, &fx.buyer);
-    assert_eq!(result, Err(Ok(ContractError::InvalidAddress)));
+    assert_eq!(result, Err(Ok(ContractError::ConflictingRoles)));
+}
+
+#[test]
+fn rotation_rejected_after_shipment() {
+    let fx = setup();
+    fx.client.fund_escrow(&fx.escrow_id, &fx.buyer);
+    fx.client.mark_shipped(
+        &fx.seller,
+        &fx.escrow_id,
+        soroban_sdk::String::from_str(&fx.env, "TRK-ROT"),
+    );
+
+    let new_resolver = Address::generate(&fx.env);
+    let result = fx
+        .client
+        .try_rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+}
+
+#[test]
+fn strict_mode_requires_approved_new_resolver() {
+    let fx = setup();
+    fx.client.set_resolver_strict(&fx.admin, &true);
+
+    let unapproved = Address::generate(&fx.env);
+    let result = fx
+        .client
+        .try_rotate_resolver(&fx.admin, &fx.escrow_id, &unapproved);
+    assert_eq!(result, Err(Ok(ContractError::UnauthorizedResolver)));
+
+    fx.client.add_approved_resolver(&fx.admin, &unapproved);
+    fx.client
+        .rotate_resolver(&fx.admin, &fx.escrow_id, &unapproved);
+    assert_eq!(
+        fx.client.get_escrow(&fx.escrow_id).resolvers,
+        ResolverSet::Single(unapproved)
+    );
 }
 
 #[test]
@@ -358,10 +393,9 @@ fn drive_to_dispute(fx: &Fx) {
     );
 }
 
-/// Issue #: the admin must be able to rotate the resolver while a dispute is
-/// active (i.e. before it is resolved). State remains `Disputed`.
+/// Resolver rotation is prohibited once a dispute is active.
 #[test]
-fn admin_can_rotate_resolver_during_active_dispute() {
+fn rotation_rejected_during_active_dispute() {
     let fx = setup();
     drive_to_dispute(&fx);
     assert_eq!(
@@ -370,17 +404,14 @@ fn admin_can_rotate_resolver_during_active_dispute() {
     );
 
     let new_resolver = Address::generate(&fx.env);
-    fx.client
-        .rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
-
-    let escrow = fx.client.get_escrow(&fx.escrow_id);
-    assert_eq!(escrow.resolvers, ResolverSet::Single(new_resolver));
-    // Rotation does not change the lifecycle state.
-    assert_eq!(escrow.state, EscrowState::Disputed);
+    let result = fx
+        .client
+        .try_rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
+    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
 }
 
-/// Acceptance: rotation is only allowed before resolution. Once the dispute is
-/// resolved the escrow is terminal and rotation is rejected.
+/// Rotation is rejected after dispute resolution, including during
+/// PendingFinalization and after settlement.
 #[test]
 fn rotation_rejected_after_dispute_resolved() {
     let fx = setup();
@@ -404,12 +435,11 @@ fn rotation_rejected_after_dispute_resolved() {
         EscrowState::Completed
     );
 
-    // Dedicated code for a Completed escrow (was InvalidState).
     let new_resolver = Address::generate(&fx.env);
     let result = fx
         .client
         .try_rotate_resolver(&fx.admin, &fx.escrow_id, &new_resolver);
-    assert_eq!(result, Err(Ok(ContractError::EscrowAlreadyCompleted)));
+    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
 }
 
 /// Acceptance: a `resolver_rotated` event is emitted carrying the old and new
@@ -417,7 +447,6 @@ fn rotation_rejected_after_dispute_resolved() {
 #[test]
 fn rotation_emits_resolver_rotated_event() {
     let fx = setup();
-    drive_to_dispute(&fx);
 
     let new_resolver = Address::generate(&fx.env);
     fx.client

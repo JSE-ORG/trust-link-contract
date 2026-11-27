@@ -2091,7 +2091,9 @@ impl Escrow {
     }
 
     /// Rotates the resolver for an escrow. Callable by any payee or admin.
-    /// New resolver must differ from current resolver, all payees, and buyer.
+    /// Only allowed while Pending or Funded. The new resolver must differ
+    /// from the current resolver, all payees, and buyer, and be approved when
+    /// strict resolver mode is enabled.
     pub fn rotate_resolver(
         env: Env,
         caller: Address,
@@ -2124,18 +2126,8 @@ impl Escrow {
             return Err(ContractError::NotAuthorized);
         }
 
-        let is_terminal = matches!(
-            escrow.state,
-            EscrowState::Completed
-                | EscrowState::Refunded
-                | EscrowState::Canceled
-                | EscrowState::Expired
-        );
-        if is_terminal {
-            return Err(terminal_state_error(
-                &escrow.state,
-                ContractError::InvalidState,
-            ));
+        if escrow.state != EscrowState::Pending && escrow.state != EscrowState::Funded {
+            return Err(ContractError::InvalidState);
         }
 
         // Only support rotation for single-resolver escrows (backward compat)
@@ -2151,13 +2143,15 @@ impl Escrow {
                     .get(i)
                     .ok_or(ContractError::IndexOutOfBounds)?;
                 if new_resolver == payee.address {
-                    return Err(ContractError::InvalidAddress);
+                    return Err(ContractError::ConflictingRoles);
                 }
             }
 
             if escrow.buyer.as_ref() == Some(&new_resolver) {
-                return Err(ContractError::InvalidAddress);
+                return Err(ContractError::ConflictingRoles);
             }
+
+            ensure_resolver_approved(&env, &new_resolver)?;
 
             let old_resolver = current_resolver.clone();
             escrow.resolvers = ResolverSet::Single(new_resolver.clone());
