@@ -60,7 +60,10 @@ pub fn read_global_config(env: &Env) -> GlobalConfig {
     env.storage()
         .instance()
         .get(&DataKey::GlobalConfig)
-        .unwrap_or_else(|| read_legacy_global_config(env))
+        .unwrap_or_else(|| {
+            #[allow(deprecated)]
+            read_legacy_global_config(env)
+        })
 }
 
 pub fn write_global_config(env: &Env, config: &GlobalConfig) {
@@ -157,7 +160,9 @@ fn legacy_global_config_keys() -> [DataKey; 13] {
     ]
 }
 
+#[deprecated(note = "legacy configuration is read only during migration")]
 fn read_legacy_global_config(env: &Env) -> GlobalConfig {
+    soroban_sdk::log!(env, "deprecated legacy global config read");
     let storage = env.storage().instance();
     let defaults = default_global_config();
     let fees: Option<FeeConfig> = storage.get(&DataKey::FeeConfig);

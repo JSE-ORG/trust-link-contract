@@ -200,11 +200,15 @@ fn downgrade_to_v1_config_layout(env: &Env, contract_id: &Address, treasury: &Ad
             },
         );
         storage.set(&DataKey::PlatformFeeBps, &40_u32);
+        storage.set(&DataKey::AppealFeeBps, &25_u32);
         storage.set(&DataKey::MinAmount, &10_i128);
         storage.set(&DataKey::MaxAmount, &5_000_i128);
         storage.set(&DataKey::DisputeTimeout, &86_400_u64);
-        storage.set(&DataKey::Paused, &false);
+        storage.set(&DataKey::TtlExtensionLedgers, &50_000_u32);
+        storage.set(&DataKey::Paused, &true);
+        storage.set(&DataKey::TokenAllowlistEnabled, &true);
         storage.set(&DataKey::ResolverStrict, &true);
+        storage.set(&DataKey::RecoveryMode, &true);
     });
 }
 
@@ -222,6 +226,7 @@ fn v1_config_keys_are_readable_before_migrate_and_folded_by_it() {
     assert_eq!(f.client.get_arbitration_fee(), 120);
     assert_eq!(f.client.get_dispute_timeout(), 86_400);
     assert!(f.client.is_resolver_strict());
+    assert!(f.client.is_paused());
 
     f.client.migrate(&f.admin);
     assert_eq!(f.client.get_storage_version(), STORAGE_VERSION);
@@ -236,27 +241,30 @@ fn v1_config_keys_are_readable_before_migrate_and_folded_by_it() {
         assert_eq!(config.protocol_fee_bps, 75);
         assert_eq!(config.arbitration_fee_bps, 120);
         assert_eq!(config.platform_fee_bps, 40);
+        assert_eq!(config.appeal_fee_bps, 25);
         assert_eq!(config.min_amount, 10);
         assert_eq!(config.max_amount, 5_000);
         assert_eq!(config.dispute_timeout, 86_400);
+        assert_eq!(config.ttl_extension_ledgers, 50_000);
+        assert!(config.state_flags & crate::types::GLOBAL_CONFIG_FLAG_PAUSED != 0);
+        assert!(config.state_flags & crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED != 0);
         assert!(config.state_flags & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT != 0);
-        // Settings that were never written keep their defaults.
-        assert_eq!(
-            config.ttl_extension_ledgers,
-            crate::storage::default_global_config().ttl_extension_ledgers,
-        );
-        assert!(config.state_flags & crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE == 0);
+        assert!(config.state_flags & crate::types::GLOBAL_CONFIG_FLAG_RECOVERY_MODE != 0);
 
         for key in [
             DataKey::FeeCollector,
             DataKey::Treasury,
             DataKey::FeeConfig,
             DataKey::PlatformFeeBps,
+            DataKey::AppealFeeBps,
             DataKey::MinAmount,
             DataKey::MaxAmount,
             DataKey::DisputeTimeout,
+            DataKey::TtlExtensionLedgers,
             DataKey::Paused,
+            DataKey::TokenAllowlistEnabled,
             DataKey::ResolverStrict,
+            DataKey::RecoveryMode,
         ] {
             assert!(!storage.has(&key), "legacy config key must be removed");
         }
