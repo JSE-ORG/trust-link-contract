@@ -2091,7 +2091,9 @@ impl Escrow {
     }
 
     /// Rotates the resolver for an escrow. Callable by any payee or admin.
-    /// New resolver must differ from current resolver, all payees, and buyer.
+    /// Only allowed while Pending or Funded. The new resolver must differ
+    /// from the current resolver, all payees, and buyer, and be approved when
+    /// strict resolver mode is enabled.
     pub fn rotate_resolver(
         env: Env,
         caller: Address,
