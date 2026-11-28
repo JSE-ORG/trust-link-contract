@@ -17,6 +17,8 @@ non-user-facing repository maintenance.
   Indexers can use this field to detect breaking schema changes without inspecting
   topics.  The versioning policy and a per-version changelog table are documented
   in `docs/events.md`.
+- Added `co_signed_release_by_signature` for buyer-authorized Ed25519 releases
+  submitted by the primary payee.
 - Added a complete storage layout reference in `docs/storage.md` documenting
   every `DataKey`/`StorageKey` entry with its type, storage tier, and TTL
   strategy.
@@ -33,6 +35,9 @@ non-user-facing repository maintenance.
 
 ### Changed
 
+- Added the non-null `resolved_by` address to `DisputeResolved` event payloads;
+  timeout refunds are attributed to the escrow contract. Bumped the event
+  schema version to 5 and updated indexer documentation.
 - Rewrote `CONTRIBUTING.md`: corrected the project structure, build/test
   commands, and wasm target (`wasm32v1-none`) to match the current workspace
   layout, and added a Quick Start section so new contributors can set up in
@@ -48,7 +53,9 @@ non-user-facing repository maintenance.
 
 ### Fixed
 
-- Nothing yet.
+- Strict resolver mode now checks current registry approval on every dispute
+  resolution and vote, immediately blocking resolvers removed during an active
+  dispute, and excludes de-listed resolvers' previous votes from the quorum.
 
 ### Security
 

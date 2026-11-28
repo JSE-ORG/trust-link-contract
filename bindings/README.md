@@ -129,6 +129,8 @@ on `EscrowClient` (hover in your editor).
 | `mark_shipped(caller, escrowId, trackingId)` | Seller records shipment |
 | `record_delivery(caller, escrowId)` | Records delivery, starts the auto-release window |
 | `confirm_delivery(caller, escrowId)` | Buyer accepts delivery, releases funds |
+| `co_signed_release(caller, escrowId)` | Releases with buyer and primary payee authorization in the transaction |
+| `co_signed_release_by_signature(caller, escrowId, signature, publicKey)` | Primary payee submits a buyer's Ed25519 authorization; the buyer key signs the SHA-256 hash of XDR-encoded contract address, `co_signed_release`, and escrow id |
 | `auto_release(escrowId)` | Anyone releases funds once the windows elapse |
 | `cancel_escrow(caller, escrowId)` / `mutual_cancel(escrowId)` | Cancel an escrow |
 | `request_refund(caller, escrowId)` / `approve_refund(caller, escrowId)` | Buyer/seller refund handshake |
@@ -141,6 +143,13 @@ on `EscrowClient` (hover in your editor).
 | `get_escrows_by_buyer(buyer)` | List escrow ids for a buyer |
 | `get_escrows_by_vendor(vendor, start, limit)` | One page (max 50, ascending) of escrow ids for a vendor |
 | `get_stats()` / `get_public_config()` / `get_fee_config()` | Read aggregate/config state |
+
+For `co_signed_release_by_signature`, `publicKey` must be the Ed25519 key
+encoded in the escrow buyer's Stellar account address. The buyer signs the
+32-byte SHA-256 digest of the Soroban XDR encoding of
+`{ contract, action: "co_signed_release", escrow_id }`. The signature is
+specific to this contract and escrow, and the primary payee must authorize the
+submitting transaction.
 
 ### React hooks
 

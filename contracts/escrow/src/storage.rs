@@ -2,7 +2,7 @@ use soroban_sdk::{Address, Env, Vec};
 
 use crate::types::{EvidenceEntry, Message};
 use crate::{
-    ContractError, DataKey, EscrowData, FeeConfig, GlobalConfig, TimelockProposal,
+    ContractError, DataKey, EscrowData, FeeConfig, GlobalConfig, ResolverVote, TimelockProposal,
     DEFAULT_APPEAL_FEE_BPS, DEFAULT_DISPUTE_TIMEOUT, DEFAULT_TTL_EXTENSION, MAX_ESCROW_AMOUNT,
     MIN_ESCROW_AMOUNT, TTL_THRESHOLD_DIVISOR,
 };
@@ -24,6 +24,31 @@ use crate::{
 /// Get the configured TTL extension from the contract, or use the default.
 pub fn get_ttl_extension(env: &Env) -> u32 {
     read_global_config(env).ttl_extension_ledgers
+}
+
+pub(crate) fn is_resolver_approved(env: &Env, resolver: &Address) -> bool {
+    let approved: Vec<Address> = env
+        .storage()
+        .instance()
+        .get(&DataKey::ApprovedResolvers)
+        .unwrap_or_else(|| Vec::new(env));
+    approved.iter().any(|approved| approved == *resolver)
+}
+
+pub(crate) fn approved_resolver_votes(env: &Env, votes: &Vec<ResolverVote>) -> Vec<ResolverVote> {
+    let strict =
+        read_global_config(env).state_flags & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT != 0;
+    if !strict {
+        return votes.clone();
+    }
+
+    let mut active_votes = Vec::new(env);
+    for vote in votes.iter() {
+        if is_resolver_approved(env, &vote.resolver) {
+            active_votes.push_back(vote);
+        }
+    }
+    active_votes
 }
 
 // ── Global admin configuration ──────────────────────────────────────────────

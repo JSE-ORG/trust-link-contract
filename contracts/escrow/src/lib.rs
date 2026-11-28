@@ -12,7 +12,7 @@
 )]
 use crate::internal::{
     add_or_update_vote, ensure_action_not_paused, execute_resolution_transition, get_ttl_extension,
-    load_escrow, save_resolver_votes, tally_votes, terminal_state_error,
+    load_escrow, load_resolver_votes, save_resolver_votes, tally_votes, terminal_state_error,
 };
 use soroban_sdk::{contract, contracttype, Address, Env, Symbol, Val, Vec};
 
@@ -375,6 +375,12 @@ fn resolve_or_vote_internal(
     memo: soroban_sdk::Bytes,
 ) -> Result<(), ContractError> {
     ensure_action_not_paused(env, Symbol::new(env, "RESOLVE"))?;
+    let strict_resolvers = crate::storage::read_global_config(env).state_flags
+        & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
+        != 0;
+    if strict_resolvers && !crate::storage::is_resolver_approved(env, &caller) {
+        return Err(ContractError::UnauthorizedResolver);
+    }
     resolution.validate()?;
     let escrow = load_escrow(env, escrow_id)?;
 
@@ -392,6 +398,11 @@ fn resolve_or_vote_internal(
         return Err(ContractError::NotAuthorized);
     }
 
+    let existing_votes = load_resolver_votes(env, escrow_id);
+    let active_votes = crate::storage::approved_resolver_votes(env, &existing_votes);
+    if active_votes != existing_votes {
+        save_resolver_votes(env, escrow_id, &active_votes);
+    }
     let votes = add_or_update_vote(env, escrow_id, &caller, resolution.clone());
     let threshold = escrow.resolvers.threshold();
 

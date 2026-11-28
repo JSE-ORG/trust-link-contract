@@ -177,6 +177,11 @@ export const contractAbi = {
     { name: "record_delivery", inputs: ["caller", "escrow_id"], output: "void" },
     { name: "confirm_delivery", inputs: ["caller", "escrow_id"], output: "void" },
     { name: "co_signed_release", inputs: ["caller", "escrow_id"], output: "void" },
+    {
+      name: "co_signed_release_by_signature",
+      inputs: ["caller", "escrow_id", "signature", "public_key"],
+      output: "void",
+    },
     { name: "extend_escrow_ttl", inputs: ["escrow_id"], output: "void" },
     { name: "auto_release", inputs: ["escrow_id"], output: "void" },
     { name: "request_refund", inputs: ["caller", "escrow_id"], output: "void" },

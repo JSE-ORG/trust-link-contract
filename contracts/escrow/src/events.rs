@@ -9,7 +9,7 @@ use crate::ResolutionType;
 /// Increment this constant whenever a field is added, removed, or renamed in
 /// any event struct.  Consumers can use it to guard against decoding stale
 /// snapshots with the wrong XDR shape.
-pub const EVENT_SCHEMA_VERSION: u32 = 4;
+pub const EVENT_SCHEMA_VERSION: u32 = 5;
 
 /// Event topic/data schemas used by the escrow contract.
 ///
@@ -411,6 +411,7 @@ pub struct DisputeResolved {
     pub schema_version: u32,
     pub escrow_id: u64,
     pub resolver: Address,
+    pub resolved_by: Address,
     pub resolution: ResolutionType,
     pub recipient: Address,
     /// Gross amount still held for the escrow after the arbitration and
@@ -434,6 +435,7 @@ pub fn emit_dispute_resolved(
     env: &Env,
     escrow_id: u64,
     resolver: Address,
+    resolved_by: Address,
     resolution: ResolutionType,
     recipient: Address,
     amount: i128,
@@ -453,6 +455,7 @@ pub fn emit_dispute_resolved(
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
             resolver,
+            resolved_by,
             resolution,
             recipient,
             amount,

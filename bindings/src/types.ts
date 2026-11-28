@@ -378,6 +378,7 @@ export interface DisputeResolved {
   schema_version: number;
   escrow_id: bigint;
   resolver: AddressLike;
+  resolved_by: AddressLike;
   resolution: ResolutionType;
   recipient: AddressLike;
   /**

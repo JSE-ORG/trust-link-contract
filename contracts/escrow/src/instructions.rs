@@ -5,15 +5,88 @@ use crate::events::emit_message_posted;
 use crate::internal::*;
 use crate::types::{BoundedPayees, Message};
 use crate::*;
+use soroban_sdk::xdr::{FromXdr, ToXdr};
 use soroban_sdk::{
-    contractimpl, Address, Bytes, BytesN, Env, IntoVal, String, Symbol, TryFromVal, TryIntoVal,
-    Val, Vec,
+    contractimpl, contracttype, Address, Bytes, BytesN, Env, IntoVal, String, Symbol, TryFromVal,
+    TryIntoVal, Val, Vec,
 };
 
 macro_rules! auth {
     ($caller:expr) => {
         $caller.require_auth();
     };
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CoSignedReleaseAuthorization {
+    pub contract: Address,
+    pub action: Symbol,
+    pub escrow_id: u64,
+}
+
+fn account_address_from_public_key(
+    env: &Env,
+    public_key: &BytesN<32>,
+) -> Result<Address, ContractError> {
+    // ScVal::Address(Account(Ed25519(...))) XDR prefix.
+    let mut address_xdr = Bytes::from_slice(env, &[0, 0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 0]);
+    address_xdr.append(public_key.as_bytes());
+    Address::from_xdr(env, &address_xdr).map_err(|_| ContractError::NotAuthorized)
+}
+
+fn complete_co_signed_release(
+    env: &Env,
+    escrow_id: u64,
+    escrow: EscrowData,
+    first_payee: Address,
+) -> Result<(), ContractError> {
+    if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
+        return Err(terminal_state_error(
+            &escrow.state,
+            ContractError::InvalidState,
+        ));
+    }
+
+    if load_dispute(env, escrow_id).is_ok() {
+        return Err(ContractError::InvalidState);
+    }
+
+    let fee_config = read_fee_config(env);
+    let fee_collector = crate::storage::require_fee_collector(env)?;
+
+    let prev_state = escrow.state.clone();
+    let mut updated = escrow;
+    updated.state = EscrowState::Completed;
+
+    save_escrow(env, escrow_id, &updated, Some(&prev_state));
+    clear_delivery_proposal(env, escrow_id);
+    record_escrow_completed(env, escrow_id)?;
+
+    transfer_with_protocol_fee(
+        env,
+        &updated.token,
+        &first_payee,
+        &fee_collector,
+        updated.amount,
+        fee_config.protocol_fee_bps,
+    )?;
+    payout_basket_tokens(
+        env,
+        escrow_id,
+        &first_payee,
+        Some(fee_config.protocol_fee_bps),
+    )?;
+    emit_escrow_completed(
+        env,
+        escrow_id,
+        first_payee,
+        updated.amount,
+        fee_config.protocol_fee_bps,
+        prev_state,
+        EscrowState::Completed,
+    );
+    Ok(())
 }
 
 /// Validates a single basket amount against the configured min/max limits.
@@ -1396,55 +1469,55 @@ impl Escrow {
             .ok_or(ContractError::EscrowHasNoBuyer)?;
         auth!(buyer);
 
-        // Allow early release from Funded or Shipped states, but not if disputed.
-        if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Shipped {
-            return Err(terminal_state_error(
-                &escrow.state,
-                ContractError::InvalidState,
-            ));
+        complete_co_signed_release(&env, escrow_id, escrow, first_payee)
+    }
+
+    /// Releases an escrow using the buyer's Ed25519 authorization instead of
+    /// requiring buyer authorization in the submitting transaction. `caller`
+    /// must be the primary payee and authorize the transaction. The payload
+    /// signed by the buyer is the SHA-256 hash of the XDR encoding of the
+    /// contract address, `co_signed_release`, and escrow id.
+    pub fn co_signed_release_by_signature(
+        env: Env,
+        caller: Address,
+        escrow_id: u64,
+        signature: BytesN<64>,
+        public_key: BytesN<32>,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        ensure_action_not_paused(&env, Symbol::new(&env, "co_signed_release"))?;
+
+        let escrow = load_escrow(&env, escrow_id)?;
+        let first_payee = escrow
+            .payees
+            .inner
+            .get(0)
+            .ok_or(ContractError::IndexOutOfBounds)?
+            .address
+            .clone();
+        if caller != first_payee {
+            return Err(ContractError::NotAuthorized);
         }
 
-        if load_dispute(&env, escrow_id).is_ok() {
-            return Err(ContractError::InvalidState);
+        let buyer = escrow
+            .buyer
+            .clone()
+            .ok_or(ContractError::EscrowHasNoBuyer)?;
+        if account_address_from_public_key(&env, &public_key)? != buyer {
+            return Err(ContractError::NotAuthorized);
         }
 
-        let fee_config = read_fee_config(&env);
-        let fee_collector = crate::storage::require_fee_collector(&env)?;
-
-        let prev_state = escrow.state.clone();
-        let mut updated = escrow;
-        updated.state = EscrowState::Completed;
-
-        save_escrow(&env, escrow_id, &updated, Some(&prev_state));
-        // A delivery proposal can only exist while the escrow is Shipped, so
-        // completing it here must drop the orphaned entry.
-        clear_delivery_proposal(&env, escrow_id);
-        record_escrow_completed(&env, escrow_id)?;
-
-        transfer_with_protocol_fee(
-            &env,
-            &updated.token,
-            &first_payee,
-            &fee_collector,
-            updated.amount,
-            fee_config.protocol_fee_bps,
-        )?;
-        payout_basket_tokens(
-            &env,
+        let signing_data = CoSignedReleaseAuthorization {
+            contract: env.current_contract_address(),
+            action: Symbol::new(&env, "co_signed_release"),
             escrow_id,
-            &first_payee,
-            Some(fee_config.protocol_fee_bps),
-        )?;
-        emit_escrow_completed(
-            &env,
-            escrow_id,
-            first_payee,
-            updated.amount,
-            fee_config.protocol_fee_bps,
-            prev_state,
-            crate::EscrowState::Completed,
-        );
-        Ok(())
+        };
+        let signing_hash: BytesN<32> = env.crypto().sha256(&signing_data.to_xdr(&env)).into();
+        let payload = Bytes::from_slice(&env, &signing_hash.to_array());
+        env.crypto()
+            .ed25519_verify(&public_key, &payload, &signature);
+
+        complete_co_signed_release(&env, escrow_id, escrow, first_payee)
     }
 
     /// Keeps a dormant escrow from being archived by extending the TTL of all
