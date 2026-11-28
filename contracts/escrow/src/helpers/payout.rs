@@ -314,9 +314,11 @@ pub struct TransferInstruction {
 /// the already-reduced `escrow.amount`. This function mirrors that basis so
 /// that simulation outputs match on-chain settlement exactly:
 ///
-///   fee_basis = escrow.amount + arbitration_fee + resolver_fee
-///   protocol_fee = fee_basis * escrow.fee_bps / 10_000
-///   net = escrow.amount - platform_fee - protocol_fee
+/// ```text
+/// fee_basis = escrow.amount + arbitration_fee + resolver_fee
+/// protocol_fee = fee_basis * escrow.fee_bps / 10_000
+/// net = escrow.amount - platform_fee - protocol_fee
+/// ```
 ///
 /// The invariant `net + protocol_fee + arbitration_fee + resolver_fee + platform_fee
 /// == fee_basis` holds by construction.

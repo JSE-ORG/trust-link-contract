@@ -1577,11 +1577,7 @@ pub fn emit_payee_share_skipped(
     net_pool: i128,
 ) {
     env.events().publish(
-        (
-            symbol_short!("Payee"),
-            symbol_short!("Skip"),
-            payee.clone(),
-        ),
+        (symbol_short!("Payee"), symbol_short!("Skip"), payee.clone()),
         PayeeShareSkipped {
             schema_version: EVENT_SCHEMA_VERSION,
             escrow_id,
