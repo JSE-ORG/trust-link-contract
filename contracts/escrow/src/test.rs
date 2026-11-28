@@ -193,6 +193,8 @@ fn test_confirm_delivery() {
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Completed);
     assert_eq!(get_balance(&env, &token, &seller), 980);
+    // Protocol fees accrue in the contract for the collector to pull.
+    client.claim_accumulated_fees(&fee_collector, &token);
     assert_eq!(get_balance(&env, &token, &fee_collector), 20);
     assert_eq!(get_balance(&env, &token, &contract_id), 0);
 }
@@ -239,6 +241,8 @@ fn test_raise_and_resolve_dispute_release_to_seller() {
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Completed);
     assert_eq!(get_balance(&env, &token, &seller), 980);
+    // Protocol fees accrue in the contract for the collector to pull.
+    client.claim_accumulated_fees(&fee_collector, &token);
     assert_eq!(get_balance(&env, &token, &contract_id), 0);
     assert_eq!(get_balance(&env, &token, &fee_collector), 20);
 }
@@ -285,6 +289,8 @@ fn test_raise_and_resolve_dispute_refund_buyer() {
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Refunded);
     assert_eq!(get_balance(&env, &token, &buyer), 980);
+    // Protocol fees accrue in the contract for the collector to pull.
+    client.claim_accumulated_fees(&fee_collector, &token);
     assert_eq!(get_balance(&env, &token, &contract_id), 0);
     assert_eq!(get_balance(&env, &token, &fee_collector), 20);
 }
@@ -328,6 +334,8 @@ fn test_auto_release() {
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Completed);
     assert_eq!(get_balance(&env, &token, &seller), 980);
+    // Protocol fees accrue in the contract for the collector to pull.
+    client.claim_accumulated_fees(&fee_collector, &token);
     assert_eq!(get_balance(&env, &token, &fee_collector), 20);
     assert_eq!(get_balance(&env, &token, &contract_id), 0);
 }
@@ -555,6 +563,8 @@ fn test_fund_and_confirm_delivery_with_non_usdc_token() {
     env.ledger().set_timestamp(escrow.dispute_deadline() + 1);
     client.confirm_delivery(&buyer, &id, &false);
     assert_eq!(get_balance(&env, &alt_token, &seller), 297);
+    // Protocol fees accrue in the contract for the collector to pull.
+    client.claim_accumulated_fees(&fee_collector, &alt_token);
     assert_eq!(get_balance(&env, &alt_token, &fee_collector), 3);
     assert_eq!(get_balance(&env, &alt_token, &contract_id), 0);
 }
@@ -1057,6 +1067,8 @@ fn test_auto_release_after_dispute_deadline() {
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.state, EscrowState::Completed);
     assert_eq!(get_balance(&env, &token, &seller), 980);
+    // Protocol fees accrue in the contract for the collector to pull.
+    client.claim_accumulated_fees(&fee_collector, &token);
     assert_eq!(get_balance(&env, &token, &fee_collector), 20);
 }
 
@@ -1284,6 +1296,8 @@ fn test_escrow_completed_event_amount_is_gross_of_protocol_fee() {
     ));
 
     assert_eq!(get_balance(&env, &token, &seller), net);
+    // Protocol fees accrue in the contract for the collector to pull.
+    client.claim_accumulated_fees(&fee_collector, &token);
     assert_eq!(get_balance(&env, &token, &fee_collector), fee);
 }
 
@@ -1350,6 +1364,8 @@ fn test_dispute_resolved_event_amount_is_gross_of_final_fees() {
     // Recipient receives 950 - 20 protocol fee; the collector receives the
     // 50 arbitration fee plus the 20 protocol fee.
     assert_eq!(get_balance(&env, &token, &seller), 930);
+    // Protocol fees accrue in the contract for the collector to pull.
+    client.claim_accumulated_fees(&fee_collector, &token);
     assert_eq!(get_balance(&env, &token, &fee_collector), 70);
 }
 

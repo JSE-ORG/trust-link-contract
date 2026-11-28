@@ -88,6 +88,9 @@ fn test_fee_calculation_max_escrow_amount() {
         (MAX_ESCROW_AMOUNT / 10_000) * 300 + (MAX_ESCROW_AMOUNT % 10_000) * 300 / 10_000;
     let expected_net = MAX_ESCROW_AMOUNT - expected_fee;
 
+    // Protocol fees accrue in the contract for the collector to pull.
+    client.claim_accumulated_fees(&fee_collector, &token);
+
     let tc = soroban_sdk::token::Client::new(&env, &token);
     assert_eq!(tc.balance(&seller), expected_net);
     assert_eq!(tc.balance(&fee_collector), expected_fee);

@@ -424,7 +424,7 @@ mod timelock {
 
     /// A proposal queued by an admin who has since been rotated out is purged
     /// by the rotation (#1234): nobody (keeper, new admin, or old admin) can
-    /// execute it, and the now-empty slot returns `InvalidState`.
+    /// execute it, and the invalidated slot returns `NotAuthorized`.
     #[test]
     fn proposal_from_rotated_out_admin_cannot_be_executed() {
         let env = Env::default();
@@ -437,10 +437,12 @@ mod timelock {
         client.set_admin(&new_admin);
         advance(&env, ADMIN_TIMELOCK_DELAY_SECONDS);
 
+        // The rotation marks the slot invalidated, so execution reports the
+        // canceled proposal as NotAuthorized for every caller.
         for executor in [&keeper, &new_admin, &admin] {
             assert_eq!(
                 client.try_execute_set_platform_fee(executor, &150_u32),
-                Err(Ok(ContractError::InvalidState))
+                Err(Ok(ContractError::NotAuthorized))
             );
         }
         assert_eq!(client.get_platform_fee_bps(), 0);

@@ -782,7 +782,7 @@ fn test_fallback_backup_resolves_appeal_clears_votes_primary_reresolves() {
 
     // Move past the fallback deadline so the backup is authorized.
     let now = setup.env.ledger().timestamp();
-    setup.env.ledger().set_timestamp(now + 200);
+    setup.env.ledger().set_timestamp(now + OFFSET);
 
     // Round 1: backup resolves Refund.
     client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Refund);
@@ -843,7 +843,7 @@ fn test_fallback_round1_resolver_can_reresolve_after_appeal() {
     let escrow_id = create_funded_shipped_disputed(&setup);
 
     let now = setup.env.ledger().timestamp();
-    setup.env.ledger().set_timestamp(now + 200);
+    setup.env.ledger().set_timestamp(now + OFFSET);
 
     client.resolve_dispute(&setup.backup, &escrow_id, &ResolutionType::Refund);
     client.appeal_dispute(&setup.buyer, &escrow_id);

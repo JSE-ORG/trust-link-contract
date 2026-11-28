@@ -1843,7 +1843,6 @@ pub(crate) fn execute_resolution_transition(
 
     let prev_state = escrow.state.clone();
     let mut updated_escrow = escrow;
-
     updated_escrow.amount = updated_escrow
         .amount
         .checked_sub(arbitration_fee)

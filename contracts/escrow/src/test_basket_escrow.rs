@@ -1539,7 +1539,7 @@ fn create_basket_escrow_fallback_settles_basket_on_backup_refund() {
 
     let backup = Address::generate(&fx.env);
     let now = fx.env.ledger().timestamp();
-    let dispute_deadline = now + 100;
+    let dispute_deadline = now + crate::MIN_FALLBACK_DEADLINE_OFFSET;
 
     let escrow_id = client.create_basket_escrow_fallback(
         &fx.seller,
@@ -1784,6 +1784,11 @@ fn confirm_delivery_collects_protocol_and_platform_fees_on_basket_tokens() {
         &soroban_sdk::String::from_str(&fx.env, "TRACK-1219"),
     );
     client.confirm_delivery(&fx.buyer, &escrow_id, &true);
+
+    // Protocol fees accrue in the contract for the collector to pull.
+    client.claim_accumulated_fees(&fx.fee_collector, &a.address);
+    client.claim_accumulated_fees(&fx.fee_collector, &b.address);
+    client.claim_accumulated_fees(&fx.fee_collector, &c.address);
 
     // Primary token keeps its existing treatment: only the protocol fee is
     // taken (no platform fee is charged on the primary on this path).
