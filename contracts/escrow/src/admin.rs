@@ -20,9 +20,13 @@ use soroban_sdk::{
     contractimpl, xdr::ToXdr, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
 
-pub const ADMIN_TIMELOCK_DELAY_SECONDS: u64 = 24 * 60 * 60;
-pub const MIN_TIMELOCK_DELAY_SECONDS: u64 = 12 * 60 * 60; // 12 hours
-pub const MAX_TIMELOCK_DELAY_SECONDS: u64 = 30 * 24 * 60 * 60; // 30 days
+// #1248: the timelock delay bounds live in `types.rs` alongside the storage
+// key they govern; re-exported here so existing `crate::admin::…` imports and
+// downstream callers keep working.
+pub use crate::types::{
+    ADMIN_TIMELOCK_DELAY_SECONDS, MAX_TIMELOCK_DELAY_SECONDS, MIN_TIMELOCK_DELAY_SECONDS,
+};
+
 const MAX_TIMELOCK_PARAMS: u32 = 5;
 
 /// Returns the currently configured admin timelock delay in seconds

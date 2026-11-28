@@ -1,5 +1,15 @@
 use soroban_sdk::{contracttype, Address, Bytes, BytesN, String, Symbol, Vec};
 
+/// Default delay (24 hours) applied to privileged admin operations, used
+/// whenever `DataKey::AdminTimelockDelay` has not been configured.
+pub const ADMIN_TIMELOCK_DELAY_SECONDS: u64 = 24 * 60 * 60;
+
+/// Lower bound (12 hours) accepted by `queue_set_timelock_delay`.
+pub const MIN_TIMELOCK_DELAY_SECONDS: u64 = 12 * 60 * 60;
+
+/// Upper bound (30 days) accepted by `queue_set_timelock_delay`.
+pub const MAX_TIMELOCK_DELAY_SECONDS: u64 = 30 * 24 * 60 * 60;
+
 /// Single unified storage key enum for all contract storage entries.
 ///
 /// Storage-tier rationale:
@@ -95,8 +105,9 @@ pub enum DataKey {
     /// state machine. Absent means false.
     RecoveryMode,
     /// Timelock delay (seconds) applied to privileged admin operations.
-    /// Absent means `ADMIN_TIMELOCK_DELAY_SECONDS` (24 hours); valid values
-    /// lie in `MIN_TIMELOCK_DELAY_SECONDS..=MAX_TIMELOCK_DELAY_SECONDS`.
+    /// Absent means [`ADMIN_TIMELOCK_DELAY_SECONDS`] (24 hours); valid values
+    /// range from [`MIN_TIMELOCK_DELAY_SECONDS`] to [`MAX_TIMELOCK_DELAY_SECONDS`]
+    /// inclusive.
     ///
     /// Changed only through the two-step `queue_set_timelock_delay` ->
     /// `execute_set_timelock_delay` flow, and that change waits
