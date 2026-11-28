@@ -127,6 +127,12 @@ pub enum DataKey {
     InvalidatedTimelockOp(u32),
     /// Per-merchant protocol fee discount (basis points subtracted at escrow creation).
     MerchantFeeTier(Address),
+    /// Number of timelock batches queued so far. The next batch is assigned
+    /// `count + 1`, so batch ids are strictly increasing and never reused.
+    TimelockBatchCount,
+    /// A queued [`TimelockBatchProposal`] awaiting the admin timelock delay,
+    /// keyed by its batch id (see [`DataKey::TimelockBatchCount`]).
+    TimelockBatchOp(u32),
 }
 
 /// A token-amount pair for multi-token basket escrows.
@@ -930,6 +936,29 @@ pub struct TimelockProposal {
     pub operation: TimelockOperation,
     pub proposer: Address,
     pub params_hash: BytesN<32>,
+    pub queued_at: u64,
+    pub ready_at: u64,
+}
+
+/// A batch of privileged admin changes queued together under one timelock
+/// countdown (`queue_timelock_batch` / `execute_timelock_batch`).
+///
+/// `operations[i]` is authorized by `params_hashes[i]`, computed with
+/// [`crate::admin::compute_proposal_hash`], so each operation stays bound to
+/// its own parameters, to its operation discriminant, and to this contract
+/// instance. Only the hashes are stored: the parameters themselves are
+/// re-supplied at execution time and re-hashed for verification, exactly like
+/// [`TimelockProposal`].
+///
+/// The whole batch shares a single `ready_at`, so every operation in it
+/// satisfies the timelock delay together, and it executes atomically: if any
+/// sub-operation reverts, none of the others take effect.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimelockBatchProposal {
+    pub operations: Vec<TimelockOperation>,
+    pub params_hashes: Vec<BytesN<32>>,
+    pub proposer: Address,
     pub queued_at: u64,
     pub ready_at: u64,
 }

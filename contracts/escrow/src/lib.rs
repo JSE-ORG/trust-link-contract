@@ -34,8 +34,8 @@ pub use crate::events::*;
 pub use crate::types::{
     BoundedBasket, ContractConfig, ContractStats, DataKey, DisputeData, DisputeStatus,
     Escrow as EscrowData, EscrowInput, EscrowState, ExpirySchedule, FeeConfig, GlobalConfig, Payee,
-    PublicContractConfig, ResolutionType, ResolverSet, ResolverVote, TimelockOperation,
-    TimelockProposal, TokenBalanceInfo, TokenEntry, BASKET_CAPACITY,
+    PublicContractConfig, ResolutionType, ResolverSet, ResolverVote, TimelockBatchProposal,
+    TimelockOperation, TimelockProposal, TokenBalanceInfo, TokenEntry, BASKET_CAPACITY,
 };
 
 /// A single call descriptor used by the `multicall` batching function.

@@ -2,9 +2,9 @@ use soroban_sdk::{Address, Env, Vec};
 
 use crate::types::{EvidenceEntry, Message};
 use crate::{
-    ContractError, DataKey, EscrowData, FeeConfig, GlobalConfig, TimelockProposal,
-    DEFAULT_APPEAL_FEE_BPS, DEFAULT_DISPUTE_TIMEOUT, DEFAULT_TTL_EXTENSION, MAX_ESCROW_AMOUNT,
-    MIN_ESCROW_AMOUNT, TTL_THRESHOLD_DIVISOR,
+    ContractError, DataKey, EscrowData, FeeConfig, GlobalConfig, TimelockBatchProposal,
+    TimelockProposal, DEFAULT_APPEAL_FEE_BPS, DEFAULT_DISPUTE_TIMEOUT, DEFAULT_TTL_EXTENSION,
+    MAX_ESCROW_AMOUNT, MIN_ESCROW_AMOUNT, TTL_THRESHOLD_DIVISOR,
 };
 
 // ============================================================================
@@ -736,6 +736,46 @@ pub fn read_timelock_proposal(env: &Env, operation: u32) -> Option<TimelockPropo
 
 pub fn remove_timelock_proposal(env: &Env, operation: u32) {
     let key = DataKey::TimelockOp(operation);
+    if env.storage().instance().has(&key) {
+        env.storage().instance().remove(&key);
+    }
+}
+
+/// Allocates the next timelock batch id (`DataKey::TimelockBatchCount`).
+///
+/// Ids are handed out in strictly increasing order and never reused, so a
+/// cancelled or executed batch can never be confused with a later one.
+pub fn next_timelock_batch_id(env: &Env) -> u32 {
+    let next = env
+        .storage()
+        .instance()
+        .get(&DataKey::TimelockBatchCount)
+        .unwrap_or(0u32)
+        .saturating_add(1);
+    env.storage()
+        .instance()
+        .set(&DataKey::TimelockBatchCount, &next);
+    extend_instance_ttl(env);
+    next
+}
+
+pub fn write_timelock_batch(env: &Env, batch_id: u32, batch: &TimelockBatchProposal) {
+    let key = DataKey::TimelockBatchOp(batch_id);
+    env.storage().instance().set(&key, batch);
+    extend_instance_ttl(env);
+}
+
+pub fn read_timelock_batch(env: &Env, batch_id: u32) -> Option<TimelockBatchProposal> {
+    let key = DataKey::TimelockBatchOp(batch_id);
+    let result: Option<TimelockBatchProposal> = env.storage().instance().get(&key);
+    if result.is_some() {
+        extend_instance_ttl(env);
+    }
+    result
+}
+
+pub fn remove_timelock_batch(env: &Env, batch_id: u32) {
+    let key = DataKey::TimelockBatchOp(batch_id);
     if env.storage().instance().has(&key) {
         env.storage().instance().remove(&key);
     }
