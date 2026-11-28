@@ -25,6 +25,15 @@ pub const MIN_TIMELOCK_DELAY_SECONDS: u64 = 12 * 60 * 60; // 12 hours
 pub const MAX_TIMELOCK_DELAY_SECONDS: u64 = 30 * 24 * 60 * 60; // 30 days
 const MAX_TIMELOCK_PARAMS: u32 = 5;
 
+/// Maximum number of operations a single `queue_timelock_batch` may carry.
+///
+/// Every operation in the batch is applied inside the same transaction, so the
+/// bound keeps the batch's instruction footprint — and therefore its fee —
+/// predictable. It is deliberately small: a governance transition that needs
+/// more than this many simultaneous parameter changes should be split into
+/// consecutive batches.
+pub const MAX_TIMELOCK_BATCH_SIZE: u32 = 10;
+
 /// Returns the currently configured admin timelock delay in seconds
 /// (`DataKey::AdminTimelockDelay`, defaulting to
 /// `ADMIN_TIMELOCK_DELAY_SECONDS`).
@@ -158,6 +167,450 @@ fn execute_timelock_op(
         params, // Emit the actual params, not the hash
     );
     Ok(proposal)
+}
+
+/// Whether `operation` is allowed inside a timelock batch.
+///
+/// Operations that mutate the execution machinery itself are excluded:
+/// `SetAdmin` rotates the admin key (and purges every outstanding proposal),
+/// `Upgrade` swaps the contract code, `SetTimelockDelay` would change the delay
+/// that the batch itself is measured against, and `SetProtocolFee` has no
+/// production setter. Allowing them in a batch would let a single approval
+/// change the rules and then act under those new rules atomically; they stay
+/// on their own dedicated `queue_*` / `execute_*` paths.
+fn is_batchable(operation: TimelockOperation) -> bool {
+    !matches!(
+        operation,
+        TimelockOperation::SetAdmin
+            | TimelockOperation::Upgrade
+            | TimelockOperation::SetProtocolFee
+            | TimelockOperation::SetTimelockDelay
+    )
+}
+
+/// Decodes the `index`-th re-supplied parameter of a batch operation.
+///
+/// A missing or undecodable parameter means the caller's argument vector does
+/// not describe the queued operation, which is rejected as
+/// `InvalidOperation` rather than silently interpreted.
+fn batch_param<T: TryFromVal<Env, Val>>(
+    env: &Env,
+    params: &Vec<Val>,
+    index: u32,
+) -> Result<T, ContractError> {
+    let raw = params.get(index).ok_or(ContractError::InvalidOperation)?;
+    T::try_from_val(env, &raw).map_err(|_| ContractError::InvalidOperation)
+}
+
+fn require_param_count(params: &Vec<Val>, expected: u32) -> Result<(), ContractError> {
+    if params.len() != expected {
+        return Err(ContractError::InvalidOperation);
+    }
+    Ok(())
+}
+
+/// Applies a single batch operation's state change after the batch proposal
+/// has been verified and consumed.
+///
+/// Each arm mirrors the body of the matching `execute_*` entry point, minus the
+/// per-operation `execute_timelock_op` call: the batch proposal already
+/// authorized the operation, so re-reading an individual `TimelockOp` slot
+/// here would refuse every batched change. `proposer` is the admin who queued
+/// the batch (and is verified against the current admin by
+/// `execute_timelock_batch_inner`); it is used where the single-operation path
+/// uses `proposal.proposer` — for audit attribution and for the fee helpers
+/// that re-check the admin identity.
+// One flat dispatch table, kept in a single function so each arm stays next to
+// the `execute_*` body it mirrors; splitting it would only spread the same
+// one-to-one correspondence over several helpers.
+#[allow(clippy::too_many_lines)]
+fn apply_batch_operation(
+    env: &Env,
+    operation: TimelockOperation,
+    params: &Vec<Val>,
+    proposer: &Address,
+) -> Result<(), ContractError> {
+    match operation {
+        TimelockOperation::SetArbitrationFee => {
+            ensure_admin_action_not_paused(env, "execute_set_arbitration_fee")?;
+            require_param_count(params, 1)?;
+            let fee_bps: u32 = batch_param(env, params, 0)?;
+            let old_fee_bps = update_arbitration_fee(env, proposer, fee_bps)?;
+            emit_arbitration_fee_updated(env, old_fee_bps, fee_bps);
+        }
+        TimelockOperation::SetPlatformFee => {
+            ensure_admin_action_not_paused(env, "execute_set_platform_fee")?;
+            require_param_count(params, 1)?;
+            let fee_bps: u32 = batch_param(env, params, 0)?;
+            if fee_bps > MAX_PLATFORM_FEE_BPS {
+                return Err(ContractError::PlatformFeeExceedsMax);
+            }
+            let global_config = read_global_config(env);
+            validate_total_fee_bps(
+                global_config.protocol_fee_bps,
+                fee_bps,
+                global_config.arbitration_fee_bps,
+                0,
+            )?;
+            let old_fee = read_platform_fee_bps(env);
+            write_platform_fee_bps(env, fee_bps);
+            emit_platform_fee_updated(env, old_fee, fee_bps);
+        }
+        TimelockOperation::SetTreasury => {
+            require_param_count(params, 1)?;
+            let treasury: Address = batch_param(env, params, 0)?;
+            let old_treasury = validate_treasury_change(env, &treasury)?;
+            env.storage()
+                .instance()
+                .set(&DataKey::PendingTreasury, &treasury);
+            emit_treasury_pending(env, old_treasury, treasury);
+        }
+        TimelockOperation::SetFeeCollector => {
+            require_param_count(params, 1)?;
+            let new_collector: Address = batch_param(env, params, 0)?;
+            let old_collector = validate_fee_collector_change(env, &new_collector)?;
+            env.storage()
+                .instance()
+                .set(&DataKey::PendingFeeCollector, &new_collector);
+            emit_fee_collector_pending(env, old_collector, new_collector);
+        }
+        TimelockOperation::SetTtlExtension => {
+            require_param_count(params, 1)?;
+            let ledgers: u32 = batch_param(env, params, 0)?;
+            if !(MIN_TTL_EXTENSION..=MAX_TTL_EXTENSION).contains(&ledgers) {
+                return Err(ContractError::InvalidTtlExtension);
+            }
+            let old_ledgers = storage::get_ttl_extension(env);
+            storage::update_global_config(env, |c| c.ttl_extension_ledgers = ledgers);
+            emit_ttl_extension_updated(env, old_ledgers, ledgers, proposer.clone());
+        }
+        TimelockOperation::SetAmountLimits => {
+            require_param_count(params, 2)?;
+            let min_amount: i128 = batch_param(env, params, 0)?;
+            let max_amount: i128 = batch_param(env, params, 1)?;
+            if min_amount <= 0 || max_amount <= min_amount {
+                return Err(ContractError::InvalidAmount);
+            }
+            let config = storage::read_global_config(env);
+            let (old_min_amount, old_max_amount) = (config.min_amount, config.max_amount);
+            storage::write_global_config(
+                env,
+                &GlobalConfig {
+                    min_amount,
+                    max_amount,
+                    ..config
+                },
+            );
+            emit_amount_limits_updated(
+                env,
+                old_min_amount,
+                min_amount,
+                old_max_amount,
+                max_amount,
+                proposer.clone(),
+            );
+        }
+        TimelockOperation::AddApprovedResolver => {
+            require_param_count(params, 1)?;
+            let resolver: Address = batch_param(env, params, 0)?;
+            let mut approved: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::ApprovedResolvers)
+                .unwrap_or_else(|| Vec::new(env));
+            if !crate::internal::contains(&approved, &resolver) {
+                approved.push_back(resolver.clone());
+                env.storage()
+                    .instance()
+                    .set(&DataKey::ApprovedResolvers, &approved);
+                emit_resolver_approved(env, resolver, proposer.clone());
+            }
+        }
+        TimelockOperation::RemoveApprovedResolver => {
+            require_param_count(params, 1)?;
+            let resolver: Address = batch_param(env, params, 0)?;
+            let approved: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::ApprovedResolvers)
+                .unwrap_or_else(|| Vec::new(env));
+            if !crate::internal::contains(&approved, &resolver) {
+                return Err(ContractError::InvalidAddress);
+            }
+            let mut new_approved = Vec::new(env);
+            for existing in approved.iter() {
+                if existing != resolver {
+                    new_approved.push_back(existing);
+                }
+            }
+            env.storage()
+                .instance()
+                .set(&DataKey::ApprovedResolvers, &new_approved);
+            emit_resolver_removed(env, resolver, proposer.clone());
+        }
+        TimelockOperation::SetResolverStrict => {
+            require_param_count(params, 1)?;
+            let strict: bool = batch_param(env, params, 0)?;
+            let old_strict = storage::read_global_config(env).state_flags
+                & crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT
+                != 0;
+            storage::update_global_config(env, |c| {
+                if strict {
+                    c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
+                } else {
+                    c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_RESOLVER_STRICT;
+                }
+            });
+            emit_resolver_strict_updated(env, old_strict, strict, proposer.clone());
+        }
+        TimelockOperation::SetTokenAllowlistEnabled => {
+            require_param_count(params, 1)?;
+            let enabled: bool = batch_param(env, params, 0)?;
+            storage::update_global_config(env, |c| {
+                if enabled {
+                    c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+                } else {
+                    c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_TOKEN_ALLOWLIST_ENABLED;
+                }
+            });
+            emit_allowlist_toggled(env, enabled);
+        }
+        TimelockOperation::AddAllowedToken => {
+            require_param_count(params, 1)?;
+            let token: Address = batch_param(env, params, 0)?;
+            let mut allowlist: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::TokenAllowlist)
+                .unwrap_or_else(|| Vec::new(env));
+            if !crate::internal::contains(&allowlist, &token) {
+                allowlist.push_back(token.clone());
+                env.storage()
+                    .instance()
+                    .set(&DataKey::TokenAllowlist, &allowlist);
+                emit_token_allowlist_updated(env, token, true);
+            }
+        }
+        TimelockOperation::RemoveAllowedToken => {
+            require_param_count(params, 1)?;
+            let token: Address = batch_param(env, params, 0)?;
+            let allowlist: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::TokenAllowlist)
+                .unwrap_or_else(|| Vec::new(env));
+            if !crate::internal::contains(&allowlist, &token) {
+                return Err(ContractError::TokenNotAllowed);
+            }
+            let mut new_allowlist = Vec::new(env);
+            for allowed_token in allowlist.iter() {
+                if allowed_token != token {
+                    new_allowlist.push_back(allowed_token);
+                }
+            }
+            env.storage()
+                .instance()
+                .set(&DataKey::TokenAllowlist, &new_allowlist);
+            emit_token_allowlist_updated(env, token, false);
+        }
+        TimelockOperation::PauseContract => {
+            require_param_count(params, 0)?;
+            storage::update_global_config(env, |c| {
+                c.state_flags |= crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+            });
+            emit_contract_paused(env, proposer.clone());
+        }
+        TimelockOperation::UnpauseContract => {
+            require_param_count(params, 0)?;
+            storage::update_global_config(env, |c| {
+                c.state_flags &= !crate::types::GLOBAL_CONFIG_FLAG_PAUSED;
+            });
+            emit_contract_unpaused(env, proposer.clone());
+        }
+        TimelockOperation::SetMaxAppeals => {
+            require_param_count(params, 1)?;
+            let max_appeals: u32 = batch_param(env, params, 0)?;
+            if !(crate::MIN_MAX_APPEALS..=crate::MAX_MAX_APPEALS).contains(&max_appeals) {
+                return Err(ContractError::InvalidMaxAppeals);
+            }
+            let old_max = crate::read_max_appeals(env);
+            env.storage()
+                .instance()
+                .set(&DataKey::MaxAppeals, &max_appeals);
+            emit_max_appeals_updated(env, old_max, max_appeals);
+        }
+        TimelockOperation::SetMaxBasketSize => {
+            require_param_count(params, 1)?;
+            let max_basket_size: u32 = batch_param(env, params, 0)?;
+            if !(crate::MIN_MAX_BASKET_SIZE..=crate::MAX_BASKET_SIZE).contains(&max_basket_size) {
+                return Err(ContractError::InvalidMaxBasketSize);
+            }
+            let old_max = crate::read_max_basket_size(env);
+            env.storage()
+                .instance()
+                .set(&DataKey::MaxBasketSize, &max_basket_size);
+            emit_max_basket_size_updated(env, old_max, max_basket_size);
+        }
+        TimelockOperation::SetAppealFee => {
+            require_param_count(params, 1)?;
+            let fee_bps: u32 = batch_param(env, params, 0)?;
+            validate_appeal_fee_bps(fee_bps)?;
+            let old_fee = read_appeal_fee_bps(env);
+            write_appeal_fee_bps(env, fee_bps);
+            emit_appeal_fee_updated(env, old_fee, fee_bps);
+        }
+        // Governance-machinery operations are rejected at queue time by
+        // `is_batchable`; this arm keeps a corrupted or hand-written proposal
+        // from ever applying one.
+        TimelockOperation::SetAdmin
+        | TimelockOperation::Upgrade
+        | TimelockOperation::SetProtocolFee
+        | TimelockOperation::SetTimelockDelay => return Err(ContractError::InvalidOperation),
+    }
+    Ok(())
+}
+
+/// Queues `operations` under one shared timelock countdown and returns the
+/// batch id used to execute (or inspect) it.
+fn queue_timelock_batch_inner(
+    env: &Env,
+    caller: &Address,
+    operations: Vec<u32>,
+    params: Vec<Vec<Val>>,
+) -> Result<u32, ContractError> {
+    caller.require_auth();
+    let _admin = require_admin_caller(env, caller)?;
+
+    if operations.is_empty() {
+        return Err(ContractError::InvalidOperation);
+    }
+    if operations.len() > MAX_TIMELOCK_BATCH_SIZE {
+        return Err(ContractError::InputTooLong);
+    }
+    // The two vectors are positionally paired; a length mismatch would silently
+    // authorize the wrong parameters.
+    if operations.len() != params.len() {
+        return Err(ContractError::InvalidOperation);
+    }
+
+    let mut parsed: Vec<TimelockOperation> = Vec::new(env);
+    let mut params_hashes: Vec<BytesN<32>> = Vec::new(env);
+    for index in 0..operations.len() {
+        let operation_id = operations
+            .get(index)
+            .ok_or(ContractError::InvalidOperation)?;
+        let operation =
+            TimelockOperation::from_u32(operation_id).ok_or(ContractError::InvalidOperation)?;
+        if !is_batchable(operation) {
+            return Err(ContractError::InvalidOperation);
+        }
+        let op_params = params.get(index).ok_or(ContractError::InvalidOperation)?;
+        if op_params.len() > MAX_TIMELOCK_PARAMS {
+            return Err(ContractError::InputTooLong);
+        }
+        parsed.push_back(operation);
+        params_hashes.push_back(compute_proposal_hash(env, operation, &op_params));
+    }
+
+    let now = env.ledger().timestamp();
+    let ready_at = now + read_timelock_delay(env);
+    let batch_id = storage::next_timelock_batch_id(env);
+    let batch = TimelockBatchProposal {
+        operations: parsed,
+        params_hashes,
+        proposer: caller.clone(),
+        queued_at: now,
+        ready_at,
+    };
+    storage::write_timelock_batch(env, batch_id, &batch);
+
+    // One `TimelockQueued` per operation keeps per-operation governance
+    // dashboards accurate; the batch id is returned to the caller and stored
+    // with the proposal.
+    for index in 0..batch.operations.len() {
+        if let Some(operation) = batch.operations.get(index) {
+            emit_timelock_queued(env, operation as u32, caller.clone(), now, ready_at);
+        }
+    }
+    Ok(batch_id)
+}
+
+/// Executes a queued batch once its shared timelock delay has elapsed.
+///
+/// Every operation and its parameters are verified before the first state
+/// change, then applied in order inside this one invocation. Soroban rolls the
+/// whole invocation back on any error, so a partially applied batch can never
+/// be observed: either all operations take effect or none do.
+fn execute_timelock_batch_inner(
+    env: &Env,
+    caller: &Address,
+    batch_id: u32,
+    operations: Vec<u32>,
+    params: Vec<Vec<Val>>,
+) -> Result<(), ContractError> {
+    caller.require_auth();
+    let current_admin = storage::read_admin_address(env).ok_or(ContractError::NotInitialized)?;
+    let batch = storage::read_timelock_batch(env, batch_id).ok_or(ContractError::InvalidState)?;
+
+    // Same invariant as `execute_timelock_op`: only a proposal queued by the
+    // current admin may run, whoever supplies the execution authorization.
+    if batch.proposer != current_admin {
+        return Err(ContractError::NotAuthorized);
+    }
+
+    let now = env.ledger().timestamp();
+    if now < batch.ready_at {
+        return Err(ContractError::TimelockNotElapsed);
+    }
+
+    if operations.len() != batch.operations.len() || params.len() != batch.operations.len() {
+        return Err(ContractError::InvalidOperation);
+    }
+
+    for index in 0..batch.operations.len() {
+        let stored_operation = batch
+            .operations
+            .get(index)
+            .ok_or(ContractError::InvalidOperation)?;
+        let requested_operation = operations
+            .get(index)
+            .ok_or(ContractError::InvalidOperation)?;
+        if stored_operation as u32 != requested_operation {
+            return Err(ContractError::InvalidOperation);
+        }
+        let op_params = params.get(index).ok_or(ContractError::InvalidOperation)?;
+        if op_params.len() > MAX_TIMELOCK_PARAMS {
+            return Err(ContractError::InputTooLong);
+        }
+        let expected_hash = batch
+            .params_hashes
+            .get(index)
+            .ok_or(ContractError::InvalidOperation)?;
+        if compute_proposal_hash(env, stored_operation, &op_params) != expected_hash {
+            return Err(ContractError::InvalidProposalHash);
+        }
+    }
+
+    // Consumed as a unit. A sub-operation failure reverts this removal along
+    // with everything else, leaving the batch queued for a corrected retry.
+    storage::remove_timelock_batch(env, batch_id);
+
+    for index in 0..batch.operations.len() {
+        let operation = batch
+            .operations
+            .get(index)
+            .ok_or(ContractError::InvalidOperation)?;
+        let op_params = params.get(index).ok_or(ContractError::InvalidOperation)?;
+        apply_batch_operation(env, operation, &op_params, &batch.proposer)?;
+        emit_timelock_executed(
+            env,
+            operation as u32,
+            batch.proposer.clone(),
+            caller.clone(),
+            op_params,
+        );
+    }
+    Ok(())
 }
 
 /// Purges every queued timelock proposal when the admin key rotates (#1234).
@@ -2423,6 +2876,68 @@ impl Escrow {
         payout(&env, &token, &fee_collector, amount);
         crate::events::emit_accumulated_fees_claimed(&env, fee_collector, token, amount);
         Ok(amount)
+    }
+
+    /// Queues several privileged admin changes behind **one** timelock
+    /// countdown and returns the batch id used to execute them.
+    ///
+    /// `operations[i]` — a `TimelockOperation` discriminant — is paired with
+    /// `params[i]`, the contract-serialised argument vector of that
+    /// operation's `execute_*` counterpart (excluding `env` and `caller`).
+    /// Only the SHA-256 hash of each `(operation, params)` pair is stored, so
+    /// the stored proposal is a fixed size regardless of the parameters, and
+    /// the parameters must be re-supplied at execution time.
+    ///
+    /// Use this when a governance transition touches several interrelated
+    /// settings at once (e.g. `SetPlatformFee` + `SetArbitrationFee` +
+    /// `SetTokenAllowlistEnabled`): all of them become executable at the same
+    /// `ready_at` and take effect in a single atomic transaction, instead of
+    /// serialising one 24-hour timelock per setting.
+    ///
+    /// Only callable by the admin. Reverts with `InvalidOperation` for an empty
+    /// batch, a mismatched `operations`/`params` length, an unknown operation,
+    /// or an operation that cannot be batched (`SetAdmin`, `Upgrade`,
+    /// `SetProtocolFee`, `SetTimelockDelay`), with `InputTooLong` for more than
+    /// [`MAX_TIMELOCK_BATCH_SIZE`] operations or more than
+    /// `MAX_TIMELOCK_PARAMS` parameters per operation, and with `NotAuthorized`
+    /// for a non-admin caller.
+    ///
+    /// Emits one `TimelockQueued` event per operation, all sharing the batch's
+    /// `ready_at`.
+    pub fn queue_timelock_batch(
+        env: Env,
+        caller: Address,
+        operations: Vec<u32>,
+        params: Vec<Vec<Val>>,
+    ) -> Result<u32, ContractError> {
+        queue_timelock_batch_inner(&env, &caller, operations, params)
+    }
+
+    /// Atomically executes a batch queued by `queue_timelock_batch`.
+    ///
+    /// The caller must supply the same `operations` and `params` that were
+    /// queued: every `(operation, params)` pair is re-hashed and compared with
+    /// the stored proposal before anything is applied. Like
+    /// `execute_timelock_op`, execution is permissionless once the delay has
+    /// elapsed — any keeper may submit it, and the audit events record both
+    /// the proposer and the executor.
+    ///
+    /// All operations are applied in the given order inside this one
+    /// invocation, so if any of them fails the entire invocation reverts: no
+    /// sub-operation takes effect and the batch stays queued. Reverts with
+    /// `InvalidState` if `batch_id` is not queued, `NotAuthorized` if the
+    /// batch's proposer is no longer the current admin, `TimelockNotElapsed`
+    /// before `ready_at`, `InvalidProposalHash` if the re-supplied parameters
+    /// do not match the queued hashes, and `InvalidOperation` if the operation
+    /// list does not match the queued one.
+    pub fn execute_timelock_batch(
+        env: Env,
+        caller: Address,
+        batch_id: u32,
+        operations: Vec<u32>,
+        params: Vec<Vec<Val>>,
+    ) -> Result<(), ContractError> {
+        execute_timelock_batch_inner(&env, &caller, batch_id, operations, params)
     }
 }
 

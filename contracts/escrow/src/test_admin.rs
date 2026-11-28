@@ -715,3 +715,298 @@ mod timelock {
         assert_eq!(client.get_platform_fee_bps(), 25);
     }
 }
+
+// ── Batch timelock queueing and execution (#1241) ───────────────────────────
+
+mod batch_timelock {
+    use crate::admin::{ADMIN_TIMELOCK_DELAY_SECONDS, MAX_TIMELOCK_BATCH_SIZE};
+    use crate::test_helpers::setup_contract;
+    use crate::{storage, ContractError, TimelockOperation};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger as _},
+        Address, Env, IntoVal, Val, Vec,
+    };
+
+    fn advance(env: &Env, seconds: u64) {
+        env.ledger().with_mut(|li| li.timestamp += seconds);
+    }
+
+    /// A single serialised parameter value, matching the layout produced by the
+    /// matching `queue_*` entry point.
+    fn one(env: &Env, value: impl IntoVal<Env, Val>) -> Vec<Val> {
+        let mut params = Vec::new(env);
+        params.push_back(value.into_val(env));
+        params
+    }
+
+    fn op_ids(env: &Env, operations: &[TimelockOperation]) -> Vec<u32> {
+        let mut ids = Vec::new(env);
+        for operation in operations {
+            ids.push_back(*operation as u32);
+        }
+        ids
+    }
+
+    fn batch_is_queued(env: &Env, contract_id: &Address, batch_id: u32) -> bool {
+        env.as_contract(contract_id, || {
+            storage::read_timelock_batch(env, batch_id).is_some()
+        })
+    }
+
+    /// The motivating case: a fee update and an allowlist toggle queued
+    /// together share one countdown and take effect in a single transaction.
+    #[test]
+    fn fee_update_and_allowlist_toggle_execute_as_one_atomic_batch() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+        let operations = op_ids(
+            &env,
+            &[
+                TimelockOperation::SetPlatformFee,
+                TimelockOperation::SetArbitrationFee,
+                TimelockOperation::SetTokenAllowlistEnabled,
+            ],
+        );
+        let mut params = Vec::new(&env);
+        params.push_back(one(&env, 150_u32));
+        params.push_back(one(&env, 100_u32));
+        params.push_back(one(&env, true));
+
+        let batch_id = client.queue_timelock_batch(&admin, &operations, &params);
+        assert_eq!(batch_id, 1, "batch ids start at 1");
+
+        // A single countdown gates the whole batch.
+        advance(&env, ADMIN_TIMELOCK_DELAY_SECONDS - 1);
+        assert_eq!(
+            client.try_execute_timelock_batch(&admin, &batch_id, &operations, &params),
+            Err(Ok(ContractError::TimelockNotElapsed))
+        );
+        assert_eq!(client.get_platform_fee_bps(), 0);
+        assert_eq!(client.get_arbitration_fee(), 0);
+
+        advance(&env, 1);
+        client.execute_timelock_batch(&admin, &batch_id, &operations, &params);
+
+        assert_eq!(client.get_platform_fee_bps(), 150);
+        assert_eq!(client.get_arbitration_fee(), 100);
+        assert!(
+            env.as_contract(
+                &contract_id,
+                || crate::internal::is_token_allowlist_enabled(&env)
+            ),
+            "allowlist toggle must be applied by the same batch"
+        );
+        assert!(!batch_is_queued(&env, &contract_id, batch_id));
+    }
+
+    /// Five operations in one batch — the workload the issue's gas note asks
+    /// about — all land, and a keeper (not the admin) may submit the batch.
+    #[test]
+    fn five_operation_batch_applies_every_change_and_any_keeper_may_execute() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+        let keeper = Address::generate(&env);
+
+        let operations = op_ids(
+            &env,
+            &[
+                TimelockOperation::SetPlatformFee,
+                TimelockOperation::SetArbitrationFee,
+                TimelockOperation::SetTokenAllowlistEnabled,
+                TimelockOperation::SetMaxAppeals,
+                TimelockOperation::SetMaxBasketSize,
+            ],
+        );
+        let mut params = Vec::new(&env);
+        params.push_back(one(&env, 100_u32));
+        params.push_back(one(&env, 100_u32));
+        params.push_back(one(&env, true));
+        params.push_back(one(&env, 5_u32));
+        params.push_back(one(&env, 10_u32));
+
+        let batch_id = client.queue_timelock_batch(&admin, &operations, &params);
+        advance(&env, ADMIN_TIMELOCK_DELAY_SECONDS);
+        client.execute_timelock_batch(&keeper, &batch_id, &operations, &params);
+
+        assert_eq!(client.get_platform_fee_bps(), 100);
+        assert_eq!(client.get_arbitration_fee(), 100);
+        assert_eq!(client.get_max_appeals(), 5);
+        assert_eq!(client.get_max_basket_size(), 10);
+        assert!(env.as_contract(
+            &contract_id,
+            || crate::internal::is_token_allowlist_enabled(&env)
+        ));
+    }
+
+    /// A failure part-way through reverts the operations already applied and
+    /// leaves the batch queued for a corrected retry.
+    #[test]
+    fn failing_sub_operation_reverts_the_entire_batch() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+        // `SetPlatformFee` would succeed; `SetMaxAppeals(0)` is below
+        // `MIN_MAX_APPEALS` and fails, so neither may take effect.
+        let operations = op_ids(
+            &env,
+            &[
+                TimelockOperation::SetPlatformFee,
+                TimelockOperation::SetMaxAppeals,
+            ],
+        );
+        let mut params = Vec::new(&env);
+        params.push_back(one(&env, 150_u32));
+        params.push_back(one(&env, 0_u32));
+
+        let batch_id = client.queue_timelock_batch(&admin, &operations, &params);
+        advance(&env, ADMIN_TIMELOCK_DELAY_SECONDS);
+
+        assert_eq!(
+            client.try_execute_timelock_batch(&admin, &batch_id, &operations, &params),
+            Err(Ok(ContractError::InvalidMaxAppeals))
+        );
+        assert_eq!(
+            client.get_platform_fee_bps(),
+            0,
+            "the earlier sub-operation must be rolled back"
+        );
+        assert!(
+            batch_is_queued(&env, &contract_id, batch_id),
+            "a reverted batch stays queued"
+        );
+    }
+
+    #[test]
+    fn mismatched_parameters_are_rejected_with_invalid_proposal_hash() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+        let operations = op_ids(&env, &[TimelockOperation::SetPlatformFee]);
+        let mut queued_params = Vec::new(&env);
+        queued_params.push_back(one(&env, 50_u32));
+
+        let batch_id = client.queue_timelock_batch(&admin, &operations, &queued_params);
+        advance(&env, ADMIN_TIMELOCK_DELAY_SECONDS);
+
+        let mut tampered_params = Vec::new(&env);
+        tampered_params.push_back(one(&env, 51_u32));
+        assert_eq!(
+            client.try_execute_timelock_batch(&admin, &batch_id, &operations, &tampered_params),
+            Err(Ok(ContractError::InvalidProposalHash))
+        );
+        assert_eq!(client.get_platform_fee_bps(), 0);
+        assert!(batch_is_queued(&env, &contract_id, batch_id));
+    }
+
+    /// Batches follow the same rotation rule as single proposals: once the
+    /// queueing admin rotates out, nobody can execute the batch.
+    #[test]
+    fn batch_queued_by_rotated_out_admin_cannot_be_executed() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+        let new_admin = Address::generate(&env);
+        let keeper = Address::generate(&env);
+
+        let operations = op_ids(&env, &[TimelockOperation::SetPlatformFee]);
+        let mut params = Vec::new(&env);
+        params.push_back(one(&env, 150_u32));
+
+        let batch_id = client.queue_timelock_batch(&admin, &operations, &params);
+        client.set_admin(&new_admin);
+        advance(&env, ADMIN_TIMELOCK_DELAY_SECONDS);
+
+        assert_eq!(
+            client.try_execute_timelock_batch(&keeper, &batch_id, &operations, &params),
+            Err(Ok(ContractError::NotAuthorized))
+        );
+        assert_eq!(client.get_platform_fee_bps(), 0);
+    }
+
+    /// Operations that mutate the governance machinery itself cannot be
+    /// smuggled into a batch.
+    #[test]
+    fn governance_machinery_operations_cannot_be_batched() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+        for operation in [
+            TimelockOperation::SetAdmin,
+            TimelockOperation::Upgrade,
+            TimelockOperation::SetProtocolFee,
+            TimelockOperation::SetTimelockDelay,
+        ] {
+            let operations = op_ids(&env, &[operation]);
+            let mut params = Vec::new(&env);
+            params.push_back(one(&env, 1_u32));
+            assert_eq!(
+                client.try_queue_timelock_batch(&admin, &operations, &params),
+                Err(Ok(ContractError::InvalidOperation)),
+                "{operation:?} must not be batchable"
+            );
+        }
+    }
+
+    #[test]
+    fn only_admin_can_queue_a_batch() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client, _admin, _fee_collector) = setup_contract(&env);
+        let intruder = Address::generate(&env);
+
+        let operations = op_ids(&env, &[TimelockOperation::SetPlatformFee]);
+        let mut params = Vec::new(&env);
+        params.push_back(one(&env, 50_u32));
+
+        assert_eq!(
+            client.try_queue_timelock_batch(&intruder, &operations, &params),
+            Err(Ok(ContractError::NotAuthorized))
+        );
+    }
+
+    #[test]
+    fn empty_and_malformed_batches_are_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+        let empty_operations: Vec<u32> = Vec::new(&env);
+        let empty_params: Vec<Vec<Val>> = Vec::new(&env);
+        assert_eq!(
+            client.try_queue_timelock_batch(&admin, &empty_operations, &empty_params),
+            Err(Ok(ContractError::InvalidOperation))
+        );
+
+        // Positional pairing: one operation, no parameters.
+        let operations = op_ids(&env, &[TimelockOperation::SetPlatformFee]);
+        assert_eq!(
+            client.try_queue_timelock_batch(&admin, &operations, &empty_params),
+            Err(Ok(ContractError::InvalidOperation))
+        );
+    }
+
+    #[test]
+    fn batches_larger_than_the_cap_are_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+        let mut operations = Vec::new(&env);
+        let mut params = Vec::new(&env);
+        for _ in 0..=MAX_TIMELOCK_BATCH_SIZE {
+            operations.push_back(TimelockOperation::SetMaxAppeals as u32);
+            params.push_back(one(&env, 5_u32));
+        }
+
+        assert_eq!(
+            client.try_queue_timelock_batch(&admin, &operations, &params),
+            Err(Ok(ContractError::InputTooLong))
+        );
+    }
+}
