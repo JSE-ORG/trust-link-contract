@@ -309,7 +309,8 @@ fn timelock_execution_without_admin_returns_not_initialized() {
 
 mod timelock {
     use crate::admin::{
-        compute_proposal_hash, ADMIN_TIMELOCK_DELAY_SECONDS, MIN_TIMELOCK_DELAY_SECONDS,
+        compute_proposal_hash, ADMIN_TIMELOCK_DELAY_SECONDS, MAX_TIMELOCK_DELAY_SECONDS,
+        MIN_TIMELOCK_DELAY_SECONDS,
     };
     use crate::test_helpers::setup_contract;
     use crate::{
@@ -713,5 +714,42 @@ mod timelock {
         advance(&env, 1);
         client.execute_set_platform_fee(&admin, &25_u32);
         assert_eq!(client.get_platform_fee_bps(), 25);
+    }
+
+    /// #1248: both delay endpoints are accepted and persisted, while values
+    /// just outside `MIN_TIMELOCK_DELAY_SECONDS..=MAX_TIMELOCK_DELAY_SECONDS`
+    /// are rejected with `InvalidTimelockDelay`.
+    #[test]
+    fn timelock_delay_accepts_bounds_and_rejects_out_of_range() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client, admin, _fee_collector) = setup_contract(&env);
+
+        for out_of_range in [
+            MIN_TIMELOCK_DELAY_SECONDS - 1,
+            MAX_TIMELOCK_DELAY_SECONDS + 1,
+        ] {
+            assert_eq!(
+                client.try_queue_set_timelock_delay(&admin, &out_of_range),
+                Err(Ok(ContractError::InvalidTimelockDelay))
+            );
+        }
+
+        let read_delay = |contract_id: &Address| {
+            env.as_contract(contract_id, || {
+                env.storage()
+                    .instance()
+                    .get::<crate::DataKey, u64>(&crate::DataKey::AdminTimelockDelay)
+                    .unwrap()
+            })
+        };
+
+        // The queued change waits `max(current_delay, new_delay)` (#1238).
+        for boundary in [MIN_TIMELOCK_DELAY_SECONDS, MAX_TIMELOCK_DELAY_SECONDS] {
+            client.queue_set_timelock_delay(&admin, &boundary);
+            advance(&env, boundary.max(ADMIN_TIMELOCK_DELAY_SECONDS));
+            client.execute_set_timelock_delay(&admin, &boundary);
+            assert_eq!(read_delay(&contract_id), boundary);
+        }
     }
 }
