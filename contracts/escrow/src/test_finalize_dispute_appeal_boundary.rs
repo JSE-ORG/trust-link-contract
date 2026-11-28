@@ -132,7 +132,7 @@ fn finalize_succeeds_one_tick_after_deadline() {
 }
 
 #[test]
-fn finalize_dispute_without_treasury_returns_not_initialized() {
+fn finalize_dispute_without_treasury_skips_platform_fee() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -188,15 +188,9 @@ fn finalize_dispute_without_treasury_returns_not_initialized() {
     let appeal_deadline = dispute.resolved_at + crate::APPEAL_WINDOW;
     env.ledger().set_timestamp(appeal_deadline + 1);
 
-    // Note: treasury was never set via set_treasury, so read_treasury should
-    // return NotInitialized (35) instead of NotAuthorized (5).
-    // Since platform_fee > 0, treasury will be read and should fail with NotInitialized.
+    // No treasury was set, so the platform fee is skipped (#1258) and
+    // finalization succeeds rather than failing with NotInitialized.
     let res = client.try_finalize_dispute(&resolver, &escrow_id);
-    assert_eq!(res, Err(Ok(ContractError::NotInitialized)));
-
-    // Escrow should still be in PendingFinalization (no state change on error)
-    assert_eq!(
-        client.get_escrow(&escrow_id).state,
-        EscrowState::PendingFinalization,
-    );
+    assert_eq!(res, Ok(Ok(())));
+    assert_eq!(client.get_escrow(&escrow_id).state, EscrowState::Completed);
 }

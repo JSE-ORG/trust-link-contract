@@ -901,6 +901,9 @@ fn test_split_resolution_50_50_pays_both_sides_with_no_stranded_funds() {
 
     assert_eq!(client.get_escrow(&id).state, crate::EscrowState::Completed);
 
+    // Protocol fees accrue in the contract for the collector to pull.
+    client.claim_accumulated_fees(&fee_collector, &token);
+
     let tc = token::Client::new(&env, &token);
     let seller_bal = tc.balance(&seller);
     let buyer_bal = tc.balance(&buyer);
@@ -932,6 +935,8 @@ fn test_split_resolution_extremes_match_release_and_refund() {
         env.ledger()
             .set_timestamp(env.ledger().timestamp() + crate::APPEAL_WINDOW + 1);
         client.finalize_dispute(&resolver, &id);
+        // Protocol fees accrue in the contract for the collector to pull.
+        client.claim_accumulated_fees(&fee_collector, &token);
 
         let tc = token::Client::new(&env, &token);
         if payee_gets_all {

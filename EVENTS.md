@@ -134,7 +134,7 @@ The tables below list all 61 event topics. The `Payload fields` column is the ex
 | `RecoveryWithdraw` | `(symbol_short!("Recovery"), symbol_short!("Withdraw"))` | `schema_version: u32`<br>`escrow_id: u64`<br>`buyer: Address`<br>`amount: i128`<br>`timestamp: u64` | Recovery-mode withdrawal to the buyer. |
 | `RecoveryModeUpdated` | `(symbol_short!("Recovery"), symbol_short!("ModeUpd"))` | `schema_version: u32`<br>`enabled: bool`<br>`caller: Address`<br>`timestamp: u64` | Recovery mode enabled or disabled. |
 
-> Note: the source doc comments on the three `Timelock*` emitters mention an `operation as u32` topic. The actual `publish` calls use only the two-symbol tuples shown above; `operation` is a payload field, not a topic. This table documents the emitted reality.
+> Note: the three `Timelock*` emitters publish only the two-symbol tuples shown above; `operation` is a payload field, not a topic. `test_admin_event_emissions::timelock_events_stamp_current_schema_version_and_standard_topics` pins this shape.
 
 ## Example XDR payloads
 

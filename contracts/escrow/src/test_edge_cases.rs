@@ -247,6 +247,9 @@ fn test_confirm_delivery_leaves_no_dust_for_non_divisible_amounts() {
         let expected_fee = (amount * fee_bps as i128) / 10_000;
         let expected_net = amount - expected_fee;
 
+        // Protocol fees accrue in the contract for the collector to pull.
+        client.claim_accumulated_fees(&fee_collector, &token);
+
         let tc = soroban_sdk::token::Client::new(&env, &token);
         let seller_payout = tc.balance(&seller);
         let fee_collector_balance = tc.balance(&fee_collector);

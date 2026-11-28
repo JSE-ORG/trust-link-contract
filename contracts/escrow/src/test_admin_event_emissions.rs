@@ -80,6 +80,33 @@ where
         })
 }
 
+/// Decodes the payload of the first contract event published under the
+/// `(Timelock, topic2)` topic tuple into `T`.
+fn timelock_payload<T>(env: &Env, contract_id: &Address, topic2: Symbol) -> Option<T>
+where
+    T: TryFromVal<Env, Val>,
+{
+    env.events()
+        .all()
+        .filter_by_contract(contract_id)
+        .events()
+        .iter()
+        .find_map(|event| {
+            let soroban_sdk::xdr::ContractEventBody::V0(v0) = &event.body;
+            let mut topics = v0.topics.iter();
+            let topic1 = topics.next()?;
+            let found_topic2 = topics.next()?;
+            if Symbol::try_from_val(env, topic1).ok()? != symbol_short!("Timelock") {
+                return None;
+            }
+            if Symbol::try_from_val(env, found_topic2).ok()? != topic2 {
+                return None;
+            }
+            let data = Val::try_from_val(env, &v0.data).ok()?;
+            T::try_from_val(env, &data).ok()
+        })
+}
+
 #[test]
 fn set_ttl_extension_emits_event_with_caller_and_new_value() {
     let (env, client, contract_id, admin) = setup();
@@ -1263,5 +1290,97 @@ mod golden_xdr {
             timestamp: GOLDEN_TIMESTAMP
         },
         "ee3d75ef0ad9d3aaaa8e15c26b4b81c89d02896deb5d2f9356541dbdc613a95b"
+    );
+}
+
+/// Asserts the topic shape of every timelock event in the current event
+/// buffer: exactly `(symbol_short!("Timelock"), kind)` with `kind` from the
+/// three documented values. Soroban tops out at 10-character symbols, and
+/// indexers decode by this two-symbol tuple.
+fn assert_timelock_topic_shape(env: &Env, contract_id: &Address, expected: &[Symbol]) {
+    let all = env.events().all();
+    let mut found = 0_usize;
+    for event in all.filter_by_contract(contract_id).events().iter() {
+        let soroban_sdk::xdr::ContractEventBody::V0(v0) = &event.body;
+        let mut topics = v0.topics.iter();
+        let Some(topic1) = topics.next() else {
+            continue;
+        };
+        let Ok(sym1) = Symbol::try_from_val(env, topic1) else {
+            continue;
+        };
+        if sym1 != symbol_short!("Timelock") {
+            continue;
+        }
+        found += 1;
+
+        let topic2 = topics.next().expect("timelock event has a second topic");
+        assert!(
+            topics.next().is_none(),
+            "timelock topics must be a two-symbol tuple"
+        );
+        let sym2 = Symbol::try_from_val(env, topic2).expect("topic decodes as Symbol");
+        assert!(
+            sym2 == symbol_short!("Queued")
+                || sym2 == symbol_short!("Executed")
+                || sym2 == symbol_short!("Cancelled"),
+            "unexpected timelock topic"
+        );
+        assert!(
+            expected.contains(&sym2),
+            "unexpected timelock event kind for this call"
+        );
+    }
+    assert_eq!(found, expected.len(), "unexpected timelock event count");
+}
+
+/// Issue #1244: indexers key off `schema_version` in timelock payloads. Every
+/// timelock event emitted by the contract must stamp the current
+/// `EVENT_SCHEMA_VERSION` and survive an XDR round-trip in that shape.
+#[test]
+fn timelock_events_stamp_current_schema_version_and_standard_topics() {
+    use crate::{TimelockCancelled, EVENT_SCHEMA_VERSION};
+    use soroban_sdk::xdr::{FromXdr, ToXdr};
+
+    let (env, client, contract_id, admin) = setup();
+
+    client.queue_set_platform_fee(&admin, &50_u32);
+    assert_timelock_topic_shape(&env, &contract_id, &[symbol_short!("Queued")]);
+    let queued = timelock_payload::<TimelockQueued>(&env, &contract_id, symbol_short!("Queued"))
+        .expect("TimelockQueued decodes from its emitted payload");
+    assert_eq!(queued.schema_version, EVENT_SCHEMA_VERSION);
+    assert_eq!(queued.operation, TimelockOperation::SetPlatformFee as u32);
+    let queued_bytes = queued.clone().to_xdr(&env);
+    assert_eq!(
+        TimelockQueued::from_xdr(&env, &queued_bytes).expect("TimelockQueued XDR round-trip"),
+        queued
+    );
+
+    env.ledger()
+        .with_mut(|li| li.timestamp += crate::admin::ADMIN_TIMELOCK_DELAY_SECONDS);
+    client.execute_set_platform_fee(&admin, &50_u32);
+    assert_timelock_topic_shape(&env, &contract_id, &[symbol_short!("Executed")]);
+    let executed =
+        timelock_payload::<TimelockExecuted>(&env, &contract_id, symbol_short!("Executed"))
+            .expect("TimelockExecuted decodes from its emitted payload");
+    assert_eq!(executed.schema_version, EVENT_SCHEMA_VERSION);
+    let executed_bytes = executed.clone().to_xdr(&env);
+    assert_eq!(
+        TimelockExecuted::from_xdr(&env, &executed_bytes).expect("TimelockExecuted XDR round-trip"),
+        executed
+    );
+
+    client.queue_set_ttl_extension(&admin, &2_000_u32);
+    client.cancel_timelock_op(&admin, &(TimelockOperation::SetTtlExtension as u32));
+    assert_timelock_topic_shape(&env, &contract_id, &[symbol_short!("Cancelled")]);
+    let cancelled =
+        timelock_payload::<TimelockCancelled>(&env, &contract_id, symbol_short!("Cancelled"))
+            .expect("TimelockCancelled decodes from its emitted payload");
+    assert_eq!(cancelled.schema_version, EVENT_SCHEMA_VERSION);
+    let cancelled_bytes = cancelled.clone().to_xdr(&env);
+    assert_eq!(
+        TimelockCancelled::from_xdr(&env, &cancelled_bytes)
+            .expect("TimelockCancelled XDR round-trip"),
+        cancelled
     );
 }

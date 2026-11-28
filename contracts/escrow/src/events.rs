@@ -1673,7 +1673,7 @@ pub struct TimelockQueued {
     pub ready_at: u64,
 }
 
-/// Topic: `(symbol_short!("Timelock"), symbol_short!("Queued"), operation as u32,)`, data: `TimelockQueued`.
+/// Topic: `(symbol_short!("Timelock"), symbol_short!("Queued"))`, data: `TimelockQueued`.
 pub fn emit_timelock_queued(
     env: &Env,
     operation: u32,
@@ -1704,7 +1704,7 @@ pub struct TimelockExecuted {
     pub executed_at: u64,
 }
 
-/// Topic: `(symbol_short!("Timelock"), symbol_short!("Executed"), operation as u32,)`, data: `TimelockExecuted`.
+/// Topic: `(symbol_short!("Timelock"), symbol_short!("Executed"))`, data: `TimelockExecuted`.
 pub fn emit_timelock_executed(
     env: &Env,
     operation: u32,
@@ -1735,7 +1735,7 @@ pub struct TimelockCancelled {
     pub cancelled_at: u64,
 }
 
-/// Topic: `(symbol_short!("Timelock"), symbol_short!("Cancelled"), operation as u32,)`, data: `TimelockCancelled`.
+/// Topic: `(symbol_short!("Timelock"), symbol_short!("Cancelled"))`, data: `TimelockCancelled`.
 pub fn emit_timelock_cancelled(env: &Env, operation: u32, proposer: Address, canceller: Address) {
     env.events().publish(
         (symbol_short!("Timelock"), symbol_short!("Cancelled")),

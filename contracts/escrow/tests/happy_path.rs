@@ -164,7 +164,10 @@ fn test_happy_path_escrow_lifecycle() {
     assert_eq!(escrow_completed.state, EscrowState::Completed);
 
     // 5. Assert Payout and Fee Allocation
-    // Amount = 10,000. Fee = 1% = 100. Seller gets 9,900. Fee collector gets 100.
+    // Amount = 10,000. Fee = 1% = 100. Seller gets 9,900. The protocol fee
+    // accrues in the contract until the collector pulls it.
+    client.claim_accumulated_fees(&fee_collector, &token_addr);
+
     let seller_balance = token::Client::new(&env, &token_addr).balance(&seller);
     let fee_collector_balance = token::Client::new(&env, &token_addr).balance(&fee_collector);
     let contract_balance = token::Client::new(&env, &token_addr).balance(&contract_id);
